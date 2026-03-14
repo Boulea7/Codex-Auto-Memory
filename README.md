@@ -74,6 +74,7 @@ This launches Codex with compiled startup memory and schedules a post-session me
 cam memory
 cam remember "Always use pnpm instead of npm"
 cam forget "old debug note"
+cam audit
 ```
 
 ## Architecture Overview
@@ -153,6 +154,7 @@ See [docs/architecture.md](docs/architecture.md) for the full breakdown.
 - [Native migration strategy](docs/native-migration.md)
 - [Progress log](docs/progress-log.md)
 - [Review guide](docs/review-guide.md)
+- [Reviewer handoff](docs/reviewer-handoff.md)
 - [ClaudeCode patch audit](docs/claudecode-patch-audit.md)
 - [Release checklist](docs/release-checklist.md)
 - [Contributing](CONTRIBUTING.md)
@@ -170,4 +172,5 @@ Current review-oriented status:
 - memory inspection UX hardening complete
 - native compatibility seams complete
 - ClaudeCode patch batch audited and retained with documentation corrections
-- reviewer handoff packet still pending
+- repository privacy audit command added
+- reviewer handoff packet available

@@ -8,7 +8,32 @@ The format is intentionally simple and reviewer-friendly: each entry maps to a c
 
 ### In progress
 
-- Reviewer handoff packet polish
+- Runtime usefulness after index-only startup injection
+
+## 0.1.0-alpha.6 - 2026-03-14
+
+### Added
+
+- Added `cam audit` to scan tracked files and Git history for privacy and secret-hygiene issues.
+- Added a dedicated reviewer handoff packet for external review tools and agents.
+
+### Changed
+
+- Replaced scanner-triggering synthetic secret-like fixtures with safer forward-only representations.
+- Documented that the repository currently shows no real secret leakage in tracked content under the project’s audit rules.
+- Updated release and review docs so `cam audit` is part of the normal verification flow.
+- Chosen remediation strategy is forward-only cleanup; no git history rewrite was performed.
+
+### Review focus
+
+- Confirm that `cam audit` usefully distinguishes confirmed risks, synthetic fixtures, and generic local-path references.
+- Confirm that no unnecessary local-state files are tracked or described as committed artifacts.
+- Confirm that the reviewer handoff packet is sufficient for Claude Code or other tools to continue the next review cycle.
+- Confirm that the current repository state has no medium/high audit findings.
+
+### Git milestone
+
+- `b142288` `feat(audit): add repository privacy scanner and scrub fixtures`
 
 ## 0.1.0-alpha.5 - 2026-03-14
 

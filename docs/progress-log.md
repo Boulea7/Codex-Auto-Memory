@@ -4,9 +4,9 @@ This document tracks implementation progress in a format that is easy to consume
 
 ## Current completion snapshot
 
-- Approximate overall progress toward a strong Claude-style alpha: `75%`
-- Approximate progress toward a working local MVP: `90%`
-- Current phase: `Phase 3 - review and release hardening`
+- Approximate overall progress toward a strong Claude-style alpha: `80%`
+- Approximate progress toward a working local MVP: `92%`
+- Current phase: `Phase 4 - security hygiene and review automation`
 
 ## Completed milestones
 
@@ -45,6 +45,15 @@ This document tracks implementation progress in a format that is easy to consume
 - The runtime now names and uses its companion session source and wrapper injector explicitly.
 - `cam doctor` now reports native-readiness in a more reviewer-friendly way instead of dumping raw feature flags only.
 
+### Milestone 6: Security hygiene and review automation
+
+- Added `cam audit` to scan tracked files and Git history for privacy and secret-hygiene issues.
+- Replaced scanner-triggering synthetic secret literals with safer forward-only fixture forms.
+- Verified that `.claude/` remains untracked and that no real secrets are currently present in tracked files.
+- Added a dedicated reviewer handoff packet for external agents and review tools.
+- Current audit result: no `high` or `medium` findings, only expected `info` local-path references and `low` historical synthetic fixtures.
+- Chosen remediation strategy: fix forward only, no history rewrite.
+
 ## Reviewer checkpoints
 
 If you are reviewing the repository now, start here:
@@ -63,7 +72,9 @@ If you are reviewing the repository now, start here:
 - `cam memory` is more audit-friendly now, but still below Claude Code’s `/memory` interaction depth.
 - Native Codex memory and hook support is still companion-first; no native path is activated. Codex now ships native memory but parity verification against our contract is pending.
 - Startup memory now injects only the MEMORY.md index (topic links + counts), not the actual entry content. Topic files are not loaded on-demand yet, which is a gap compared to Claude’s lazy topic loading.
-- Release hygiene is stronger now, but still needs a formal reviewer handoff packet per release.
+- Release hygiene is stronger now, but still needs a per-release reviewer packet refresh discipline.
+- `cam audit` is rule-based and conservative; it reduces obvious risk but is not a substitute for human review.
+- Earlier commits still contain a small number of synthetic secret-like fixtures because the repository intentionally avoided git history rewrite.
 
 ### Milestone 5: Bug fixes, parity hardening, and native compat update
 
@@ -99,11 +110,11 @@ If you are reviewing the repository now, start here:
 
 ## Next planned milestones
 
-### Milestone 6: Release and review packet hardening
+### Milestone 7: Runtime usefulness hardening
 
-- Add a reviewer handoff packet per milestone or release.
-- Tighten README status and changelog discipline around milestone commits.
 - Implement on-demand topic file loading in startup memory (currently MEMORY.md index only).
+- Improve startup usefulness without breaking the concise index contract.
+- Expand rollout fixtures for harder extractor regression coverage.
 
 ## Review-ready habits
 

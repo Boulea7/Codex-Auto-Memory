@@ -99,6 +99,8 @@ Review questions:
 - Overfitting to current Codex rollout artifacts in a way that would make migration painful
 - Documentation that upgrades local observations into unsupported official product claims
 - Reduced startup usefulness after the move to index-only `MEMORY.md` injection
+- Scanner-triggering synthetic fixtures that may not be real leaks but still create review noise
+- Drift between `cam audit` findings and what docs claim about repository hygiene
 
 ## Suggested review order for other tools
 
@@ -106,12 +108,14 @@ Review questions:
 2. Read `docs/claude-reference.md`
 3. Read `docs/progress-log.md`
 4. Read `CHANGELOG.md`
-5. Inspect `src/lib/domain/rollout.ts`
-6. Inspect `src/lib/domain/sync-service.ts`
-7. Inspect `src/lib/domain/memory-store.ts`
-8. Inspect extractor files
-9. Run `pnpm test`
-10. Read `docs/claudecode-patch-audit.md`
+5. Run `cam audit`
+6. Inspect `src/lib/domain/rollout.ts`
+7. Inspect `src/lib/domain/sync-service.ts`
+8. Inspect `src/lib/domain/memory-store.ts`
+9. Inspect extractor files
+10. Run `pnpm test`
+11. Read `docs/claudecode-patch-audit.md`
+12. Read `docs/reviewer-handoff.md`
 
 ## Claude parity checklist
 
