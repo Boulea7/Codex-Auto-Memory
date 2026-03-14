@@ -8,9 +8,27 @@ The format is intentionally simple and reviewer-friendly: each entry maps to a c
 
 ### In progress
 
-- Extractor quality hardening
-- Richer `cam memory` inspection and control surface
 - Native compatibility seams and release-oriented docs
+
+## 0.1.0-alpha.3 - 2026-03-14
+
+### Changed
+
+- Strengthened heuristic extraction with explicit remember/forget handling, correction-aware deletes, and better command classification.
+- Added a shared post-extraction safety filter to drop obviously sensitive or low-value memory candidates.
+- Expanded the Codex extractor prompt with stronger Claude-parity guidance and clearer memory selection constraints.
+- Upgraded `cam memory` with scope filtering, recent audit inspection, local enable/disable controls, and richer topic summaries.
+- Added dedicated extractor and memory command tests.
+
+### Review focus
+
+- Confirm that explicit user corrections now replace stale memory rather than creating duplicates.
+- Confirm that sensitive material is filtered regardless of extractor mode.
+- Confirm that `cam memory` is now useful as a review and audit entrypoint rather than a raw debug dump.
+
+### Git milestone
+
+- Pending commit for extractor quality and memory inspection UX hardening
 
 ## 0.1.0-alpha.1 - 2026-03-14
 

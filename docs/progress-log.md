@@ -32,6 +32,13 @@ This document tracks implementation progress in a format that is easy to consume
 - Audit logs now capture project and extractor context.
 - Rollout regression tests added.
 
+### Milestone 3: Extractor quality and memory inspection UX
+
+- Heuristic extraction now handles explicit remember, forget, and correction flows more realistically.
+- A shared safety filter now removes obviously sensitive memory candidates before they reach the Markdown store.
+- `cam memory` now exposes scope filtering, recent audit summaries, and local enable/disable controls.
+- Additional tests now cover extractor behavior and memory inspection behavior.
+
 ## Reviewer checkpoints
 
 If you are reviewing the repository now, start here:
@@ -46,28 +53,22 @@ If you are reviewing the repository now, start here:
 
 ## Known gaps
 
-- Extractor quality is still early-stage and needs stronger contradiction handling, deduplication, and sensitive-data filtering.
-- `cam memory` is usable but still below Claude Code’s `/memory` experience.
+- Extractor quality is stronger, but still needs broader real-world rollout fixtures and more nuanced contradiction handling.
+- `cam memory` is more audit-friendly now, but still below Claude Code’s `/memory` interaction depth.
 - Native Codex memory and hook support is only prepared as a migration seam, not activated.
 - Release hygiene is improving, but a formal release checklist and review packet are still needed.
 
 ## Next planned milestones
 
-### Milestone 3: Extractor quality
-
-- Improve heuristic extraction beyond explicit `remember` and basic command capture.
-- Strengthen Codex-based extraction prompts and fallback behavior.
-- Add contradiction, delete, and stale-memory update flows.
-
-### Milestone 4: Memory inspection UX
-
-- Extend `cam memory` with recent sync summaries, scope filtering, and enable/disable controls.
-- Improve inspection output to make reviewer and user auditing easier.
-
-### Milestone 5: Native compatibility preparation
+### Milestone 4: Native compatibility preparation
 
 - Formalize compatibility seams around session source, extractor, store, and injector.
 - Expand `cam doctor` to report native-readiness status more clearly.
+
+### Milestone 5: Release and review packet hardening
+
+- Add a release checklist and reviewer handoff packet.
+- Tighten README status and changelog discipline around milestone commits.
 
 ## Review-ready habits
 
