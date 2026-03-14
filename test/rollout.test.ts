@@ -25,6 +25,51 @@ afterEach(async () => {
 });
 
 describe("rollout helpers", () => {
+  it("skips corrupted JSONL lines without crashing", async () => {
+    const projectDir = await tempDir("cam-rollout-corrupt-");
+    const rolloutPath = path.join(projectDir, "rollout-corrupt.jsonl");
+    await fs.writeFile(
+      rolloutPath,
+      [
+        JSON.stringify({
+          type: "session_meta",
+          payload: { id: "session-corrupt", timestamp: "2026-03-14T00:00:00.000Z", cwd: projectDir }
+        }),
+        "THIS IS NOT JSON {{{{",
+        JSON.stringify({
+          type: "event_msg",
+          payload: { type: "user_message", message: "remember that we use pnpm" }
+        })
+      ].join("\n"),
+      "utf8"
+    );
+
+    const evidence = await parseRolloutEvidence(rolloutPath);
+    expect(evidence).not.toBeNull();
+    expect(evidence?.sessionId).toBe("session-corrupt");
+    expect(evidence?.userMessages).toHaveLength(1);
+  });
+
+  it("parses nested session_meta payload format (payload.meta.id)", async () => {
+    const projectDir = await tempDir("cam-rollout-nested-");
+    const rolloutPath = path.join(projectDir, "rollout-nested.jsonl");
+    await fs.writeFile(
+      rolloutPath,
+      JSON.stringify({
+        type: "session_meta",
+        payload: {
+          meta: { id: "session-nested", timestamp: "2026-03-14T00:00:00.000Z", cwd: projectDir }
+        }
+      }),
+      "utf8"
+    );
+
+    const meta = await readRolloutMeta(rolloutPath);
+    expect(meta).not.toBeNull();
+    expect(meta?.sessionId).toBe("session-nested");
+    expect(meta?.cwd).toBeTruthy();
+  });
+
   it("keeps tool outputs attached to the correct call_id", async () => {
     const projectDir = await tempDir("cam-rollout-project-");
     const rolloutPath = path.join(projectDir, "rollout.jsonl");

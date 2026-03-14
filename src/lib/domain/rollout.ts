@@ -46,6 +46,16 @@ function parseTimestamp(value: string): number {
   return Number.isFinite(parsed) ? parsed : 0;
 }
 
+// Reads a scalar field from session_meta payload, supporting both flat and nested (payload.meta) formats.
+function sessionMetaValue(
+  payload: Record<string, unknown>,
+  key: "id" | "cwd" | "timestamp"
+): string {
+  const nested = payload.meta;
+  const nestedRecord = nested && typeof nested === "object" ? (nested as Record<string, unknown>) : undefined;
+  return String(payload[key] ?? nestedRecord?.[key] ?? "");
+}
+
 export async function readRolloutMeta(filePath: string): Promise<RolloutMeta | null> {
   const raw = await fs.readFile(filePath, "utf8");
   const lines = raw
@@ -54,15 +64,20 @@ export async function readRolloutMeta(filePath: string): Promise<RolloutMeta | n
     .filter(Boolean);
 
   for (const line of lines) {
-    const item = JSON.parse(line) as JsonLine;
+    let item: JsonLine;
+    try {
+      item = JSON.parse(line) as JsonLine;
+    } catch {
+      continue;
+    }
     const payload = item.payload ?? {};
     if (item.type !== "session_meta") {
       continue;
     }
 
-    const sessionId = String(payload.id ?? "");
-    const createdAt = String(payload.timestamp ?? "");
-    const cwdValue = String(payload.cwd ?? "");
+    const sessionId = sessionMetaValue(payload, "id");
+    const createdAt = sessionMetaValue(payload, "timestamp");
+    const cwdValue = sessionMetaValue(payload, "cwd");
     const cwd = cwdValue ? await normalizeFsPath(cwdValue) : "";
     if (!sessionId || !createdAt || !cwd) {
       return null;
@@ -149,12 +164,17 @@ export async function parseRolloutEvidence(filePath: string): Promise<RolloutEvi
   let cwd = "";
 
   for (const line of lines) {
-    const item = JSON.parse(line) as JsonLine;
+    let item: JsonLine;
+    try {
+      item = JSON.parse(line) as JsonLine;
+    } catch {
+      continue;
+    }
     const payload = item.payload ?? {};
     if (item.type === "session_meta") {
-      sessionId = String(payload.id ?? "");
-      createdAt = String(payload.timestamp ?? "");
-      const cwdValue = String(payload.cwd ?? "");
+      sessionId = sessionMetaValue(payload, "id");
+      createdAt = sessionMetaValue(payload, "timestamp");
+      const cwdValue = sessionMetaValue(payload, "cwd");
       cwd = cwdValue ? await normalizeFsPath(cwdValue) : "";
       continue;
     }

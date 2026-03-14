@@ -89,6 +89,25 @@ describe("HeuristicExtractor", () => {
     ).toBe(true);
   });
 
+  it("does not save commands with no output (output undefined)", async () => {
+    const extractor = new HeuristicExtractor();
+    const operations = await extractor.extract(
+      baseEvidence({
+        toolCalls: [
+          {
+            callId: "call-no-output",
+            name: "exec_command",
+            arguments: "{\"cmd\":\"pnpm build\"}",
+            output: undefined
+          }
+        ]
+      }),
+      []
+    );
+    const upserts = operations.filter((op) => op.action === "upsert");
+    expect(upserts.every((op) => !op.summary?.includes("pnpm build"))).toBe(true);
+  });
+
   it("extracts only successful reusable commands and deduplicates them", async () => {
     const extractor = new HeuristicExtractor();
     const operations = await extractor.extract(
@@ -125,6 +144,36 @@ describe("HeuristicExtractor", () => {
 });
 
 describe("safety filter", () => {
+  it("does not flag git SHA hashes (40-char hex) as sensitive", () => {
+    const gitSha = "a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2";
+    const filtered = filterMemoryOperations([
+      {
+        action: "upsert",
+        scope: "project",
+        topic: "workflow",
+        id: "git-sha-entry",
+        summary: `Last known good commit: ${gitSha}`,
+        details: [`Pinned at ${gitSha}`]
+      }
+    ]);
+    expect(filtered).toHaveLength(1);
+  });
+
+  it("flags base64-encoded strings with = padding as sensitive", () => {
+    const base64WithPadding = "SGVsbG8gV29ybGQgdGhpcyBpcyBhIHNlY3JldCE=";
+    const filtered = filterMemoryOperations([
+      {
+        action: "upsert",
+        scope: "project",
+        topic: "workflow",
+        id: "base64-entry",
+        summary: `Token: ${base64WithPadding}`,
+        details: ["should be dropped"]
+      }
+    ]);
+    expect(filtered).toHaveLength(0);
+  });
+
   it("drops sensitive operations and keeps safe ones", () => {
     const filtered = filterMemoryOperations([
       {

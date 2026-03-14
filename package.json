@@ -8,6 +8,7 @@
   },
   "files": [
     "dist",
+    "schemas",
     "README.md",
     "LICENSE"
   ],
@@ -42,7 +43,6 @@
   "homepage": "https://github.com/Boulea7/Codex-Auto-Memory#readme",
   "dependencies": {
     "commander": "^14.0.1",
-    "picocolors": "^1.1.1",
     "smol-toml": "^1.4.1",
     "zod": "^3.25.76"
   },
