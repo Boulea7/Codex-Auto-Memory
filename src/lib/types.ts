@@ -94,3 +94,35 @@ export interface SyncResult {
   skipped: boolean;
   message: string;
 }
+
+export type AuditSeverity = "high" | "medium" | "low" | "info";
+
+export type AuditClassification =
+  | "confirmed-risk"
+  | "synthetic-test-fixture"
+  | "generic-local-path"
+  | "manual-review-needed";
+
+export type AuditSourceType = "working-tree" | "git-history";
+
+export interface AuditFinding {
+  ruleId: string;
+  severity: AuditSeverity;
+  classification: AuditClassification;
+  sourceType: AuditSourceType;
+  location: string;
+  summary: string;
+  snippet: string;
+  recommendation: string;
+}
+
+export interface AuditReport {
+  generatedAt: string;
+  cwd: string;
+  findings: AuditFinding[];
+  summary: {
+    total: number;
+    bySeverity: Record<AuditSeverity, number>;
+    byClassification: Record<AuditClassification, number>;
+  };
+}
