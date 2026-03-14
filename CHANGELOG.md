@@ -28,7 +28,7 @@ The format is intentionally simple and reviewer-friendly: each entry maps to a c
 
 ### Git milestone
 
-- Pending commit for native compatibility seams and release-oriented docs
+- `f78c07f` `feat(native-compat): formalize adapters and release guidance`
 
 ## 0.1.0-alpha.3 - 2026-03-14
 
@@ -48,7 +48,7 @@ The format is intentionally simple and reviewer-friendly: each entry maps to a c
 
 ### Git milestone
 
-- Pending commit for extractor quality and memory inspection UX hardening
+- `13403f8` `feat(memory-ui): improve extraction controls and inspection UX`
 
 ## 0.1.0-alpha.1 - 2026-03-14
 

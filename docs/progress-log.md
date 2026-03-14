@@ -4,9 +4,9 @@ This document tracks implementation progress in a format that is easy to consume
 
 ## Current completion snapshot
 
-- Approximate overall progress toward a strong Claude-style alpha: `45%`
-- Approximate progress toward a working local MVP: `70%`
-- Current phase: `Phase 2 - Claude parity hardening`
+- Approximate overall progress toward a strong Claude-style alpha: `65%`
+- Approximate progress toward a working local MVP: `85%`
+- Current phase: `Phase 3 - review and release hardening`
 
 ## Completed milestones
 
@@ -68,7 +68,7 @@ If you are reviewing the repository now, start here:
 
 ### Milestone 5: Release and review packet hardening
 
-- Add a release checklist and reviewer handoff packet.
+- Add a reviewer handoff packet per milestone or release.
 - Tighten README status and changelog discipline around milestone commits.
 
 ## Review-ready habits

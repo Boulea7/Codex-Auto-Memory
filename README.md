@@ -167,4 +167,5 @@ Current review-oriented status:
 - sync reliability hardening complete
 - extractor quality hardening complete
 - memory inspection UX hardening complete
-- native compatibility seams and release checklist in progress
+- native compatibility seams complete
+- reviewer handoff packet still pending
