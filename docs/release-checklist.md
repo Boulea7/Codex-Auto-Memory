@@ -13,6 +13,7 @@ Use this checklist before cutting any alpha or beta release of `codex-auto-memor
 - Run `pnpm lint`
 - Run `pnpm test`
 - Run `pnpm build`
+- Run `cam audit`
 - Run a local smoke flow:
   - `cam init`
   - `cam remember "..."`
@@ -25,11 +26,13 @@ Use this checklist before cutting any alpha or beta release of `codex-auto-memor
 - Update `CHANGELOG.md` with the new milestone and commit hash.
 - Update `docs/progress-log.md` to reflect the current phase and remaining gaps.
 - Update `docs/review-guide.md` if a new high-risk area or review order is introduced.
+- Update `docs/reviewer-handoff.md` so external review tools can pick up the current state quickly.
 - Ensure the latest milestone commit is focused enough to review independently.
 
 ## Native compatibility checks
 
 - Run `cam doctor` and record the current `memories` / `codex_hooks` status.
+- Run `cam audit` and record whether any medium/high findings remain.
 - Confirm that any native-facing code still preserves companion fallback.
 - Confirm that Markdown memory remains the user-facing source of truth.
 
