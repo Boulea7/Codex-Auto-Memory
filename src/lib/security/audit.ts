@@ -169,14 +169,28 @@ async function scanHistory(cwd: string): Promise<AuditFinding[]> {
 function dedupeFindings(findings: AuditFinding[]): AuditFinding[] {
   const byKey = new Map<string, AuditFinding>();
   for (const finding of findings) {
+    if (finding.sourceType === "git-history" && finding.classification === "generic-local-path") {
+      continue;
+    }
+
+    const normalizedLocation =
+      finding.sourceType === "git-history" &&
+      (finding.classification === "synthetic-test-fixture" || finding.classification === "manual-review-needed")
+        ? finding.location.replace(/^[0-9a-f]+:/u, "")
+        : finding.location;
     const key = [
       finding.ruleId,
       finding.classification,
       finding.sourceType,
-      finding.location,
+      normalizedLocation,
       finding.snippet
     ].join("::");
-    byKey.set(key, finding);
+    if (!byKey.has(key)) {
+      byKey.set(key, {
+        ...finding,
+        location: normalizedLocation
+      });
+    }
   }
   return [...byKey.values()].sort((left, right) => {
     const severityDelta =
