@@ -153,6 +153,7 @@ See [docs/architecture.md](docs/architecture.md) for the full breakdown.
 - [Native migration strategy](docs/native-migration.md)
 - [Progress log](docs/progress-log.md)
 - [Review guide](docs/review-guide.md)
+- [Release checklist](docs/release-checklist.md)
 - [Contributing](CONTRIBUTING.md)
 - [Repository agent guide](AGENTS.md)
 
@@ -164,5 +165,6 @@ Current review-oriented status:
 
 - baseline alpha bootstrap complete
 - sync reliability hardening complete
-- extractor quality hardening in progress
-- memory inspection UX and native compatibility still incomplete
+- extractor quality hardening complete
+- memory inspection UX hardening complete
+- native compatibility seams and release checklist in progress

@@ -28,6 +28,13 @@ The implementation should keep these interfaces explicit:
 
 These seams allow us to replace only the native integration layer later.
 
+Current code alignment:
+
+- rollout-backed session sourcing is now isolated behind a named companion session source
+- wrapper-based startup injection is now isolated behind a named runtime injector
+- extractor implementations expose explicit adapter identities
+- `cam doctor` now reports native-readiness against these seams
+
 ## Planned migration phases
 
 ### Phase 1: Companion-first

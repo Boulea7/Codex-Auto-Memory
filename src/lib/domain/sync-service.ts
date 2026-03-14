@@ -1,15 +1,17 @@
 import path from "node:path";
 import type { AppConfig, MemoryOperation, ProjectContext, RolloutEvidence, SyncResult } from "../types.js";
 import { MemoryStore } from "./memory-store.js";
-import { parseRolloutEvidence } from "./rollout.js";
 import { HeuristicExtractor } from "../extractor/heuristic-extractor.js";
 import { CodexExtractor } from "../extractor/codex-extractor.js";
 import { filterMemoryOperations } from "../extractor/safety.js";
+import type { MemoryExtractorAdapter } from "../runtime/contracts.js";
+import { RolloutSessionSource } from "../runtime/rollout-session-source.js";
 
 export class SyncService {
   private readonly store: MemoryStore;
-  private readonly heuristicExtractor = new HeuristicExtractor();
-  private readonly codexExtractor: CodexExtractor;
+  private readonly fallbackExtractor: MemoryExtractorAdapter = new HeuristicExtractor();
+  private readonly primaryExtractor: MemoryExtractorAdapter;
+  private readonly sessionSource = new RolloutSessionSource();
 
   public constructor(
     private readonly project: ProjectContext,
@@ -17,7 +19,7 @@ export class SyncService {
     schemaRoot = path.resolve(process.cwd(), "schemas", "memory-operations.schema.json")
   ) {
     this.store = new MemoryStore(project, config);
-    this.codexExtractor = new CodexExtractor(config.codexBinary, schemaRoot);
+    this.primaryExtractor = new CodexExtractor(config.codexBinary, schemaRoot);
   }
 
   public get memoryStore(): MemoryStore {
@@ -34,7 +36,7 @@ export class SyncService {
       };
     }
 
-    const evidence = await parseRolloutEvidence(rolloutPath);
+    const evidence = await this.sessionSource.parseEvidence(rolloutPath);
     if (!evidence) {
       return {
         applied: [],
@@ -60,6 +62,11 @@ export class SyncService {
       projectId: this.project.projectId,
       worktreeId: this.project.worktreeId,
       extractorMode: this.config.extractorMode,
+      extractorName:
+        this.config.extractorMode === "codex"
+          ? this.primaryExtractor.name
+          : this.fallbackExtractor.name,
+      sessionSource: this.sessionSource.name,
       appliedAt: new Date().toISOString(),
       resultSummary: applied.length
         ? `${applied.length} operation(s) applied`
@@ -85,12 +92,12 @@ export class SyncService {
       : never
   ): Promise<MemoryOperation[]> {
     if (this.config.extractorMode === "codex") {
-      const modelOperations = await this.codexExtractor.extract(evidence, existingEntries);
+      const modelOperations = await this.primaryExtractor.extract(evidence, existingEntries);
       if (modelOperations) {
         return modelOperations;
       }
     }
 
-    return this.heuristicExtractor.extract(evidence, existingEntries);
+    return (await this.fallbackExtractor.extract(evidence, existingEntries)) ?? [];
   }
 }
