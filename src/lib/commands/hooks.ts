@@ -1,3 +1,4 @@
+import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { ensureDir, writeTextFile } from "../util/fs.js";
@@ -17,10 +18,12 @@ export async function installHooks(): Promise<string> {
     postSessionPath,
     "#!/bin/sh\n# Sync the latest rollout for the current project.\ncam sync \"$@\"\n"
   );
+  await fs.chmod(postSessionPath, 0o755);
   await writeTextFile(
     startupPath,
     "#!/bin/sh\n# Print diagnostic information at session start.\ncam doctor \"$@\"\n"
   );
+  await fs.chmod(startupPath, 0o755);
 
   return [
     `Generated hook bridge assets in ${dir}`,

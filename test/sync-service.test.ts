@@ -60,6 +60,20 @@ afterEach(async () => {
 });
 
 describe("SyncService", () => {
+  it("constructs without throwing when no explicit schemaRoot is provided", async () => {
+    const projectDir = await tempDir("cam-sync-schema-");
+    const memoryRoot = await tempDir("cam-sync-schema-mem-");
+    const config: AppConfig = {
+      autoMemoryEnabled: true,
+      autoMemoryDirectory: memoryRoot,
+      extractorMode: "heuristic",
+      defaultScope: "project",
+      maxStartupLines: 200,
+      codexBinary: "codex"
+    };
+    expect(() => new SyncService(detectProjectContext(projectDir), config)).not.toThrow();
+  });
+
   it("extracts memory updates from rollout evidence and writes audit state", async () => {
     const projectDir = await tempDir("cam-sync-project-");
     const memoryRoot = await tempDir("cam-sync-memory-");

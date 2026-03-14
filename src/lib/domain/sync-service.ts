@@ -1,4 +1,5 @@
 import path from "node:path";
+import { fileURLToPath } from "node:url";
 import type { AppConfig, MemoryOperation, ProjectContext, RolloutEvidence, SyncResult } from "../types.js";
 import { MemoryStore } from "./memory-store.js";
 import { HeuristicExtractor } from "../extractor/heuristic-extractor.js";
@@ -16,7 +17,7 @@ export class SyncService {
   public constructor(
     private readonly project: ProjectContext,
     private readonly config: AppConfig,
-    schemaRoot = path.resolve(process.cwd(), "schemas", "memory-operations.schema.json")
+    schemaRoot = fileURLToPath(new URL("../../../schemas/memory-operations.schema.json", import.meta.url))
   ) {
     this.store = new MemoryStore(project, config);
     this.primaryExtractor = new CodexExtractor(config.codexBinary, schemaRoot);

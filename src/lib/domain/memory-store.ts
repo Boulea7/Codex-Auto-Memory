@@ -218,12 +218,7 @@ export class MemoryStore {
             const count = entries.filter((entry) => entry.topic === topic).length;
             return `- [${topic}.md](${topic}.md): ${count} entr${count === 1 ? "y" : "ies"}`;
           })
-        : ["- No topic files yet."]),
-      "",
-      "## Highlights",
-      ...(entries.length
-        ? entries.slice(0, 120).map((entry) => `- ${entry.topic}/${entry.id}: ${entry.summary}`)
-        : ["- No memory entries yet."])
+        : ["- No topic files yet."])
     ];
 
     await writeTextFile(this.getMemoryFile(scope), `${lines.join("\n")}\n`);

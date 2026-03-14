@@ -55,9 +55,9 @@ describe("MemoryStore", () => {
     const projectMemory = await store.readMemoryFile("project");
     const deleted = await store.forget("all", "redis");
 
-    expect(projectMemory).toContain("Prefer pnpm in this repository.");
+    expect(projectMemory).toContain("workflow.md");
     expect(startup.lineCount).toBeLessThanOrEqual(200);
-    expect(startup.text).toContain("workflow/prefer-pnpm");
+    expect(startup.text).toContain("workflow.md");
     expect(deleted).toHaveLength(1);
     expect(await store.listEntries("project-local")).toHaveLength(0);
   });
