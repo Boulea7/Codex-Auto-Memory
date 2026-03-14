@@ -9,6 +9,7 @@ import { runSync } from "./lib/commands/sync.js";
 import { runDoctor } from "./lib/commands/doctor.js";
 import { installHooks, removeHooks } from "./lib/commands/hooks.js";
 import { runWrappedCodex } from "./lib/commands/wrapper.js";
+import { runAudit } from "./lib/commands/audit.js";
 
 function isWrapperCommand(input?: string): input is "run" | "exec" | "resume" {
   return input === "run" || input === "exec" || input === "resume";
@@ -85,6 +86,16 @@ async function main(): Promise<void> {
     .option("--json", "Print JSON output")
     .action(async (options) => {
       process.stdout.write(`${await runDoctor(options)}\n`);
+    });
+
+  program
+    .command("audit")
+    .description("Scan tracked files and git history for privacy and secret-hygiene risks")
+    .option("--json", "Print JSON output")
+    .option("--history", "Force-enable git history scanning")
+    .option("--no-history", "Disable git history scanning")
+    .action(async (options) => {
+      process.stdout.write(`${await runAudit(options)}\n`);
     });
 
   const hooksCommand = program.command("hooks").description("Manage future hook bridge assets");

@@ -78,7 +78,7 @@ Examples:
 - Good: "Use pnpm instead of npm in this repository."
 - Bad: "The agent plans to update the parser tomorrow."
 - Bad: "User was frustrated about a failing command."
-- Bad: "Bearer sk-abc123..."
+- Bad: "Authorization: Bearer <redacted-example-token>"
 
 Current rollout:
 - Session id: ${evidence.sessionId}
