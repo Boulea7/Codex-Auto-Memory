@@ -62,6 +62,23 @@ Product rules:
 - If the user clearly corrected an older memory, emit a delete for the stale one and an upsert for the new one.
 - Topic names should usually be one of: commands, debugging, architecture, workflow, preferences, patterns. Use another short kebab-case topic only if necessary.
 - Return at most 12 operations.
+- If you are unsure whether something is stable or reusable, do not save it.
+- Do not store direct secrets, raw bearer tokens, cookie values, long environment variable values, or private key material.
+- Prefer concise durable summaries over verbatim conversation snippets.
+
+Output style guidance:
+- Use \`upsert\` for new or corrected memory.
+- Use \`delete\` when an existing entry is clearly stale, contradicted, or explicitly forgotten.
+- Keep summaries short and reusable.
+- Details should be concrete and task-relevant, not narrative.
+
+Examples:
+- Good: "Run \`pnpm test\` to verify this repository."
+- Good: "API tests require a local Redis instance before running integration checks."
+- Good: "Use pnpm instead of npm in this repository."
+- Bad: "The agent plans to update the parser tomorrow."
+- Bad: "User was frustrated about a failing command."
+- Bad: "Bearer sk-abc123..."
 
 Current rollout:
 - Session id: ${evidence.sessionId}
@@ -84,4 +101,3 @@ ${formatExistingEntries(existingEntries)}
 Return JSON only, matching the provided schema.
 `.trim();
 }
-
