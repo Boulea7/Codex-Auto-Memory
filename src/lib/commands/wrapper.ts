@@ -1,8 +1,13 @@
 import { compileStartupMemory } from "../domain/startup-memory.js";
-import { findRelevantRollouts, listRolloutFiles } from "../domain/rollout.js";
-import { readCodexBaseInstructions, buildInjectedBaseInstructions } from "../runtime/codex-config.js";
+import { listRolloutFiles } from "../domain/rollout.js";
+import { readCodexBaseInstructions } from "../runtime/codex-config.js";
 import { runCommand } from "../util/process.js";
 import { buildRuntimeContext } from "./common.js";
+import { RolloutSessionSource } from "../runtime/rollout-session-source.js";
+import { WrapperRuntimeInjector } from "../runtime/wrapper-injector.js";
+
+const sessionSource = new RolloutSessionSource();
+const runtimeInjector = new WrapperRuntimeInjector();
 
 async function syncRecentRollouts(
   cwd: string,
@@ -15,7 +20,7 @@ async function syncRecentRollouts(
     return [];
   }
 
-  const candidates = await findRelevantRollouts(
+  const candidates = await sessionSource.listRelevantRollouts(
     runtime.project,
     before,
     startedAtMs,
@@ -43,19 +48,15 @@ export async function runWrappedCodex(
     runtime.loadedConfig.config.maxStartupLines
   );
   const existingBaseInstructions = await readCodexBaseInstructions();
-  const injectedBaseInstructions = buildInjectedBaseInstructions(
-    existingBaseInstructions,
-    startup.text
-  );
   const before = await listRolloutFiles();
   const startedAtMs = Date.now();
 
-  const args = [
-    "-c",
-    `base_instructions=${JSON.stringify(injectedBaseInstructions)}`,
-    ...(mode === "run" ? [] : [mode]),
-    ...forwardedArgs
-  ];
+  const args = await runtimeInjector.buildArgs(
+    mode,
+    forwardedArgs,
+    existingBaseInstructions,
+    startup.text
+  );
 
   const exitCode = await runCommand(
     runtime.loadedConfig.config.codexBinary,

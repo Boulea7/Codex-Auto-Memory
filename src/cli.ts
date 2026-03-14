@@ -82,8 +82,9 @@ async function main(): Promise<void> {
   program
     .command("doctor")
     .description("Inspect local Codex Auto Memory wiring and environment")
-    .action(async () => {
-      process.stdout.write(`${await runDoctor()}\n`);
+    .option("--json", "Print JSON output")
+    .action(async (options) => {
+      process.stdout.write(`${await runDoctor(options)}\n`);
     });
 
   const hooksCommand = program.command("hooks").description("Manage future hook bridge assets");

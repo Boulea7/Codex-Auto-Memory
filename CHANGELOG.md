@@ -8,7 +8,27 @@ The format is intentionally simple and reviewer-friendly: each entry maps to a c
 
 ### In progress
 
-- Native compatibility seams and release-oriented docs
+- Reviewer handoff packet polish
+
+## 0.1.0-alpha.4 - 2026-03-14
+
+### Changed
+
+- Formalized native compatibility seams with explicit runtime contracts for session sources, extractors, and startup injectors.
+- Switched wrapper and sync internals to named companion adapters instead of implicit wiring.
+- Expanded `cam doctor` with native-readiness reporting for `memories` and `codex_hooks`.
+- Added release-oriented reviewer documentation and a release checklist.
+- Added tests for Codex feature parsing and readiness reporting.
+
+### Review focus
+
+- Confirm that the new compatibility seams are real replacement boundaries, not cosmetic type wrappers.
+- Confirm that `cam doctor` now gives a useful migration signal instead of only raw feature output.
+- Confirm that release and progress docs are sufficient for external review tooling to pick up the project state.
+
+### Git milestone
+
+- Pending commit for native compatibility seams and release-oriented docs
 
 ## 0.1.0-alpha.3 - 2026-03-14
 

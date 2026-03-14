@@ -39,6 +39,12 @@ This document tracks implementation progress in a format that is easy to consume
 - `cam memory` now exposes scope filtering, recent audit summaries, and local enable/disable controls.
 - Additional tests now cover extractor behavior and memory inspection behavior.
 
+### Milestone 4: Native compatibility seams
+
+- Explicit compatibility interfaces now exist for session source, extractor, and runtime injector concerns.
+- The runtime now names and uses its companion session source and wrapper injector explicitly.
+- `cam doctor` now reports native-readiness in a more reviewer-friendly way instead of dumping raw feature flags only.
+
 ## Reviewer checkpoints
 
 If you are reviewing the repository now, start here:
@@ -55,15 +61,10 @@ If you are reviewing the repository now, start here:
 
 - Extractor quality is stronger, but still needs broader real-world rollout fixtures and more nuanced contradiction handling.
 - `cam memory` is more audit-friendly now, but still below Claude Code’s `/memory` interaction depth.
-- Native Codex memory and hook support is only prepared as a migration seam, not activated.
-- Release hygiene is improving, but a formal release checklist and review packet are still needed.
+- Native Codex memory and hook support is still companion-first; no native path is activated.
+- Release hygiene is stronger now, but still needs a formal reviewer handoff packet per release.
 
 ## Next planned milestones
-
-### Milestone 4: Native compatibility preparation
-
-- Formalize compatibility seams around session source, extractor, store, and injector.
-- Expand `cam doctor` to report native-readiness status more clearly.
 
 ### Milestone 5: Release and review packet hardening
 

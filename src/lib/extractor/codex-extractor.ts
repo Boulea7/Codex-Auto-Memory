@@ -3,10 +3,13 @@ import os from "node:os";
 import path from "node:path";
 import { APP_ID } from "../constants.js";
 import type { MemoryEntry, MemoryOperation, RolloutEvidence } from "../types.js";
+import type { MemoryExtractorAdapter } from "../runtime/contracts.js";
 import { runCommandCapture } from "../util/process.js";
 import { buildExtractorPrompt } from "./prompt.js";
 
-export class CodexExtractor {
+export class CodexExtractor implements MemoryExtractorAdapter {
+  public readonly name = "codex-ephemeral";
+
   public constructor(
     private readonly codexBinary: string,
     private readonly schemaPath: string
