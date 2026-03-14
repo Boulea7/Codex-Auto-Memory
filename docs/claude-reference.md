@@ -72,9 +72,23 @@ Claude Code exposes `/memory` so users can:
 
 The product contract is explicit: auto memory is not a black box.
 
+The official memory docs emphasize that auto memory is plain Markdown and can be edited or deleted through `/memory` or directly in the filesystem. In the official pages reviewed for this project, Anthropic documents manual audit and editing clearly, but does not provide a separate dedicated "forget" API contract in the same way it documents `remember`.
+
+### 5b. Subagent memory behavior
+
+Anthropic's public docs explicitly say that subagents can maintain persistent memory and point readers to subagent configuration for details. They do not, in the sources reviewed for this repository, fully specify every sharing and isolation rule between parent-session auto memory and subagent-specific persistent memory.
+
+For this project, the safe reference point is:
+
+- subagents are a relevant parity surface
+- persistent subagent memory exists in Claude Code
+- the exact sharing model should not be over-claimed unless verified from current official docs
+
 ### 6. Configuration boundary for `autoMemoryDirectory`
 
 Claude Code allows overriding the memory directory, but not from a project-shared settings file. The reason is security: a shared project should not be able to redirect another user's memory writes to an arbitrary path.
+
+The `autoMemoryDirectory` setting is accepted from policy, local, and user configuration sources only. It is explicitly excluded from project-level config sources. This prevents a malicious or misconfigured project from hijacking where another user's memory is written.
 
 This is a key design constraint and should be preserved in our Codex implementation.
 

@@ -33,7 +33,7 @@ Codex already exposes strong building blocks such as `AGENTS.md`, skills, persis
 | Local Markdown memory | Built in | No complete public contract | Yes |
 | `MEMORY.md` startup entrypoint | Built in | No | Yes |
 | 200-line startup budget | Built in | No | Yes |
-| Topic files on demand | Built in | No | Yes |
+| Topic files on demand | Built in | No | Partial: topic files exist, but startup currently injects the index only |
 | Worktree-shared project memory | Built in | No public contract | Yes |
 | Audit and edit memory | `/memory` | No equivalent | `cam memory` |
 | Native hooks / memory integration | Built in | Experimental / under development | Planned compatibility layer |
@@ -153,6 +153,7 @@ See [docs/architecture.md](docs/architecture.md) for the full breakdown.
 - [Native migration strategy](docs/native-migration.md)
 - [Progress log](docs/progress-log.md)
 - [Review guide](docs/review-guide.md)
+- [ClaudeCode patch audit](docs/claudecode-patch-audit.md)
 - [Release checklist](docs/release-checklist.md)
 - [Contributing](CONTRIBUTING.md)
 - [Repository agent guide](AGENTS.md)
@@ -168,4 +169,5 @@ Current review-oriented status:
 - extractor quality hardening complete
 - memory inspection UX hardening complete
 - native compatibility seams complete
+- ClaudeCode patch batch audited and retained with documentation corrections
 - reviewer handoff packet still pending
