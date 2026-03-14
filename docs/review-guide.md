@@ -97,6 +97,8 @@ Review questions:
 - Silent memory pollution from temporary or speculative session content
 - Drift between README promises and current CLI behavior
 - Overfitting to current Codex rollout artifacts in a way that would make migration painful
+- Documentation that upgrades local observations into unsupported official product claims
+- Reduced startup usefulness after the move to index-only `MEMORY.md` injection
 
 ## Suggested review order for other tools
 
@@ -109,6 +111,7 @@ Review questions:
 7. Inspect `src/lib/domain/memory-store.ts`
 8. Inspect extractor files
 9. Run `pnpm test`
+10. Read `docs/claudecode-patch-audit.md`
 
 ## Claude parity checklist
 

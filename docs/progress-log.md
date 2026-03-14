@@ -4,8 +4,8 @@ This document tracks implementation progress in a format that is easy to consume
 
 ## Current completion snapshot
 
-- Approximate overall progress toward a strong Claude-style alpha: `65%`
-- Approximate progress toward a working local MVP: `85%`
+- Approximate overall progress toward a strong Claude-style alpha: `75%`
+- Approximate progress toward a working local MVP: `90%`
 - Current phase: `Phase 3 - review and release hardening`
 
 ## Completed milestones
@@ -61,15 +61,49 @@ If you are reviewing the repository now, start here:
 
 - Extractor quality is stronger, but still needs broader real-world rollout fixtures and more nuanced contradiction handling.
 - `cam memory` is more audit-friendly now, but still below Claude Code’s `/memory` interaction depth.
-- Native Codex memory and hook support is still companion-first; no native path is activated.
+- Native Codex memory and hook support is still companion-first; no native path is activated. Codex now ships native memory but parity verification against our contract is pending.
+- Startup memory now injects only the MEMORY.md index (topic links + counts), not the actual entry content. Topic files are not loaded on-demand yet, which is a gap compared to Claude’s lazy topic loading.
 - Release hygiene is stronger now, but still needs a formal reviewer handoff packet per release.
+
+### Milestone 5: Bug fixes, parity hardening, and native compat update
+
+- Fixed per-line try-catch in rollout JSONL parsing to survive corrupted lines.
+- Added support for nested `session_meta` payload format (`payload.meta.id`).
+- Fixed `schemaRoot` default to use `fileURLToPath(import.meta.url)` instead of `process.cwd()`.
+- Fixed hook scripts to set executable permissions (`chmod 0o755`) after generation.
+- Removed `picocolors` unused dependency; added `schemas/` to published package files.
+- Fixed base64 safety filter false-positive on git SHA hashes.
+- Fixed `commandSucceeded()` to default `false` when tool output is missing.
+- Removed per-scope line slicing in `compileStartupMemory`; budget enforced by final `limitLines()`.
+- Removed `## Highlights` section from `MEMORY.md` index to align with Claude's concise index contract.
+- Updated native migration docs to reflect the difference between official Codex documentation and local implementation observations.
+- Clarified Claude reference: manual edit/delete is officially documented, while subagent sharing/isolation semantics remain only partially specified in the public docs.
+
+### Milestone 5 audit outcome
+
+- **Accepted**:
+  - corrupted rollout line skipping
+  - nested `session_meta` parsing
+  - schema path resolution via `import.meta.url`
+  - executable hook scripts
+  - shipping `schemas/` in the published package
+  - false-positive reduction in the safety filter
+  - treating missing tool output as unknown success
+  - concise `MEMORY.md` index direction
+- **Accepted with caveat**:
+  - startup now injects only the index, which is safer for parity but currently weaker in usefulness until topic-on-demand loading is implemented
+- **Corrected in docs**:
+  - stronger-than-supported claims about Claude forget semantics
+  - stronger-than-supported claims about Claude subagent memory sharing/isolation
+  - stronger-than-supported claims about Codex native memory layout and config contract
 
 ## Next planned milestones
 
-### Milestone 5: Release and review packet hardening
+### Milestone 6: Release and review packet hardening
 
 - Add a reviewer handoff packet per milestone or release.
 - Tighten README status and changelog discipline around milestone commits.
+- Implement on-demand topic file loading in startup memory (currently MEMORY.md index only).
 
 ## Review-ready habits
 

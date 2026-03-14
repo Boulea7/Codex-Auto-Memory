@@ -11,7 +11,18 @@ Codex already exposes useful foundations:
 - `AGENTS.md`, rules, skills, and project config
 - experimental `memories` and `codex_hooks` feature flags
 
-However, this is not yet the same as a complete public auto memory product surface.
+### Codex native memory status (as of early 2026)
+
+The official OpenAI Codex materials reviewed for this repository do **not** currently provide a public product contract equivalent to Claude Code's auto memory page. In particular, we did **not** find official documentation that clearly specifies:
+
+- a stable native memory directory layout
+- a documented startup-loading contract comparable to Claude's `MEMORY.md` behavior
+- a documented scope model equivalent to `global / project / project-local`
+- a public hook-driven native memory pipeline contract
+
+What we *do* have today are local implementation signals and experimental feature flags, such as `memories`, `codex_hooks`, and rollout metadata like `memory_mode`. Those are useful migration hints, but they should be treated as **local observations or emerging internals**, not as stable public API guarantees.
+
+This is an important distinction. Native Codex memory may exist in some form, but until OpenAI publishes a clear contract, we should not present directory layouts, config keys, or hook semantics as confirmed product behavior.
 
 ## Migration objective
 
@@ -48,6 +59,7 @@ Current code alignment:
 - Detect stable Codex hook support with `cam doctor`
 - Allow optional native event hookups while keeping wrapper fallback
 - Continue using the same Markdown store and scope rules
+- **Note**: local observations suggest that Codex native memory support may be emerging, but before adopting it, verify content quality parity, format compatibility with our Markdown contract, and scope model equivalence (global vs. project vs. project-local) against official docs or reproducible runtime behavior.
 
 ### Phase 3: Native-first
 
@@ -70,6 +82,7 @@ The goal is to preserve user trust. Native migration should change implementatio
 - official Codex memory may choose a different startup loading model
 - hook event shapes may differ from current assumptions
 - native memory may not use Markdown as its primary surface
+- locally observed directory or config details may change without notice because they are not yet backed by a public contract
 
 If native behavior diverges from Claude parity, this project should support both:
 
@@ -84,3 +97,5 @@ Do not migrate purely because a native flag exists. Migrate when native Codex su
 - stable across releases
 - testable in CI or deterministic local automation
 - capable of preserving the core user contract this project promises
+- verified for content quality parity: extraction quality, scope isolation, and the 200-line startup contract must all hold under the native system
+- verified for format compatibility: if native memory does not use Markdown or does not support user-editable topic files, a strict Claude-compatible mode must remain available

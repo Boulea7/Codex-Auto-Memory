@@ -6,8 +6,8 @@ coverage/
 # Local tool state
 .codex-auto-memory.local.json
 .codex-auto-memory/
+.claude/
 
 # OS / editor noise
 .DS_Store
 *.log
-

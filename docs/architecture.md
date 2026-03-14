@@ -22,6 +22,12 @@ This document describes the intended runtime architecture for `codex-auto-memory
 4. It compiles a bounded startup payload, preserving a 200-line total budget.
 5. It launches Codex with the compiled memory injected as editable context.
 
+Current implementation note:
+
+- startup injection currently carries the `MEMORY.md` indexes for the active scopes
+- detailed topic file content is **not** auto-injected yet
+- topic-on-demand loading remains a planned follow-up, not a completed feature
+
 ### Post-session sync path
 
 1. The wrapper watches for new rollout files in `~/.codex/sessions/`.
