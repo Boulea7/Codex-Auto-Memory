@@ -1,0 +1,105 @@
+#!/usr/bin/env node
+
+import { Command } from "commander";
+import { runInit } from "./lib/commands/init.js";
+import { runMemory } from "./lib/commands/memory.js";
+import { runRemember } from "./lib/commands/remember.js";
+import { runForget } from "./lib/commands/forget.js";
+import { runSync } from "./lib/commands/sync.js";
+import { runDoctor } from "./lib/commands/doctor.js";
+import { installHooks, removeHooks } from "./lib/commands/hooks.js";
+import { runWrappedCodex } from "./lib/commands/wrapper.js";
+
+function isWrapperCommand(input?: string): input is "run" | "exec" | "resume" {
+  return input === "run" || input === "exec" || input === "resume";
+}
+
+async function main(): Promise<void> {
+  const rawArgs = process.argv.slice(2);
+  if (isWrapperCommand(rawArgs[0])) {
+    const exitCode = await runWrappedCodex(process.cwd(), rawArgs[0], rawArgs.slice(1));
+    process.exitCode = exitCode;
+    return;
+  }
+
+  const program = new Command();
+  program
+    .name("cam")
+    .description("Codex Auto Memory companion CLI")
+    .version("0.1.0");
+
+  program
+    .command("init")
+    .description("Initialize Codex Auto Memory in the current project")
+    .action(async () => {
+      process.stdout.write(`${await runInit()}\n`);
+    });
+
+  program
+    .command("memory")
+    .description("Inspect local memory state")
+    .option("--json", "Print JSON output")
+    .option("--print-startup", "Print the compiled startup memory block")
+    .option("--open", "Open the memory directory in the default file browser")
+    .action(async (options) => {
+      process.stdout.write(`${await runMemory(options)}\n`);
+    });
+
+  program
+    .command("remember")
+    .description("Persist a memory entry immediately")
+    .argument("<text>", "Memory summary text")
+    .option("--scope <scope>", "Memory scope: global, project, or project-local")
+    .option("--topic <topic>", "Topic file name", "workflow")
+    .option("--detail <detail...>", "Additional detail bullets")
+    .action(async (text, options) => {
+      process.stdout.write(`${await runRemember(text, options)}\n`);
+    });
+
+  program
+    .command("forget")
+    .description("Delete matching memory entries")
+    .argument("<query>", "Search query used to find memory entries")
+    .option("--scope <scope>", "Specific scope to target, or all")
+    .action(async (query, options) => {
+      process.stdout.write(`${await runForget(query, options)}\n`);
+    });
+
+  program
+    .command("sync")
+    .description("Sync the latest rollout into markdown memory")
+    .option("--rollout <path>", "Specific rollout JSONL file to process")
+    .option("--force", "Re-process a rollout even if it was already synced")
+    .action(async (options) => {
+      process.stdout.write(`${await runSync(options)}\n`);
+    });
+
+  program
+    .command("doctor")
+    .description("Inspect local Codex Auto Memory wiring and environment")
+    .action(async () => {
+      process.stdout.write(`${await runDoctor()}\n`);
+    });
+
+  const hooksCommand = program.command("hooks").description("Manage future hook bridge assets");
+  hooksCommand
+    .command("install")
+    .description("Generate local hook bridge assets")
+    .action(async () => {
+      process.stdout.write(`${await installHooks()}\n`);
+    });
+  hooksCommand
+    .command("remove")
+    .description("Describe how to remove generated hook bridge assets")
+    .action(async () => {
+      process.stdout.write(`${await removeHooks()}\n`);
+    });
+
+  await program.parseAsync(process.argv);
+}
+
+main().catch((error: unknown) => {
+  const message = error instanceof Error ? error.stack ?? error.message : String(error);
+  process.stderr.write(`${message}\n`);
+  process.exitCode = 1;
+});
