@@ -54,7 +54,13 @@ export class SyncService {
     await this.store.appendAuditLog({
       rolloutPath,
       sessionId: evidence.sessionId,
+      projectId: this.project.projectId,
+      worktreeId: this.project.worktreeId,
+      extractorMode: this.config.extractorMode,
       appliedAt: new Date().toISOString(),
+      resultSummary: applied.length
+        ? `${applied.length} operation(s) applied`
+        : "No memory updates generated",
       operations: applied
     });
 

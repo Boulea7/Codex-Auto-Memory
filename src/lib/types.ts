@@ -63,9 +63,18 @@ export interface ScopePaths {
 }
 
 export interface RolloutToolCall {
+  callId?: string;
   name: string;
   arguments: string;
   output?: string;
+}
+
+export interface RolloutMeta {
+  sessionId: string;
+  createdAt: string;
+  createdAtMs: number;
+  cwd: string;
+  rolloutPath: string;
 }
 
 export interface RolloutEvidence {
@@ -83,4 +92,3 @@ export interface SyncResult {
   skipped: boolean;
   message: string;
 }
-
