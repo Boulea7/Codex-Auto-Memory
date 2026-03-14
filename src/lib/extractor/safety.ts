@@ -11,7 +11,7 @@ const sensitivePatterns = [
   /\bsk-[A-Za-z0-9]{16,}\b/,
   /\bghp_[A-Za-z0-9]{20,}\b/,
   /\bAIza[0-9A-Za-z_-]{20,}\b/,
-  /\b[A-Za-z0-9+/]{32,}={0,2}\b/
+  /\b[A-Za-z0-9+/]{32,}={1,2}/
 ] as const;
 
 const volatilePatterns = [

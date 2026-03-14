@@ -29,7 +29,7 @@ export async function compileStartupMemory(
   for (const scope of ["project-local", "project", "global"] satisfies MemoryScope[]) {
     const filePath = store.getMemoryFile(scope);
     const contents = await store.readMemoryFile(scope);
-    const lines = contents.split("\n").slice(0, maxLines);
+    const lines = contents.split("\n");
     sourceFiles.push(filePath);
     parts.push(`## ${heading(scope)}`);
     parts.push(...lines);

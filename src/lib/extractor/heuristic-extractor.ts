@@ -53,7 +53,7 @@ function extractCommand(toolCall: RolloutEvidence["toolCalls"][number]): string 
 
 function commandSucceeded(toolCall: RolloutEvidence["toolCalls"][number]): boolean {
   if (!toolCall.output) {
-    return true;
+    return false;
   }
 
   return /(exit code 0|Process exited with code 0|done in |completed successfully)/iu.test(
