@@ -1,5 +1,6 @@
 import { DEFAULT_MEMORY_TOPICS } from "../constants.js";
 import type { MemoryEntry, MemoryOperation, RolloutEvidence } from "../types.js";
+import type { MemoryExtractorAdapter } from "../runtime/contracts.js";
 import { slugify } from "../util/text.js";
 
 function inferScope(message: string): MemoryOperation["scope"] {
@@ -132,7 +133,9 @@ function commandSummary(command: string): { summary: string; details: string[] }
   };
 }
 
-export class HeuristicExtractor {
+export class HeuristicExtractor implements MemoryExtractorAdapter {
+  public readonly name = "heuristic";
+
   public async extract(
     evidence: RolloutEvidence,
     existingEntries: MemoryEntry[]
