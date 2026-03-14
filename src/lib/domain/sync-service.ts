@@ -4,6 +4,7 @@ import { MemoryStore } from "./memory-store.js";
 import { parseRolloutEvidence } from "./rollout.js";
 import { HeuristicExtractor } from "../extractor/heuristic-extractor.js";
 import { CodexExtractor } from "../extractor/codex-extractor.js";
+import { filterMemoryOperations } from "../extractor/safety.js";
 
 export class SyncService {
   private readonly store: MemoryStore;
@@ -48,7 +49,9 @@ export class SyncService {
       ...(await this.store.listEntries("project-local"))
     ];
 
-    const operations = await this.extractOperations(evidence, existingEntries);
+    const operations = filterMemoryOperations(
+      await this.extractOperations(evidence, existingEntries)
+    );
     const applied = await this.store.applyOperations(operations);
     await this.store.markRolloutProcessed(rolloutPath);
     await this.store.appendAuditLog({
