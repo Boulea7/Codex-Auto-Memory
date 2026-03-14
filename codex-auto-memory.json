@@ -1,0 +1,7 @@
+{
+  "autoMemoryEnabled": true,
+  "extractorMode": "codex",
+  "defaultScope": "project",
+  "maxStartupLines": 200,
+  "codexBinary": "codex"
+}

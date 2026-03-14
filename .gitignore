@@ -1,0 +1,13 @@
+node_modules/
+dist/
+coverage/
+.tmp/
+
+# Local tool state
+.codex-auto-memory.local.json
+.codex-auto-memory/
+
+# OS / editor noise
+.DS_Store
+*.log
+
