@@ -1,5 +1,5 @@
 import { compileStartupMemory } from "../domain/startup-memory.js";
-import { findNewRollouts, listRolloutFiles, matchesProjectContext, parseRolloutEvidence } from "../domain/rollout.js";
+import { findRelevantRollouts, listRolloutFiles } from "../domain/rollout.js";
 import { readCodexBaseInstructions, buildInjectedBaseInstructions } from "../runtime/codex-config.js";
 import { runCommand } from "../util/process.js";
 import { buildRuntimeContext } from "./common.js";
@@ -7,21 +7,22 @@ import { buildRuntimeContext } from "./common.js";
 async function syncRecentRollouts(
   cwd: string,
   before: string[],
-  startedAtMs: number
+  startedAtMs: number,
+  endedAtMs: number
 ): Promise<string[]> {
   const runtime = await buildRuntimeContext(cwd);
   if (!runtime.loadedConfig.config.autoMemoryEnabled) {
     return [];
   }
 
-  const candidates = await findNewRollouts(before, startedAtMs);
+  const candidates = await findRelevantRollouts(
+    runtime.project,
+    before,
+    startedAtMs,
+    endedAtMs
+  );
   const synced: string[] = [];
   for (const candidate of candidates) {
-    const evidence = await parseRolloutEvidence(candidate);
-    if (!evidence || !matchesProjectContext(evidence, runtime.project)) {
-      continue;
-    }
-
     const result = await runtime.syncService.syncRollout(candidate);
     if (!result.skipped) {
       synced.push(result.message);
@@ -61,12 +62,12 @@ export async function runWrappedCodex(
     args,
     cwd
   );
+  const endedAtMs = Date.now();
 
-  const synced = await syncRecentRollouts(cwd, before, startedAtMs);
+  const synced = await syncRecentRollouts(cwd, before, startedAtMs, endedAtMs);
   if (synced.length > 0) {
     process.stderr.write(`\n${synced.join("\n")}\n`);
   }
 
   return exitCode;
 }
-
