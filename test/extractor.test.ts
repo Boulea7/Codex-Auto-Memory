@@ -175,6 +175,7 @@ describe("safety filter", () => {
   });
 
   it("drops sensitive operations and keeps safe ones", () => {
+    const secretLiteral = `Bearer ${["sk", "12345678901234567890"].join("-")}`;
     const filtered = filterMemoryOperations([
       {
         action: "upsert",
@@ -189,7 +190,7 @@ describe("safety filter", () => {
         scope: "project",
         topic: "preferences",
         id: "secret",
-        summary: "Bearer sk-12345678901234567890",
+        summary: secretLiteral,
         details: ["Never do this."]
       }
     ]);
