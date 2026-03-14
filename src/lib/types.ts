@@ -43,6 +43,8 @@ export interface LoadedConfig {
   files: string[];
 }
 
+export type ConfigScope = "user" | "project" | "local";
+
 export interface ProjectContext {
   cwd: string;
   projectRoot: string;
