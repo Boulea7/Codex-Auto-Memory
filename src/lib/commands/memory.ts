@@ -1,7 +1,8 @@
 import { spawn } from "node:child_process";
 import path from "node:path";
-import type { MemoryScope } from "../types.js";
+import { patchConfigFile } from "../config/write-config.js";
 import { compileStartupMemory } from "../domain/startup-memory.js";
+import type { ConfigScope, MemoryScope } from "../types.js";
 import { buildRuntimeContext } from "./common.js";
 
 interface MemoryOptions {
@@ -9,6 +10,11 @@ interface MemoryOptions {
   json?: boolean;
   printStartup?: boolean;
   open?: boolean;
+  scope?: MemoryScope | "all";
+  recent?: string | boolean;
+  enable?: boolean;
+  disable?: boolean;
+  configScope?: ConfigScope;
 }
 
 function openPath(targetPath: string): void {
@@ -33,30 +39,58 @@ function openPath(targetPath: string): void {
 }
 
 export async function runMemory(options: MemoryOptions = {}): Promise<string> {
-  const runtime = await buildRuntimeContext(options.cwd);
+  const cwd = options.cwd ?? process.cwd();
+  const configScope = options.configScope ?? "local";
+  const selectedScope = options.scope ?? "all";
+
+  if (options.enable && options.disable) {
+    throw new Error("Choose either --enable or --disable, not both.");
+  }
+
+  let configUpdateMessage: string | undefined;
+  const initialRuntime = await buildRuntimeContext(cwd);
+  if (options.enable || options.disable) {
+    const filePath = await patchConfigFile(initialRuntime.project.projectRoot, configScope, {
+      autoMemoryEnabled: Boolean(options.enable)
+    });
+    configUpdateMessage = `Updated ${configScope} config: ${filePath}`;
+  }
+
+  const runtime = await buildRuntimeContext(cwd);
   const startup = await compileStartupMemory(
     runtime.syncService.memoryStore,
     runtime.loadedConfig.config.maxStartupLines
   );
-  const counts = await Promise.all(
-    (["global", "project", "project-local"] satisfies MemoryScope[]).map(async (scope) => ({
+  const allScopes = ["global", "project", "project-local"] satisfies MemoryScope[];
+  const scopesToShow = selectedScope === "all" ? allScopes : [selectedScope];
+  const recentCount =
+    typeof options.recent === "string" ? Math.max(1, Number.parseInt(options.recent, 10) || 5) : 5;
+  const scopes = await Promise.all(
+    scopesToShow.map(async (scope) => ({
       scope,
       count: (await runtime.syncService.memoryStore.listEntries(scope)).length,
-      file: runtime.syncService.memoryStore.getMemoryFile(scope)
+      file: runtime.syncService.memoryStore.getMemoryFile(scope),
+      topics: await runtime.syncService.memoryStore.listTopics(scope)
     }))
   );
+  const recentAudit = options.recent
+    ? await runtime.syncService.memoryStore.readRecentAuditEntries(recentCount)
+    : [];
 
   if (options.open) {
-    openPath(path.dirname(runtime.syncService.memoryStore.getMemoryFile("project")));
+    const targetScope = selectedScope === "all" ? "project" : selectedScope;
+    openPath(path.dirname(runtime.syncService.memoryStore.getMemoryFile(targetScope)));
   }
 
   if (options.json) {
     return JSON.stringify(
       {
+        configUpdateMessage,
         configFiles: runtime.loadedConfig.files,
         warnings: runtime.loadedConfig.warnings,
         startup,
-        scopes: counts
+        scopes,
+        recentAudit
       },
       null,
       2
@@ -67,14 +101,30 @@ export async function runMemory(options: MemoryOptions = {}): Promise<string> {
     "Codex Auto Memory",
     `Project root: ${runtime.project.projectRoot}`,
     `Memory base: ${runtime.syncService.memoryStore.paths.baseDir}`,
+    `Auto memory enabled: ${runtime.loadedConfig.config.autoMemoryEnabled}`,
     `Config files: ${runtime.loadedConfig.files.length ? runtime.loadedConfig.files.join(", ") : "none"}`,
+    ...(configUpdateMessage ? [configUpdateMessage] : []),
     ...runtime.loadedConfig.warnings.map((warning) => `Warning: ${warning}`),
     "",
     "Scopes:"
   ];
 
-  for (const item of counts) {
+  for (const item of scopes) {
     lines.push(`- ${item.scope}: ${item.count} entr${item.count === 1 ? "y" : "ies"} (${item.file})`);
+    if (item.topics.length > 0) {
+      lines.push(`  Topics: ${item.topics.join(", ")}`);
+    }
+  }
+
+  if (recentAudit.length > 0) {
+    lines.push("", `Recent sync events (${recentAudit.length}):`);
+    for (const item of recentAudit) {
+      lines.push(
+        `- ${String(item.appliedAt ?? "unknown time")}: ${String(item.resultSummary ?? "no summary")}`
+      );
+      lines.push(`  Session: ${String(item.sessionId ?? "unknown")} | Extractor: ${String(item.extractorMode ?? "unknown")}`);
+      lines.push(`  Rollout: ${String(item.rolloutPath ?? "unknown")}`);
+    }
   }
 
   if (options.printStartup) {
@@ -83,4 +133,3 @@ export async function runMemory(options: MemoryOptions = {}): Promise<string> {
 
   return lines.join("\n");
 }
-

@@ -39,6 +39,11 @@ async function main(): Promise<void> {
     .command("memory")
     .description("Inspect local memory state")
     .option("--json", "Print JSON output")
+    .option("--scope <scope>", "Show a single memory scope: global, project, project-local, or all", "all")
+    .option("--recent [count]", "Show recent sync audit entries")
+    .option("--enable", "Enable auto memory in config")
+    .option("--disable", "Disable auto memory in config")
+    .option("--config-scope <scope>", "Config scope to edit: user, project, or local", "local")
     .option("--print-startup", "Print the compiled startup memory block")
     .option("--open", "Open the memory directory in the default file browser")
     .action(async (options) => {

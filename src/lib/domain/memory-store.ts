@@ -199,6 +199,11 @@ export class MemoryStore {
     return entries.sort((left, right) => right.updatedAt.localeCompare(left.updatedAt));
   }
 
+  public async listTopics(scope: MemoryScope): Promise<string[]> {
+    const entries = await this.listEntries(scope);
+    return Array.from(new Set(entries.map((entry) => entry.topic))).sort();
+  }
+
   public async rebuildIndex(scope: MemoryScope): Promise<void> {
     const entries = await this.listEntries(scope);
     const lines = [
@@ -379,6 +384,22 @@ export class MemoryStore {
 
   public async appendAuditLog(payload: Record<string, unknown>): Promise<void> {
     await appendJsonl(path.join(this.paths.auditDir, "sync-log.jsonl"), payload);
+  }
+
+  public async readRecentAuditEntries(limit = 5): Promise<Record<string, unknown>[]> {
+    const auditPath = path.join(this.paths.auditDir, "sync-log.jsonl");
+    if (!(await fileExists(auditPath))) {
+      return [];
+    }
+
+    const raw = await readTextFile(auditPath);
+    return raw
+      .split("\n")
+      .map((line) => line.trim())
+      .filter(Boolean)
+      .slice(-limit)
+      .map((line) => JSON.parse(line) as Record<string, unknown>)
+      .reverse();
   }
 
   public listSuggestedTopics(): readonly string[] {
