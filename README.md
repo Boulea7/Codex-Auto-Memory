@@ -147,12 +147,22 @@ See [docs/architecture.md](docs/architecture.md) for the full breakdown.
 
 ## Documentation
 
+- [Changelog](CHANGELOG.md)
 - [Claude reference contract](docs/claude-reference.md)
 - [Architecture](docs/architecture.md)
 - [Native migration strategy](docs/native-migration.md)
+- [Progress log](docs/progress-log.md)
+- [Review guide](docs/review-guide.md)
 - [Contributing](CONTRIBUTING.md)
 - [Repository agent guide](AGENTS.md)
 
 ## Status
 
 This project is intentionally opinionated: it favors the observable Claude Code auto memory contract over speculative abstractions. Where Codex native features are still incomplete, `codex-auto-memory` uses stable companion mechanisms first and leaves a clean adapter seam for future migration.
+
+Current review-oriented status:
+
+- baseline alpha bootstrap complete
+- sync reliability hardening complete
+- extractor quality hardening in progress
+- memory inspection UX and native compatibility still incomplete
