@@ -1,11 +1,19 @@
 import fs from "node:fs/promises";
 import path from "node:path";
 import os from "node:os";
-import type { ProjectContext, RolloutEvidence, RolloutToolCall } from "../types.js";
+import type { ProjectContext, RolloutEvidence, RolloutMeta, RolloutToolCall } from "../types.js";
 
 interface JsonLine {
   type: string;
   payload?: Record<string, unknown>;
+}
+
+async function normalizeFsPath(input: string): Promise<string> {
+  try {
+    return await fs.realpath(input);
+  } catch {
+    return path.resolve(input);
+  }
 }
 
 async function collectRolloutFiles(rootDir: string): Promise<string[]> {
@@ -27,27 +35,102 @@ async function collectRolloutFiles(rootDir: string): Promise<string[]> {
 }
 
 export async function listRolloutFiles(): Promise<string[]> {
-  const sessionsDir = path.join(os.homedir(), ".codex", "sessions");
+  const sessionsDir = process.env.CAM_CODEX_SESSIONS_DIR
+    ? path.resolve(process.env.CAM_CODEX_SESSIONS_DIR)
+    : path.join(os.homedir(), ".codex", "sessions");
   return collectRolloutFiles(sessionsDir);
 }
 
-export async function findNewRollouts(before: string[], startedAtMs: number): Promise<string[]> {
+function parseTimestamp(value: string): number {
+  const parsed = Date.parse(value);
+  return Number.isFinite(parsed) ? parsed : 0;
+}
+
+export async function readRolloutMeta(filePath: string): Promise<RolloutMeta | null> {
+  const raw = await fs.readFile(filePath, "utf8");
+  const lines = raw
+    .split("\n")
+    .map((line) => line.trim())
+    .filter(Boolean);
+
+  for (const line of lines) {
+    const item = JSON.parse(line) as JsonLine;
+    const payload = item.payload ?? {};
+    if (item.type !== "session_meta") {
+      continue;
+    }
+
+    const sessionId = String(payload.id ?? "");
+    const createdAt = String(payload.timestamp ?? "");
+    const cwdValue = String(payload.cwd ?? "");
+    const cwd = cwdValue ? await normalizeFsPath(cwdValue) : "";
+    if (!sessionId || !createdAt || !cwd) {
+      return null;
+    }
+
+    return {
+      sessionId,
+      createdAt,
+      createdAtMs: parseTimestamp(createdAt),
+      cwd,
+      rolloutPath: filePath
+    };
+  }
+
+  return null;
+}
+
+export async function findRelevantRollouts(
+  project: ProjectContext,
+  before: string[],
+  startedAtMs: number,
+  endedAtMs: number
+): Promise<string[]> {
   const after = await listRolloutFiles();
   const beforeSet = new Set(before);
   const additions = after.filter((filePath) => !beforeSet.has(filePath));
+
+  const candidates = additions.length > 0 ? additions : after;
+  const metas = (
+    await Promise.all(
+      candidates.map(async (filePath) => ({
+        filePath,
+        meta: await readRolloutMeta(filePath)
+      }))
+    )
+  )
+    .filter(
+      (item): item is { filePath: string; meta: RolloutMeta } =>
+        item.meta !== null && matchesProjectContext(item.meta, project)
+    )
+    .map((item) => item.meta);
+
   if (additions.length > 0) {
-    return additions.sort();
+    return metas
+      .sort((left, right) => left.createdAtMs - right.createdAtMs)
+      .map((meta) => meta.rolloutPath);
   }
 
-  const recent: string[] = [];
-  for (const filePath of after) {
-    const stats = await fs.stat(filePath);
-    if (stats.mtimeMs >= startedAtMs - 1_000) {
-      recent.push(filePath);
+  const windowStart = startedAtMs - 5_000;
+  const windowEnd = endedAtMs + 5_000;
+  const inWindow = metas
+    .filter((meta) => meta.createdAtMs >= windowStart && meta.createdAtMs <= windowEnd)
+    .sort((left, right) => left.createdAtMs - right.createdAtMs)
+    .map((meta) => meta.rolloutPath);
+
+  if (inWindow.length > 0) {
+    return inWindow;
+  }
+
+  const recentMtimeMatches: string[] = [];
+  for (const meta of metas) {
+    const stats = await fs.stat(meta.rolloutPath);
+    if (stats.mtimeMs >= windowStart && stats.mtimeMs <= windowEnd) {
+      recentMtimeMatches.push(meta.rolloutPath);
     }
   }
 
-  return recent.sort();
+  return recentMtimeMatches.sort();
 }
 
 export async function parseRolloutEvidence(filePath: string): Promise<RolloutEvidence | null> {
@@ -71,7 +154,8 @@ export async function parseRolloutEvidence(filePath: string): Promise<RolloutEvi
     if (item.type === "session_meta") {
       sessionId = String(payload.id ?? "");
       createdAt = String(payload.timestamp ?? "");
-      cwd = String(payload.cwd ?? "");
+      const cwdValue = String(payload.cwd ?? "");
+      cwd = cwdValue ? await normalizeFsPath(cwdValue) : "";
       continue;
     }
 
@@ -86,13 +170,15 @@ export async function parseRolloutEvidence(filePath: string): Promise<RolloutEvi
     }
 
     if (item.type === "response_item" && payload.type === "function_call") {
+      const callId = typeof payload.call_id === "string" ? payload.call_id : undefined;
       const call = {
+        callId,
         name: String(payload.name ?? ""),
         arguments: String(payload.arguments ?? "")
       };
       toolCalls.push(call);
-      if (typeof payload.call_id === "string") {
-        callOutputs.set(payload.call_id, "");
+      if (callId) {
+        callOutputs.set(callId, "");
       }
       continue;
     }
@@ -104,15 +190,10 @@ export async function parseRolloutEvidence(filePath: string): Promise<RolloutEvi
     }
   }
 
-  const stitchedToolCalls = toolCalls.map((call, index) => {
-    const line = lines.find((candidate) => candidate.includes(`"name":"${call.name}"`));
-    const match = line?.match(/"call_id":"([^"]+)"/);
-    const callId = match?.[1];
-    return {
-      ...call,
-      output: callId ? callOutputs.get(callId) : undefined
-    };
-  });
+  const stitchedToolCalls = toolCalls.map((call) => ({
+    ...call,
+    output: call.callId ? callOutputs.get(call.callId) : undefined
+  }));
 
   if (!sessionId || !cwd) {
     return null;
@@ -130,7 +211,7 @@ export async function parseRolloutEvidence(filePath: string): Promise<RolloutEvi
 }
 
 export function matchesProjectContext(
-  evidence: RolloutEvidence,
+  evidence: Pick<RolloutEvidence, "cwd"> | Pick<RolloutMeta, "cwd">,
   project: ProjectContext
 ): boolean {
   return evidence.cwd.startsWith(project.projectRoot);
