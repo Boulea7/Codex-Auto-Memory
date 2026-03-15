@@ -1,6 +1,7 @@
 import { configPaths } from "../config/load-config.js";
 import { MemoryStore } from "../domain/memory-store.js";
 import { detectProjectContext, getDefaultMemoryDirectory } from "../domain/project-context.js";
+import { SessionContinuityStore } from "../domain/session-continuity-store.js";
 import { updateGitignoreLine, writeJsonFile } from "../util/fs.js";
 import type { AppConfig } from "../types.js";
 
@@ -18,6 +19,10 @@ export async function runInit(options: InitOptions = {}): Promise<string> {
     extractorMode: "codex",
     defaultScope: "project",
     maxStartupLines: 200,
+    sessionContinuityAutoLoad: false,
+    sessionContinuityAutoSave: false,
+    sessionContinuityLocalPathStyle: "codex",
+    maxSessionContinuityLines: 60,
     codexBinary: "codex"
   };
 
@@ -33,6 +38,8 @@ export async function runInit(options: InitOptions = {}): Promise<string> {
   };
   const store = new MemoryStore(project, config);
   await store.ensureLayout();
+  const continuityStore = new SessionContinuityStore(project, config);
+  const excludePath = await continuityStore.ensureLocalIgnore();
 
   return [
     `Initialized Codex Auto Memory in ${project.projectRoot}`,
@@ -40,6 +47,7 @@ export async function runInit(options: InitOptions = {}): Promise<string> {
     `- Local override: ${localConfigPath}`,
     `- Memory root: ${store.paths.baseDir}`,
     `- Project memory: ${store.paths.projectDir}`,
+    ...(excludePath ? [`- Local exclude: ${excludePath}`] : []),
     "",
     "Next steps:",
     "- Use `cam memory --print-startup` to inspect the startup block.",

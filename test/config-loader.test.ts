@@ -43,21 +43,27 @@ describe("loadConfig", () => {
       JSON.stringify({
         extractorMode: "codex",
         autoMemoryDirectory: "~/should-be-ignored",
-        maxStartupLines: 180
+        maxStartupLines: 180,
+        sessionContinuityAutoLoad: true,
+        sessionContinuityLocalPathStyle: "claude",
+        maxSessionContinuityLines: 80
       })
     );
     await fs.writeFile(
       path.join(projectDir, ".codex-auto-memory.local.json"),
       JSON.stringify({
         autoMemoryEnabled: false,
-        autoMemoryDirectory: "~/cam-local-memory"
+        autoMemoryDirectory: "~/cam-local-memory",
+        sessionContinuityAutoLoad: false,
+        sessionContinuityLocalPathStyle: "claude"
       })
     );
     await fs.writeFile(
       managedFile,
       JSON.stringify({
         extractorMode: "codex",
-        autoMemoryEnabled: true
+        autoMemoryEnabled: true,
+        sessionContinuityAutoSave: true
       })
     );
 
@@ -70,7 +76,10 @@ describe("loadConfig", () => {
     expect(loaded.config.defaultScope).toBe("project-local");
     expect(loaded.config.maxStartupLines).toBe(180);
     expect(loaded.config.autoMemoryDirectory).toBe(path.join(homeDir, "cam-local-memory"));
+    expect(loaded.config.sessionContinuityAutoLoad).toBe(false);
+    expect(loaded.config.sessionContinuityAutoSave).toBe(true);
+    expect(loaded.config.sessionContinuityLocalPathStyle).toBe("claude");
     expect(loaded.warnings.join("\n")).toContain("Ignored autoMemoryDirectory");
+    expect(loaded.warnings.join("\n")).toContain("Ignored session continuity local settings");
   });
 });
-

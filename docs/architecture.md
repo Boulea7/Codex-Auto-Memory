@@ -37,6 +37,14 @@ Current implementation note:
 4. The Markdown store applies upserts and deletes to topic files.
 5. `MEMORY.md` is rebuilt as a concise index for each scope.
 
+### Optional session continuity path
+
+1. `cam session save` or wrapper auto-save selects the latest relevant rollout.
+2. A continuity summarizer extracts temporary working-state sections.
+3. Shared continuity is written to the companion store.
+4. Project-local continuity is written to a hidden local path and added to local git excludes.
+5. If auto-load is enabled later, the wrapper injects a bounded temporary continuity block separately from durable memory.
+
 ## Storage model
 
 Default layout:
@@ -100,6 +108,27 @@ The product surface is Markdown-first:
 
 The implementation may keep lightweight state for deduplication or sync bookkeeping, but it must not make the Markdown unreadable or secondary.
 
+## Session continuity layer
+
+`codex-auto-memory` now distinguishes between two companion layers:
+
+- durable auto memory: long-lived Markdown memory scoped as `global`, `project`, and `project-local`
+- session continuity: temporary working-state Markdown used to resume work across conversations
+
+Session continuity is intentionally **not** part of the durable memory contract:
+
+- it captures incomplete work, tried-and-failed approaches, and next steps
+- it should not rewrite or pollute `MEMORY.md`
+- it can be enabled, loaded, or cleared independently of durable memory
+
+Current storage model:
+
+- shared project continuity: `~/.codex-auto-memory/projects/<project-id>/continuity/project/active.md`
+- Codex-first local continuity: `<project-root>/.codex-auto-memory/sessions/active.md`
+- Claude-compatible local continuity (optional path style): `<project-root>/.claude/sessions/<date>-<short-id>-session.tmp`
+
+This split preserves cross-worktree sharing through the companion store while still supporting project-local hidden files for worktree-specific state.
+
 ## Injection strategy
 
 Current Codex releases do not expose a complete native auto memory surface comparable to Claude Code. Until that changes, the startup injector should:
@@ -110,6 +139,12 @@ Current Codex releases do not expose a complete native auto memory surface compa
 - quote injected memory as data so editable Markdown does not silently become policy or tool instructions
 
 This is a compatibility-first design, not a permanent commitment to wrapper-only injection.
+
+Session continuity follows the same companion-first approach:
+
+- default mode is manual and explicit
+- auto-load and auto-save are local behavior toggles, disabled by default
+- project-shared config cannot force local session continuity behavior
 
 ## Extractor strategy
 

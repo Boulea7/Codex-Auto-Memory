@@ -49,6 +49,7 @@ Current code alignment:
 - rollout-backed session sourcing is now isolated behind a named companion session source
 - wrapper-based startup injection is now isolated behind a named runtime injector
 - startup injection now compiles quoted `MEMORY.md` indexes plus structured topic-file references for on-demand reads
+- optional session continuity injection now rides the same wrapper path but remains a distinct temporary layer
 - extractor implementations expose explicit adapter identities
 - `cam doctor` now reports native-readiness against these seams
 
@@ -58,6 +59,7 @@ Current code alignment:
 
 - Use rollout JSONL as the session source
 - Use wrapper commands to inject compact quoted startup memory plus topic-file references
+- Use explicit command surfaces and optional wrapper automation for temporary session continuity
 - Use local Markdown as the stable store
 
 ### Phase 2: Hybrid
