@@ -38,7 +38,7 @@ describe("audit scan", () => {
     await initRepo(repoDir);
 
     const syntheticToken = `Bearer ${["sk", "EXAMPLE", "TOKEN", "123456789012"].join("-")}`;
-    const syntheticAwsKey = "AKIAIOSFODNN7EXAMPLE";
+    const syntheticAwsKey = ["AKIA", "IOSFODNN7EXAMPLE"].join("");
     await fs.mkdir(path.join(repoDir, "test"), { recursive: true });
     await fs.writeFile(
       path.join(repoDir, "test", "fixture.test.ts"),
