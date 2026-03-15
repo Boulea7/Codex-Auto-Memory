@@ -32,9 +32,9 @@ The goal of this audit is to separate:
 ### Accepted with caveat
 
 - `MEMORY.md` is now index-only and no longer contains a highlights dump
-- startup memory now injects index content rather than entry summaries
+- startup memory moved to an index-first model before a safe topic lookup path existed
 
-These changes are closer to the Claude mental model, but they also make the current implementation less informative until topic-on-demand loading is added.
+These changes were closer to the Claude mental model, but they temporarily reduced startup usefulness until topic-on-demand lookup landed.
 
 ### Corrected after audit
 
@@ -47,9 +47,9 @@ These changes are closer to the Claude mental model, but they also make the curr
 If you are reviewing this patch batch, focus on:
 
 - whether the new rollout parser is resilient without becoming too permissive
-- whether index-only startup memory is acceptable as a temporary parity tradeoff
+- whether the later topic-file lookup path preserves the same concise `MEMORY.md` contract without reintroducing eager startup loading
 - whether the repository now clearly distinguishes official facts from local observations
 
 ## Next follow-up
 
-The most important follow-up after this audit is implementing topic-on-demand loading or a similarly compact-but-useful startup enrichment path, without breaking the concise `MEMORY.md` contract.
+The next most important follow-up after this audit is broader extractor fixture coverage and stronger contradiction handling, now that topic-on-demand startup lookup has landed.

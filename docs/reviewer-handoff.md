@@ -22,7 +22,7 @@ It is trying to prove:
 
 The repository currently has:
 
-- a wrapper-based startup injector
+- a wrapper-based startup injector with quoted `MEMORY.md` indexes and structured topic file references
 - a rollout-backed post-session sync path
 - a Markdown memory store with `MEMORY.md` indexes and topic files
 - explicit compatibility seams for session source, extractor, and runtime injector
@@ -31,6 +31,8 @@ The repository currently has:
 
 ## Most recent milestone commits
 
+- Topic-on-demand startup lookup and startup guardrails (current working-tree milestone)
+- Phase 3 hardening: bug fixes, safety hardening, dynamic username audit
 - `680fb2a` `fix(parity): retain reviewed claudecode hardening patch`
 - `f841cb6` `docs(review): audit claudecode changes and correct source claims`
 - `b142288` `feat(audit): add repository privacy scanner and scrub fixtures`
@@ -52,10 +54,10 @@ The project intentionally chose a **forward-only cleanup** strategy. Earlier com
 
 ## Highest-value remaining gaps
 
-- startup injection still carries the `MEMORY.md` index only
-- topic-on-demand loading is not implemented yet
-- Claude parity around topic retrieval is still partial
-- extractor quality still needs more real-world rollout fixtures
+- topic files are now referenced for on-demand reads, but the runtime still relies on generic file-read tools rather than a native lazy-loading hook
+- extractor quality still needs more real-world rollout fixtures and contradiction handling
+- `cam memory` is still shallower than Claude Code’s `/memory`
+- `docs/next-phase-brief.md` now captures the recommended Milestone 9 execution brief
 
 ## Recommended review sequence
 
@@ -67,7 +69,7 @@ The project intentionally chose a **forward-only cleanup** strategy. Earlier com
 6. Read `docs/progress-log.md`
 7. Read `docs/review-guide.md`
 8. Inspect `src/lib/domain/rollout.ts`
-9. Inspect `src/lib/domain/sync-service.ts`
+9. Inspect `src/lib/domain/startup-memory.ts`
 10. Inspect `src/lib/domain/memory-store.ts`
 
 ## Suggested verification commands

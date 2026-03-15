@@ -1,4 +1,9 @@
+import os from "node:os";
 import type { AuditClassification, AuditSeverity } from "../types.js";
+
+function escapeRegex(str: string): string {
+  return str.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
 
 export interface AuditRule {
   id: string;
@@ -13,38 +18,46 @@ export interface ClassifiedAuditMatch {
   recommendation: string;
 }
 
-export const auditRules: AuditRule[] = [
-  {
-    id: "private-key-marker",
-    summary: "Private key marker found",
-    regex: /BEGIN (RSA|EC|OPENSSH|PGP) PRIVATE KEY/i,
-    severity: "high"
-  },
-  {
-    id: "secret-like-token",
-    summary: "Secret-like token literal found",
-    regex: /\b(?:Bearer\s+[A-Za-z0-9._-]{12,}|sk-[A-Za-z0-9-]{12,}|ghp_[A-Za-z0-9]{20,}|AIza[0-9A-Za-z_-]{20,})\b/i,
-    severity: "high"
-  },
-  {
-    id: "absolute-user-path",
-    summary: "User-specific absolute path found",
-    regex: /\/(?:Users|private\/var)\//,
-    severity: "medium"
-  },
-  {
-    id: "local-state-path",
-    summary: "Local state path reference found",
-    regex: /(?:^|[/"'`\s])(?:\.claude\/|\.codex-auto-memory\/|\.codex-auto-memory\.local\.json)(?:$|[/"'`\s])/,
-    severity: "info"
-  },
-  {
-    id: "hardcoded-username",
-    summary: "Hardcoded personal username found",
-    regex: /\bjialinli\b/i,
-    severity: "medium"
+export function buildAuditRules(): AuditRule[] {
+  const rules: AuditRule[] = [
+    {
+      id: "private-key-marker",
+      summary: "Private key marker found",
+      regex: /BEGIN (RSA|EC|OPENSSH|PGP) PRIVATE KEY/i,
+      severity: "high"
+    },
+    {
+      id: "secret-like-token",
+      summary: "Secret-like token literal found",
+      regex: /\b(?:Bearer\s+[A-Za-z0-9._-]{12,}|sk-[A-Za-z0-9-]{12,}|ghp_[A-Za-z0-9]{20,}|AIza[0-9A-Za-z_-]{20,}|AKIA[0-9A-Z]{16}|xox[bpras]-[0-9a-zA-Z-]{10,}|npm_[A-Za-z0-9]{20,})\b/i,
+      severity: "high"
+    },
+    {
+      id: "absolute-user-path",
+      summary: "User-specific absolute path found",
+      regex: /(?:\/Users\/[^/"'`\s]+\/|\/home\/[^/"'`\s]+\/|\/private\/var\/[^/"'`\s]+\/|[A-Z]:\\Users\\[^\\/"'`\s]+\\)/,
+      severity: "medium"
+    },
+    {
+      id: "local-state-path",
+      summary: "Local state path reference found",
+      regex: /(?:^|[/"'`\s])(?:\.claude\/|\.codex-auto-memory\/|\.codex-auto-memory\.local\.json)(?:$|[/"'`\s])/,
+      severity: "info"
+    }
+  ];
+
+  const username = os.userInfo().username;
+  if (username.length >= 3) {
+    rules.push({
+      id: "hardcoded-username",
+      summary: "Hardcoded personal username found",
+      regex: new RegExp(`\\b${escapeRegex(username)}\\b`, "i"),
+      severity: "medium"
+    });
   }
-];
+
+  return rules;
+}
 
 const syntheticIndicators = [
   /\bexample\b/i,
@@ -63,10 +76,8 @@ export function classifyAuditMatch(
   const lowerPath = filePath.toLowerCase();
   const isFixturePath =
     lowerPath.includes("test/") ||
-    lowerPath.includes("prompt.ts") ||
-    lowerPath.includes("review-guide") ||
-    lowerPath.includes("claude-reference") ||
-    lowerPath.includes("changelog");
+    lowerPath.includes("fixture") ||
+    lowerPath.includes("mock");
   const looksSynthetic = syntheticIndicators.some((pattern) => pattern.test(line));
 
   if (rule.id === "local-state-path") {

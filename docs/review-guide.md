@@ -44,6 +44,8 @@ Read:
 Review questions:
 
 - Does startup injection avoid mutating user-tracked files?
+- Is startup memory quoted as local data rather than raw executable prompt text?
+- Are topic files referenced for on-demand reads without parsing topic entry bodies at startup?
 - Can the wrapper identify the correct rollout for the just-finished session?
 - Is sync idempotent or at least safely repeatable?
 - Is audit data good enough for debugging mis-saved memory?
@@ -92,13 +94,15 @@ Review questions:
 
 ## High-risk areas
 
+- Prompt injection through editable local memory files
+  Mitigation: `MEMORY.md` lines are prefixed with `| ` and framed as non-executable local data. This reduces accidental instruction following but cannot guarantee safety against deliberate prompt injection.
+- Topic path traversal or malformed topic names
 - Rollout association in the presence of parallel sessions
 - Incorrect tool output stitching when multiple calls share the same function name
 - Silent memory pollution from temporary or speculative session content
 - Drift between README promises and current CLI behavior
 - Overfitting to current Codex rollout artifacts in a way that would make migration painful
 - Documentation that upgrades local observations into unsupported official product claims
-- Reduced startup usefulness after the move to index-only `MEMORY.md` injection
 - Scanner-triggering synthetic fixtures that may not be real leaks but still create review noise
 - Drift between `cam audit` findings and what docs claim about repository hygiene
 

@@ -24,9 +24,10 @@ This document describes the intended runtime architecture for `codex-auto-memory
 
 Current implementation note:
 
-- startup injection currently carries the `MEMORY.md` indexes for the active scopes
-- detailed topic file content is **not** auto-injected yet
-- topic-on-demand loading remains a planned follow-up, not a completed feature
+- startup injection quotes each active scope's `MEMORY.md` as local editable data rather than raw executable instructions
+- startup injection also appends a structured `### Topic files` manifest with `{ scope, topic, path }` records for each available topic file
+- full topic file content is not auto-injected; topic files remain the detail layer and are intended to be read on demand through normal file-read tools
+- startup compilation does not parse topic entry bodies, which keeps the startup path compact and avoids eager full-topic loading
 
 ### Post-session sync path
 
@@ -106,6 +107,7 @@ Current Codex releases do not expose a complete native auto memory surface compa
 - avoid modifying tracked repository files
 - compile memory externally
 - inject it through the wrapper launch path
+- quote injected memory as data so editable Markdown does not silently become policy or tool instructions
 
 This is a compatibility-first design, not a permanent commitment to wrapper-only injection.
 

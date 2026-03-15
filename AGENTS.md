@@ -61,6 +61,7 @@ Short-term priorities:
 - ship the first working CLI wrapper and memory store
 - validate the 200-line startup compiler
 - verify project vs project-local behavior across git worktrees
+- keep startup injection limited to quoted `MEMORY.md` indexes plus topic-file references; do not reintroduce eager topic-entry loading
 
 Long-term priorities:
 

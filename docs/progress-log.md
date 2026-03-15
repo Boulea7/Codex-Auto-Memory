@@ -4,9 +4,9 @@ This document tracks implementation progress in a format that is easy to consume
 
 ## Current completion snapshot
 
-- Approximate overall progress toward a strong Claude-style alpha: `80%`
-- Approximate progress toward a working local MVP: `92%`
-- Current phase: `Phase 4 - security hygiene and review automation`
+- Approximate overall progress toward a strong Claude-style alpha: `88%`
+- Approximate progress toward a working local MVP: `96%`
+- Current phase: `Phase 6 - topic-on-demand startup and security guardrails`
 
 ## Completed milestones
 
@@ -66,12 +66,36 @@ If you are reviewing the repository now, start here:
 6. `src/lib/domain/sync-service.ts`
 7. `src/lib/domain/memory-store.ts`
 
+### Milestone 7: Phase 3 comprehensive hardening
+
+- Fixed `matchesProjectContext` sibling-directory false match (now uses separator-aware prefix check).
+- Fixed `JSON.parse` without try/catch in `parseEntryBlocks` — corrupted entry metadata now skips gracefully.
+- Fixed `fs.rm` without `{ force: true }` when removing empty topic files.
+- Removed `currently` and `I will` false-positive volatile patterns from the safety filter.
+- Added AWS access key, Slack token, npm token, and database connection string patterns to the sensitive content filter.
+- Added `make`, `docker compose`, `gradle`, `mvn`, `dotnet test`, `rake` to the heuristic command extractor filter.
+- Added `continue` after the `rememberMatch` block to prevent duplicate upserts when a message matches both `rememberMatch` and `insightMatch`.
+- Simplified `extractOperations` signature from complex conditional type to `MemoryEntry[]`.
+- Converted `auditRules` from a hardcoded static constant to a `buildAuditRules()` function with dynamic username detection.
+- Updated `absolute-user-path` regex to cover Linux `/home/` and Windows `C:\Users\` paths.
+- Replaced project-specific `isFixturePath` checks with generic test/fixture/mock pattern detection.
+
+### Milestone 8: Topic-on-demand startup and guardrails
+
+- Startup injection now quotes each scope's `MEMORY.md` as local editable data instead of interpolating raw summary text into the prompt body.
+- Startup injection now adds a structured `### Topic files` manifest so Codex can read topic files on demand through normal file-read tools.
+- `compileStartupMemory()` no longer parses topic entry bodies at startup; it enumerates topic file paths only.
+- `MemoryStore.getTopicFile()` now validates topic names as lowercase kebab-case, closing path traversal and basename confusion gaps.
+- `readRecentAuditEntries()` now skips corrupted JSONL lines instead of crashing on a damaged audit log.
+- `matchesProjectContext()` now normalizes trailing separators and compares case-insensitively on case-insensitive platforms.
+- `cam audit` now detects AWS-style access keys in addition to the existing token patterns and no longer flags generic `/home/` / `C:\Users\` documentation examples as medium findings.
+
 ## Known gaps
 
 - Extractor quality is stronger, but still needs broader real-world rollout fixtures and more nuanced contradiction handling.
 - `cam memory` is more audit-friendly now, but still below Claude Code’s `/memory` interaction depth.
 - Native Codex memory and hook support is still companion-first; no native path is activated. Codex now ships native memory but parity verification against our contract is pending.
-- Startup memory now injects only the MEMORY.md index (topic links + counts), not the actual entry content. Topic files are not loaded on-demand yet, which is a gap compared to Claude’s lazy topic loading.
+- Topic files are now surfaced for on-demand reads, but the companion runtime still relies on generic file-read tools rather than a native lazy topic loader.
 - Release hygiene is stronger now, but still needs a per-release reviewer packet refresh discipline.
 - `cam audit` is rule-based and conservative; it reduces obvious risk but is not a substitute for human review.
 - Earlier commits still contain a small number of synthetic secret-like fixtures because the repository intentionally avoided git history rewrite.
@@ -102,7 +126,7 @@ If you are reviewing the repository now, start here:
   - treating missing tool output as unknown success
   - concise `MEMORY.md` index direction
 - **Accepted with caveat**:
-  - startup now injects only the index, which is safer for parity but currently weaker in usefulness until topic-on-demand loading is implemented
+  - the earlier move to index-only startup injection was the right short-term parity correction, but it needed a follow-up path for safe topic lookup
 - **Corrected in docs**:
   - stronger-than-supported claims about Claude forget semantics
   - stronger-than-supported claims about Claude subagent memory sharing/isolation
@@ -110,11 +134,12 @@ If you are reviewing the repository now, start here:
 
 ## Next planned milestones
 
-### Milestone 7: Runtime usefulness hardening
+### Milestone 9: Extractor quality and `/memory` parity
 
-- Implement on-demand topic file loading in startup memory (currently MEMORY.md index only).
-- Improve startup usefulness without breaking the concise index contract.
 - Expand rollout fixtures for harder extractor regression coverage.
+- Improve contradiction handling for stale memory replacement.
+- Narrow the remaining UX gap between `cam memory` and Claude Code’s `/memory`.
+- Use `docs/next-phase-brief.md` as the execution brief for the next implementation window.
 
 ## Review-ready habits
 

@@ -8,6 +8,10 @@ coverage/
 .codex-auto-memory/
 .claude/
 
+# AI instruction files that may contain private context
+CLAUDE.md
+CLAUDE.local.md
+
 # OS / editor noise
 .DS_Store
 *.log

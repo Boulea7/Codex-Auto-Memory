@@ -1,6 +1,6 @@
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import type { AppConfig, MemoryOperation, ProjectContext, RolloutEvidence, SyncResult } from "../types.js";
+import type { AppConfig, MemoryEntry, MemoryOperation, ProjectContext, RolloutEvidence, SyncResult } from "../types.js";
 import { MemoryStore } from "./memory-store.js";
 import { HeuristicExtractor } from "../extractor/heuristic-extractor.js";
 import { CodexExtractor } from "../extractor/codex-extractor.js";
@@ -86,11 +86,7 @@ export class SyncService {
 
   private async extractOperations(
     evidence: RolloutEvidence,
-    existingEntries: Awaited<ReturnType<MemoryStore["listEntries"]>> extends infer T
-      ? T extends Array<infer U>
-        ? U[]
-        : never
-      : never
+    existingEntries: MemoryEntry[]
   ): Promise<MemoryOperation[]> {
     if (this.config.extractorMode === "codex") {
       const modelOperations = await this.primaryExtractor.extract(evidence, existingEntries);

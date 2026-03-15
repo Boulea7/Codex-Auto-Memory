@@ -4,11 +4,54 @@ All notable changes to `codex-auto-memory` will be documented in this file.
 
 The format is intentionally simple and reviewer-friendly: each entry maps to a concrete implementation milestone and, when possible, a single Git commit.
 
-## Unreleased
+## 0.1.0-alpha.8 - 2026-03-15
 
-### In progress
+### Fixed
 
-- Runtime usefulness after index-only startup injection
+- `MemoryStore.getTopicFile()` now validates topics as lowercase kebab-case, preventing path traversal or basename confusion when constructing topic paths.
+- `readRecentAuditEntries()` now skips corrupted JSONL lines instead of crashing on a damaged audit log.
+- `matchesProjectContext()` now normalizes trailing separators and compares case-insensitively on case-insensitive platforms.
+- `cam audit` no longer flags generic `/home/` and `C:\Users\` documentation examples as medium findings.
+
+### Changed
+
+- `compileStartupMemory()` now quotes each scope's `MEMORY.md` as local editable data and injects a structured `### Topic files` manifest for on-demand topic lookup.
+- Startup compilation now enumerates topic file paths without parsing topic entry bodies, keeping startup compact and closer to Claude's lazy topic-loading model.
+
+### Added
+
+- `cam audit` now detects AWS access key style literals alongside the existing token patterns.
+- Added regression coverage for topic path validation, corrupted audit logs, topic-file deletion, volatile-debugging exemptions, the 12-operation safety cap, and normalized project-path matching.
+
+### Review focus
+
+- Confirm that quoted startup memory still gives Codex enough context without letting editable Markdown silently act like prompt instructions.
+- Confirm that topic-on-demand lookup now works via structured path references and does not eagerly load topic entry bodies.
+- Confirm that audit now catches AWS-style synthetic fixtures while avoiding generic documentation-path false positives.
+
+## 0.1.0-alpha.7 - 2026-03-14
+
+### Fixed
+
+- `matchesProjectContext` now uses a separator-aware prefix check, preventing false matches on sibling directories like `/foo/bar-extra` when the project root is `/foo/bar`.
+- `parseEntryBlocks` now wraps `JSON.parse` in try/catch; corrupted entry metadata blocks are skipped gracefully instead of crashing.
+- `fs.rm` in `deleteEntry` now passes `{ force: true }` to avoid ENOENT errors on already-missing topic files.
+- Removed `currently` and `I will` from volatile patterns in the safety filter; these incorrectly rejected legitimate entries like "Currently we use pnpm".
+- Added `continue` after the `rememberMatch` block in the heuristic extractor to prevent duplicate upserts when a message matches both `rememberMatch` and `insightMatch`.
+- Simplified `extractOperations` signature from a complex conditional type to `MemoryEntry[]`.
+
+### Added
+
+- Added AWS access key (`AKIA...`), Slack token (`xox...`), npm token (`npm_...`), and database connection string patterns to the sensitive content filter.
+- Expanded heuristic command filter to include `make`, `docker compose`, `gradle`, `mvn`, `dotnet test`, and `rake`.
+- `buildAuditRules()` replaces the static `auditRules` constant: the `hardcoded-username` rule now uses `os.userInfo().username` dynamically, eliminating the hardcoded personal username. The `absolute-user-path` regex now covers Linux `/home/` and Windows `C:\Users\` paths.
+- `classifyAuditMatch` now uses generic test/fixture/mock path detection instead of project-specific file references.
+
+### Review focus
+
+- Confirm that `matchesProjectContext` sibling-directory fix does not break any rollout association for real sessions.
+- Confirm that the dynamic `hardcoded-username` audit rule correctly fires for the current user and does not produce false positives.
+- Confirm that the sensitive pattern additions do not produce false positives on common code patterns.
 
 ## 0.1.0-alpha.6 - 2026-03-14
 

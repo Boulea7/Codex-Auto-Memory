@@ -106,7 +106,7 @@ function commandSummary(command: string): { summary: string; details: string[] }
     };
   }
 
-  if (/\b(build|tsc|vite build|next build)\b/u.test(command)) {
+  if (/\b(build|tsc|vite build|next build|make|gradle|mvn|dotnet build)\b/u.test(command)) {
     return {
       summary: `Run \`${command}\` to build this repository.`,
       details: [
@@ -217,6 +217,7 @@ export class HeuristicExtractor implements MemoryExtractorAdapter {
             : "Explicit remember instruction from the user.",
           sources: [evidence.rolloutPath]
         });
+        continue;
       }
 
       const insightMatch = message.match(
@@ -251,7 +252,7 @@ export class HeuristicExtractor implements MemoryExtractorAdapter {
       }
 
       seenCommands.add(command);
-      if (!/(pnpm|npm|bun|cargo|pytest|vitest|jest|go test|python -m|python3 -m)/u.test(command)) {
+      if (!/(pnpm|npm|bun|cargo|pytest|vitest|jest|go test|python -m|python3 -m|make|docker compose|gradle|mvn|dotnet test|rake)/u.test(command)) {
         continue;
       }
 
