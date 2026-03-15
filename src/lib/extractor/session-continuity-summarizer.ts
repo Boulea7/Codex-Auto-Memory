@@ -38,17 +38,36 @@ function isFileWriteToolCall(toolCall: RolloutEvidence["toolCalls"][number]): bo
   return FILE_WRITE_PATTERNS.some((pattern) => name.includes(pattern));
 }
 
+function extractFilePathFromPatch(patchText: string): string | null {
+  // "diff --git a/path b/path" — most specific, captures destination path
+  const diffMatch = /^diff --git a\/.+? b\/(.+)$/m.exec(patchText);
+  const diffCapture = diffMatch?.[1];
+  if (diffCapture) return diffCapture.trim();
+  // "+++ b/path" or "+++ path" — after-change path in standard unified diff
+  const pppMatch = /^\+{3} (?:b\/)?(.+)$/m.exec(patchText);
+  const pppCapture = pppMatch?.[1];
+  if (pppCapture) {
+    const p = pppCapture.replace(/\t.*$/, "").trim();
+    return p === "/dev/null" ? null : p;
+  }
+  return null;
+}
+
 function extractFilePath(toolCall: RolloutEvidence["toolCalls"][number]): string | null {
+  // JSON args: write_file, create_file, edit_file
   try {
     const parsed = JSON.parse(toolCall.arguments) as {
       path?: string;
       file_path?: string;
       filename?: string;
     };
-    return parsed.path ?? parsed.file_path ?? parsed.filename ?? null;
+    const jsonPath = parsed.path ?? parsed.file_path ?? parsed.filename ?? null;
+    if (jsonPath) return jsonPath;
   } catch {
-    return null;
+    // fall through to patch text extraction
   }
+  // Raw patch text: apply_patch, apply_patch_freeform
+  return extractFilePathFromPatch(toolCall.arguments);
 }
 
 function summarizeFileWrite(toolCall: RolloutEvidence["toolCalls"][number]): string | null {
@@ -107,7 +126,6 @@ function heuristicSummary(
     goal: recentUserMessages.at(-1) ?? existingState?.goal ?? "",
     confirmedWorking: [
       ...successfulCommands,
-      ...dedupedFileWrites.slice(0, 3),
       ...(existingState?.confirmedWorking ?? [])
     ].slice(0, 8),
     triedAndFailed: [...failedCommands, ...(existingState?.triedAndFailed ?? [])].slice(0, 8),
