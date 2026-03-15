@@ -351,6 +351,12 @@ export function compileSessionContinuity(
     [
       sectionTitles.incompleteNext,
       state.incompleteNext.length > 0 ? state.incompleteNext : ["No next step recorded."]
+    ],
+    [
+      sectionTitles.filesDecisionsEnvironment,
+      state.filesDecisionsEnvironment.length > 0
+        ? state.filesDecisionsEnvironment
+        : ["No additional file, decision, or environment notes."]
     ]
   ];
 

@@ -25,10 +25,40 @@ function extractCommand(toolCall: RolloutEvidence["toolCalls"][number]): string 
 function commandSucceeded(toolCall: RolloutEvidence["toolCalls"][number]): boolean {
   return Boolean(
     toolCall.output &&
-      /(exit code 0|Process exited with code 0|done in |completed successfully)/iu.test(
+      /(exit code 0|Process exited with code 0|done in |completed successfully|tests?\s+passed|\b0 errors?\b|all checks passed|0 failing|\bPASS\b|compiled successfully|build succeeded)/iu.test(
         toolCall.output
       )
   );
+}
+
+const FILE_WRITE_PATTERNS = ["apply_patch", "write_file", "create_file", "edit_file"];
+
+function isFileWriteToolCall(toolCall: RolloutEvidence["toolCalls"][number]): boolean {
+  const name = toolCall.name.toLowerCase();
+  return FILE_WRITE_PATTERNS.some((pattern) => name.includes(pattern));
+}
+
+function extractFilePath(toolCall: RolloutEvidence["toolCalls"][number]): string | null {
+  try {
+    const parsed = JSON.parse(toolCall.arguments) as {
+      path?: string;
+      file_path?: string;
+      filename?: string;
+    };
+    return parsed.path ?? parsed.file_path ?? parsed.filename ?? null;
+  } catch {
+    return null;
+  }
+}
+
+function summarizeFileWrite(toolCall: RolloutEvidence["toolCalls"][number]): string | null {
+  const filePath = extractFilePath(toolCall);
+  if (!filePath) {
+    return null;
+  }
+
+  const basename = filePath.split("/").pop() ?? filePath;
+  return `File modified: ${trimText(basename, 120)}`;
 }
 
 function summarizeCommandResult(
@@ -66,12 +96,18 @@ function heuristicSummary(
     .map((toolCall) => summarizeCommandResult(toolCall, false))
     .filter((item): item is string => Boolean(item))
     .slice(0, 6);
+  const fileWrites = evidence.toolCalls
+    .filter(isFileWriteToolCall)
+    .map(summarizeFileWrite)
+    .filter((item): item is string => Boolean(item));
+  const dedupedFileWrites = [...new Set(fileWrites)].slice(0, 6);
 
   return {
     sourceSessionId: evidence.sessionId,
     goal: recentUserMessages.at(-1) ?? existingState?.goal ?? "",
     confirmedWorking: [
       ...successfulCommands,
+      ...dedupedFileWrites.slice(0, 3),
       ...(existingState?.confirmedWorking ?? [])
     ].slice(0, 8),
     triedAndFailed: [...failedCommands, ...(existingState?.triedAndFailed ?? [])].slice(0, 8),
@@ -80,7 +116,10 @@ function heuristicSummary(
       recentUserMessages.length > 0
         ? [`Continue with the latest request: ${recentUserMessages.at(-1)}`]
         : (existingState?.incompleteNext ?? []),
-    filesDecisionsEnvironment: existingState?.filesDecisionsEnvironment ?? []
+    filesDecisionsEnvironment: [
+      ...dedupedFileWrites,
+      ...(existingState?.filesDecisionsEnvironment ?? [])
+    ].slice(0, 8)
   };
 }
 
