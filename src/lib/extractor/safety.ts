@@ -11,13 +11,15 @@ const sensitivePatterns = [
   /\bsk-[A-Za-z0-9]{16,}\b/,
   /\bghp_[A-Za-z0-9]{20,}\b/,
   /\bAIza[0-9A-Za-z_-]{20,}\b/,
-  /\b[A-Za-z0-9+/]{32,}={1,2}/
+  /\b[A-Za-z0-9+/]{32,}={1,2}/,
+  /\bAKIA[0-9A-Z]{16}\b/,
+  /\bxox[bpras]-[0-9a-zA-Z-]{10,}\b/,
+  /\bnpm_[A-Za-z0-9]{20,}\b/,
+  /\b(?:postgres|mongodb|mysql|redis):\/\/[^\s]{10,}/i
 ] as const;
 
 const volatilePatterns = [
-  /\b(todo|next step|later|for now|temporary|tmp|wip|work in progress)\b/i,
-  /\bI will\b/i,
-  /\bcurrently\b/i
+  /\b(todo|next step|later|for now|temporary|tmp|wip|work in progress)\b/i
 ] as const;
 
 export function containsSensitiveContent(input: string): boolean {

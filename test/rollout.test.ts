@@ -6,6 +6,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import { detectProjectContext } from "../src/lib/domain/project-context.js";
 import {
   findRelevantRollouts,
+  matchesProjectContext,
   parseRolloutEvidence,
   readRolloutMeta
 } from "../src/lib/domain/rollout.js";
@@ -128,6 +129,42 @@ describe("rollout helpers", () => {
     expect(evidence?.toolCalls[0]?.output).toBe("lint output");
     expect(evidence?.toolCalls[1]?.callId).toBe("call-2");
     expect(evidence?.toolCalls[1]?.output).toBe("test output");
+  });
+
+  it("does not match sibling directory", () => {
+    const ctx = { cwd: "/foo/bar", projectRoot: "/foo/bar", projectId: "p", worktreeId: "w" };
+    expect(matchesProjectContext({ cwd: "/foo/bar-extra" }, ctx)).toBe(false);
+  });
+
+  it("matches subdirectory", () => {
+    const ctx = { cwd: "/foo/bar", projectRoot: "/foo/bar", projectId: "p", worktreeId: "w" };
+    expect(matchesProjectContext({ cwd: "/foo/bar/sub" }, ctx)).toBe(true);
+  });
+
+  it("matches exact directory", () => {
+    const ctx = { cwd: "/foo/bar", projectRoot: "/foo/bar", projectId: "p", worktreeId: "w" };
+    expect(matchesProjectContext({ cwd: "/foo/bar" }, ctx)).toBe(true);
+  });
+
+  it("normalizes trailing separators before matching", () => {
+    const ctx = { cwd: "/foo/bar", projectRoot: "/foo/bar/", projectId: "p", worktreeId: "w" };
+    expect(matchesProjectContext({ cwd: "/foo/bar/baz/" }, ctx)).toBe(true);
+  });
+
+  it("matches paths case-insensitively on case-insensitive platforms", () => {
+    const ctx = {
+      cwd: "/tmp/Example/Repo",
+      projectRoot: "/tmp/Example/Repo",
+      projectId: "p",
+      worktreeId: "w"
+    };
+    const result = matchesProjectContext({ cwd: "/tmp/example/repo/src" }, ctx);
+    if (process.platform === "darwin" || process.platform === "win32") {
+      expect(result).toBe(true);
+      return;
+    }
+
+    expect(result).toBe(false);
   });
 
   it("prefers newly added rollouts and otherwise falls back to the session time window", async () => {

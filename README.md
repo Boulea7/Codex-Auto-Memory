@@ -2,7 +2,7 @@
 
 Claude-style auto memory for Codex, implemented as a local companion CLI.
 
-`codex-auto-memory` aims to reproduce the product contract of Claude Code auto memory as closely as possible for today's Codex runtime: local Markdown memory files, automatic post-session note taking, compact startup injection, worktree-aware project sharing, and a clear migration path toward future native Codex memory features.
+`codex-auto-memory` aims to reproduce the product contract of Claude Code auto memory as closely as possible for today's Codex runtime: local Markdown memory files, automatic post-session note taking, compact startup injection, topic-file lookup on demand, worktree-aware project sharing, and a clear migration path toward future native Codex memory features.
 
 ## Why this project exists
 
@@ -33,7 +33,7 @@ Codex already exposes strong building blocks such as `AGENTS.md`, skills, persis
 | Local Markdown memory | Built in | No complete public contract | Yes |
 | `MEMORY.md` startup entrypoint | Built in | No | Yes |
 | 200-line startup budget | Built in | No | Yes |
-| Topic files on demand | Built in | No | Partial: topic files exist, but startup currently injects the index only |
+| Topic files on demand | Built in | No | Partial: startup injects structured topic file references and reads topic details on demand through normal file tools |
 | Worktree-shared project memory | Built in | No public contract | Yes |
 | Audit and edit memory | `/memory` | No equivalent | `cam memory` |
 | Native hooks / memory integration | Built in | Experimental / under development | Planned compatibility layer |
@@ -87,6 +87,7 @@ cam run / cam exec / cam resume
    |
    +--> compile startup memory from:
    |      global + project + project-local MEMORY.md
+   |      + structured topic file references
    |
    +--> launch codex with injected memory context
    |
@@ -136,7 +137,7 @@ See [docs/architecture.md](docs/architecture.md) for the full breakdown.
 
 ### v0.2
 
-- Better extractor prompts and operation deduplication
+- Broader extractor fixtures and contradiction handling
 - Richer `cam memory` inspection output
 - Hook bridge helpers for emerging Codex hook support
 
@@ -155,6 +156,7 @@ See [docs/architecture.md](docs/architecture.md) for the full breakdown.
 - [Progress log](docs/progress-log.md)
 - [Review guide](docs/review-guide.md)
 - [Reviewer handoff](docs/reviewer-handoff.md)
+- [Next phase brief](docs/next-phase-brief.md)
 - [ClaudeCode patch audit](docs/claudecode-patch-audit.md)
 - [Release checklist](docs/release-checklist.md)
 - [Contributing](CONTRIBUTING.md)
@@ -169,6 +171,7 @@ Current review-oriented status:
 - baseline alpha bootstrap complete
 - sync reliability hardening complete
 - extractor quality hardening complete
+- topic-aware startup lookup complete
 - memory inspection UX hardening complete
 - native compatibility seams complete
 - ClaudeCode patch batch audited and retained with documentation corrections

@@ -200,6 +200,121 @@ describe("safety filter", () => {
   });
 });
 
+describe("safety filter - volatile/sensitive patterns", () => {
+  it("keeps entries with 'currently' in summary", () => {
+    const filtered = filterMemoryOperations([
+      {
+        action: "upsert",
+        scope: "project",
+        topic: "workflow",
+        id: "pkg-manager",
+        summary: "Currently we use pnpm as the package manager.",
+        details: ["Use pnpm instead of npm."]
+      }
+    ]);
+    expect(filtered).toHaveLength(1);
+  });
+
+  it("rejects entries with volatile markers like 'wip'", () => {
+    const filtered = filterMemoryOperations([
+      {
+        action: "upsert",
+        scope: "project",
+        topic: "workflow",
+        id: "wip-entry",
+        summary: "This is wip for now",
+        details: ["temporary approach"]
+      }
+    ]);
+    expect(filtered).toHaveLength(0);
+  });
+
+  it("rejects entries with AWS access key", () => {
+    const syntheticAwsKey = ["AKIA", "IOSFODNN7EXAMPLE"].join("");
+    const filtered = filterMemoryOperations([
+      {
+        action: "upsert",
+        scope: "project",
+        topic: "workflow",
+        id: "aws-key",
+        summary: `Use key ${syntheticAwsKey} for the CI bucket.`,
+        details: ["ci credentials"]
+      }
+    ]);
+    expect(filtered).toHaveLength(0);
+  });
+
+  it("rejects entries with database connection string", () => {
+    const filtered = filterMemoryOperations([
+      {
+        action: "upsert",
+        scope: "project",
+        topic: "workflow",
+        id: "db-conn",
+        summary: "Connect via postgres://user:pass@host/db for local dev.",
+        details: ["local db url"]
+      }
+    ]);
+    expect(filtered).toHaveLength(0);
+  });
+
+  it("keeps clean postgres mention without connection string", () => {
+    const filtered = filterMemoryOperations([
+      {
+        action: "upsert",
+        scope: "project",
+        topic: "architecture",
+        id: "use-postgres",
+        summary: "Use postgres for the API database layer.",
+        details: ["The project uses PostgreSQL as its primary store."]
+      }
+    ]);
+    expect(filtered).toHaveLength(1);
+  });
+
+  it("keeps volatile wording inside debugging topics", () => {
+    const filtered = filterMemoryOperations([
+      {
+        action: "upsert",
+        scope: "project",
+        topic: "debugging",
+        id: "temporary-debug-note",
+        summary: "Temporary workaround: restart Redis when tests hang.",
+        details: ["Temporary but still useful while the issue is open."]
+      }
+    ]);
+    expect(filtered).toHaveLength(1);
+  });
+
+  it("caps sanitized operations at 12 items", () => {
+    const filtered = filterMemoryOperations(
+      Array.from({ length: 20 }, (_, index) => ({
+        action: "upsert" as const,
+        scope: "project" as const,
+        topic: "workflow",
+        id: `entry-${index}`,
+        summary: `Workflow note ${index}`,
+        details: [`Workflow detail ${index}`]
+      }))
+    );
+    expect(filtered).toHaveLength(12);
+  });
+});
+
+describe("HeuristicExtractor - no duplicate upserts for remember + insight", () => {
+  it("does not produce duplicate upserts for remember + insight match on same message", async () => {
+    const extractor = new HeuristicExtractor();
+    const operations = await extractor.extract(
+      baseEvidence({
+        userMessages: ["remember that API tests require Redis"]
+      }),
+      []
+    );
+    const upserts = operations.filter((op) => op.action === "upsert");
+    expect(upserts).toHaveLength(1);
+  });
+});
+
 describe("CodexExtractor", () => {
   it("parses structured operations from a mocked codex binary", async () => {
     const temp = await tempDir("cam-extractor-");

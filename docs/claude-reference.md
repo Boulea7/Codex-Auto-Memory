@@ -76,13 +76,34 @@ The official memory docs emphasize that auto memory is plain Markdown and can be
 
 ### 5b. Subagent memory behavior
 
-Anthropic's public docs explicitly say that subagents can maintain persistent memory and point readers to subagent configuration for details. They do not, in the sources reviewed for this repository, fully specify every sharing and isolation rule between parent-session auto memory and subagent-specific persistent memory.
+Claude Code docs confirm that subagents maintain **independent** persistent memory, stored at separate paths:
+
+- User scope: `~/.claude/agent-memory/<agent-name>/`
+- Project scope: `.claude/agent-memory/<agent-name>/`
+- Local scope: `.claude/agent-memory-local/<agent-name>/`
+
+This means a subagent's memory does not merge into the parent session's auto memory unless the agent is explicitly designed to share state. The isolation is intentional.
 
 For this project, the safe reference point is:
 
 - subagents are a relevant parity surface
-- persistent subagent memory exists in Claude Code
-- the exact sharing model should not be over-claimed unless verified from current official docs
+- persistent subagent memory exists in Claude Code and uses distinct paths per agent name
+- the exact sharing semantics between parent-session memory and subagent memory should not be over-claimed unless verified from current official docs
+
+### 5c. Lifecycle hooks
+
+Claude Code supports 4 hook types: command hooks, HTTP hooks, prompt hooks, and agent hooks. The platform exposes 22+ lifecycle events. This is substantially richer than Codex's current hook surface (2 events: SessionStart and Stop, experimental only).
+
+### 5d. `/memory` command capabilities
+
+The `/memory` command provides:
+
+- view loaded memory files
+- toggle auto memory on/off
+- open the memory folder in the file browser
+- edit memory files directly
+
+"Forget" is implemented as manual edit or delete via `/memory`, not as a dedicated `/forget` slash command. There is no `/forget` command in the official Claude Code product.
 
 ### 6. Configuration boundary for `autoMemoryDirectory`
 

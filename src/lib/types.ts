@@ -26,6 +26,13 @@ export interface CompiledStartupMemory {
   text: string;
   lineCount: number;
   sourceFiles: string[];
+  topicFiles: TopicFileRef[];
+}
+
+export interface TopicFileRef {
+  scope: MemoryScope;
+  topic: string;
+  path: string;
 }
 
 export interface AppConfig {

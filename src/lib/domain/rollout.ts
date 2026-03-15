@@ -46,6 +46,21 @@ function parseTimestamp(value: string): number {
   return Number.isFinite(parsed) ? parsed : 0;
 }
 
+function normalizeComparisonPath(input: string): string {
+  const resolved = path.resolve(input);
+  const trimmed =
+    resolved.length > 1 ? resolved.replace(new RegExp(`${escapePathSep()}+$`, "u"), "") : resolved;
+  return isCaseInsensitiveFs() ? trimmed.toLowerCase() : trimmed;
+}
+
+function escapePathSep(): string {
+  return path.sep.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+function isCaseInsensitiveFs(): boolean {
+  return process.platform === "win32" || process.platform === "darwin";
+}
+
 // Reads a scalar field from session_meta payload, supporting both flat and nested (payload.meta) formats.
 function sessionMetaValue(
   payload: Record<string, unknown>,
@@ -234,5 +249,15 @@ export function matchesProjectContext(
   evidence: Pick<RolloutEvidence, "cwd"> | Pick<RolloutMeta, "cwd">,
   project: ProjectContext
 ): boolean {
-  return evidence.cwd.startsWith(project.projectRoot);
+  const normalizedEvidence = normalizeComparisonPath(evidence.cwd);
+  const normalizedProjectRoot = normalizeComparisonPath(project.projectRoot);
+  const childPrefix =
+    normalizedProjectRoot === path.sep
+      ? normalizedProjectRoot
+      : `${normalizedProjectRoot}${isCaseInsensitiveFs() ? path.sep.toLowerCase() : path.sep}`;
+
+  return (
+    normalizedEvidence === normalizedProjectRoot ||
+    normalizedEvidence.startsWith(childPrefix)
+  );
 }
