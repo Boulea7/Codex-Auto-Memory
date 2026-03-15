@@ -7,7 +7,8 @@ import type {
   MemoryOperation,
   MemoryScope,
   ProjectContext,
-  ScopePaths
+  ScopePaths,
+  TopicFileRef
 } from "../types.js";
 import { appendJsonl, ensureDir, fileExists, readJsonFile, readTextFile, writeJsonFile, writeTextFile } from "../util/fs.js";
 import { getDefaultMemoryDirectory } from "./project-context.js";
@@ -16,11 +17,24 @@ interface SyncState {
   processedRollouts: Record<string, string>;
 }
 
+const topicNamePattern = /^[a-z0-9]+(?:-[a-z0-9]+)*$/u;
+
 function topicTitle(topic: string): string {
   return topic
     .split(/[-_]/g)
     .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
     .join(" ");
+}
+
+function normalizeTopicName(topic: string): string {
+  const normalized = topic.trim().toLowerCase();
+  if (!topicNamePattern.test(normalized)) {
+    throw new Error(
+      "Topic names must use lowercase kebab-case and may only contain letters, numbers, and hyphens."
+    );
+  }
+
+  return normalized;
 }
 
 function entryBlock(entry: MemoryEntry): string {
@@ -64,13 +78,24 @@ function parseEntryBlocks(contents: string): MemoryEntry[] {
       continue;
     }
 
-    const metadata = JSON.parse(metadataRaw) as {
+    let metadata: {
       id: string;
       scope: MemoryScope;
       updatedAt: string;
       sources?: string[];
       reason?: string;
     };
+    try {
+      metadata = JSON.parse(metadataRaw) as {
+        id: string;
+        scope: MemoryScope;
+        updatedAt: string;
+        sources?: string[];
+        reason?: string;
+      };
+    } catch {
+      continue;
+    }
 
     const details = detailsRaw
       .split("\n")
@@ -158,7 +183,7 @@ export class MemoryStore {
   }
 
   public getTopicFile(scope: MemoryScope, topic: string): string {
-    return path.join(this.getScopeDir(scope), `${topic}.md`);
+    return path.join(this.getScopeDir(scope), `${normalizeTopicName(topic)}.md`);
   }
 
   public async ensureLayout(): Promise<void> {
@@ -191,6 +216,9 @@ export class MemoryStore {
       }
 
       const topic = fileName.replace(/\.md$/u, "");
+      if (!topicNamePattern.test(topic)) {
+        continue;
+      }
       const contents = await readTextFile(path.join(scopeDir, fileName));
       const parsed = parseEntryBlocks(contents).map((entry) => ({ ...entry, topic }));
       entries.push(...parsed);
@@ -200,8 +228,25 @@ export class MemoryStore {
   }
 
   public async listTopics(scope: MemoryScope): Promise<string[]> {
-    const entries = await this.listEntries(scope);
-    return Array.from(new Set(entries.map((entry) => entry.topic))).sort();
+    return (await this.listTopicRefs(scope)).map((entry) => entry.topic);
+  }
+
+  public async listTopicRefs(scope: MemoryScope): Promise<TopicFileRef[]> {
+    const scopeDir = this.getScopeDir(scope);
+    if (!(await fileExists(scopeDir))) {
+      return [];
+    }
+
+    const files = await fs.readdir(scopeDir);
+    return files
+      .filter((fileName) => fileName.endsWith(".md") && fileName !== "MEMORY.md")
+      .map((fileName) => ({
+        scope,
+        topic: fileName.replace(/\.md$/u, ""),
+        path: path.join(scopeDir, fileName)
+      }))
+      .filter((entry) => topicNamePattern.test(entry.topic))
+      .sort((left, right) => left.topic.localeCompare(right.topic));
   }
 
   public async rebuildIndex(scope: MemoryScope): Promise<void> {
@@ -241,10 +286,11 @@ export class MemoryStore {
       }
 
       const updatedAt = new Date().toISOString();
+      const topic = normalizeTopicName(operation.topic);
       const entry: MemoryEntry = {
         id: operation.id,
         scope: operation.scope,
-        topic: operation.topic,
+        topic,
         summary: operation.summary,
         details: operation.details?.length ? operation.details : [operation.summary],
         updatedAt,
@@ -321,7 +367,7 @@ export class MemoryStore {
     }
 
     if (nextEntries.length === 0) {
-      await fs.rm(topicFile);
+      await fs.rm(topicFile, { force: true });
     } else {
       await writeTextFile(topicFile, topicFileContents(topic, nextEntries));
     }
@@ -392,8 +438,14 @@ export class MemoryStore {
       .split("\n")
       .map((line) => line.trim())
       .filter(Boolean)
+      .flatMap((line) => {
+        try {
+          return [JSON.parse(line) as Record<string, unknown>];
+        } catch {
+          return [];
+        }
+      })
       .slice(-limit)
-      .map((line) => JSON.parse(line) as Record<string, unknown>)
       .reverse();
   }
 

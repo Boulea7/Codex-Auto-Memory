@@ -13,16 +13,21 @@ Codex already exposes useful foundations:
 
 ### Codex native memory status (as of early 2026)
 
-The official OpenAI Codex materials reviewed for this repository do **not** currently provide a public product contract equivalent to Claude Code's auto memory page. In particular, we did **not** find official documentation that clearly specifies:
+Codex CLI ships with a native two-phase memory system (extraction + consolidation) implemented in Rust. The following details were observed from source and local runtime behavior. They are **not** backed by a stable official public API contract and may change without notice.
 
-- a stable native memory directory layout
-- a documented startup-loading contract comparable to Claude's `MEMORY.md` behavior
-- a documented scope model equivalent to `global / project / project-local`
-- a public hook-driven native memory pipeline contract
+Observed layout at `~/.codex/memories/`:
 
-What we *do* have today are local implementation signals and experimental feature flags, such as `memories`, `codex_hooks`, and rollout metadata like `memory_mode`. Those are useful migration hints, but they should be treated as **local observations or emerging internals**, not as stable public API guarantees.
+- `MEMORY.md`: primary memory index
+- `memory_summary.md`: consolidated summary
+- `skills/`: skills extracted from sessions
 
-This is an important distinction. Native Codex memory may exist in some form, but until OpenAI publishes a clear contract, we should not present directory layouts, config keys, or hook semantics as confirmed product behavior.
+Configuration is via the `[memories]` section in `config.toml`. The feature is gated behind the `memory_tool` / `MemoryTool` feature flag.
+
+Hook events are currently limited to 2 experimental events: `SessionStart` and `Stop`. Hook configuration lives in `.codex/hooks.json`. This is substantially more limited than Claude Code's 22+ lifecycle events across 4 hook types.
+
+Sessions are stored as JSONL rollout files at `~/.codex/sessions/YYYY/MM/DD/rollout-<timestamp>-<UUID>.jsonl`.
+
+**Important**: the above is based on source inspection and local observations, not official OpenAI documentation. Treat it as a useful migration signal, not a stable API guarantee. In particular, the directory layout, config keys, and hook semantics may change in future Codex releases without notice.
 
 ## Migration objective
 
@@ -43,6 +48,7 @@ Current code alignment:
 
 - rollout-backed session sourcing is now isolated behind a named companion session source
 - wrapper-based startup injection is now isolated behind a named runtime injector
+- startup injection now compiles quoted `MEMORY.md` indexes plus structured topic-file references for on-demand reads
 - extractor implementations expose explicit adapter identities
 - `cam doctor` now reports native-readiness against these seams
 
@@ -51,7 +57,7 @@ Current code alignment:
 ### Phase 1: Companion-first
 
 - Use rollout JSONL as the session source
-- Use wrapper commands to inject startup memory
+- Use wrapper commands to inject compact quoted startup memory plus topic-file references
 - Use local Markdown as the stable store
 
 ### Phase 2: Hybrid

@@ -38,15 +38,22 @@ describe("audit scan", () => {
     await initRepo(repoDir);
 
     const syntheticToken = `Bearer ${["sk", "EXAMPLE", "TOKEN", "123456789012"].join("-")}`;
+    const syntheticAwsKey = "AKIAIOSFODNN7EXAMPLE";
     await fs.mkdir(path.join(repoDir, "test"), { recursive: true });
     await fs.writeFile(
       path.join(repoDir, "test", "fixture.test.ts"),
-      `const value = ${JSON.stringify(syntheticToken)}; // synthetic fixture\n`,
+      [
+        `const value = ${JSON.stringify(syntheticToken)}; // synthetic fixture`,
+        `const aws = ${JSON.stringify(syntheticAwsKey)}; // synthetic fixture`
+      ].join("\n") + "\n",
       "utf8"
     );
     await fs.writeFile(
       path.join(repoDir, "README.md"),
-      "Uses ~/.codex-auto-memory/ for local storage.\n",
+      [
+        "Uses ~/.codex-auto-memory/ for local storage.",
+        "The regex covers Linux `/home/` and Windows `C:\\Users\\` path roots."
+      ].join("\n") + "\n",
       "utf8"
     );
     runCommandCapture("git", ["add", "README.md", "test/fixture.test.ts"], repoDir, {
@@ -76,6 +83,7 @@ describe("audit scan", () => {
       true
     );
     expect(report.findings.some((finding) => finding.sourceType === "git-history")).toBe(true);
+    expect(report.findings.some((finding) => finding.ruleId === "absolute-user-path")).toBe(false);
   });
 
   it("supports no-history mode from the command surface", async () => {

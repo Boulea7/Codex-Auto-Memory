@@ -9,7 +9,9 @@ import type {
 } from "../types.js";
 import { runCommandCapture } from "../util/process.js";
 import { trimText } from "../util/text.js";
-import { auditRules, classifyAuditMatch } from "./patterns.js";
+import { buildAuditRules, classifyAuditMatch } from "./patterns.js";
+
+const auditRules = buildAuditRules();
 
 interface AuditOptions {
   cwd: string;
