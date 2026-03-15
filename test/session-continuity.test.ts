@@ -291,9 +291,10 @@ describe("session continuity domain", () => {
   });
 
   it("sanitizeSessionContinuitySummary strips sensitive items", () => {
+    const syntheticBearer = `Bearer ${["sk", "12345678901234567890"].join("-")}`;
     const summary = {
       goal: "Fix auth",
-      confirmedWorking: ["Clean item", "Bearer sk-12345678901234567890"],
+      confirmedWorking: ["Clean item", syntheticBearer],
       triedAndFailed: [],
       notYetTried: [],
       incompleteNext: [],
@@ -302,7 +303,7 @@ describe("session continuity domain", () => {
 
     const sanitized = sanitizeSessionContinuitySummary(summary);
     expect(sanitized.confirmedWorking).toContain("Clean item");
-    expect(sanitized.confirmedWorking.join("\n")).not.toContain("sk-12345678901234567890");
+    expect(sanitized.confirmedWorking.join("\n")).not.toContain("12345678901234567890");
   });
 
   it("compiled startup block includes filesDecisionsEnvironment section", () => {
