@@ -29,6 +29,10 @@ describe("MemoryStore", () => {
       extractorMode: "heuristic",
       defaultScope: "project",
       maxStartupLines: 200,
+      sessionContinuityAutoLoad: false,
+      sessionContinuityAutoSave: false,
+      sessionContinuityLocalPathStyle: "codex",
+      maxSessionContinuityLines: 60,
       codexBinary: "codex"
     };
     const store = new MemoryStore(detectProjectContext(projectDir), config);
@@ -72,6 +76,10 @@ describe("MemoryStore", () => {
       extractorMode: "heuristic",
       defaultScope: "project",
       maxStartupLines: 200,
+      sessionContinuityAutoLoad: false,
+      sessionContinuityAutoSave: false,
+      sessionContinuityLocalPathStyle: "codex",
+      maxSessionContinuityLines: 60,
       codexBinary: "codex"
     };
     const store = new MemoryStore(detectProjectContext(projectDir), config);
@@ -116,6 +124,10 @@ describe("MemoryStore", () => {
       extractorMode: "heuristic",
       defaultScope: "project",
       maxStartupLines: 200,
+      sessionContinuityAutoLoad: false,
+      sessionContinuityAutoSave: false,
+      sessionContinuityLocalPathStyle: "codex",
+      maxSessionContinuityLines: 60,
       codexBinary: "codex"
     };
 
@@ -165,6 +177,10 @@ describe("MemoryStore", () => {
       extractorMode: "heuristic",
       defaultScope: "project",
       maxStartupLines: 200,
+      sessionContinuityAutoLoad: false,
+      sessionContinuityAutoSave: false,
+      sessionContinuityLocalPathStyle: "codex",
+      maxSessionContinuityLines: 60,
       codexBinary: "codex"
     };
     const store = new MemoryStore(detectProjectContext(projectDir), config);
@@ -200,6 +216,10 @@ describe("MemoryStore", () => {
       extractorMode: "heuristic",
       defaultScope: "project",
       maxStartupLines: 200,
+      sessionContinuityAutoLoad: false,
+      sessionContinuityAutoSave: false,
+      sessionContinuityLocalPathStyle: "codex",
+      maxSessionContinuityLines: 60,
       codexBinary: "codex"
     };
     const store = new MemoryStore(detectProjectContext(projectDir), config);

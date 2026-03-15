@@ -18,6 +18,9 @@ Use this checklist before cutting any alpha or beta release of `codex-auto-memor
   - `cam init`
   - `cam remember "..."`
   - `cam memory --recent --print-startup`
+  - `cam session status`
+  - `cam session save`
+  - `cam session load --print-startup`
   - `cam forget "..."`
   - `cam doctor`
 

@@ -31,6 +31,7 @@ Check that the code still supports these core promises:
 - worktree-aware project memory sharing
 - editable and auditable memory files
 - a separate path for future native Codex migration
+- temporary continuity state remains separate from durable memory
 
 ### 2. Runtime behavior
 
@@ -46,6 +47,7 @@ Review questions:
 - Does startup injection avoid mutating user-tracked files?
 - Is startup memory quoted as local data rather than raw executable prompt text?
 - Are topic files referenced for on-demand reads without parsing topic entry bodies at startup?
+- Is temporary session continuity clearly separated from durable auto memory?
 - Can the wrapper identify the correct rollout for the just-finished session?
 - Is sync idempotent or at least safely repeatable?
 - Is audit data good enough for debugging mis-saved memory?
@@ -97,6 +99,7 @@ Review questions:
 - Prompt injection through editable local memory files
   Mitigation: `MEMORY.md` lines are prefixed with `| ` and framed as non-executable local data. This reduces accidental instruction following but cannot guarantee safety against deliberate prompt injection.
 - Topic path traversal or malformed topic names
+- Durable memory polluted by temporary continuity state
 - Rollout association in the presence of parallel sessions
 - Incorrect tool output stitching when multiple calls share the same function name
 - Silent memory pollution from temporary or speculative session content
@@ -110,16 +113,18 @@ Review questions:
 
 1. Read `README.md`
 2. Read `docs/claude-reference.md`
-3. Read `docs/progress-log.md`
-4. Read `CHANGELOG.md`
-5. Run `cam audit`
-6. Inspect `src/lib/domain/rollout.ts`
-7. Inspect `src/lib/domain/sync-service.ts`
-8. Inspect `src/lib/domain/memory-store.ts`
-9. Inspect extractor files
-10. Run `pnpm test`
-11. Read `docs/claudecode-patch-audit.md`
-12. Read `docs/reviewer-handoff.md`
+3. Read `docs/session-continuity.md`
+4. Read `docs/progress-log.md`
+5. Read `CHANGELOG.md`
+6. Run `cam audit`
+7. Inspect `src/lib/domain/rollout.ts`
+8. Inspect `src/lib/domain/sync-service.ts`
+9. Inspect `src/lib/domain/memory-store.ts`
+10. Inspect `src/lib/domain/session-continuity-store.ts`
+11. Inspect extractor files
+12. Run `pnpm test`
+13. Read `docs/claudecode-patch-audit.md`
+14. Read `docs/reviewer-handoff.md`
 
 ## Claude parity checklist
 

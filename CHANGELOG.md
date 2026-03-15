@@ -4,6 +4,30 @@ All notable changes to `codex-auto-memory` will be documented in this file.
 
 The format is intentionally simple and reviewer-friendly: each entry maps to a concrete implementation milestone and, when possible, a single Git commit.
 
+## 0.1.0-alpha.9 - 2026-03-15
+
+### Added
+
+- Added a separate session continuity companion layer with `cam session status|save|load|clear|open`.
+- Added shared project continuity storage under the companion root plus project-local continuity storage under hidden tool-specific directories.
+- Added optional `sessionContinuityAutoLoad`, `sessionContinuityAutoSave`, `sessionContinuityLocalPathStyle`, and `maxSessionContinuityLines` config fields.
+- Added a dedicated session continuity schema and Codex-backed summarizer with heuristic fallback.
+- Added regression coverage for continuity parsing, storage, git exclude handling, command flow, and wrapper auto-load/auto-save.
+- Added `docs/session-continuity.md` to document the durable-memory vs temporary-continuity split.
+
+### Changed
+
+- `cam init` now prepares local ignore entries for project-local continuity files through `.git/info/exclude` when running inside a git repository.
+- Wrapper startup injection can now include a bounded `# Session Continuity` block when auto-load is enabled locally.
+- Wrapper end-of-session flow can now refresh continuity state from relevant rollouts when auto-save is enabled locally.
+- Shared project config can no longer force local session continuity behavior; those settings are ignored outside managed, user, and local config scopes.
+
+### Review focus
+
+- Confirm that session continuity remains clearly separate from durable `MEMORY.md`-based auto memory.
+- Confirm that Codex-first local storage works well while Claude-compatible path style remains available as an adapter.
+- Confirm that wrapper auto-load/auto-save only activates when explicitly enabled and does not regress existing startup behavior.
+
 ## 0.1.0-alpha.8 - 2026-03-15
 
 ### Fixed

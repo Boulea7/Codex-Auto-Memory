@@ -10,6 +10,7 @@ import { runDoctor } from "./lib/commands/doctor.js";
 import { installHooks, removeHooks } from "./lib/commands/hooks.js";
 import { runWrappedCodex } from "./lib/commands/wrapper.js";
 import { runAudit } from "./lib/commands/audit.js";
+import { runSession } from "./lib/commands/session.js";
 
 function isWrapperCommand(input?: string): input is "run" | "exec" | "resume" {
   return input === "run" || input === "exec" || input === "resume";
@@ -96,6 +97,44 @@ async function main(): Promise<void> {
     .option("--no-history", "Disable git history scanning")
     .action(async (options) => {
       process.stdout.write(`${await runAudit(options)}\n`);
+    });
+
+  const sessionCommand = program.command("session").description("Manage temporary cross-session continuity state");
+  sessionCommand
+    .command("status")
+    .description("Inspect current session continuity state")
+    .option("--json", "Print JSON output")
+    .action(async (options) => {
+      process.stdout.write(`${await runSession("status", options)}\n`);
+    });
+  sessionCommand
+    .command("save")
+    .description("Save temporary session continuity from a rollout")
+    .option("--rollout <path>", "Specific rollout JSONL file to summarize")
+    .option("--scope <scope>", "Target continuity scope: project, project-local, or both", "both")
+    .action(async (options) => {
+      process.stdout.write(`${await runSession("save", options)}\n`);
+    });
+  sessionCommand
+    .command("load")
+    .description("Load current session continuity summary")
+    .option("--json", "Print JSON output")
+    .option("--print-startup", "Print the compiled startup continuity block")
+    .action(async (options) => {
+      process.stdout.write(`${await runSession("load", options)}\n`);
+    });
+  sessionCommand
+    .command("clear")
+    .description("Clear active session continuity state")
+    .option("--scope <scope>", "Target continuity scope: project, project-local, or both", "both")
+    .action(async (options) => {
+      process.stdout.write(`${await runSession("clear", options)}\n`);
+    });
+  sessionCommand
+    .command("open")
+    .description("Open the local session continuity directory")
+    .action(async (options) => {
+      process.stdout.write(`${await runSession("open", options)}\n`);
     });
 
   const hooksCommand = program.command("hooks").description("Manage future hook bridge assets");

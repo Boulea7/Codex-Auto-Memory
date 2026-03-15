@@ -4,9 +4,9 @@ This document tracks implementation progress in a format that is easy to consume
 
 ## Current completion snapshot
 
-- Approximate overall progress toward a strong Claude-style alpha: `88%`
-- Approximate progress toward a working local MVP: `96%`
-- Current phase: `Phase 6 - topic-on-demand startup and security guardrails`
+- Approximate overall progress toward a strong Claude-style alpha: `90%`
+- Approximate progress toward a working local MVP: `97%`
+- Current phase: `Phase 7 - session continuity and Codex-first companion flow`
 
 ## Completed milestones
 
@@ -60,11 +60,13 @@ If you are reviewing the repository now, start here:
 
 1. `README.md`
 2. `docs/claude-reference.md`
-3. `docs/architecture.md`
-4. `docs/review-guide.md`
-5. `src/lib/domain/rollout.ts`
-6. `src/lib/domain/sync-service.ts`
-7. `src/lib/domain/memory-store.ts`
+3. `docs/session-continuity.md`
+4. `docs/architecture.md`
+5. `docs/review-guide.md`
+6. `src/lib/domain/rollout.ts`
+7. `src/lib/domain/sync-service.ts`
+8. `src/lib/domain/memory-store.ts`
+9. `src/lib/domain/session-continuity-store.ts`
 
 ### Milestone 7: Phase 3 comprehensive hardening
 
@@ -90,12 +92,24 @@ If you are reviewing the repository now, start here:
 - `matchesProjectContext()` now normalizes trailing separators and compares case-insensitively on case-insensitive platforms.
 - `cam audit` now detects AWS-style access keys in addition to the existing token patterns and no longer flags generic `/home/` / `C:\Users\` documentation examples as medium findings.
 
+### Milestone 9: Session continuity companion layer
+
+- Added a separate session continuity model so temporary working state stays distinct from durable auto memory.
+- Added `cam session status|save|load|clear|open` for explicit continuity control.
+- Added shared project continuity under the companion directory plus project-local continuity under hidden tool-specific paths.
+- Default local path style is Codex-first (`.codex-auto-memory/sessions/active.md`), with optional Claude-compatible `.claude/sessions/<date>-<short-id>-session.tmp` support.
+- Added optional `sessionContinuityAutoLoad` and `sessionContinuityAutoSave` wrapper behavior, both disabled by default.
+- Added structured startup continuity compilation with a separate line budget from durable memory.
+- Added local `.git/info/exclude` updates for project-local continuity files instead of relying on tracked `.gitignore` edits.
+- Added Codex-backed continuity summarization with heuristic fallback.
+
 ## Known gaps
 
 - Extractor quality is stronger, but still needs broader real-world rollout fixtures and more nuanced contradiction handling.
 - `cam memory` is more audit-friendly now, but still below Claude Code’s `/memory` interaction depth.
 - Native Codex memory and hook support is still companion-first; no native path is activated. Codex now ships native memory but parity verification against our contract is pending.
 - Topic files are now surfaced for on-demand reads, but the companion runtime still relies on generic file-read tools rather than a native lazy topic loader.
+- Session continuity is now available, but the summarizer still needs higher-fidelity extraction and better distinction between project-shared vs worktree-local state.
 - Release hygiene is stronger now, but still needs a per-release reviewer packet refresh discipline.
 - `cam audit` is rule-based and conservative; it reduces obvious risk but is not a substitute for human review.
 - Earlier commits still contain a small number of synthetic secret-like fixtures because the repository intentionally avoided git history rewrite.
@@ -134,7 +148,7 @@ If you are reviewing the repository now, start here:
 
 ## Next planned milestones
 
-### Milestone 9: Extractor quality and `/memory` parity
+### Milestone 10: Extractor quality and `/memory` parity
 
 - Expand rollout fixtures for harder extractor regression coverage.
 - Improve contradiction handling for stale memory replacement.

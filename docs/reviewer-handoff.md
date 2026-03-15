@@ -23,6 +23,7 @@ It is trying to prove:
 The repository currently has:
 
 - a wrapper-based startup injector with quoted `MEMORY.md` indexes and structured topic file references
+- a separate session continuity layer for temporary working-state handoff across conversations
 - a rollout-backed post-session sync path
 - a Markdown memory store with `MEMORY.md` indexes and topic files
 - explicit compatibility seams for session source, extractor, and runtime injector
@@ -31,7 +32,8 @@ The repository currently has:
 
 ## Most recent milestone commits
 
-- Topic-on-demand startup lookup and startup guardrails (current working-tree milestone)
+- Session continuity companion layer and Codex-first local storage
+- Topic-on-demand startup lookup and startup guardrails
 - Phase 3 hardening: bug fixes, safety hardening, dynamic username audit
 - `680fb2a` `fix(parity): retain reviewed claudecode hardening patch`
 - `f841cb6` `docs(review): audit claudecode changes and correct source claims`
@@ -57,7 +59,8 @@ The project intentionally chose a **forward-only cleanup** strategy. Earlier com
 - topic files are now referenced for on-demand reads, but the runtime still relies on generic file-read tools rather than a native lazy-loading hook
 - extractor quality still needs more real-world rollout fixtures and contradiction handling
 - `cam memory` is still shallower than Claude Code’s `/memory`
-- `docs/next-phase-brief.md` now captures the recommended Milestone 9 execution brief
+- session continuity summarization is useful but still needs sharper separation between project-shared and worktree-local state
+- `docs/next-phase-brief.md` now captures the recommended Milestone 10 execution brief
 
 ## Recommended review sequence
 
@@ -65,12 +68,13 @@ The project intentionally chose a **forward-only cleanup** strategy. Earlier com
 2. Run `pnpm test`
 3. Read `README.md`
 4. Read `docs/claude-reference.md`
-5. Read `docs/native-migration.md`
-6. Read `docs/progress-log.md`
-7. Read `docs/review-guide.md`
-8. Inspect `src/lib/domain/rollout.ts`
-9. Inspect `src/lib/domain/startup-memory.ts`
-10. Inspect `src/lib/domain/memory-store.ts`
+5. Read `docs/session-continuity.md`
+6. Read `docs/native-migration.md`
+7. Read `docs/progress-log.md`
+8. Read `docs/review-guide.md`
+9. Inspect `src/lib/domain/rollout.ts`
+10. Inspect `src/lib/domain/startup-memory.ts`
+11. Inspect `src/lib/domain/session-continuity-store.ts`
 
 ## Suggested verification commands
 

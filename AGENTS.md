@@ -62,6 +62,7 @@ Short-term priorities:
 - validate the 200-line startup compiler
 - verify project vs project-local behavior across git worktrees
 - keep startup injection limited to quoted `MEMORY.md` indexes plus topic-file references; do not reintroduce eager topic-entry loading
+- keep session continuity separate from durable memory; optimize Codex compatibility first and treat Claude-style continuity as an adapter layer
 
 Long-term priorities:
 

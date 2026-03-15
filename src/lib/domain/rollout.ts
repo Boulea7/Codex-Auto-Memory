@@ -163,6 +163,28 @@ export async function findRelevantRollouts(
   return recentMtimeMatches.sort();
 }
 
+export async function findLatestProjectRollout(
+  project: ProjectContext
+): Promise<string | null> {
+  const files = await listRolloutFiles();
+  const metas = (
+    await Promise.all(
+      files.map(async (filePath) => ({
+        filePath,
+        meta: await readRolloutMeta(filePath)
+      }))
+    )
+  )
+    .filter(
+      (item): item is { filePath: string; meta: RolloutMeta } =>
+        item.meta !== null && matchesProjectContext(item.meta, project)
+    )
+    .map((item) => item.meta)
+    .sort((left, right) => right.createdAtMs - left.createdAtMs);
+
+  return metas[0]?.rolloutPath ?? null;
+}
+
 export async function parseRolloutEvidence(filePath: string): Promise<RolloutEvidence | null> {
   const raw = await fs.readFile(filePath, "utf8");
   const lines = raw

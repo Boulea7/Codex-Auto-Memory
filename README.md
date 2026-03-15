@@ -2,7 +2,7 @@
 
 Claude-style auto memory for Codex, implemented as a local companion CLI.
 
-`codex-auto-memory` aims to reproduce the product contract of Claude Code auto memory as closely as possible for today's Codex runtime: local Markdown memory files, automatic post-session note taking, compact startup injection, topic-file lookup on demand, worktree-aware project sharing, and a clear migration path toward future native Codex memory features.
+`codex-auto-memory` aims to reproduce the product contract of Claude Code auto memory as closely as possible for today's Codex runtime: local Markdown memory files, automatic post-session note taking, compact startup injection, topic-file lookup on demand, optional cross-session continuity state, worktree-aware project sharing, and a clear migration path toward future native Codex memory features.
 
 ## Why this project exists
 
@@ -34,6 +34,7 @@ Codex already exposes strong building blocks such as `AGENTS.md`, skills, persis
 | `MEMORY.md` startup entrypoint | Built in | No | Yes |
 | 200-line startup budget | Built in | No | Yes |
 | Topic files on demand | Built in | No | Partial: startup injects structured topic file references and reads topic details on demand through normal file tools |
+| Session continuity state | Community patterns only | No complete public contract | Yes, as an optional companion layer kept separate from durable memory |
 | Worktree-shared project memory | Built in | No public contract | Yes |
 | Audit and edit memory | `/memory` | No equivalent | `cam memory` |
 | Native hooks / memory integration | Built in | Experimental / under development | Planned compatibility layer |
@@ -68,10 +69,15 @@ cam run
 
 This launches Codex with compiled startup memory and schedules a post-session memory sync when the session finishes.
 
+When session continuity is enabled in local or user config, the wrapper can also inject and refresh a temporary working-state block that stays separate from durable memory.
+
 ### 5. Inspect memory
 
 ```bash
 cam memory
+cam session status
+cam session save
+cam session load --print-startup
 cam remember "Always use pnpm instead of npm"
 cam forget "old debug note"
 cam audit
@@ -88,6 +94,7 @@ cam run / cam exec / cam resume
    +--> compile startup memory from:
    |      global + project + project-local MEMORY.md
    |      + structured topic file references
+   |      + optional temporary session continuity block
    |
    +--> launch codex with injected memory context
    |
@@ -138,7 +145,7 @@ See [docs/architecture.md](docs/architecture.md) for the full breakdown.
 ### v0.2
 
 - Broader extractor fixtures and contradiction handling
-- Richer `cam memory` inspection output
+- Richer `cam memory` and `cam session` inspection output
 - Hook bridge helpers for emerging Codex hook support
 
 ### v0.3+
@@ -152,6 +159,7 @@ See [docs/architecture.md](docs/architecture.md) for the full breakdown.
 - [Changelog](CHANGELOG.md)
 - [Claude reference contract](docs/claude-reference.md)
 - [Architecture](docs/architecture.md)
+- [Session continuity design](docs/session-continuity.md)
 - [Native migration strategy](docs/native-migration.md)
 - [Progress log](docs/progress-log.md)
 - [Review guide](docs/review-guide.md)
@@ -172,6 +180,7 @@ Current review-oriented status:
 - sync reliability hardening complete
 - extractor quality hardening complete
 - topic-aware startup lookup complete
+- session continuity companion layer complete
 - memory inspection UX hardening complete
 - native compatibility seams complete
 - ClaudeCode patch batch audited and retained with documentation corrections
