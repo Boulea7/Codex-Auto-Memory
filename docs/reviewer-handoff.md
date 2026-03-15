@@ -59,7 +59,7 @@ The project intentionally chose a **forward-only cleanup** strategy. Earlier com
 - extractor quality still needs more real-world rollout fixtures and contradiction handling
 - `cam memory` is still shallower than Claude Code’s `/memory`
 - session continuity heuristic still cannot populate `notYetTried` without AI; `incompleteNext` is still generic in heuristic mode
-- `docs/next-phase-brief.md` captures the recommended Milestone 10 execution brief
+- `docs/next-phase-brief.md` captures the recommended Milestone 11 execution brief
 
 ## Recommended review sequence
 

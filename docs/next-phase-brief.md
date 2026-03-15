@@ -1,15 +1,15 @@
 # Next Phase Brief
 
-This brief prepares the next implementation window after `0.1.0-alpha.9`.
+This brief prepares the next implementation window after `0.1.0-alpha.10`.
 
-## Milestone 10 focus
+## Milestone 11 focus
 
 The next phase should improve:
 
 - extractor quality on harder real-world rollout patterns
 - `cam memory` parity with Claude Code's `/memory` interaction model
 
-Do **not** reopen startup injection or session continuity storage design unless a new regression is found. The current topic-aware startup path plus Codex-first session continuity layer are the baseline for this phase.
+Do **not** reopen startup injection or session continuity storage design unless a new regression is found. The current topic-aware startup path plus Codex-first session continuity layer (delivered in alpha.9 / alpha.10) are the baseline for this phase.
 
 ## Goals
 

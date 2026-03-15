@@ -127,7 +127,8 @@ describe("session continuity domain", () => {
         },
         {
           name: "apply_patch_freeform",
-          arguments: JSON.stringify({ path: "src/auth.ts" }),
+          arguments:
+            "--- a/src/auth.ts\n+++ b/src/auth.ts\n@@ -10,3 +10,4 @@\n function login(user) {\n-  return false;\n+  return authenticate(user);\n }",
           output: undefined
         },
         {
@@ -154,9 +155,51 @@ describe("session continuity domain", () => {
     const summary = await summarizer.summarize(evidence);
     expect(summary.goal).toContain("Fix the login bug");
     expect(summary.confirmedWorking.join("\n")).toContain("pnpm test");
-    expect(summary.confirmedWorking.join("\n")).toContain("auth.ts");
+    expect(summary.confirmedWorking.join("\n")).not.toContain("auth.ts");
     expect(summary.triedAndFailed.join("\n")).toContain("pnpm build");
     expect(summary.filesDecisionsEnvironment.join("\n")).toContain("auth.ts");
+  });
+
+  it("heuristic summarizer extracts file path from apply_patch_freeform raw patch text", async () => {
+    const evidence: RolloutEvidence = {
+      sessionId: "session-patch-text",
+      createdAt: "2026-03-15T00:00:00.000Z",
+      cwd: "/tmp/project",
+      userMessages: ["Fix imports"],
+      agentMessages: [],
+      toolCalls: [
+        {
+          name: "apply_patch_freeform",
+          arguments:
+            "diff --git a/src/utils.ts b/src/utils.ts\nindex abc..def 100644\n--- a/src/utils.ts\n+++ b/src/utils.ts\n@@ -1,3 +1,4 @@\n+import { x } from './x.js';\n export {};",
+          output: undefined
+        },
+        {
+          name: "apply_patch_freeform",
+          arguments: "--- a/src/db.ts\n+++ b/src/db.ts\n@@ -5,3 +5,4 @@\n+const pool = createPool();",
+          output: undefined
+        }
+      ],
+      rolloutPath: "/tmp/rollout.jsonl"
+    };
+
+    const summarizer = new SessionContinuitySummarizer({
+      autoMemoryEnabled: true,
+      extractorMode: "heuristic",
+      defaultScope: "project",
+      maxStartupLines: 200,
+      sessionContinuityAutoLoad: false,
+      sessionContinuityAutoSave: false,
+      sessionContinuityLocalPathStyle: "codex",
+      maxSessionContinuityLines: 60,
+      codexBinary: "codex"
+    });
+
+    const summary = await summarizer.summarize(evidence);
+    const fde = summary.filesDecisionsEnvironment.join("\n");
+    expect(fde).toContain("utils.ts");
+    expect(fde).toContain("db.ts");
+    expect(summary.confirmedWorking).toHaveLength(0);
   });
 
   it("heuristic summarizer recognizes expanded success patterns", async () => {
