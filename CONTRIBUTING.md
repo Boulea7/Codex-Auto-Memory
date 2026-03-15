@@ -11,6 +11,8 @@ This project is not a generic note-taking tool. It is a Codex companion that tri
 - compact startup injection through `MEMORY.md`
 - topic files for detailed notes
 - worktree-aware repository memory sharing
+- temporary cross-session continuity through `cam session`
+- repository privacy auditing through `cam audit`
 
 When proposing changes, evaluate them against that product contract first.
 
@@ -56,7 +58,8 @@ When opening a bug, include:
 - your OS
 - Node and pnpm versions
 - Codex CLI version
-- whether the session ran through `cam run`, `cam exec`, or `cam resume`
+- whether the session ran through `cam run`, `cam exec`, `cam resume`, or `cam session`
 - relevant memory directory structure or rollout path if safe to share
+- output of `cam audit --json` and `cam doctor --json` if available
 
 Please redact secrets before posting logs or memory files.

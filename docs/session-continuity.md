@@ -19,6 +19,8 @@ Community Claude Code setups often solve this by introducing a separate temporar
 3. what has not yet been tried
 4. what remains incomplete or should happen next
 
+In practice, a fifth category is also useful for continuity: files modified, key decisions made, and environment prerequisites that aid the next conversation without fitting cleanly into the four primary categories. The implementation stores this as `filesDecisionsEnvironment` and includes it in the compiled startup block.
+
 `codex-auto-memory` adopts that idea as a **separate companion layer**, not as part of durable auto memory.
 
 ## Product boundary
@@ -128,6 +130,15 @@ This block:
 - has its own line budget
 - is framed as temporary working state
 - should be verified against the current codebase and user request
+
+## Config: `sessionContinuityLocalPathStyle`
+
+Controls the local-path layout for project-local continuity files.
+
+- `"codex"` (default): stores state at `.codex-auto-memory/sessions/active.md` — a single fixed file inside the project root. Simple and deterministic.
+- `"claude"`: stores state at `.claude/sessions/<date>-<short-id>-session.tmp` — daily rotating files that mimic Claude Code's session file naming convention. Reading picks the most recently modified file; writing creates a new file with today's date.
+
+Switch to `"claude"` only if you need interoperability with Claude Code's session file layout in the same project directory.
 
 ## Config boundary
 

@@ -4,6 +4,36 @@ All notable changes to `codex-auto-memory` will be documented in this file.
 
 The format is intentionally simple and reviewer-friendly: each entry maps to a concrete implementation milestone and, when possible, a single Git commit.
 
+## 0.1.0-alpha.10 - 2026-03-15
+
+### Fixed
+
+- Session continuity heuristic summarizer now detects file-write tool calls (`apply_patch`, `write_file`, `create_file`, `edit_file`) as confirmed working evidence, not just `exec_command`. Coding sessions that modify files but run no commands now produce meaningful continuity state.
+- Session continuity heuristic summarizer now recognizes additional command success patterns: "Tests passed", "0 errors", "All checks passed", "PASS", "compiled successfully", "Build succeeded".
+- `compileSessionContinuity()` now includes the "Files / Decisions / Environment" section in the compiled startup block, making file-modification context visible to the next session.
+- Heuristic summarizer now populates `filesDecisionsEnvironment` from detected file-write operations instead of only preserving existing state.
+
+### Added
+
+- Tests for heuristic summarizer file-write detection and expanded success patterns.
+- Tests for `applySessionContinuitySummary` merge behavior and timestamp refresh.
+- Tests for sensitive content filtering within session continuity sanitization.
+- Tests for `filesDecisionsEnvironment` inclusion in compiled startup block.
+
+### Changed
+
+- Progress log milestone ordering corrected (milestones now appear in chronological order 1–10).
+- `docs/session-continuity.md` now documents the 5th category (`filesDecisionsEnvironment`) and the `sessionContinuityLocalPathStyle` config option.
+- `AGENTS.md` planning notes updated to reflect current priorities.
+- `CONTRIBUTING.md` now references `cam session` and `cam audit` commands.
+- `docs/reviewer-handoff.md` updated with recent commits and current remaining gaps.
+
+### Review focus
+
+- Confirm that file-write tool call detection covers Codex's `apply_patch_freeform` naming convention.
+- Confirm that the `\bPASS\b` word-boundary pattern does not over-match common words.
+- Confirm that `filesDecisionsEnvironment` in the 60-line startup budget does not truncate the other 5 sections in typical usage.
+
 ## 0.1.0-alpha.9 - 2026-03-15
 
 ### Added

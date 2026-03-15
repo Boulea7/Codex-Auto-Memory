@@ -58,9 +58,8 @@ If any step is skipped, explain why in the final handoff.
 
 Short-term priorities:
 
-- ship the first working CLI wrapper and memory store
-- validate the 200-line startup compiler
-- verify project vs project-local behavior across git worktrees
+- improve session continuity summarizer quality and file-operation awareness
+- expand test coverage for session continuity heuristic and merge logic
 - keep startup injection limited to quoted `MEMORY.md` indexes plus topic-file references; do not reintroduce eager topic-entry loading
 - keep session continuity separate from durable memory; optimize Codex compatibility first and treat Claude-style continuity as an adapter layer
 

@@ -4,9 +4,9 @@ This document tracks implementation progress in a format that is easy to consume
 
 ## Current completion snapshot
 
-- Approximate overall progress toward a strong Claude-style alpha: `90%`
+- Approximate overall progress toward a strong Claude-style alpha: `92%`
 - Approximate progress toward a working local MVP: `97%`
-- Current phase: `Phase 7 - session continuity and Codex-first companion flow`
+- Current phase: `Phase 7+ - session continuity quality and handoff readiness`
 
 ## Completed milestones
 
@@ -45,6 +45,38 @@ This document tracks implementation progress in a format that is easy to consume
 - The runtime now names and uses its companion session source and wrapper injector explicitly.
 - `cam doctor` now reports native-readiness in a more reviewer-friendly way instead of dumping raw feature flags only.
 
+### Milestone 5: Bug fixes, parity hardening, and native compat update
+
+- Fixed per-line try-catch in rollout JSONL parsing to survive corrupted lines.
+- Added support for nested `session_meta` payload format (`payload.meta.id`).
+- Fixed `schemaRoot` default to use `fileURLToPath(import.meta.url)` instead of `process.cwd()`.
+- Fixed hook scripts to set executable permissions (`chmod 0o755`) after generation.
+- Removed `picocolors` unused dependency; added `schemas/` to published package files.
+- Fixed base64 safety filter false-positive on git SHA hashes.
+- Fixed `commandSucceeded()` to default `false` when tool output is missing.
+- Removed per-scope line slicing in `compileStartupMemory`; budget enforced by final `limitLines()`.
+- Removed `## Highlights` section from `MEMORY.md` index to align with Claude's concise index contract.
+- Updated native migration docs to reflect the difference between official Codex documentation and local implementation observations.
+- Clarified Claude reference: manual edit/delete is officially documented, while subagent sharing/isolation semantics remain only partially specified in the public docs.
+
+### Milestone 5 audit outcome
+
+- **Accepted**:
+  - corrupted rollout line skipping
+  - nested `session_meta` parsing
+  - schema path resolution via `import.meta.url`
+  - executable hook scripts
+  - shipping `schemas/` in the published package
+  - false-positive reduction in the safety filter
+  - treating missing tool output as unknown success
+  - concise `MEMORY.md` index direction
+- **Accepted with caveat**:
+  - the earlier move to index-only startup injection was the right short-term parity correction, but it needed a follow-up path for safe topic lookup
+- **Corrected in docs**:
+  - stronger-than-supported claims about Claude forget semantics
+  - stronger-than-supported claims about Claude subagent memory sharing/isolation
+  - stronger-than-supported claims about Codex native memory layout and config contract
+
 ### Milestone 6: Security hygiene and review automation
 
 - Added `cam audit` to scan tracked files and Git history for privacy and secret-hygiene issues.
@@ -53,20 +85,6 @@ This document tracks implementation progress in a format that is easy to consume
 - Added a dedicated reviewer handoff packet for external agents and review tools.
 - Current audit result: no `high` or `medium` findings, only expected `info` local-path references and `low` historical synthetic fixtures.
 - Chosen remediation strategy: fix forward only, no history rewrite.
-
-## Reviewer checkpoints
-
-If you are reviewing the repository now, start here:
-
-1. `README.md`
-2. `docs/claude-reference.md`
-3. `docs/session-continuity.md`
-4. `docs/architecture.md`
-5. `docs/review-guide.md`
-6. `src/lib/domain/rollout.ts`
-7. `src/lib/domain/sync-service.ts`
-8. `src/lib/domain/memory-store.ts`
-9. `src/lib/domain/session-continuity-store.ts`
 
 ### Milestone 7: Phase 3 comprehensive hardening
 
@@ -103,56 +121,50 @@ If you are reviewing the repository now, start here:
 - Added local `.git/info/exclude` updates for project-local continuity files instead of relying on tracked `.gitignore` edits.
 - Added Codex-backed continuity summarization with heuristic fallback.
 
+### Milestone 10: Session continuity quality and handoff readiness
+
+- Expanded heuristic summarizer to detect file-write tool calls (`apply_patch`, `write_file`, `create_file`, `edit_file`) as confirmed working evidence, not just `exec_command`.
+- Expanded `commandSucceeded()` to recognize additional success patterns: "Tests passed", "0 errors", "All checks passed", "PASS", "compiled successfully", "Build succeeded".
+- `compileSessionContinuity()` now includes the `filesDecisionsEnvironment` section in the compiled startup block.
+- Heuristic summarizer now populates `filesDecisionsEnvironment` from detected file-write operations.
+- Added regression tests for heuristic summarizer file-write detection, expanded success patterns, `applySessionContinuitySummary` merge behavior, sensitive content filtering within continuity, and `filesDecisionsEnvironment` in compiled output.
+- Fixed progress log milestone ordering (milestones now appear in chronological order).
+- Updated `docs/session-continuity.md` to document the 5th category and `sessionContinuityLocalPathStyle` config.
+- Updated `AGENTS.md`, `CONTRIBUTING.md`, and `docs/reviewer-handoff.md` for current state.
+
+## Reviewer checkpoints
+
+If you are reviewing the repository now, start here:
+
+1. `README.md`
+2. `docs/claude-reference.md`
+3. `docs/session-continuity.md`
+4. `docs/architecture.md`
+5. `docs/review-guide.md`
+6. `src/lib/domain/rollout.ts`
+7. `src/lib/domain/sync-service.ts`
+8. `src/lib/domain/memory-store.ts`
+9. `src/lib/domain/session-continuity-store.ts`
+
 ## Known gaps
 
 - Extractor quality is stronger, but still needs broader real-world rollout fixtures and more nuanced contradiction handling.
-- `cam memory` is more audit-friendly now, but still below Claude Code’s `/memory` interaction depth.
+- `cam memory` is more audit-friendly now, but still below Claude Code's `/memory` interaction depth.
 - Native Codex memory and hook support is still companion-first; no native path is activated. Codex now ships native memory but parity verification against our contract is pending.
 - Topic files are now surfaced for on-demand reads, but the companion runtime still relies on generic file-read tools rather than a native lazy topic loader.
-- Session continuity is now available, but the summarizer still needs higher-fidelity extraction and better distinction between project-shared vs worktree-local state.
+- Session continuity heuristic `notYetTried` is still never populated — only preserved from existing state. This requires NLP or AI-powered path.
+- Session continuity heuristic `incompleteNext` is still generic ("Continue with the latest request") rather than nuanced.
 - Release hygiene is stronger now, but still needs a per-release reviewer packet refresh discipline.
 - `cam audit` is rule-based and conservative; it reduces obvious risk but is not a substitute for human review.
 - Earlier commits still contain a small number of synthetic secret-like fixtures because the repository intentionally avoided git history rewrite.
 
-### Milestone 5: Bug fixes, parity hardening, and native compat update
-
-- Fixed per-line try-catch in rollout JSONL parsing to survive corrupted lines.
-- Added support for nested `session_meta` payload format (`payload.meta.id`).
-- Fixed `schemaRoot` default to use `fileURLToPath(import.meta.url)` instead of `process.cwd()`.
-- Fixed hook scripts to set executable permissions (`chmod 0o755`) after generation.
-- Removed `picocolors` unused dependency; added `schemas/` to published package files.
-- Fixed base64 safety filter false-positive on git SHA hashes.
-- Fixed `commandSucceeded()` to default `false` when tool output is missing.
-- Removed per-scope line slicing in `compileStartupMemory`; budget enforced by final `limitLines()`.
-- Removed `## Highlights` section from `MEMORY.md` index to align with Claude's concise index contract.
-- Updated native migration docs to reflect the difference between official Codex documentation and local implementation observations.
-- Clarified Claude reference: manual edit/delete is officially documented, while subagent sharing/isolation semantics remain only partially specified in the public docs.
-
-### Milestone 5 audit outcome
-
-- **Accepted**:
-  - corrupted rollout line skipping
-  - nested `session_meta` parsing
-  - schema path resolution via `import.meta.url`
-  - executable hook scripts
-  - shipping `schemas/` in the published package
-  - false-positive reduction in the safety filter
-  - treating missing tool output as unknown success
-  - concise `MEMORY.md` index direction
-- **Accepted with caveat**:
-  - the earlier move to index-only startup injection was the right short-term parity correction, but it needed a follow-up path for safe topic lookup
-- **Corrected in docs**:
-  - stronger-than-supported claims about Claude forget semantics
-  - stronger-than-supported claims about Claude subagent memory sharing/isolation
-  - stronger-than-supported claims about Codex native memory layout and config contract
-
 ## Next planned milestones
 
-### Milestone 10: Extractor quality and `/memory` parity
+### Milestone 11: Extractor quality and `/memory` parity
 
 - Expand rollout fixtures for harder extractor regression coverage.
 - Improve contradiction handling for stale memory replacement.
-- Narrow the remaining UX gap between `cam memory` and Claude Code’s `/memory`.
+- Narrow the remaining UX gap between `cam memory` and Claude Code's `/memory`.
 - Use `docs/next-phase-brief.md` as the execution brief for the next implementation window.
 
 ## Review-ready habits

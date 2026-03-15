@@ -32,11 +32,10 @@ The repository currently has:
 
 ## Most recent milestone commits
 
-- Session continuity companion layer and Codex-first local storage
-- Topic-on-demand startup lookup and startup guardrails
-- Phase 3 hardening: bug fixes, safety hardening, dynamic username audit
+- `a8257b6` `feat(session): add codex-first continuity layer`
+- `14060b2` `docs(review): add security audit workflow and handoff packet`
+- `f0f079f` `fix(audit): reduce noise in history findings`
 - `680fb2a` `fix(parity): retain reviewed claudecode hardening patch`
-- `f841cb6` `docs(review): audit claudecode changes and correct source claims`
 - `b142288` `feat(audit): add repository privacy scanner and scrub fixtures`
 
 ## Verified safety status
@@ -59,8 +58,8 @@ The project intentionally chose a **forward-only cleanup** strategy. Earlier com
 - topic files are now referenced for on-demand reads, but the runtime still relies on generic file-read tools rather than a native lazy-loading hook
 - extractor quality still needs more real-world rollout fixtures and contradiction handling
 - `cam memory` is still shallower than Claude Code’s `/memory`
-- session continuity summarization is useful but still needs sharper separation between project-shared and worktree-local state
-- `docs/next-phase-brief.md` now captures the recommended Milestone 10 execution brief
+- session continuity heuristic still cannot populate `notYetTried` without AI; `incompleteNext` is still generic in heuristic mode
+- `docs/next-phase-brief.md` captures the recommended Milestone 10 execution brief
 
 ## Recommended review sequence
 
