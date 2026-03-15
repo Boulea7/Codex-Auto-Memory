@@ -1,4 +1,6 @@
 export type MemoryScope = "global" | "project" | "project-local";
+export type SessionContinuityScope = "project" | "project-local";
+export type SessionContinuityLocalPathStyle = "codex" | "claude";
 
 export interface MemoryEntry {
   id: string;
@@ -41,6 +43,10 @@ export interface AppConfig {
   extractorMode: "codex" | "heuristic";
   defaultScope: Exclude<MemoryScope, "global">;
   maxStartupLines: number;
+  sessionContinuityAutoLoad: boolean;
+  sessionContinuityAutoSave: boolean;
+  sessionContinuityLocalPathStyle: SessionContinuityLocalPathStyle;
+  maxSessionContinuityLines: number;
   codexBinary: string;
 }
 
@@ -71,6 +77,15 @@ export interface ScopePaths {
   auditDir: string;
 }
 
+export interface SessionContinuityPaths {
+  sharedDir: string;
+  sharedFile: string;
+  localDir: string;
+  localFile: string;
+  claudeSessionDir: string;
+  codexSessionDir: string;
+}
+
 export interface RolloutToolCall {
   callId?: string;
   name: string;
@@ -94,6 +109,44 @@ export interface RolloutEvidence {
   agentMessages: string[];
   toolCalls: RolloutToolCall[];
   rolloutPath: string;
+}
+
+export interface SessionContinuityState {
+  kind: "session-continuity";
+  scope: SessionContinuityScope;
+  projectId: string;
+  worktreeId: string;
+  updatedAt: string;
+  status: "active" | "paused" | "done";
+  sourceSessionId?: string;
+  goal: string;
+  confirmedWorking: string[];
+  triedAndFailed: string[];
+  notYetTried: string[];
+  incompleteNext: string[];
+  filesDecisionsEnvironment: string[];
+}
+
+export interface SessionContinuitySummary {
+  sourceSessionId?: string;
+  goal: string;
+  confirmedWorking: string[];
+  triedAndFailed: string[];
+  notYetTried: string[];
+  incompleteNext: string[];
+  filesDecisionsEnvironment: string[];
+}
+
+export interface SessionContinuityLocation {
+  scope: SessionContinuityScope;
+  path: string;
+  exists: boolean;
+}
+
+export interface CompiledSessionContinuity {
+  text: string;
+  lineCount: number;
+  sourceFiles: string[];
 }
 
 export interface SyncResult {

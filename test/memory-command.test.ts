@@ -34,6 +34,10 @@ describe("runMemory", () => {
       extractorMode: "heuristic",
       defaultScope: "project",
       maxStartupLines: 200,
+      sessionContinuityAutoLoad: false,
+      sessionContinuityAutoSave: false,
+      sessionContinuityLocalPathStyle: "codex",
+      maxSessionContinuityLines: 60,
       codexBinary: "codex"
     };
     await fs.writeFile(

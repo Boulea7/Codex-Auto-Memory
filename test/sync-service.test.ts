@@ -69,6 +69,10 @@ describe("SyncService", () => {
       extractorMode: "heuristic",
       defaultScope: "project",
       maxStartupLines: 200,
+      sessionContinuityAutoLoad: false,
+      sessionContinuityAutoSave: false,
+      sessionContinuityLocalPathStyle: "codex",
+      maxSessionContinuityLines: 60,
       codexBinary: "codex"
     };
     expect(() => new SyncService(detectProjectContext(projectDir), config)).not.toThrow();
@@ -86,6 +90,10 @@ describe("SyncService", () => {
       extractorMode: "heuristic",
       defaultScope: "project",
       maxStartupLines: 200,
+      sessionContinuityAutoLoad: false,
+      sessionContinuityAutoSave: false,
+      sessionContinuityLocalPathStyle: "codex",
+      maxSessionContinuityLines: 60,
       codexBinary: "codex"
     };
 

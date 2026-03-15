@@ -1,6 +1,10 @@
 import os from "node:os";
 import path from "node:path";
-import { APP_ID, DEFAULT_STARTUP_LINE_LIMIT } from "../constants.js";
+import {
+  APP_ID,
+  DEFAULT_SESSION_CONTINUITY_LINE_LIMIT,
+  DEFAULT_STARTUP_LINE_LIMIT
+} from "../constants.js";
 import type { AppConfig, LoadedConfig, ProjectContext } from "../types.js";
 import { fileExists, readJsonFile } from "../util/fs.js";
 import { resolveAppPath } from "../util/paths.js";
@@ -11,6 +15,10 @@ const defaultConfig: AppConfig = {
   extractorMode: "codex",
   defaultScope: "project",
   maxStartupLines: DEFAULT_STARTUP_LINE_LIMIT,
+  sessionContinuityAutoLoad: false,
+  sessionContinuityAutoSave: false,
+  sessionContinuityLocalPathStyle: "codex",
+  maxSessionContinuityLines: DEFAULT_SESSION_CONTINUITY_LINE_LIMIT,
   codexBinary: "codex"
 };
 
@@ -46,12 +54,24 @@ function sanitizeProjectConfig(
   source: RawProjectConfig,
   filePath: string,
   warnings: string[],
-  allowDirectoryOverride: boolean
+  allowDirectoryOverride: boolean,
+  allowSessionContinuityOverride: boolean
 ): Partial<AppConfig> {
   const parsed = rawProjectConfigSchema.parse(source);
   if (!allowDirectoryOverride && parsed.autoMemoryDirectory) {
     warnings.push(
       `Ignored autoMemoryDirectory from ${filePath}. Shared project config cannot redirect memory storage.`
+    );
+  }
+  if (
+    !allowSessionContinuityOverride &&
+    (parsed.sessionContinuityAutoLoad !== undefined ||
+      parsed.sessionContinuityAutoSave !== undefined ||
+      parsed.sessionContinuityLocalPathStyle !== undefined ||
+      parsed.maxSessionContinuityLines !== undefined)
+  ) {
+    warnings.push(
+      `Ignored session continuity local settings from ${filePath}. Shared project config cannot force local session continuity behavior.`
     );
   }
 
@@ -61,6 +81,18 @@ function sanitizeProjectConfig(
       extractorMode: parsed.extractorMode,
       defaultScope: parsed.defaultScope,
       maxStartupLines: parsed.maxStartupLines,
+      sessionContinuityAutoLoad: allowSessionContinuityOverride
+        ? parsed.sessionContinuityAutoLoad
+        : undefined,
+      sessionContinuityAutoSave: allowSessionContinuityOverride
+        ? parsed.sessionContinuityAutoSave
+        : undefined,
+      sessionContinuityLocalPathStyle: allowSessionContinuityOverride
+        ? parsed.sessionContinuityLocalPathStyle
+        : undefined,
+      maxSessionContinuityLines: allowSessionContinuityOverride
+        ? parsed.maxSessionContinuityLines
+        : undefined,
       codexBinary: parsed.codexBinary,
       autoMemoryDirectory: allowDirectoryOverride ? parsed.autoMemoryDirectory : undefined
     }).filter(([, value]) => value !== undefined)
@@ -86,7 +118,7 @@ export async function loadConfig(
     files.push(userFile);
     merged = {
       ...merged,
-      ...sanitizeProjectConfig(userConfig, userFile, warnings, true)
+      ...sanitizeProjectConfig(userConfig, userFile, warnings, true, true)
     };
   }
 
@@ -95,7 +127,7 @@ export async function loadConfig(
     files.push(projectFile);
     merged = {
       ...merged,
-      ...sanitizeProjectConfig(projectConfig, projectFile, warnings, false)
+      ...sanitizeProjectConfig(projectConfig, projectFile, warnings, false, false)
     };
   }
 
@@ -104,7 +136,7 @@ export async function loadConfig(
     files.push(localFile);
     merged = {
       ...merged,
-      ...sanitizeProjectConfig(localConfig, localFile, warnings, true)
+      ...sanitizeProjectConfig(localConfig, localFile, warnings, true, true)
     };
   }
 
@@ -118,7 +150,7 @@ export async function loadConfig(
     files.push(managedFile);
     merged = {
       ...merged,
-      ...sanitizeProjectConfig(managedConfig, managedFile, warnings, true)
+      ...sanitizeProjectConfig(managedConfig, managedFile, warnings, true, true)
     };
   }
 

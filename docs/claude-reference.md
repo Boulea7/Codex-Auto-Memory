@@ -138,6 +138,8 @@ The docs do not fully expand all semantics in the same section, but the general 
 - project config cannot redirect the main memory directory
 - detailed notes belong in topic files, not the startup index
 
+Session continuity can still be a useful companion augmentation, but it should be documented as exactly that: an extra companion layer for cross-conversation working state, not an official Claude Code auto memory contract claim.
+
 ## Reference links
 
 - Claude memory docs: <https://code.claude.com/docs/en/memory>
