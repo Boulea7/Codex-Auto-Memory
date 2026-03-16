@@ -80,8 +80,13 @@ describe("runMemory", () => {
       recent: "3"
     });
 
+    expect(output).toContain("Edit paths:");
     expect(output).toContain("project: 1 entry");
     expect(output).toContain("Topics: workflow");
+    expect(output).toContain("Startup loaded files:");
+    expect(output).toContain(store.getMemoryFile("project"));
+    expect(output).toContain("Topic files on demand:");
+    expect(output).toContain(store.getTopicFile("project", "workflow"));
     expect(output).toContain("Recent sync events");
     expect(output).toContain("1 operation(s) applied");
   });

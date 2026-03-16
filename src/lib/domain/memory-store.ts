@@ -137,6 +137,25 @@ function topicFileContents(topic: string, entries: MemoryEntry[]): string {
   return `${header}${blocks}`.trimEnd() + "\n";
 }
 
+function legacyEmptyIndexContents(scope: MemoryScope): string {
+  return [
+    `# ${topicTitle(scope)} Memory`,
+    "",
+    "This file is the concise startup index for this scope.",
+    "It is intentionally short so it can be injected into Codex at session start.",
+    "",
+    "## Topics",
+    "- No topic files yet.",
+    "",
+    "## Highlights",
+    "- No memory entries yet."
+  ].join("\n");
+}
+
+function matchesLegacyEmptyIndex(scope: MemoryScope, contents: string): boolean {
+  return contents.trim() === legacyEmptyIndexContents(scope).trim();
+}
+
 export class MemoryStore {
   public readonly paths: ScopePaths;
 
@@ -196,7 +215,14 @@ export class MemoryStore {
     ]);
 
     for (const scope of ["global", "project", "project-local"] satisfies MemoryScope[]) {
-      if (!(await fileExists(this.getMemoryFile(scope)))) {
+      const memoryFile = this.getMemoryFile(scope);
+      if (!(await fileExists(memoryFile))) {
+        await this.rebuildIndex(scope);
+        continue;
+      }
+
+      const contents = await readTextFile(memoryFile);
+      if (matchesLegacyEmptyIndex(scope, contents)) {
         await this.rebuildIndex(scope);
       }
     }
