@@ -1,28 +1,28 @@
 # Next Phase Brief
 
-This brief prepares the next implementation window after `0.1.0-alpha.10`.
+This brief prepares the next implementation window after `0.1.0-alpha.11`.
 
-## Milestone 11 focus
+## Milestone 12 focus
 
 The next phase should improve:
 
-- extractor quality on harder real-world rollout patterns
+- Codex-backed continuity summary quality
 - `cam memory` parity with Claude Code's `/memory` interaction model
 
-Do **not** reopen startup injection or session continuity storage design unless a new regression is found. The current topic-aware startup path plus Codex-first session continuity layer (delivered in alpha.9 / alpha.10) are the baseline for this phase.
+Do **not** reopen startup injection or session continuity storage design unless a new regression is found. The current topic-aware startup path plus split shared/local continuity model (delivered through alpha.9–alpha.11) are the baseline for this phase.
 
 ## Goals
 
-1. Make stale replacement and contradiction handling more reliable.
-2. Expand rollout fixtures so extractor regressions are caught before release.
-3. Make `cam memory` more obviously useful as the audit and control entrypoint for local memory.
-4. Improve the quality of session continuity summaries, especially the split between shared project state and worktree-local state.
+1. Improve Codex-backed continuity summaries for exact next-step quality and cleaner project vs local separation.
+2. Expand contradiction handling beyond command replacement.
+3. Push `cam memory` closer to Claude `/memory` for review and editing workflows.
+4. Expand rollout fixtures so regressions stay caught before release.
 
 ## In scope
 
 - Add harder synthetic rollout fixtures covering:
-  - explicit correction of an older memory
-  - conflicting commands or tool outcomes in one session
+  - architecture or workflow contradictions, not just command replacement
+  - mixed durable-memory and continuity signals in one session
   - sensitive-looking noise adjacent to valid durable memory
   - repeated remember / forget flows across scopes
 - Strengthen extractor behavior in:
@@ -37,7 +37,7 @@ Do **not** reopen startup injection or session continuity storage design unless 
   - what is truly confirmed working
   - what failed and why
   - what is still untried
-  - what exactly should happen next
+  - what exactly should happen next, especially in Codex-backed mode
 - Update docs and reviewer materials when behavior changes.
 
 ## Out of scope
@@ -50,9 +50,9 @@ Do **not** reopen startup injection or session continuity storage design unless 
 ## Suggested implementation order
 
 1. Expand fixtures and failing tests first.
-2. Tighten extractor stale-replacement logic and prompt guidance.
-3. Improve `cam memory` output around loaded files and topic refs.
-4. Improve continuity extraction quality and section assignment.
+2. Improve Codex-backed continuity prompt/schema quality.
+3. Tighten extractor stale-replacement logic beyond commands.
+4. Improve `cam memory` output around editing and loaded-file visibility.
 5. Sync `README.md`, `docs/progress-log.md`, `docs/reviewer-handoff.md`, and `CHANGELOG.md`.
 
 ## Acceptance checks
@@ -73,3 +73,4 @@ Expected review outcome:
 - broader extractor fixture coverage
 - clearer `cam memory` reviewer workflow
 - better continuity summaries with less overlap between shared and local state
+- less heuristic fallback phrasing in `cam session load`

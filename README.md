@@ -83,6 +83,11 @@ cam forget "old debug note"
 cam audit
 ```
 
+Current reviewer-oriented behavior:
+
+- `cam memory` shows the active startup-loaded memory files, available topic refs for on-demand reads, and the exact Markdown paths to edit per scope.
+- `cam session load` shows shared project continuity, project-local continuity, and the merged resume brief separately.
+
 ## Architecture Overview
 
 ```text

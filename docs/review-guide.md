@@ -32,6 +32,7 @@ Check that the code still supports these core promises:
 - editable and auditable memory files
 - a separate path for future native Codex migration
 - temporary continuity state remains separate from durable memory
+- shared project continuity remains distinct from project-local continuity
 
 ### 2. Runtime behavior
 
@@ -48,6 +49,7 @@ Review questions:
 - Is startup memory quoted as local data rather than raw executable prompt text?
 - Are topic files referenced for on-demand reads without parsing topic entry bodies at startup?
 - Is temporary session continuity clearly separated from durable auto memory?
+- Does `cam memory` clearly show which files are actually loaded at startup versus which topic files are only available on demand?
 - Can the wrapper identify the correct rollout for the just-finished session?
 - Is sync idempotent or at least safely repeatable?
 - Is audit data good enough for debugging mis-saved memory?
@@ -64,6 +66,7 @@ Review questions:
 - Is `MEMORY.md` truly a concise index rather than a dump?
 - Do topic files remain understandable without hidden sidecars?
 - Are scope boundaries clear between `global`, `project`, and `project-local`?
+- Does legacy empty-index normalization only rewrite the exact old generated template rather than user-edited files?
 
 ### 4. Extractor quality
 

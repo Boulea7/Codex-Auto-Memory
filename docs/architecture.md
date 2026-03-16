@@ -40,7 +40,9 @@ Current implementation note:
 ### Optional session continuity path
 
 1. `cam session save` or wrapper auto-save selects the latest relevant rollout.
-2. A continuity summarizer extracts temporary working-state sections.
+2. A continuity summarizer extracts temporary working-state sections into two layers:
+   - shared project continuity
+   - project-local continuity
 3. Shared continuity is written to the companion store.
 4. Project-local continuity is written to a hidden local path and added to local git excludes.
 5. If auto-load is enabled later, the wrapper injects a bounded temporary continuity block separately from durable memory.
@@ -120,6 +122,7 @@ Session continuity is intentionally **not** part of the durable memory contract:
 - it captures incomplete work, tried-and-failed approaches, and next steps
 - it should not rewrite or pollute `MEMORY.md`
 - it can be enabled, loaded, or cleared independently of durable memory
+- it keeps cross-worktree continuity separate from worktree-local resume notes
 
 Current storage model:
 
@@ -128,6 +131,12 @@ Current storage model:
 - Claude-compatible local continuity (optional path style): `<project-root>/.claude/sessions/<date>-<short-id>-session.tmp`
 
 This split preserves cross-worktree sharing through the companion store while still supporting project-local hidden files for worktree-specific state.
+
+Current continuity assignment rule:
+
+- shared continuity carries repository-wide goal, confirmed working evidence, failed approaches, and project-wide prerequisites
+- project-local continuity carries the exact next step, local file-edit notes, and worktree-specific experiments
+- `cam session load` renders shared, local, and merged views separately so reviewers can see what is canonical versus local
 
 ## Injection strategy
 

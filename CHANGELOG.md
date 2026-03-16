@@ -4,6 +4,32 @@ All notable changes to `codex-auto-memory` will be documented in this file.
 
 The format is intentionally simple and reviewer-friendly: each entry maps to a concrete implementation milestone and, when possible, a single Git commit.
 
+## 0.1.0-alpha.11 - 2026-03-15
+
+### Added
+
+- Added real JSONL rollout fixtures for continuity layering and command-correction scenarios.
+- Added regression coverage for layered continuity extraction, stale command replacement, legacy empty-index normalization, and richer `cam memory` output.
+
+### Changed
+
+- Session continuity summaries now split into shared project and project-local layers instead of writing the same summary into both continuity files.
+- Heuristic continuity extraction now derives `notYetTried` and `incompleteNext` from explicit rollout language and keeps file-edit notes in the local layer by default.
+- `cam session load` now renders shared continuity, local continuity, and the effective merged resume brief separately.
+- `cam memory` now reports startup-loaded memory files, on-demand topic refs, and edit paths directly in the default output and JSON mode.
+- `MemoryStore.ensureLayout()` now rewrites the exact legacy empty `MEMORY.md` template into the current concise index form while leaving user-edited files untouched.
+- Durable extractor prompt guidance now explicitly keeps unfinished next steps and local file-edit notes out of durable memory.
+
+### Fixed
+
+- Heuristic durable extraction now deletes stale command memory when a newer successful command clearly supersedes it in the same rollout.
+
+### Review focus
+
+- Confirm that shared continuity and project-local continuity now diverge in the intended way instead of receiving duplicate summaries.
+- Confirm that `cam session load` and `cam memory` make reviewer workflows more obvious without bloating the startup contract.
+- Confirm that command-level contradiction handling does not delete unrelated reusable commands.
+
 ## 0.1.0-alpha.10 - 2026-03-15
 
 ### Fixed

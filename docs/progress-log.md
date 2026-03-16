@@ -4,9 +4,9 @@ This document tracks implementation progress in a format that is easy to consume
 
 ## Current completion snapshot
 
-- Approximate overall progress toward a strong Claude-style alpha: `92%`
-- Approximate progress toward a working local MVP: `97%`
-- Current phase: `Phase 7+ - session continuity quality and handoff readiness`
+- Approximate overall progress toward a strong Claude-style alpha: `94%`
+- Approximate progress toward a working local MVP: `98%`
+- Current phase: `Phase 11 - continuity layering, extractor contradiction coverage, and memory inspection UX`
 
 ## Completed milestones
 
@@ -127,10 +127,20 @@ This document tracks implementation progress in a format that is easy to consume
 - Expanded `commandSucceeded()` to recognize additional success patterns: "Tests passed", "0 errors", "All checks passed", "PASS", "compiled successfully", "Build succeeded".
 - `compileSessionContinuity()` now includes the `filesDecisionsEnvironment` section in the compiled startup block.
 - Heuristic summarizer now populates `filesDecisionsEnvironment` from detected file-write operations.
-- Added regression tests for heuristic summarizer file-write detection, expanded success patterns, `applySessionContinuitySummary` merge behavior, sensitive content filtering within continuity, and `filesDecisionsEnvironment` in compiled output.
+- Added regression tests for heuristic summarizer file-write detection, expanded success patterns, continuity merge behavior, sensitive content filtering within continuity, and `filesDecisionsEnvironment` in compiled output.
 - Fixed progress log milestone ordering (milestones now appear in chronological order).
 - Updated `docs/session-continuity.md` to document the 5th category and `sessionContinuityLocalPathStyle` config.
 - Updated `AGENTS.md`, `CONTRIBUTING.md`, and `docs/reviewer-handoff.md` for current state.
+
+### Milestone 11: Continuity layering, extractor contradiction coverage, and memory inspection UX
+
+- Session continuity summarization now produces separate shared-project and project-local layers instead of writing the same summary into both files.
+- Heuristic continuity extraction now derives `notYetTried` and `incompleteNext` from explicit rollout language instead of only preserving prior state.
+- `cam session load` now renders shared continuity, local continuity, and the merged resume brief separately.
+- Added real JSONL rollout fixtures for continuity layering and command correction scenarios.
+- Heuristic durable extractor now deletes stale command memory when a newer successful command clearly supersedes it.
+- `cam memory` now shows startup-loaded memory files, on-demand topic refs, and edit paths directly in the default output.
+- `MemoryStore.ensureLayout()` now normalizes the legacy empty `MEMORY.md` template only when it exactly matches the old generated empty file.
 
 ## Reviewer checkpoints
 
@@ -148,23 +158,22 @@ If you are reviewing the repository now, start here:
 
 ## Known gaps
 
-- Extractor quality is stronger, but still needs broader real-world rollout fixtures and more nuanced contradiction handling.
-- `cam memory` is more audit-friendly now, but still below Claude Code's `/memory` interaction depth.
+- Extractor quality is stronger, but still needs broader real-world rollout fixtures and more nuanced contradiction handling beyond command replacement.
+- `cam memory` now exposes loaded files and topic refs, but still remains below Claude Code's `/memory` interaction depth for edit / toggle ergonomics.
 - Native Codex memory and hook support is still companion-first; no native path is activated. Codex now ships native memory but parity verification against our contract is pending.
 - Topic files are now surfaced for on-demand reads, but the companion runtime still relies on generic file-read tools rather than a native lazy topic loader.
-- Session continuity heuristic `notYetTried` is still never populated — only preserved from existing state. This requires NLP or AI-powered path.
-- Session continuity heuristic `incompleteNext` is still generic ("Continue with the latest request") rather than nuanced.
+- Session continuity heuristic is materially better, but still weaker than the Codex-backed schema path for nuanced next-step synthesis and contradiction cleanup.
 - Release hygiene is stronger now, but still needs a per-release reviewer packet refresh discipline.
 - `cam audit` is rule-based and conservative; it reduces obvious risk but is not a substitute for human review.
 - Earlier commits still contain a small number of synthetic secret-like fixtures because the repository intentionally avoided git history rewrite.
 
 ## Next planned milestones
 
-### Milestone 11: Extractor quality and `/memory` parity
+### Milestone 12: Deeper `/memory` parity and Codex-backed continuity quality
 
-- Expand rollout fixtures for harder extractor regression coverage.
-- Improve contradiction handling for stale memory replacement.
-- Narrow the remaining UX gap between `cam memory` and Claude Code's `/memory`.
+- Push `cam memory` closer to Claude `/memory` for loaded-file visibility and edit affordances.
+- Improve Codex-backed continuity summaries for project vs local separation and exact next-step quality.
+- Expand contradiction coverage beyond command replacement into more durable memory categories.
 - Use `docs/next-phase-brief.md` as the execution brief for the next implementation window.
 
 ## Review-ready habits

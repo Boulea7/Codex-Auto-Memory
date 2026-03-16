@@ -58,8 +58,9 @@ If any step is skipped, explain why in the final handoff.
 
 Short-term priorities:
 
-- improve session continuity summarizer quality and file-operation awareness
-- expand test coverage for session continuity heuristic and merge logic
+- improve Codex-backed continuity quality for exact next-step and shared-vs-local assignment
+- expand contradiction fixtures and stale-replacement coverage for durable memory extraction
+- keep `cam memory` useful as a loaded-files and edit-path audit surface
 - keep startup injection limited to quoted `MEMORY.md` indexes plus topic-file references; do not reintroduce eager topic-entry loading
 - keep session continuity separate from durable memory; optimize Codex compatibility first and treat Claude-style continuity as an adapter layer
 
