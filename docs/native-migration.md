@@ -8,10 +8,12 @@ Codex already exposes useful foundations:
 
 - persistent session artifacts in `~/.codex/sessions/`
 - resume and fork flows
-- `AGENTS.md`, rules, skills, and project config
+- public `AGENTS.md` layering rules
+- public project-level `.codex/config.toml` overrides
+- public multi-agent workflows and handoff-oriented transcript context improvements
 - experimental `memories` and `codex_hooks` feature flags
 
-### Codex native memory status (as of early 2026)
+### Codex native memory status (as of 2026-03-17)
 
 Codex CLI ships with a native two-phase memory system (extraction + consolidation) implemented in Rust. The following details were observed from source and local runtime behavior. They are **not** backed by a stable official public API contract and may change without notice.
 
@@ -26,6 +28,12 @@ Configuration is via the `[memories]` section in `config.toml`. The feature is g
 Hook events are currently limited to 2 experimental events: `SessionStart` and `Stop`. Hook configuration lives in `.codex/hooks.json`. This is substantially more limited than Claude Code's 22+ lifecycle events across 4 hook types.
 
 Sessions are stored as JSONL rollout files at `~/.codex/sessions/YYYY/MM/DD/rollout-<timestamp>-<UUID>.jsonl`.
+
+Local readiness remains unchanged as of 2026-03-17:
+
+- `cam doctor --json` still reports `memories` as `under development` and disabled
+- `cam doctor --json` still reports `codex_hooks` as `under development` and disabled
+- this project should therefore continue to treat companion mode as the primary implementation path, not as a temporary fallback to a nearly-ready native path
 
 **Important**: the above is based on source inspection and local observations, not official OpenAI documentation. Treat it as a useful migration signal, not a stable API guarantee. In particular, the directory layout, config keys, and hook semantics may change in future Codex releases without notice.
 
@@ -96,6 +104,14 @@ If native behavior diverges from Claude parity, this project should support both
 
 - a strict Claude-compatible mode
 - a native-optimized mode
+
+## Public reference points
+
+- Codex CLI overview: <https://developers.openai.com/codex/cli>
+- Codex configuration basics: <https://developers.openai.com/codex/config>
+- Codex `AGENTS.md` guide: <https://developers.openai.com/codex/guides/agents-md>
+- Codex multi-agent guide: <https://developers.openai.com/codex/multi-agent>
+- Codex changelog: <https://developers.openai.com/codex/changelog>
 
 ## Decision rule
 

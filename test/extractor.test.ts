@@ -178,6 +178,101 @@ describe("HeuristicExtractor", () => {
       )
     ).toBe(true);
   });
+
+  it("deletes stale preferences after an explicit correction rollout", async () => {
+    const extractor = new HeuristicExtractor();
+    const evidence = await parseRolloutEvidence(
+      path.join(process.cwd(), "test/fixtures/rollouts/preferences-correction.jsonl")
+    );
+
+    expect(evidence).not.toBeNull();
+
+    const operations = await extractor.extract(evidence!, [
+      {
+        id: "use-npm",
+        scope: "project",
+        topic: "preferences",
+        summary: "Use npm in this repository.",
+        details: ["Use npm instead of pnpm in this repository."],
+        updatedAt: "2026-03-14T00:00:00.000Z",
+        sources: ["old"]
+      }
+    ]);
+
+    expect(
+      operations.some(
+        (operation) => operation.action === "delete" && operation.id === "use-npm"
+      )
+    ).toBe(true);
+    expect(
+      operations.some(
+        (operation) =>
+          operation.action === "upsert" &&
+          operation.topic === "preferences" &&
+          operation.summary?.includes("We use pnpm, not npm")
+      )
+    ).toBe(true);
+  });
+
+  it("deletes stale workflow notes after an explicit correction rollout", async () => {
+    const extractor = new HeuristicExtractor();
+    const evidence = await parseRolloutEvidence(
+      path.join(process.cwd(), "test/fixtures/rollouts/workflow-correction.jsonl")
+    );
+
+    expect(evidence).not.toBeNull();
+
+    const operations = await extractor.extract(evidence!, [
+      {
+        id: "use-grep-search",
+        scope: "project",
+        topic: "workflow",
+        summary: "Use grep for repo search.",
+        details: ["Use grep when searching the repository."],
+        updatedAt: "2026-03-14T00:00:00.000Z",
+        sources: ["old"]
+      }
+    ]);
+
+    expect(
+      operations.some(
+        (operation) => operation.action === "delete" && operation.id === "use-grep-search"
+      )
+    ).toBe(true);
+    expect(
+      operations.some(
+        (operation) =>
+          operation.action === "upsert" &&
+          operation.topic === "workflow" &&
+          operation.summary?.includes("Not grep, use rg")
+      )
+    ).toBe(true);
+  });
+
+  it("does not leak temporary continuity next steps into durable memory", async () => {
+    const extractor = new HeuristicExtractor();
+    const evidence = await parseRolloutEvidence(
+      path.join(process.cwd(), "test/fixtures/rollouts/mixed-durable-continuity-noise.jsonl")
+    );
+
+    expect(evidence).not.toBeNull();
+
+    const operations = await extractor.extract(evidence!, []);
+    expect(
+      operations.some(
+        (operation) =>
+          operation.action === "upsert" &&
+          operation.summary?.includes("API tests require Redis")
+      )
+    ).toBe(true);
+    expect(
+      operations.some(
+        (operation) =>
+          operation.action === "upsert" &&
+          /Next step|login\.ts|middleware/u.test(operation.summary ?? "")
+      )
+    ).toBe(false);
+  });
 });
 
 describe("safety filter", () => {

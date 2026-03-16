@@ -76,6 +76,22 @@ export async function runMemory(options: MemoryOptions = {}): Promise<string> {
   const recentAudit = options.recent
     ? await runtime.syncService.memoryStore.readRecentAuditEntries(recentCount)
     : [];
+  const startupFilesByScope = {
+    global: startup.sourceFiles.filter(
+      (filePath) => filePath === runtime.syncService.memoryStore.getMemoryFile("global")
+    ),
+    project: startup.sourceFiles.filter(
+      (filePath) => filePath === runtime.syncService.memoryStore.getMemoryFile("project")
+    ),
+    projectLocal: startup.sourceFiles.filter(
+      (filePath) => filePath === runtime.syncService.memoryStore.getMemoryFile("project-local")
+    )
+  };
+  const topicFilesByScope = {
+    global: startup.topicFiles.filter((topicFile) => topicFile.scope === "global"),
+    project: startup.topicFiles.filter((topicFile) => topicFile.scope === "project"),
+    projectLocal: startup.topicFiles.filter((topicFile) => topicFile.scope === "project-local")
+  };
   const editTargets = {
     global: runtime.syncService.memoryStore.getMemoryFile("global"),
     project: runtime.syncService.memoryStore.getMemoryFile("project"),
@@ -96,6 +112,8 @@ export async function runMemory(options: MemoryOptions = {}): Promise<string> {
         startup,
         loadedFiles: startup.sourceFiles,
         topicFiles: startup.topicFiles,
+        startupFilesByScope,
+        topicFilesByScope,
         scopes,
         editTargets,
         recentAudit
@@ -139,12 +157,21 @@ export async function runMemory(options: MemoryOptions = {}): Promise<string> {
   }
 
   lines.push("", "Topic files on demand:");
-  if (startup.topicFiles.length > 0) {
-    for (const topicFile of startup.topicFiles) {
-      lines.push(`- [${topicFile.scope}] ${topicFile.topic}: ${topicFile.path}`);
+  const topicGroups = [
+    ["global", topicFilesByScope.global],
+    ["project", topicFilesByScope.project],
+    ["project-local", topicFilesByScope.projectLocal]
+  ] as const;
+  for (const [scopeLabel, files] of topicGroups) {
+    lines.push(`- ${scopeLabel}:`);
+    if (files.length === 0) {
+      lines.push("  - none");
+      continue;
     }
-  } else {
-    lines.push("- No topic files available.");
+
+    for (const topicFile of files) {
+      lines.push(`  - ${topicFile.topic}: ${topicFile.path}`);
+    }
   }
 
   if (recentAudit.length > 0) {

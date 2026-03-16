@@ -1,0 +1,2 @@
+{"type":"session_meta","payload":{"id":"fixture-preferences-correction","timestamp":"2026-03-16T00:00:00.000Z","cwd":"/tmp/project"}}
+{"type":"event_msg","payload":{"type":"user_message","message":"We use pnpm, not npm."}}
