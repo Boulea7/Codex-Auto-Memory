@@ -76,6 +76,11 @@ export async function runMemory(options: MemoryOptions = {}): Promise<string> {
   const recentAudit = options.recent
     ? await runtime.syncService.memoryStore.readRecentAuditEntries(recentCount)
     : [];
+  const editTargets = {
+    global: runtime.syncService.memoryStore.getMemoryFile("global"),
+    project: runtime.syncService.memoryStore.getMemoryFile("project"),
+    projectLocal: runtime.syncService.memoryStore.getMemoryFile("project-local")
+  };
 
   if (options.open) {
     const targetScope = selectedScope === "all" ? "project" : selectedScope;
@@ -89,7 +94,10 @@ export async function runMemory(options: MemoryOptions = {}): Promise<string> {
         configFiles: runtime.loadedConfig.files,
         warnings: runtime.loadedConfig.warnings,
         startup,
+        loadedFiles: startup.sourceFiles,
+        topicFiles: startup.topicFiles,
         scopes,
+        editTargets,
         recentAudit
       },
       null,
@@ -106,6 +114,11 @@ export async function runMemory(options: MemoryOptions = {}): Promise<string> {
     ...(configUpdateMessage ? [configUpdateMessage] : []),
     ...runtime.loadedConfig.warnings.map((warning) => `Warning: ${warning}`),
     "",
+    "Edit paths:",
+    `- global: ${editTargets.global}`,
+    `- project: ${editTargets.project}`,
+    `- project-local: ${editTargets.projectLocal}`,
+    "",
     "Scopes:"
   ];
 
@@ -114,6 +127,24 @@ export async function runMemory(options: MemoryOptions = {}): Promise<string> {
     if (item.topics.length > 0) {
       lines.push(`  Topics: ${item.topics.join(", ")}`);
     }
+  }
+
+  lines.push("", "Startup loaded files:");
+  if (startup.sourceFiles.length > 0) {
+    for (const filePath of startup.sourceFiles) {
+      lines.push(`- ${filePath}`);
+    }
+  } else {
+    lines.push("- No memory files fit into the current startup budget.");
+  }
+
+  lines.push("", "Topic files on demand:");
+  if (startup.topicFiles.length > 0) {
+    for (const topicFile of startup.topicFiles) {
+      lines.push(`- [${topicFile.scope}] ${topicFile.topic}: ${topicFile.path}`);
+    }
+  } else {
+    lines.push("- No topic files available.");
   }
 
   if (recentAudit.length > 0) {
