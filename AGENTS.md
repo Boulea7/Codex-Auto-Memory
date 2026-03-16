@@ -41,6 +41,7 @@ If the implementation changes behavior, update the matching docs in the same tas
 - Any change to config precedence, storage layout, startup injection, or migration strategy must update docs.
 - README should remain suitable for new open-source visitors.
 - `docs/claude-reference.md` should capture the Claude behavior this project is trying to mimic.
+- Keep any machine-specific or private AI review handoff in `AI_REVIEW.local.md` at the repository root. That file must stay gitignored and untracked.
 
 ## Validation
 
