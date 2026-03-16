@@ -2,6 +2,7 @@ import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
+import { parseRolloutEvidence } from "../src/lib/domain/rollout.js";
 import { CodexExtractor } from "../src/lib/extractor/codex-extractor.js";
 import { HeuristicExtractor } from "../src/lib/extractor/heuristic-extractor.js";
 import { filterMemoryOperations } from "../src/lib/extractor/safety.js";
@@ -140,6 +141,42 @@ describe("HeuristicExtractor", () => {
     expect(upserts).toHaveLength(1);
     expect(upserts[0]?.summary).toContain("pnpm test");
     expect(upserts[0]?.summary).not.toContain("npm install");
+  });
+
+  it("replaces stale command memory from a real rollout fixture", async () => {
+    const extractor = new HeuristicExtractor();
+    const evidence = await parseRolloutEvidence(
+      path.join(process.cwd(), "test/fixtures/rollouts/memory-correction.jsonl")
+    );
+
+    expect(evidence).not.toBeNull();
+
+    const operations = await extractor.extract(evidence!, [
+      {
+        id: "npm-test",
+        scope: "project",
+        topic: "commands",
+        summary: "Run `npm test` to verify this repository.",
+        details: ["Use `npm test` as a repeatable verification command for this project."],
+        updatedAt: "2026-03-14T00:00:00.000Z",
+        sources: ["old"]
+      }
+    ]);
+
+    expect(
+      operations.some(
+        (operation) =>
+          operation.action === "delete" &&
+          operation.id === "npm-test"
+      )
+    ).toBe(true);
+    expect(
+      operations.some(
+        (operation) =>
+          operation.action === "upsert" &&
+          operation.summary?.includes("pnpm test")
+      )
+    ).toBe(true);
   });
 });
 

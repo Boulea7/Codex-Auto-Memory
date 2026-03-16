@@ -55,6 +55,7 @@ Product rules:
 - Save only information that is likely to be useful in a future conversation.
 - Good candidates: stable build commands, debugging insights, architecture decisions, coding preferences, workflow habits, repeated corrections from the user.
 - Bad candidates: temporary task state, one-off plans, speculative conclusions, long raw transcripts, sensitive tokens, secrets, session-only logistics.
+- Do not store unfinished next steps, worktree-local file editing notes, or temporary resume context; those belong in session continuity, not durable memory.
 - Use scope "global" for cross-project personal preferences.
 - Use scope "project" for repository-wide knowledge shared across worktrees.
 - Use scope "project-local" for worktree-specific or personal-in-this-repo knowledge.
