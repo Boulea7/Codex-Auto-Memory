@@ -4,6 +4,26 @@ All notable changes to `codex-auto-memory` will be documented in this file.
 
 The format is intentionally simple and reviewer-friendly: each entry maps to a concrete implementation milestone and, when possible, a single Git commit.
 
+## 0.1.0-alpha.14 - 2026-03-17
+
+### Added
+
+- Added `recentContinuityAuditEntries` to `cam session save --json`, `cam session load --json`, and `cam session status --json`.
+- Added a compact `Recent generations` preview to the default `cam session load` and `cam session status` output.
+- Added regression coverage for recent continuity audit previews and for the real `cam session save --json` CLI command surface.
+
+### Changed
+
+- `cam session save` now declares `--json` on the actual Commander command surface instead of only supporting JSON through the internal command helper.
+- Reviewer-facing docs, handoff materials, and milestone briefs now reflect the current continuity review surface more precisely.
+- Native migration guidance now notes that official Codex public materials mention experimental memory and hook work, while still stopping short of a stable contract.
+
+### Review focus
+
+- Confirm that recent continuity audit previews stay compact and remain sourced from the dedicated audit JSONL rather than the continuity Markdown files.
+- Confirm that `cam session save --json` now works from the real CLI entrypoint, not just from internal command calls.
+- Confirm that the updated reviewer docs stay companion-first and do not overstate native Codex readiness.
+
 ## 0.1.0-alpha.13 - 2026-03-17
 
 ### Added

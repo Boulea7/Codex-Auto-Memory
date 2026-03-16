@@ -1,29 +1,30 @@
 # Next Phase Brief
 
-This brief prepares the next implementation window after `0.1.0-alpha.13`.
+This brief prepares the next implementation window after `0.1.0-alpha.14`.
 
-## Milestone 14 focus
+## Milestone 15 focus
 
 The next phase should continue to stay compact and reviewer-oriented:
 
-- refresh reviewer packets and release-facing docs more systematically
-- improve the highest-value memory review surfaces without reopening a larger `/memory` redesign
+- expand contradiction fixtures only where rollout evidence makes replacement behavior clearly safe
+- consider one more lightweight continuity drill-down step only if it removes reviewer ambiguity without creating a dedicated history browser
+- keep reviewer packet refresh discipline routine instead of treating it as a one-off cleanup
 - keep monitoring native Codex memory and hooks, but remain companion-first until public docs and local readiness both improve
 
 Do **not** reopen startup injection, session continuity storage layout, or broad command-surface expansion unless a concrete regression appears.
 
 ## Goals
 
-1. Reduce reviewer drift between docs, changelog, handoff packets, and actual CLI output.
-2. Tighten `cam memory` and `cam session` review surfaces only where they directly reduce audit friction.
-3. Keep contradiction handling conservative unless new rollout fixtures justify a safe expansion.
+1. Keep contradiction handling conservative while improving explicit correction coverage where fixtures justify it.
+2. Tighten reviewer continuity inspection only where it directly reduces audit friction.
+3. Keep docs, changelog, and handoff packets aligned as part of the normal milestone closeout.
 4. Continue external research on official Codex memory and hook readiness without treating local observations as stable product contract.
 
 ## In scope
 
 - Refresh reviewer-facing docs whenever implementation windows close.
-- Add small reviewer-oriented CLI summaries if they clearly remove ambiguity.
 - Add targeted fixtures that protect current behavior better than broad heuristic complexity.
+- Add only small reviewer-oriented continuity drill-down if it clearly removes ambiguity.
 - Re-check official Codex public docs and local `doctor` output before changing migration guidance.
 
 ## Out of scope
