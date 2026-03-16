@@ -4,13 +4,14 @@ import { APP_ID } from "../constants.js";
 import type {
   AppConfig,
   ProjectContext,
+  SessionContinuityAuditEntry,
   SessionContinuityLocation,
   SessionContinuityPaths,
   SessionContinuityScope,
   SessionContinuityState,
   SessionContinuitySummary
 } from "../types.js";
-import { fileExists, readTextFile, writeTextFile } from "../util/fs.js";
+import { appendJsonl, fileExists, readTextFile, writeTextFile } from "../util/fs.js";
 import { getDefaultMemoryDirectory } from "./project-context.js";
 import {
   applySessionContinuityLayerSummary,
@@ -32,6 +33,7 @@ export class SessionContinuityStore {
     private readonly config: AppConfig
   ) {
     const baseDir = config.autoMemoryDirectory ?? getDefaultMemoryDirectory();
+    const auditDir = path.join(baseDir, "projects", project.projectId, "audit");
     const codexSessionDir = path.join(project.projectRoot, `.${APP_ID}`, "sessions");
     const claudeSessionDir = path.join(project.projectRoot, ".claude", "sessions");
     const localDir =
@@ -47,7 +49,9 @@ export class SessionContinuityStore {
       localDir,
       localFile,
       claudeSessionDir,
-      codexSessionDir
+      codexSessionDir,
+      auditDir,
+      auditFile: path.join(auditDir, "session-continuity-log.jsonl")
     };
   }
 
@@ -57,6 +61,10 @@ export class SessionContinuityStore {
 
   public async ensureLocalLayout(): Promise<void> {
     await fs.mkdir(this.paths.localDir, { recursive: true });
+  }
+
+  public async ensureAuditLayout(): Promise<void> {
+    await fs.mkdir(this.paths.auditDir, { recursive: true });
   }
 
   public async ensureLocalIgnore(): Promise<string | null> {
@@ -194,6 +202,36 @@ export class SessionContinuityStore {
     }
 
     return cleared;
+  }
+
+  public async appendAuditLog(payload: SessionContinuityAuditEntry): Promise<void> {
+    await this.ensureAuditLayout();
+    await appendJsonl(this.paths.auditFile, payload);
+  }
+
+  public async readRecentAuditEntries(limit = 5): Promise<SessionContinuityAuditEntry[]> {
+    if (!(await fileExists(this.paths.auditFile))) {
+      return [];
+    }
+
+    const raw = await readTextFile(this.paths.auditFile);
+    return raw
+      .split("\n")
+      .map((line) => line.trim())
+      .filter(Boolean)
+      .flatMap((line) => {
+        try {
+          return [JSON.parse(line) as SessionContinuityAuditEntry];
+        } catch {
+          return [];
+        }
+      })
+      .slice(-limit)
+      .reverse();
+  }
+
+  public async readLatestAuditEntry(): Promise<SessionContinuityAuditEntry | null> {
+    return (await this.readRecentAuditEntries(1))[0] ?? null;
   }
 
   private async resolveLocalReadPath(): Promise<string | null> {

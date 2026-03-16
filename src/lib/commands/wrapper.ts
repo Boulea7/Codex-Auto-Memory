@@ -1,4 +1,8 @@
 import { compileStartupMemory } from "../domain/startup-memory.js";
+import {
+  buildSessionContinuityAuditEntry,
+  formatSessionContinuityDiagnostics
+} from "../domain/session-continuity-diagnostics.js";
 import { listRolloutFiles, parseRolloutEvidence } from "../domain/rollout.js";
 import { compileSessionContinuity } from "../domain/session-continuity.js";
 import { readCodexBaseInstructions } from "../runtime/codex-config.js";
@@ -96,10 +100,23 @@ async function saveSessionContinuity(
     projectLocal: await runtime.sessionContinuityStore.readState("project-local")
   };
   const summarizer = new SessionContinuitySummarizer(runtime.loadedConfig.config);
-  const summary = await summarizer.summarize(evidence, existing);
-  const written = await runtime.sessionContinuityStore.saveSummary(summary, "both");
+  const generation = await summarizer.summarizeWithDiagnostics(evidence, existing);
+  const written = await runtime.sessionContinuityStore.saveSummary(generation.summary, "both");
+  await runtime.sessionContinuityStore.appendAuditLog(
+    buildSessionContinuityAuditEntry(
+      runtime.project,
+      runtime.loadedConfig.config,
+      generation.diagnostics,
+      written,
+      "both"
+    )
+  );
   return written.length > 0
-    ? `Updated session continuity from ${rolloutPath}:\n${written.map((filePath) => `- ${filePath}`).join("\n")}`
+    ? [
+        `Updated session continuity from ${rolloutPath}:`,
+        formatSessionContinuityDiagnostics(generation.diagnostics),
+        ...written.map((filePath) => `- ${filePath}`)
+      ].join("\n")
     : null;
 }
 

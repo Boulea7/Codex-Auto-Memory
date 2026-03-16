@@ -460,7 +460,8 @@ describe("session continuity domain", () => {
         codexBinary: mockBinary
       })
     );
-    const summary = await summarizer.summarize(evidence);
+    const result = await summarizer.summarizeWithDiagnostics(evidence);
+    const { summary, diagnostics } = result;
 
     expect(summary.sourceSessionId).toBe("session-codex-valid");
     expect(summary.project.confirmedWorking).toEqual(["Command succeeded: pnpm test"]);
@@ -473,13 +474,24 @@ describe("session continuity domain", () => {
     expect(summary.projectLocal.filesDecisionsEnvironment).toEqual([
       "File modified: login.ts"
     ]);
+    expect(diagnostics.preferredPath).toBe("codex");
+    expect(diagnostics.actualPath).toBe("codex");
+    expect(diagnostics.fallbackReason).toBeUndefined();
+    expect(diagnostics.codexExitCode).toBe(0);
   });
 
   it("codex mode falls back to heuristic when the mocked codex output is invalid", async () => {
     const invalidCases = [
-      `fs.writeFileSync(outputPath, "{not valid json");`,
-      `fs.writeFileSync(outputPath, JSON.stringify({ project: { goal: "" } }));`,
-      `fs.writeFileSync(outputPath, JSON.stringify({
+      {
+        body: `fs.writeFileSync(outputPath, "{not valid json");`,
+        reason: "invalid-json"
+      },
+      {
+        body: `fs.writeFileSync(outputPath, JSON.stringify({ project: { goal: "" } }));`,
+        reason: "invalid-structure"
+      },
+      {
+        body: `fs.writeFileSync(outputPath, JSON.stringify({
   project: {
     goal: "",
     confirmedWorking: "bad",
@@ -496,12 +508,14 @@ describe("session continuity domain", () => {
     incompleteNext: [],
     filesDecisionsEnvironment: []
   }
-}));`
+}));`,
+        reason: "invalid-structure"
+      }
     ];
 
-    for (const [index, body] of invalidCases.entries()) {
+    for (const [index, invalidCase] of invalidCases.entries()) {
       const temp = await tempDir(`cam-session-codex-invalid-${index}-`);
-      const mockBinary = await writeMockCodexBinary(temp, body);
+      const mockBinary = await writeMockCodexBinary(temp, invalidCase.body);
       const evidence: RolloutEvidence = {
         sessionId: `session-codex-invalid-${index}`,
         createdAt: "2026-03-15T00:00:00.000Z",
@@ -533,7 +547,8 @@ describe("session continuity domain", () => {
           codexBinary: mockBinary
         })
       );
-      const summary = await summarizer.summarize(evidence);
+      const result = await summarizer.summarizeWithDiagnostics(evidence);
+      const { summary, diagnostics } = result;
 
       expect(summary.project.confirmedWorking.join("\n")).toContain("pnpm test");
       expect(summary.project.notYetTried.join("\n")).toContain("switching the login route to cookies()");
@@ -541,6 +556,10 @@ describe("session continuity domain", () => {
         "update src/auth/login.ts"
       );
       expect(summary.projectLocal.filesDecisionsEnvironment.join("\n")).toContain("login.ts");
+      expect(diagnostics.preferredPath).toBe("codex");
+      expect(diagnostics.actualPath).toBe("heuristic");
+      expect(diagnostics.codexExitCode).toBe(0);
+      expect(diagnostics.fallbackReason).toBe(invalidCase.reason);
     }
   });
 
@@ -603,12 +622,67 @@ describe("session continuity domain", () => {
         codexBinary: mockBinary
       })
     );
-    const summary = await summarizer.summarize(evidence);
+    const result = await summarizer.summarizeWithDiagnostics(evidence);
+    const { summary, diagnostics } = result;
 
     expect(summary.project.confirmedWorking.join("\n")).toContain("pnpm test");
     expect(summary.project.triedAndFailed.join("\n")).toContain("pnpm build");
     expect(summary.projectLocal.incompleteNext.join("\n")).toContain("add middleware");
     expect(summary.projectLocal.filesDecisionsEnvironment.join("\n")).toContain("login.ts");
+    expect(diagnostics.preferredPath).toBe("codex");
+    expect(diagnostics.actualPath).toBe("heuristic");
+    expect(diagnostics.fallbackReason).toBe("low-signal");
+  });
+
+  it("codex mode records command failure diagnostics when the codex command exits non-zero", async () => {
+    const temp = await tempDir("cam-session-codex-command-failed-");
+    const mockBinary = await writeMockCodexBinary(
+      temp,
+      `process.exit(17);`
+    );
+    const evidence: RolloutEvidence = {
+      sessionId: "session-codex-command-failed",
+      createdAt: "2026-03-15T00:00:00.000Z",
+      cwd: temp,
+      userMessages: ["Continue the auth rollout."],
+      agentMessages: [],
+      toolCalls: [],
+      rolloutPath: "/tmp/rollout.jsonl"
+    };
+
+    const summarizer = new SessionContinuitySummarizer(
+      baseConfig("/tmp/memory-root", {
+        extractorMode: "codex",
+        codexBinary: mockBinary
+      })
+    );
+    const result = await summarizer.summarizeWithDiagnostics(evidence);
+
+    expect(result.summary.sourceSessionId).toBe("session-codex-command-failed");
+    expect(result.diagnostics.preferredPath).toBe("codex");
+    expect(result.diagnostics.actualPath).toBe("heuristic");
+    expect(result.diagnostics.fallbackReason).toBe("codex-command-failed");
+    expect(result.diagnostics.codexExitCode).toBe(17);
+  });
+
+  it("heuristic mode reports configured-heuristic diagnostics", async () => {
+    const evidence: RolloutEvidence = {
+      sessionId: "session-configured-heuristic",
+      createdAt: "2026-03-15T00:00:00.000Z",
+      cwd: "/tmp/project",
+      userMessages: ["Need to update src/auth/login.ts to set an httpOnly cookie."],
+      agentMessages: [],
+      toolCalls: [],
+      rolloutPath: "/tmp/rollout.jsonl"
+    };
+
+    const summarizer = new SessionContinuitySummarizer(baseConfig("/tmp/memory-root"));
+    const result = await summarizer.summarizeWithDiagnostics(evidence);
+
+    expect(result.diagnostics.preferredPath).toBe("heuristic");
+    expect(result.diagnostics.actualPath).toBe("heuristic");
+    expect(result.diagnostics.fallbackReason).toBe("configured-heuristic");
+    expect(result.diagnostics.evidenceCounts.nextSteps).toBeGreaterThan(0);
   });
 
   it("applySessionContinuityLayerSummary merges summary into base state", () => {

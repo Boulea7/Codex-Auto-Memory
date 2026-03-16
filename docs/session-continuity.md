@@ -157,10 +157,35 @@ cam session clear
 - shared project continuity
 - project-local continuity
 - the effective merged resume brief
+- the latest continuity generation path and fallback status
 
 Automatic injection and automatic saving are disabled by default.
 
 This keeps the main Claude-style auto memory contract stable and prevents temporary state from silently entering every session unless the user explicitly opts in.
+
+## Continuity diagnostics audit
+
+Continuity generation now keeps a separate reviewer-oriented audit log:
+
+```text
+~/.codex-auto-memory/projects/<project-id>/audit/session-continuity-log.jsonl
+```
+
+Each save records:
+
+- whether the preferred path was `codex` or `heuristic`
+- which path actually produced the saved continuity
+- why Codex fell back when it did
+- evidence counts for commands, file writes, next steps, and untried items
+- the rollout path and written continuity files
+
+This information is intentionally **not** written into the continuity Markdown files themselves.
+
+Reason:
+
+- the continuity files should stay compact and human-editable
+- reviewer/debug data belongs in an audit surface, not in the working-state note itself
+- the latest audit entry is exposed through `cam session save --json`, `cam session load --json`, and `cam session status --json`
 
 ## Startup behavior
 

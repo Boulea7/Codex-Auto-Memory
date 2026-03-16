@@ -80,6 +80,7 @@ describe("runMemory", () => {
       recent: "3"
     });
 
+    expect(output).toContain("Startup budget:");
     expect(output).toContain("Edit paths:");
     expect(output).toContain("project: 1 entry");
     expect(output).toContain("Topics: workflow");
@@ -154,11 +155,25 @@ describe("runMemory", () => {
         project: Array<{ topic: string; path: string }>;
         projectLocal: Array<{ topic: string; path: string }>;
       };
+      startupBudget: {
+        usedLines: number;
+        maxLines: number;
+      };
+      refCountsByScope: {
+        global: { startupFiles: number; topicFiles: number };
+        project: { startupFiles: number; topicFiles: number };
+        projectLocal: { startupFiles: number; topicFiles: number };
+      };
     };
 
+    expect(output.startupBudget.usedLines).toBeGreaterThan(0);
+    expect(output.startupBudget.maxLines).toBe(200);
     expect(output.startupFilesByScope.global).toHaveLength(1);
     expect(output.startupFilesByScope.project).toContain(store.getMemoryFile("project"));
     expect(output.startupFilesByScope.projectLocal).toHaveLength(1);
+    expect(output.refCountsByScope.global).toEqual({ startupFiles: 1, topicFiles: 0 });
+    expect(output.refCountsByScope.project).toEqual({ startupFiles: 1, topicFiles: 1 });
+    expect(output.refCountsByScope.projectLocal).toEqual({ startupFiles: 1, topicFiles: 0 });
     expect(output.topicFilesByScope.global).toEqual([]);
     expect(output.topicFilesByScope.project).toEqual([
       expect.objectContaining({

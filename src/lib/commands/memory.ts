@@ -92,6 +92,24 @@ export async function runMemory(options: MemoryOptions = {}): Promise<string> {
     project: startup.topicFiles.filter((topicFile) => topicFile.scope === "project"),
     projectLocal: startup.topicFiles.filter((topicFile) => topicFile.scope === "project-local")
   };
+  const startupBudget = {
+    usedLines: startup.lineCount,
+    maxLines: runtime.loadedConfig.config.maxStartupLines
+  };
+  const refCountsByScope = {
+    global: {
+      startupFiles: startupFilesByScope.global.length,
+      topicFiles: topicFilesByScope.global.length
+    },
+    project: {
+      startupFiles: startupFilesByScope.project.length,
+      topicFiles: topicFilesByScope.project.length
+    },
+    projectLocal: {
+      startupFiles: startupFilesByScope.projectLocal.length,
+      topicFiles: topicFilesByScope.projectLocal.length
+    }
+  };
   const editTargets = {
     global: runtime.syncService.memoryStore.getMemoryFile("global"),
     project: runtime.syncService.memoryStore.getMemoryFile("project"),
@@ -114,6 +132,8 @@ export async function runMemory(options: MemoryOptions = {}): Promise<string> {
         topicFiles: startup.topicFiles,
         startupFilesByScope,
         topicFilesByScope,
+        startupBudget,
+        refCountsByScope,
         scopes,
         editTargets,
         recentAudit
@@ -129,6 +149,7 @@ export async function runMemory(options: MemoryOptions = {}): Promise<string> {
     `Memory base: ${runtime.syncService.memoryStore.paths.baseDir}`,
     `Auto memory enabled: ${runtime.loadedConfig.config.autoMemoryEnabled}`,
     `Config files: ${runtime.loadedConfig.files.length ? runtime.loadedConfig.files.join(", ") : "none"}`,
+    `Startup budget: ${startupBudget.usedLines}/${startupBudget.maxLines} lines | Refs: global ${refCountsByScope.global.startupFiles}/${refCountsByScope.global.topicFiles}, project ${refCountsByScope.project.startupFiles}/${refCountsByScope.project.topicFiles}, project-local ${refCountsByScope.projectLocal.startupFiles}/${refCountsByScope.projectLocal.topicFiles}`,
     ...(configUpdateMessage ? [configUpdateMessage] : []),
     ...runtime.loadedConfig.warnings.map((warning) => `Warning: ${warning}`),
     "",

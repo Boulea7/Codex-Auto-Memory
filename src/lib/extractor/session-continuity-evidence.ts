@@ -1,4 +1,8 @@
-import type { RolloutEvidence, RolloutToolCall } from "../types.js";
+import type {
+  RolloutEvidence,
+  RolloutToolCall,
+  SessionContinuityEvidenceCounts
+} from "../types.js";
 import { trimText } from "../util/text.js";
 
 const FILE_WRITE_PATTERNS = ["apply_patch", "write_file", "create_file", "edit_file"];
@@ -222,4 +226,16 @@ export function hasEvidenceBuckets(
     buckets.explicitNextSteps.length > 0 ||
     buckets.explicitUntried.length > 0
   );
+}
+
+export function buildSessionContinuityEvidenceCounts(
+  buckets: SessionContinuityEvidenceBuckets
+): SessionContinuityEvidenceCounts {
+  return {
+    successfulCommands: buckets.recentSuccessfulCommands.length,
+    failedCommands: buckets.recentFailedCommands.length,
+    fileWrites: buckets.detectedFileWrites.length,
+    nextSteps: buckets.explicitNextSteps.length,
+    untried: buckets.explicitUntried.length
+  };
 }
