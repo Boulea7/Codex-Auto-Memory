@@ -23,16 +23,22 @@ It is trying to prove:
 The repository currently has:
 
 - a wrapper-based startup injector with quoted `MEMORY.md` indexes and structured topic file references
-- a separate session continuity layer for temporary working-state handoff across conversations
+- a separate session continuity layer for temporary working-state handoff across conversations, split into shared project and project-local layers
 - a rollout-backed post-session sync path
 - a Markdown memory store with `MEMORY.md` indexes and topic files
 - explicit compatibility seams for session source, extractor, and runtime injector
 - review-oriented docs and changelog tracking
 - a repository privacy audit command: `cam audit`
+- a reviewer-oriented `cam memory` surface that shows startup-loaded files, topic refs, and edit paths
 
 ## Most recent milestone commits
 
+- current implementation window: alpha.11 continuity layering, extractor contradiction coverage, and `cam memory` reviewer UX hardening
+- `47871b6` `chore(test): reduce audit fixture scanner noise`
+- `3b25bf1` `fix(session): correct file-write detection and confirmedWorking evidence gate`
+- `b406163` `feat(session): improve heuristic summarizer and sync docs for alpha.10`
 - `a8257b6` `feat(session): add codex-first continuity layer`
+- `214022f` `feat(runtime): add topic-aware startup guardrails`
 - `14060b2` `docs(review): add security audit workflow and handoff packet`
 - `f0f079f` `fix(audit): reduce noise in history findings`
 - `680fb2a` `fix(parity): retain reviewed claudecode hardening patch`
@@ -56,10 +62,10 @@ The project intentionally chose a **forward-only cleanup** strategy. Earlier com
 ## Highest-value remaining gaps
 
 - topic files are now referenced for on-demand reads, but the runtime still relies on generic file-read tools rather than a native lazy-loading hook
-- extractor quality still needs more real-world rollout fixtures and contradiction handling
-- `cam memory` is still shallower than Claude Code’s `/memory`
-- session continuity heuristic still cannot populate `notYetTried` without AI; `incompleteNext` is still generic in heuristic mode
-- `docs/next-phase-brief.md` captures the recommended Milestone 11 execution brief
+- extractor quality still needs broader contradiction handling beyond command replacement
+- `cam memory` is still shallower than Claude Code’s `/memory`, especially around edit/toggle ergonomics
+- heuristic continuity layering is now useful, but Codex-backed summaries still need better exact next-step quality
+- `docs/next-phase-brief.md` captures the recommended Milestone 12 execution brief
 
 ## Recommended review sequence
 

@@ -71,7 +71,10 @@ export async function runSession(
       throw new Error(`Could not parse rollout evidence from ${rolloutPath}.`);
     }
 
-    const existing = await runtime.sessionContinuityStore.readMergedState();
+    const existing = {
+      project: await runtime.sessionContinuityStore.readState("project"),
+      projectLocal: await runtime.sessionContinuityStore.readState("project-local")
+    };
     const summarizer = new SessionContinuitySummarizer(runtime.loadedConfig.config);
     const summary = await summarizer.summarize(parsedEvidence, existing);
     const written = await runtime.sessionContinuityStore.saveSummary(summary, scope);
@@ -121,6 +124,8 @@ export async function runSession(
 
   const projectLocation = await runtime.sessionContinuityStore.getLocation("project");
   const localLocation = await runtime.sessionContinuityStore.getLocation("project-local");
+  const projectState = await runtime.sessionContinuityStore.readState("project");
+  const localState = await runtime.sessionContinuityStore.readState("project-local");
   const mergedState =
     (await runtime.sessionContinuityStore.readMergedState()) ??
     createEmptySessionContinuityState(
@@ -140,6 +145,8 @@ export async function runSession(
         {
           projectLocation,
           localLocation,
+          projectState,
+          localState,
           mergedState,
           startup
         },
@@ -153,28 +160,83 @@ export async function runSession(
       `Project continuity: ${projectLocation.exists ? "active" : "missing"} (${projectLocation.path})`,
       `Project-local continuity: ${localLocation.exists ? "active" : "missing"} (${localLocation.path})`,
       "",
-      `Goal: ${mergedState.goal || "No active goal recorded."}`,
+      "Shared project continuity:",
+      `Goal: ${projectState?.goal || "No active goal recorded."}`,
       "",
+      "Confirmed working:",
+      ...(projectState?.confirmedWorking.length
+        ? projectState.confirmedWorking.map((item) => `- ${item}`)
+        : ["- Nothing confirmed yet."]),
+      "",
+      "Tried and failed:",
+      ...(projectState?.triedAndFailed.length
+        ? projectState.triedAndFailed.map((item) => `- ${item}`)
+        : ["- No failed approaches recorded."]),
+      "",
+      "Not yet tried:",
+      ...(projectState?.notYetTried.length
+        ? projectState.notYetTried.map((item) => `- ${item}`)
+        : ["- No untried approaches recorded."]),
+      "",
+      "Files / decisions / environment:",
+      ...(projectState?.filesDecisionsEnvironment.length
+        ? projectState.filesDecisionsEnvironment.map((item) => `- ${item}`)
+        : ["- No additional file, decision, or environment notes."]),
+      "",
+      "Project-local continuity:",
+      `Goal: ${localState?.goal || "No active goal recorded."}`,
+      "",
+      "Confirmed working:",
+      ...(localState?.confirmedWorking.length
+        ? localState.confirmedWorking.map((item) => `- ${item}`)
+        : ["- Nothing confirmed yet."]),
+      "",
+      "Tried and failed:",
+      ...(localState?.triedAndFailed.length
+        ? localState.triedAndFailed.map((item) => `- ${item}`)
+        : ["- No failed approaches recorded."]),
+      "",
+      "Incomplete / next:",
+      ...(localState?.incompleteNext.length
+        ? localState.incompleteNext.map((item) => `- ${item}`)
+        : ["- No next step recorded."])
+    ];
+
+    lines.push(
+      "",
+      "Project-local not yet tried:",
+      ...(localState?.notYetTried.length
+        ? localState.notYetTried.map((item) => `- ${item}`)
+        : ["- No untried local approaches recorded."]),
+      "",
+      "Project-local files / decisions / environment:",
+      ...(localState?.filesDecisionsEnvironment.length
+        ? localState.filesDecisionsEnvironment.map((item) => `- ${item}`)
+        : ["- No additional local file, decision, or environment notes."]),
+      "",
+      "Effective merged resume brief:",
+      `Goal: ${mergedState.goal || "No active goal recorded."}`,
       "Confirmed working:",
       ...(mergedState.confirmedWorking.length > 0
         ? mergedState.confirmedWorking.map((item) => `- ${item}`)
         : ["- Nothing confirmed yet."]),
-      "",
       "Tried and failed:",
       ...(mergedState.triedAndFailed.length > 0
         ? mergedState.triedAndFailed.map((item) => `- ${item}`)
         : ["- No failed approaches recorded."]),
-      "",
       "Not yet tried:",
       ...(mergedState.notYetTried.length > 0
         ? mergedState.notYetTried.map((item) => `- ${item}`)
         : ["- No untried approaches recorded."]),
-      "",
       "Incomplete / next:",
       ...(mergedState.incompleteNext.length > 0
         ? mergedState.incompleteNext.map((item) => `- ${item}`)
-        : ["- No next step recorded."])
-    ];
+        : ["- No next step recorded."]),
+      "Files / decisions / environment:",
+      ...(mergedState.filesDecisionsEnvironment.length > 0
+        ? mergedState.filesDecisionsEnvironment.map((item) => `- ${item}`)
+        : ["- No additional file, decision, or environment notes."])
+    );
 
     if (options.printStartup) {
       lines.push("", "Startup continuity:", startup.text.trimEnd());
@@ -192,6 +254,8 @@ export async function runSession(
         maxLines: runtime.loadedConfig.config.maxSessionContinuityLines,
         projectLocation,
         localLocation,
+        projectState,
+        localState,
         mergedState
       },
       null,
@@ -206,6 +270,9 @@ export async function runSession(
     `Local path style: ${runtime.loadedConfig.config.sessionContinuityLocalPathStyle}`,
     `Shared continuity: ${projectLocation.exists ? "active" : "missing"} (${projectLocation.path})`,
     `Project-local continuity: ${localLocation.exists ? "active" : "missing"} (${localLocation.path})`,
+    `Shared updated at: ${projectState?.updatedAt ?? "n/a"}`,
+    `Project-local updated at: ${localState?.updatedAt ?? "n/a"}`,
+    `Merged continuity layers: ${[projectState, localState].filter(Boolean).length}`,
     `Startup continuity line budget: ${runtime.loadedConfig.config.maxSessionContinuityLines}`
   ].join("\n");
 }
