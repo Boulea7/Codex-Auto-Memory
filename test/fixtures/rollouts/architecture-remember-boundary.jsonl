@@ -1,0 +1,2 @@
+{"type":"session_meta","payload":{"id":"fixture-architecture-remember-boundary","timestamp":"2026-03-17T00:00:00.000Z","cwd":"/tmp/project"}}
+{"type":"event_msg","payload":{"type":"user_message","message":"Remember that service objects replace fat controllers in the API route."}}
