@@ -7,12 +7,14 @@ import { runWrappedCodex } from "../src/lib/commands/wrapper.js";
 import { detectProjectContext } from "../src/lib/domain/project-context.js";
 import { SessionContinuityStore } from "../src/lib/domain/session-continuity-store.js";
 import { runCommandCapture } from "../src/lib/util/process.js";
-import type { AppConfig } from "../src/lib/types.js";
+import type { AppConfig, SessionContinuityAuditEntry } from "../src/lib/types.js";
 
 const tempDirs: string[] = [];
 const originalSessionsDir = process.env.CAM_CODEX_SESSIONS_DIR;
-const tsxCliPath = path.resolve("node_modules/tsx/dist/cli.mjs");
 const sourceCliPath = path.resolve("src/cli.ts");
+const tsxBinaryPath = path.resolve(
+  process.platform === "win32" ? "node_modules/.bin/tsx.cmd" : "node_modules/.bin/tsx"
+);
 
 async function tempDir(prefix: string): Promise<string> {
   const dir = await fs.mkdtemp(path.join(os.tmpdir(), prefix));
@@ -47,6 +49,10 @@ function configJson(overrides: Partial<AppConfig> = {}): AppConfig {
     codexBinary: "codex",
     ...overrides
   };
+}
+
+function runCli(repoDir: string, args: string[]) {
+  return runCommandCapture(tsxBinaryPath, [sourceCliPath, ...args], repoDir);
 }
 
 async function writeProjectConfig(
@@ -252,11 +258,7 @@ describe("runSession", () => {
       "utf8"
     );
 
-    const result = runCommandCapture(
-      process.execPath,
-      [tsxCliPath, sourceCliPath, "session", "save", "--json", "--rollout", rolloutPath],
-      repoDir
-    );
+    const result = runCli(repoDir, ["session", "save", "--json", "--rollout", rolloutPath]);
 
     expect(result.exitCode).toBe(0);
     const payload = JSON.parse(result.stdout) as {
@@ -265,6 +267,68 @@ describe("runSession", () => {
     };
     expect(payload.diagnostics.actualPath).toBe("heuristic");
     expect(payload.recentContinuityAuditEntries[0]?.rolloutPath).toBe(rolloutPath);
+  }, 15_000);
+
+  it("keeps recent continuity history readable when the audit log contains a bad line", async () => {
+    const repoDir = await tempDir("cam-session-bad-audit-repo-");
+    const memoryRoot = await tempDir("cam-session-bad-audit-memory-");
+    await initRepo(repoDir);
+
+    await writeProjectConfig(
+      repoDir,
+      configJson(),
+      { autoMemoryDirectory: memoryRoot }
+    );
+
+    const store = new SessionContinuityStore(detectProjectContext(repoDir), {
+      ...configJson(),
+      autoMemoryDirectory: memoryRoot
+    });
+    await store.appendAuditLog({
+      generatedAt: "2026-03-17T00:00:00.000Z",
+      projectId: detectProjectContext(repoDir).projectId,
+      worktreeId: detectProjectContext(repoDir).worktreeId,
+      configuredExtractorMode: "heuristic",
+      scope: "both",
+      rolloutPath: "/tmp/rollout-good.jsonl",
+      sourceSessionId: "session-good",
+      preferredPath: "heuristic",
+      actualPath: "heuristic",
+      fallbackReason: "configured-heuristic",
+      evidenceCounts: {
+        successfulCommands: 1,
+        failedCommands: 0,
+        fileWrites: 0,
+        nextSteps: 1,
+        untried: 0
+      },
+      writtenPaths: ["/tmp/continuity.md"]
+    } satisfies SessionContinuityAuditEntry);
+    await fs.appendFile(store.paths.auditFile, "{\"broken\":\n", "utf8");
+
+    const loadJson = JSON.parse(
+      await runSession("load", { cwd: repoDir, json: true })
+    ) as {
+      recentContinuityAuditEntries: Array<{ rolloutPath: string }>;
+    };
+    expect(loadJson.recentContinuityAuditEntries).toHaveLength(1);
+    expect(loadJson.recentContinuityAuditEntries[0]?.rolloutPath).toBe("/tmp/rollout-good.jsonl");
+
+    const statusJson = JSON.parse(
+      await runSession("status", { cwd: repoDir, json: true })
+    ) as {
+      recentContinuityAuditEntries: Array<{ rolloutPath: string }>;
+    };
+    expect(statusJson.recentContinuityAuditEntries).toHaveLength(1);
+    expect(statusJson.recentContinuityAuditEntries[0]?.rolloutPath).toBe("/tmp/rollout-good.jsonl");
+
+    const loadOutput = await runSession("load", { cwd: repoDir });
+    expect(loadOutput).toContain("Recent generations:");
+    expect(loadOutput).toContain("/tmp/rollout-good.jsonl");
+
+    const statusOutput = await runSession("status", { cwd: repoDir });
+    expect(statusOutput).toContain("Recent generations:");
+    expect(statusOutput).toContain("/tmp/rollout-good.jsonl");
   }, 15_000);
 });
 

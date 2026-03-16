@@ -203,6 +203,7 @@ function collectExplicitCorrectionDeletes(
   }
 
   const summaryTokens = tokenizeForOverlap(correction.summary);
+  const staleTokens = new Set(tokenizeForOverlap(correction.staleText));
   const directCandidates = scopedEntries.filter((entry) => {
     if (normalizeForComparison(entry.summary) === normalizeForComparison(correction.summary)) {
       return false;
@@ -216,14 +217,20 @@ function collectExplicitCorrectionDeletes(
     return directCandidates.map((entry) => entry.id);
   }
 
+  const contextTokens = summaryTokens.filter((token) => !staleTokens.has(token));
+  if (contextTokens.length < 2) {
+    return [];
+  }
+
   return directCandidates
     .filter((entry) => {
-      if (summaryTokens.length === 0) {
+      if (contextTokens.length === 0) {
         return false;
       }
 
       const haystack = normalizeForComparison(`${entry.summary}\n${entry.details.join("\n")}`);
-      return summaryTokens.some((token) => haystack.includes(token));
+      const contextMatches = contextTokens.filter((token) => haystack.includes(token)).length;
+      return contextMatches >= Math.min(2, contextTokens.length);
     })
     .map((entry) => entry.id);
 }
@@ -388,18 +395,24 @@ export class HeuristicExtractor implements MemoryExtractorAdapter {
 
         const scope = inferScope(message);
         const topic = inferTopic(message);
-        for (const entryId of overlappingEntryIds(existingEntries, summary)) {
-          const entry = existingEntries.find((candidate) => candidate.id === entryId);
-          if (!entry || entry.summary.toLowerCase() === summary.toLowerCase()) {
-            continue;
+        const correctionSignal =
+          /(?:\bnot\b|\binstead of\b|\brather than\b|不用|别用|不要用)/iu.test(message);
+        const shouldReplaceOverlaps =
+          correctionSignal && (topic === "preferences" || topic === "workflow");
+        if (shouldReplaceOverlaps) {
+          for (const entryId of overlappingEntryIds(existingEntries, summary)) {
+            const entry = existingEntries.find((candidate) => candidate.id === entryId);
+            if (!entry || entry.summary.toLowerCase() === summary.toLowerCase()) {
+              continue;
+            }
+            queueDelete(
+              operations,
+              queuedDeleteIds,
+              entry,
+              "Superseded by a newer user correction.",
+              evidence.rolloutPath
+            );
           }
-          queueDelete(
-            operations,
-            queuedDeleteIds,
-            entry,
-            "Superseded by a newer user correction.",
-            evidence.rolloutPath
-          );
         }
 
         queueUpsert(operations, knownSummaries, {
@@ -409,7 +422,7 @@ export class HeuristicExtractor implements MemoryExtractorAdapter {
           id: slugify(summary),
           summary,
           details: [summary],
-          reason: /not\s+/iu.test(message)
+          reason: shouldReplaceOverlaps
             ? "Explicit user correction that should replace stale memory."
             : "Explicit remember instruction from the user.",
           sources: [evidence.rolloutPath]
