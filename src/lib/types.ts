@@ -84,6 +84,8 @@ export interface SessionContinuityPaths {
   localFile: string;
   claudeSessionDir: string;
   codexSessionDir: string;
+  auditDir: string;
+  auditFile: string;
 }
 
 export interface RolloutToolCall {
@@ -140,6 +142,55 @@ export interface SessionContinuitySummary {
   sourceSessionId?: string;
   project: SessionContinuityLayerSummary;
   projectLocal: SessionContinuityLayerSummary;
+}
+
+export type SessionContinuityExtractorPath = "codex" | "heuristic";
+
+export type SessionContinuityFallbackReason =
+  | "codex-command-failed"
+  | "invalid-json"
+  | "invalid-structure"
+  | "low-signal"
+  | "configured-heuristic";
+
+export interface SessionContinuityEvidenceCounts {
+  successfulCommands: number;
+  failedCommands: number;
+  fileWrites: number;
+  nextSteps: number;
+  untried: number;
+}
+
+export interface SessionContinuityDiagnostics {
+  generatedAt: string;
+  rolloutPath: string;
+  sourceSessionId: string;
+  preferredPath: SessionContinuityExtractorPath;
+  actualPath: SessionContinuityExtractorPath;
+  fallbackReason?: SessionContinuityFallbackReason;
+  codexExitCode?: number;
+  evidenceCounts: SessionContinuityEvidenceCounts;
+}
+
+export interface SessionContinuityGenerationResult {
+  summary: SessionContinuitySummary;
+  diagnostics: SessionContinuityDiagnostics;
+}
+
+export interface SessionContinuityAuditEntry {
+  generatedAt: string;
+  projectId: string;
+  worktreeId: string;
+  configuredExtractorMode: SessionContinuityExtractorPath;
+  scope: SessionContinuityScope | "both";
+  rolloutPath: string;
+  sourceSessionId: string;
+  preferredPath: SessionContinuityExtractorPath;
+  actualPath: SessionContinuityExtractorPath;
+  fallbackReason?: SessionContinuityFallbackReason;
+  codexExitCode?: number;
+  evidenceCounts: SessionContinuityEvidenceCounts;
+  writtenPaths: string[];
 }
 
 export interface ExistingSessionContinuityState {

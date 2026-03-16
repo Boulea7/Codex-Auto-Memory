@@ -85,8 +85,8 @@ cam audit
 
 Current reviewer-oriented behavior:
 
-- `cam memory` shows the active startup-loaded memory files, available topic refs for on-demand reads, and the exact Markdown paths to edit per scope.
-- `cam session load` shows shared project continuity, project-local continuity, and the merged resume brief separately.
+- `cam memory` shows the active startup-loaded memory files, grouped topic refs for on-demand reads, startup budget usage, and the exact Markdown paths to edit per scope.
+- `cam session load` shows shared project continuity, project-local continuity, the merged resume brief, and the latest continuity generation path.
 
 ## Architecture Overview
 
@@ -151,6 +151,7 @@ See [docs/architecture.md](docs/architecture.md) for the full breakdown.
 
 - Broader extractor fixtures and contradiction handling
 - Richer `cam memory` and `cam session` inspection output
+- Continuity generation diagnostics and reviewer audit surfaces
 - Hook bridge helpers for emerging Codex hook support
 
 ### v0.3+
@@ -187,6 +188,7 @@ Current review-oriented status:
 - topic-aware startup lookup complete
 - session continuity companion layer complete
 - memory inspection UX hardening complete
+- continuity diagnostics and reviewer audit surfaces complete
 - native compatibility seams complete
 - ClaudeCode patch batch audited and retained with documentation corrections
 - repository privacy audit command added

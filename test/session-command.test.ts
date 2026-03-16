@@ -119,6 +119,27 @@ describe("runSession", () => {
       scope: "both"
     });
     expect(saveOutput).toContain("Saved session continuity");
+    expect(saveOutput).toContain("Generation: heuristic");
+
+    const saveJson = JSON.parse(
+      await runSession("save", {
+        cwd: repoDir,
+        rollout: rolloutPath,
+        scope: "both",
+        json: true
+      })
+    ) as {
+      diagnostics: {
+        preferredPath: string;
+        actualPath: string;
+        fallbackReason?: string;
+      };
+      continuityAuditPath: string;
+    };
+    expect(saveJson.diagnostics.preferredPath).toBe("heuristic");
+    expect(saveJson.diagnostics.actualPath).toBe("heuristic");
+    expect(saveJson.diagnostics.fallbackReason).toBe("configured-heuristic");
+    expect(saveJson.continuityAuditPath).toContain("session-continuity-log.jsonl");
 
     const loadJson = JSON.parse(
       await runSession("load", {
@@ -131,16 +152,30 @@ describe("runSession", () => {
       localState: { incompleteNext: string[]; filesDecisionsEnvironment: string[] } | null;
       mergedState: { goal: string; confirmedWorking: string[]; incompleteNext: string[] };
       startup: { text: string };
+      latestContinuityDiagnostics: {
+        actualPath: string;
+        fallbackReason?: string;
+      } | null;
+      continuityAuditPath: string;
     };
     expect(loadJson.mergedState.goal).toContain("Continue the login cookie work");
     expect(loadJson.mergedState.confirmedWorking.join("\n")).toContain("pnpm test");
     expect(loadJson.localState?.incompleteNext.length).toBeGreaterThan(0);
     expect(loadJson.startup.text).toContain("# Session Continuity");
+    expect(loadJson.latestContinuityDiagnostics?.actualPath).toBe("heuristic");
+    expect(loadJson.latestContinuityDiagnostics?.fallbackReason).toBe("configured-heuristic");
+    expect(loadJson.continuityAuditPath).toContain("session-continuity-log.jsonl");
 
     const statusJson = JSON.parse(
       await runSession("status", { cwd: repoDir, json: true })
-    ) as { localPathStyle: string };
+    ) as {
+      localPathStyle: string;
+      latestContinuityDiagnostics: { actualPath: string } | null;
+      continuityAuditPath: string;
+    };
     expect(statusJson.localPathStyle).toBe("codex");
+    expect(statusJson.latestContinuityDiagnostics?.actualPath).toBe("heuristic");
+    expect(statusJson.continuityAuditPath).toContain("session-continuity-log.jsonl");
 
     const clearOutput = await runSession("clear", { cwd: repoDir, scope: "both" });
     expect(clearOutput).toContain("Cleared session continuity files");
@@ -149,6 +184,9 @@ describe("runSession", () => {
       ...configJson(),
       autoMemoryDirectory: memoryRoot
     });
+    const latestAudit = await store.readLatestAuditEntry();
+    expect(latestAudit?.actualPath).toBe("heuristic");
+    expect(latestAudit?.fallbackReason).toBe("configured-heuristic");
     expect(await store.readMergedState()).toBeNull();
   }, 15_000);
 });
@@ -253,5 +291,10 @@ fs.writeFileSync(rolloutPath, [
     const merged = await continuityStore.readMergedState();
     expect(merged?.goal).toContain("Continue the wrapper continuity migration");
     expect(merged?.confirmedWorking.join("\n")).toContain("pnpm test");
+
+    const latestAudit = await continuityStore.readLatestAuditEntry();
+    expect(latestAudit?.actualPath).toBe("heuristic");
+    expect(latestAudit?.fallbackReason).toBe("configured-heuristic");
+    expect(latestAudit?.writtenPaths.length).toBeGreaterThan(0);
   }, 15_000);
 });

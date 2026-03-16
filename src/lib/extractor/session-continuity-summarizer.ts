@@ -7,6 +7,8 @@ import type {
   AppConfig,
   ExistingSessionContinuityState,
   RolloutEvidence,
+  SessionContinuityDiagnostics,
+  SessionContinuityGenerationResult,
   SessionContinuityLayerSummary,
   SessionContinuitySummary
 } from "../types.js";
@@ -15,6 +17,7 @@ import { trimText } from "../util/text.js";
 import {
   NEXT_STEP_PATTERNS,
   UNTRIED_PATTERNS,
+  buildSessionContinuityEvidenceCounts,
   collectSessionContinuityEvidenceBuckets,
   extractPatternMatches,
   hasEvidenceBuckets,
@@ -130,9 +133,9 @@ function shouldFallbackForLowSignal(
 
 function heuristicSummary(
   evidence: RolloutEvidence,
-  existingState?: ExistingSessionContinuityState
+  existingState?: ExistingSessionContinuityState,
+  buckets = collectSessionContinuityEvidenceBuckets(evidence)
 ): SessionContinuitySummary {
-  const buckets = collectSessionContinuityEvidenceBuckets(evidence);
   const recentUserMessages = evidence.userMessages.map((message) => trimText(message, 240));
   const recentAgentMessages = evidence.agentMessages.map((message) => trimText(message, 240));
   const recentMessages = [...recentAgentMessages.slice(-10), ...recentUserMessages.slice(-10)];
@@ -179,6 +182,32 @@ function heuristicSummary(
   };
 }
 
+function buildDiagnostics(
+  evidence: RolloutEvidence,
+  preferredPath: SessionContinuityDiagnostics["preferredPath"],
+  actualPath: SessionContinuityDiagnostics["actualPath"],
+  buckets: SessionContinuityEvidenceBuckets,
+  fallbackReason?: SessionContinuityDiagnostics["fallbackReason"],
+  codexExitCode?: number
+): SessionContinuityDiagnostics {
+  return {
+    generatedAt: new Date().toISOString(),
+    rolloutPath: evidence.rolloutPath,
+    sourceSessionId: evidence.sessionId,
+    preferredPath,
+    actualPath,
+    fallbackReason,
+    codexExitCode,
+    evidenceCounts: buildSessionContinuityEvidenceCounts(buckets)
+  };
+}
+
+interface CodexAttemptResult {
+  summary: SessionContinuitySummary | null;
+  fallbackReason?: SessionContinuityDiagnostics["fallbackReason"];
+  codexExitCode?: number;
+}
+
 export class SessionContinuitySummarizer {
   private readonly schemaPath: string;
 
@@ -193,23 +222,62 @@ export class SessionContinuitySummarizer {
     evidence: RolloutEvidence,
     existingState?: ExistingSessionContinuityState
   ): Promise<SessionContinuitySummary> {
-    if (this.config.extractorMode === "codex") {
-      const modelSummary = await this.codexSummary(evidence, existingState);
-      if (modelSummary) {
-        return modelSummary;
-      }
+    return (await this.summarizeWithDiagnostics(evidence, existingState)).summary;
+  }
+
+  public async summarizeWithDiagnostics(
+    evidence: RolloutEvidence,
+    existingState?: ExistingSessionContinuityState
+  ): Promise<SessionContinuityGenerationResult> {
+    const buckets = collectSessionContinuityEvidenceBuckets(evidence);
+    if (this.config.extractorMode !== "codex") {
+      return {
+        summary: heuristicSummary(evidence, existingState, buckets),
+        diagnostics: buildDiagnostics(
+          evidence,
+          "heuristic",
+          "heuristic",
+          buckets,
+          "configured-heuristic"
+        )
+      };
     }
 
-    return heuristicSummary(evidence, existingState);
+    const attempt = await this.codexSummary(evidence, existingState, buckets);
+    if (attempt.summary) {
+      return {
+        summary: attempt.summary,
+        diagnostics: buildDiagnostics(
+          evidence,
+          "codex",
+          "codex",
+          buckets,
+          undefined,
+          attempt.codexExitCode
+        )
+      };
+    }
+
+    return {
+      summary: heuristicSummary(evidence, existingState, buckets),
+      diagnostics: buildDiagnostics(
+        evidence,
+        "codex",
+        "heuristic",
+        buckets,
+        attempt.fallbackReason,
+        attempt.codexExitCode
+      )
+    };
   }
 
   private async codexSummary(
     evidence: RolloutEvidence,
-    existingState?: ExistingSessionContinuityState
-  ): Promise<SessionContinuitySummary | null> {
+    existingState?: ExistingSessionContinuityState,
+    buckets = collectSessionContinuityEvidenceBuckets(evidence)
+  ): Promise<CodexAttemptResult> {
     const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), `${APP_ID}-session-`));
     const outputPath = path.join(tempDir, "session-continuity.json");
-    const buckets = collectSessionContinuityEvidenceBuckets(evidence);
     const prompt = buildSessionContinuityPrompt(evidence, existingState, buckets);
 
     const args = [
@@ -228,14 +296,32 @@ export class SessionContinuitySummarizer {
     const result = runCommandCapture(this.config.codexBinary, args, evidence.cwd, process.env, prompt);
     if (result.exitCode !== 0) {
       await fs.rm(tempDir, { recursive: true, force: true });
-      return null;
+      return {
+        summary: null,
+        fallbackReason: "codex-command-failed",
+        codexExitCode: result.exitCode
+      };
     }
 
     try {
       const raw = await fs.readFile(outputPath, "utf8");
-      const parsed = JSON.parse(raw) as unknown;
+      let parsed: unknown;
+      try {
+        parsed = JSON.parse(raw) as unknown;
+      } catch {
+        return {
+          summary: null,
+          fallbackReason: "invalid-json",
+          codexExitCode: result.exitCode
+        };
+      }
+
       if (!isValidSessionContinuitySummary(parsed)) {
-        return null;
+        return {
+          summary: null,
+          fallbackReason: "invalid-structure",
+          codexExitCode: result.exitCode
+        };
       }
 
       const summary: SessionContinuitySummary = {
@@ -243,12 +329,23 @@ export class SessionContinuitySummarizer {
         sourceSessionId: parsed.sourceSessionId ?? evidence.sessionId
       };
       if (shouldFallbackForLowSignal(summary, buckets)) {
-        return null;
+        return {
+          summary: null,
+          fallbackReason: "low-signal",
+          codexExitCode: result.exitCode
+        };
       }
 
-      return summary;
+      return {
+        summary,
+        codexExitCode: result.exitCode
+      };
     } catch {
-      return null;
+      return {
+        summary: null,
+        fallbackReason: "invalid-structure",
+        codexExitCode: result.exitCode
+      };
     } finally {
       await fs.rm(tempDir, { recursive: true, force: true });
     }
