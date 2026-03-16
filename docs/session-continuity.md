@@ -90,6 +90,29 @@ Claude-compatible adapter mode:
 
 The local layer is intended for worktree-specific or personally local state.
 
+## Continuity data model
+
+The continuity summarizer now produces two summaries per save:
+
+- `project`: the shared repository continuity layer
+- `projectLocal`: the current worktree's local continuity layer
+
+Each layer uses the same sections:
+
+- `goal`
+- `confirmedWorking`
+- `triedAndFailed`
+- `notYetTried`
+- `incompleteNext`
+- `filesDecisionsEnvironment`
+
+Default assignment rules:
+
+- `confirmedWorking` and `triedAndFailed` go to the shared project layer unless they are explicitly local-only
+- exact next steps go to the local layer by default
+- file modification notes go to the local layer by default
+- project-wide prerequisites and decisions stay in the shared layer
+
 ## Why the project-local layer is not the shared layer
 
 Even when users prefer project-folder-local files, git worktrees do not provide a single shared filesystem path for all worktrees.
@@ -111,6 +134,12 @@ cam session save
 cam session load
 cam session clear
 ```
+
+`cam session load` now renders:
+
+- shared project continuity
+- project-local continuity
+- the effective merged resume brief
 
 Automatic injection and automatic saving are disabled by default.
 
@@ -206,3 +235,4 @@ Important differences from this project:
 - `codex-auto-memory` does **not** adopt `~/.claude/sessions/` as its primary canonical store
 - `codex-auto-memory` keeps shared project continuity in the companion root so worktrees can share it safely
 - Claude-style session file paths are supported only as an adapter path style, not as the main product model
+- learned skills / instincts remain future companion ideas, not part of the current durable memory or continuity contract
