@@ -30,6 +30,7 @@ Use this checklist before cutting any alpha or beta release of `codex-auto-memor
 - Update `docs/progress-log.md` to reflect the current phase and remaining gaps.
 - Update `docs/review-guide.md` if a new high-risk area or review order is introduced.
 - Update `docs/reviewer-handoff.md` so external review tools can pick up the current state quickly.
+- Refresh the local ignored AI handoff file `AI_REVIEW.local.md` with current review/test instructions before handing off to another agent.
 - Ensure the latest milestone commit is focused enough to review independently.
 
 ## Native compatibility checks
