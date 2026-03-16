@@ -4,59 +4,77 @@
   "type": "object",
   "additionalProperties": false,
   "required": [
-    "goal",
-    "confirmedWorking",
-    "triedAndFailed",
-    "notYetTried",
-    "incompleteNext",
-    "filesDecisionsEnvironment"
+    "project",
+    "projectLocal"
   ],
   "properties": {
     "sourceSessionId": {
       "type": "string"
     },
-    "goal": {
-      "type": "string",
-      "maxLength": 400
+    "project": {
+      "$ref": "#/$defs/layer"
     },
-    "confirmedWorking": {
-      "type": "array",
-      "maxItems": 8,
-      "items": {
-        "type": "string",
-        "maxLength": 240
-      }
-    },
-    "triedAndFailed": {
-      "type": "array",
-      "maxItems": 8,
-      "items": {
-        "type": "string",
-        "maxLength": 240
-      }
-    },
-    "notYetTried": {
-      "type": "array",
-      "maxItems": 8,
-      "items": {
-        "type": "string",
-        "maxLength": 240
-      }
-    },
-    "incompleteNext": {
-      "type": "array",
-      "maxItems": 8,
-      "items": {
-        "type": "string",
-        "maxLength": 240
-      }
-    },
-    "filesDecisionsEnvironment": {
-      "type": "array",
-      "maxItems": 8,
-      "items": {
-        "type": "string",
-        "maxLength": 240
+    "projectLocal": {
+      "$ref": "#/$defs/layer"
+    }
+  },
+  "$defs": {
+    "layer": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "goal",
+        "confirmedWorking",
+        "triedAndFailed",
+        "notYetTried",
+        "incompleteNext",
+        "filesDecisionsEnvironment"
+      ],
+      "properties": {
+        "goal": {
+          "type": "string",
+          "maxLength": 400
+        },
+        "confirmedWorking": {
+          "type": "array",
+          "maxItems": 8,
+          "items": {
+            "type": "string",
+            "maxLength": 240
+          }
+        },
+        "triedAndFailed": {
+          "type": "array",
+          "maxItems": 8,
+          "items": {
+            "type": "string",
+            "maxLength": 240
+          }
+        },
+        "notYetTried": {
+          "type": "array",
+          "maxItems": 8,
+          "items": {
+            "type": "string",
+            "maxLength": 240
+          }
+        },
+        "incompleteNext": {
+          "type": "array",
+          "maxItems": 8,
+          "items": {
+            "type": "string",
+            "maxLength": 240
+          }
+        },
+        "filesDecisionsEnvironment": {
+          "type": "array",
+          "maxItems": 8,
+          "items": {
+            "type": "string",
+            "maxLength": 240
+          }
+        }
       }
     }
   }

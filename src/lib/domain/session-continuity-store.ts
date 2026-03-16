@@ -13,7 +13,7 @@ import type {
 import { fileExists, readTextFile, writeTextFile } from "../util/fs.js";
 import { getDefaultMemoryDirectory } from "./project-context.js";
 import {
-  applySessionContinuitySummary,
+  applySessionContinuityLayerSummary,
   createEmptySessionContinuityState,
   mergeSessionContinuityStates,
   parseSessionContinuity,
@@ -144,7 +144,13 @@ export class SessionContinuityStore {
       const existing = await this.readState(target);
       const base =
         existing ?? createEmptySessionContinuityState(target, this.project.projectId, this.project.worktreeId);
-      const nextState = applySessionContinuitySummary(base, summary);
+      const nextLayerSummary =
+        target === "project" ? summary.project : summary.projectLocal;
+      const nextState = applySessionContinuityLayerSummary(
+        base,
+        nextLayerSummary,
+        summary.sourceSessionId
+      );
       const filePath =
         target === "project" ? this.paths.sharedFile : await this.resolveLocalWritePath();
       await writeTextFile(filePath, renderSessionContinuity(nextState));

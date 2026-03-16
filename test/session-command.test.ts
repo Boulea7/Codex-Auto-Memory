@@ -127,11 +127,14 @@ describe("runSession", () => {
         printStartup: true
       })
     ) as {
-      mergedState: { goal: string; confirmedWorking: string[] };
+      projectState: { goal: string; confirmedWorking: string[] } | null;
+      localState: { incompleteNext: string[]; filesDecisionsEnvironment: string[] } | null;
+      mergedState: { goal: string; confirmedWorking: string[]; incompleteNext: string[] };
       startup: { text: string };
     };
     expect(loadJson.mergedState.goal).toContain("Continue the login cookie work");
     expect(loadJson.mergedState.confirmedWorking.join("\n")).toContain("pnpm test");
+    expect(loadJson.localState?.incompleteNext.length).toBeGreaterThan(0);
     expect(loadJson.startup.text).toContain("# Session Continuity");
 
     const statusJson = JSON.parse(
@@ -219,12 +222,22 @@ fs.writeFileSync(rolloutPath, [
     });
     await continuityStore.saveSummary(
       {
-        goal: "Resume the wrapper test continuity.",
-        confirmedWorking: ["Previous startup block exists."],
-        triedAndFailed: [],
-        notYetTried: [],
-        incompleteNext: ["Run wrapper auto-save."],
-        filesDecisionsEnvironment: []
+        project: {
+          goal: "Resume the wrapper test continuity.",
+          confirmedWorking: ["Previous startup block exists."],
+          triedAndFailed: [],
+          notYetTried: [],
+          incompleteNext: [],
+          filesDecisionsEnvironment: []
+        },
+        projectLocal: {
+          goal: "",
+          confirmedWorking: [],
+          triedAndFailed: [],
+          notYetTried: [],
+          incompleteNext: ["Run wrapper auto-save."],
+          filesDecisionsEnvironment: []
+        }
       },
       "both"
     );

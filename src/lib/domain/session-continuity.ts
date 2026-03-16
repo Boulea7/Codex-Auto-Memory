@@ -1,5 +1,6 @@
 import type {
   CompiledSessionContinuity,
+  SessionContinuityLayerSummary,
   SessionContinuityState,
   SessionContinuitySummary
 } from "../types.js";
@@ -145,6 +146,17 @@ function parseItems(lines: string[], placeholderText: string): string[] {
   );
 }
 
+export function createEmptySessionContinuityLayerSummary(): SessionContinuityLayerSummary {
+  return {
+    goal: "",
+    confirmedWorking: [],
+    triedAndFailed: [],
+    notYetTried: [],
+    incompleteNext: [],
+    filesDecisionsEnvironment: []
+  };
+}
+
 export function createEmptySessionContinuityState(
   scope: SessionContinuityState["scope"],
   projectId: string,
@@ -199,17 +211,26 @@ export function parseSessionContinuity(
   };
 }
 
-export function sanitizeSessionContinuitySummary(
-  summary: SessionContinuitySummary
-): SessionContinuitySummary {
+export function sanitizeSessionContinuityLayerSummary(
+  summary: SessionContinuityLayerSummary
+): SessionContinuityLayerSummary {
   return {
-    sourceSessionId: sanitizeText(summary.sourceSessionId ?? "", 120) || undefined,
     goal: sanitizeText(summary.goal, 400),
     confirmedWorking: sanitizeList(summary.confirmedWorking, 8, 240),
     triedAndFailed: sanitizeList(summary.triedAndFailed, 8, 240),
     notYetTried: sanitizeList(summary.notYetTried, 8, 240),
     incompleteNext: sanitizeList(summary.incompleteNext, 8, 240),
     filesDecisionsEnvironment: sanitizeList(summary.filesDecisionsEnvironment, 8, 240)
+  };
+}
+
+export function sanitizeSessionContinuitySummary(
+  summary: SessionContinuitySummary
+): SessionContinuitySummary {
+  return {
+    sourceSessionId: sanitizeText(summary.sourceSessionId ?? "", 120) || undefined,
+    project: sanitizeSessionContinuityLayerSummary(summary.project),
+    projectLocal: sanitizeSessionContinuityLayerSummary(summary.projectLocal)
   };
 }
 
@@ -250,17 +271,18 @@ export function mergeSessionContinuityStates(
   };
 }
 
-export function applySessionContinuitySummary(
+export function applySessionContinuityLayerSummary(
   base: SessionContinuityState,
-  summary: SessionContinuitySummary
+  summary: SessionContinuityLayerSummary,
+  sourceSessionId?: string
 ): SessionContinuityState {
-  const sanitized = sanitizeSessionContinuitySummary(summary);
+  const sanitized = sanitizeSessionContinuityLayerSummary(summary);
   return mergeSessionContinuityStates(
     {
       ...base,
       updatedAt: new Date().toISOString(),
       status: "active",
-      sourceSessionId: sanitized.sourceSessionId ?? base.sourceSessionId,
+      sourceSessionId: sourceSessionId ?? base.sourceSessionId,
       goal: sanitized.goal || base.goal,
       confirmedWorking: sanitized.confirmedWorking,
       triedAndFailed: sanitized.triedAndFailed,
