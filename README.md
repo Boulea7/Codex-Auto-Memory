@@ -36,8 +36,10 @@ Codex already exposes strong building blocks such as `AGENTS.md`, skills, persis
 | Topic files on demand | Built in | No | Partial: startup injects structured topic file references and reads topic details on demand through normal file tools |
 | Session continuity state | Community patterns only | No complete public contract | Yes, as an optional companion layer kept separate from durable memory |
 | Worktree-shared project memory | Built in | No public contract | Yes |
-| Audit and edit memory | `/memory` | No equivalent | `cam memory` |
+| Inspect / audit memory | `/memory` | No equivalent | `cam memory` |
 | Native hooks / memory integration | Built in | Experimental / under development | Planned compatibility layer |
+
+Editing remains Markdown-first: `cam memory` exposes the active files and edit paths, while explicit updates still happen through `cam remember`, `cam forget`, or direct file edits rather than a `/memory`-style in-command editor.
 
 ## Quick Start
 
@@ -86,7 +88,7 @@ cam audit
 Current reviewer-oriented behavior:
 
 - `cam memory` shows the active startup-loaded memory files, grouped topic refs for on-demand reads, startup budget usage, and the exact Markdown paths to edit per scope.
-- `cam session load` shows shared project continuity, project-local continuity, the merged resume brief, the latest continuity generation path, and a compact recent generation preview sourced from the audit log.
+- `cam session load` and `cam session status` show shared continuity state, the latest continuity generation path, and a compact recent generation preview sourced from the audit log.
 
 ## Architecture Overview
 

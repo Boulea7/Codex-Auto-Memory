@@ -6,7 +6,7 @@ This document tracks implementation progress in a format that is easy to consume
 
 - Approximate overall progress toward a strong Claude-style alpha: `98%`
 - Approximate progress toward a working local MVP: `99%`
-- Current phase: `Phase 14 - reviewer packet refresh and targeted ergonomics`
+- Current phase: `Phase 15 - conservative contradiction hardening and public-surface precision`
 
 ## Completed milestones
 
@@ -168,6 +168,14 @@ This document tracks implementation progress in a format that is easy to consume
 - Reviewer docs, handoff guidance, and migration notes were refreshed against the current CLI surface and the latest official Codex public materials.
 - Added regression coverage for recent continuity audit previews and for the actual `cam session save --json` command surface.
 
+### Milestone 15: Conservative contradiction hardening and public-surface precision
+
+- Added real rollout fixtures plus negative tests so ambiguous explicit preference corrections no longer silently justify stale deletes.
+- Generic `remember` overlap deletes are now constrained to supported `preferences` / `workflow` correction cases with explicit correction signals, keeping unsupported topics like `architecture` conservative by default.
+- Added a command-layer regression proving recent continuity history still loads when the continuity audit JSONL contains a corrupted line.
+- Replaced the CLI regression test's dependency on an internal `tsx` implementation path with the package binary path.
+- README and reviewer docs now state more precisely that `cam memory` is an inspection/audit surface with exposed edit paths, not a full `/memory`-style in-command editor.
+
 ## Reviewer checkpoints
 
 If you are reviewing the repository now, start here:
@@ -184,7 +192,7 @@ If you are reviewing the repository now, start here:
 
 ## Known gaps
 
-- Extractor quality is stronger, but contradiction handling is still intentionally conservative outside explicit commands, preferences, and workflow corrections.
+- Extractor quality is stronger, and unsupported-topic auto-delete is now guarded more conservatively, but contradiction handling is still intentionally limited outside explicit commands, preferences, and workflow corrections.
 - `cam memory` now exposes grouped startup/topic refs more directly, but it still remains below Claude Code's `/memory` interaction depth for edit / toggle ergonomics.
 - Native Codex memory and hook support is still companion-first; local `cam doctor --json` on 2026-03-17 still reports `memories` and `codex_hooks` as `under development` and disabled.
 - Topic files are now surfaced for on-demand reads, but the companion runtime still relies on generic file-read tools rather than a native lazy topic loader.
@@ -195,11 +203,11 @@ If you are reviewing the repository now, start here:
 
 ## Next planned milestones
 
-### Milestone 15: Conservative extractor hardening and continuity drill-down
+### Milestone 16: Lightweight continuity drill-down and release discipline
 
-- Expand contradiction fixtures only where explicit rollout evidence makes the behavior safe to review.
-- Consider one more lightweight continuity drill-down step only if it materially reduces audit friction without becoming a full browser.
-- Keep reviewer packet refresh work routine and keep official Codex migration guidance conservative.
+- Consider one more compact continuity drill-down step only if it materially reduces audit friction without becoming a browser.
+- Keep public-surface wording, handoff packets, and release checklist discipline synchronized at the end of each milestone.
+- Keep official Codex migration guidance conservative until public docs and local readiness both move.
 
 ## Review-ready habits
 

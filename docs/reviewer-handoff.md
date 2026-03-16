@@ -32,13 +32,14 @@ The repository currently has:
 - a reviewer-oriented `cam memory` surface that shows startup-loaded files, topic refs, and edit paths
 - a reviewer-oriented continuity audit log that records preferred vs actual generation path and fallback reasons
 - a reviewer-oriented `cam session` surface that shows the latest continuity diagnostics plus a compact recent generation preview
+- conservative contradiction handling that now has extra negative-fixture coverage so unsupported topics do not auto-delete stale memory
 
 ## Most recent milestone commits
 
-- current implementation window: alpha.14 reviewer packet refresh and targeted continuity ergonomics
+- current implementation window: alpha.15 conservative contradiction hardening and public-surface precision cleanup
+- `7bacf9f` `feat(alpha.14): refresh reviewer packet and session history preview`
 - `102d8d0` `docs(review): add local ai handoff convention`
 - `bd8ee8c` `feat(alpha.13): add continuity diagnostics and reviewer observability`
-- `3bacd60` `feat(alpha.12): harden codex continuity and memory grouping`
 
 ## Verified safety status
 
@@ -58,10 +59,10 @@ The project intentionally chose a **forward-only cleanup** strategy. Earlier com
 ## Highest-value remaining gaps
 
 - topic files are now referenced for on-demand reads, but the runtime still relies on generic file-read tools rather than a native lazy-loading hook
-- extractor quality still needs broader contradiction handling beyond explicit commands, preferences, and workflow corrections
+- extractor quality still needs broader contradiction handling beyond explicit commands, preferences, and workflow corrections, even though unsupported-topic auto-delete is now guarded more conservatively
 - `cam memory` is still shallower than Claude Code’s `/memory`, especially around edit/toggle ergonomics
 - continuity diagnostics now expose the latest generation plus a short recent preview, but the CLI still does not provide a dedicated history browser beyond the audit JSONL
-- `docs/next-phase-brief.md` now captures the recommended post-alpha.14 execution brief
+- `docs/next-phase-brief.md` now captures the recommended post-alpha.15 execution brief
 
 ## Recommended review sequence
 
@@ -73,10 +74,11 @@ The project intentionally chose a **forward-only cleanup** strategy. Earlier com
 6. Read `docs/native-migration.md`
 7. Read `docs/progress-log.md`
 8. Read `docs/review-guide.md`
-9. Inspect `src/lib/commands/session.ts`
-10. Inspect `src/lib/domain/rollout.ts`
-11. Inspect `src/lib/domain/startup-memory.ts`
-12. Inspect `src/lib/domain/session-continuity-store.ts`
+9. Inspect `src/lib/extractor/heuristic-extractor.ts`
+10. Inspect `src/lib/commands/session.ts`
+11. Inspect `src/lib/domain/rollout.ts`
+12. Inspect `src/lib/domain/startup-memory.ts`
+13. Inspect `src/lib/domain/session-continuity-store.ts`
 
 ## Suggested verification commands
 

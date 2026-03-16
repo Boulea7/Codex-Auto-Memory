@@ -4,6 +4,26 @@ All notable changes to `codex-auto-memory` will be documented in this file.
 
 The format is intentionally simple and reviewer-friendly: each entry maps to a concrete implementation milestone and, when possible, a single Git commit.
 
+## 0.1.0-alpha.15 - 2026-03-17
+
+### Added
+
+- Added negative rollout-fixture coverage for contradiction boundaries: ambiguous explicit preference corrections and generic architecture remember instructions now have explicit regression tests.
+- Added a command-level regression test proving `cam session load` and `cam session status` still expose recent continuity history when the audit JSONL contains a corrupted line.
+
+### Changed
+
+- Heuristic contradiction handling is now more conservative on the generic `remember` path: overlap deletes only trigger for supported `preferences` / `workflow` correction cases with explicit correction signals.
+- Multi-candidate explicit corrections now require stronger context overlap before deleting stale entries, reducing the chance of deleting the wrong preference note when the correction is ambiguous.
+- CLI entrypoint regression coverage now uses the package `tsx` binary path instead of an internal `tsx` implementation path.
+- README wording now distinguishes `cam memory` inspection/audit behavior from Claude `/memory`'s richer in-command edit controls.
+
+### Review focus
+
+- Confirm that unsupported topics such as `architecture` no longer auto-delete stale memory through generic `remember` overlap heuristics.
+- Confirm that ambiguous preference corrections now prefer keeping stale entries over deleting the wrong one.
+- Confirm that public docs no longer overstate `cam memory` as a direct `/memory` editor equivalent.
+
 ## 0.1.0-alpha.14 - 2026-03-17
 
 ### Added

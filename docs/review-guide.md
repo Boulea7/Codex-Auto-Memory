@@ -83,6 +83,7 @@ Review questions:
 
 - Does the extractor save stable, future-useful knowledge rather than transient task chatter?
 - Can it remove or replace stale memory when contradicted?
+- Do contradiction deletes stay conservative outside the supported `commands`, explicit `preferences`, and explicit `workflow` correction paths?
 - Does it avoid obvious sensitive or low-confidence content?
 - Is the fallback path materially weaker than the preferred path, and is that acceptable?
 

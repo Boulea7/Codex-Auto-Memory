@@ -249,6 +249,77 @@ describe("HeuristicExtractor", () => {
     ).toBe(true);
   });
 
+  it("keeps stale preferences when an explicit correction is ambiguous", async () => {
+    const extractor = new HeuristicExtractor();
+    const evidence = await parseRolloutEvidence(
+      path.join(process.cwd(), "test/fixtures/rollouts/ambiguous-preferences-correction.jsonl")
+    );
+
+    expect(evidence).not.toBeNull();
+
+    const operations = await extractor.extract(evidence!, [
+      {
+        id: "use-npm-main-repo",
+        scope: "project",
+        topic: "preferences",
+        summary: "Use npm in this repository.",
+        details: ["Use npm instead of pnpm in this repository."],
+        updatedAt: "2026-03-14T00:00:00.000Z",
+        sources: ["old"]
+      },
+      {
+        id: "use-npm-docs-examples",
+        scope: "project",
+        topic: "preferences",
+        summary: "Use npm for docs examples.",
+        details: ["Docs examples still reference npm commands."],
+        updatedAt: "2026-03-14T00:00:00.000Z",
+        sources: ["old"]
+      }
+    ]);
+
+    expect(operations.filter((operation) => operation.action === "delete")).toHaveLength(0);
+    expect(
+      operations.some(
+        (operation) =>
+          operation.action === "upsert" &&
+          operation.topic === "preferences" &&
+          operation.summary?.includes("We use pnpm, not npm")
+      )
+    ).toBe(true);
+  });
+
+  it("does not delete architecture memory from a generic remember instruction", async () => {
+    const extractor = new HeuristicExtractor();
+    const evidence = await parseRolloutEvidence(
+      path.join(process.cwd(), "test/fixtures/rollouts/architecture-remember-boundary.jsonl")
+    );
+
+    expect(evidence).not.toBeNull();
+
+    const operations = await extractor.extract(evidence!, [
+      {
+        id: "fat-controllers",
+        scope: "project",
+        topic: "architecture",
+        summary: "Use fat controllers in the API route.",
+        details: ["Keep the API route logic inside controllers."],
+        updatedAt: "2026-03-14T00:00:00.000Z",
+        sources: ["old"]
+      }
+    ]);
+
+    expect(operations.some((operation) => operation.action === "delete")).toBe(false);
+    expect(
+      operations.some(
+        (operation) =>
+          operation.action === "upsert" &&
+          operation.topic === "architecture" &&
+          operation.summary?.includes("service objects replace fat controllers")
+      )
+    ).toBe(true);
+  });
+
   it("does not leak temporary continuity next steps into durable memory", async () => {
     const extractor = new HeuristicExtractor();
     const evidence = await parseRolloutEvidence(

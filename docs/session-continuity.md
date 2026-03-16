@@ -160,6 +160,8 @@ cam session clear
 - the latest continuity generation path and fallback status
 - a compact recent generation preview sourced from the continuity audit log
 
+`cam session status` now renders the latest generation path, the audit-log location, and the same compact recent generation preview without printing the full shared/local continuity bodies.
+
 Automatic injection and automatic saving are disabled by default.
 
 This keeps the main Claude-style auto memory contract stable and prevents temporary state from silently entering every session unless the user explicitly opts in.

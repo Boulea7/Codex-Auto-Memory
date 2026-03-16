@@ -62,6 +62,7 @@ If any step is skipped, explain why in the final handoff.
 - `cam memory --json` now exposes `startupFilesByScope` and `topicFilesByScope`, and default output groups on-demand topic refs by scope.
 - Milestone 13 is complete: session continuity generation now writes reviewer-oriented diagnostics to `projects/<project-id>/audit/session-continuity-log.jsonl`, and `cam session` surfaces the latest generation path plus fallback reason in JSON mode.
 - Milestone 14 is complete: `cam session save|load|status --json` now also expose `recentContinuityAuditEntries`, and default `cam session load|status` output includes a compact recent generation preview sourced from the audit log.
+- Milestone 15 is complete: contradiction handling now has extra negative-fixture guardrails, generic `remember` overlap deletes stay constrained to supported correction paths, and public docs are more precise about `cam memory` inspection vs in-command editing.
 - `cam memory --json` now also exposes `startupBudget` and `refCountsByScope` for reviewer tooling.
 - Native Codex `memories` and `codex_hooks` still remain outside the trusted implementation path until `cam doctor --json` and public docs both show stable support.
 
@@ -71,8 +72,9 @@ Short-term priorities:
 
 - keep Codex-backed continuity as the tested primary path and make diagnostics easy to review without polluting Markdown continuity files
 - keep recent continuity audit previews compact and reviewer-friendly without turning `cam session` into a full history browser
-- expand contradiction fixtures conservatively for explicit `preferences` / `workflow` replacement without broad fuzzy deletion
+- keep contradiction deletes conservative outside the supported command / explicit `preferences` / explicit `workflow` paths
 - keep `cam memory` useful as a grouped startup/topic-file audit surface with compact reviewer summaries
+- keep public wording precise whenever `cam memory` exposes edit paths rather than richer in-command editing
 - keep startup injection limited to quoted `MEMORY.md` indexes plus topic-file references; do not reintroduce eager topic-entry loading
 - keep session continuity separate from durable memory; optimize Codex compatibility first and treat Claude-style continuity as an adapter layer
 
