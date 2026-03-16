@@ -11,6 +11,7 @@ coverage/
 # AI instruction files that may contain private context
 CLAUDE.md
 CLAUDE.local.md
+AI_REVIEW.local.md
 
 # OS / editor noise
 .DS_Store
