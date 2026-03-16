@@ -8,7 +8,7 @@ import {
   compileSessionContinuity,
   createEmptySessionContinuityState
 } from "../domain/session-continuity.js";
-import type { SessionContinuityScope } from "../types.js";
+import type { SessionContinuityAuditEntry, SessionContinuityScope } from "../types.js";
 import { SessionContinuitySummarizer } from "../extractor/session-continuity-summarizer.js";
 import { buildRuntimeContext } from "./common.js";
 
@@ -21,6 +21,9 @@ interface SessionOptions {
   rollout?: string;
   scope?: SessionContinuityScope | "both";
 }
+
+const recentContinuityAuditLimit = 5;
+const recentContinuityPreviewLimit = 3;
 
 function openPath(targetPath: string): void {
   const command =
@@ -52,6 +55,17 @@ function selectedScope(scope?: SessionContinuityScope | "both"): SessionContinui
   }
 
   throw new Error("Scope must be one of: project, project-local, both.");
+}
+
+function formatRecentGenerationLines(entries: SessionContinuityAuditEntry[]): string[] {
+  if (entries.length === 0) {
+    return ["- none recorded yet"];
+  }
+
+  return entries.slice(0, recentContinuityPreviewLimit).flatMap((entry) => [
+    `- ${entry.generatedAt}: ${formatSessionContinuityDiagnostics(entry)}`,
+    `  Rollout: ${entry.rolloutPath}`
+  ]);
 }
 
 export async function runSession(
@@ -92,6 +106,9 @@ export async function runSession(
       )
     );
     const excludePath = await runtime.sessionContinuityStore.ensureLocalIgnore();
+    const recentContinuityAuditEntries = await runtime.sessionContinuityStore.readRecentAuditEntries(
+      recentContinuityAuditLimit
+    );
 
     if (options.json) {
       return JSON.stringify(
@@ -101,6 +118,7 @@ export async function runSession(
           excludePath,
           summary: generation.summary,
           diagnostics: generation.diagnostics,
+          recentContinuityAuditEntries,
           continuityAuditPath: runtime.sessionContinuityStore.paths.auditFile
         },
         null,
@@ -142,7 +160,10 @@ export async function runSession(
   const localLocation = await runtime.sessionContinuityStore.getLocation("project-local");
   const projectState = await runtime.sessionContinuityStore.readState("project");
   const localState = await runtime.sessionContinuityStore.readState("project-local");
-  const latestContinuityDiagnostics = await runtime.sessionContinuityStore.readLatestAuditEntry();
+  const recentContinuityAuditEntries = await runtime.sessionContinuityStore.readRecentAuditEntries(
+    recentContinuityAuditLimit
+  );
+  const latestContinuityDiagnostics = recentContinuityAuditEntries[0] ?? null;
   const mergedState =
     (await runtime.sessionContinuityStore.readMergedState()) ??
     createEmptySessionContinuityState(
@@ -167,6 +188,7 @@ export async function runSession(
           mergedState,
           startup,
           latestContinuityDiagnostics,
+          recentContinuityAuditEntries,
           continuityAuditPath: runtime.sessionContinuityStore.paths.auditFile
         },
         null,
@@ -180,6 +202,8 @@ export async function runSession(
       `Project-local continuity: ${localLocation.exists ? "active" : "missing"} (${localLocation.path})`,
       `Latest generation: ${latestContinuityDiagnostics ? formatSessionContinuityDiagnostics(latestContinuityDiagnostics) : "none recorded yet"}`,
       `Continuity audit: ${runtime.sessionContinuityStore.paths.auditFile}`,
+      "Recent generations:",
+      ...formatRecentGenerationLines(recentContinuityAuditEntries),
       "",
       "Shared project continuity:",
       `Goal: ${projectState?.goal || "No active goal recorded."}`,
@@ -279,6 +303,7 @@ export async function runSession(
         localState,
         mergedState,
         latestContinuityDiagnostics,
+        recentContinuityAuditEntries,
         continuityAuditPath: runtime.sessionContinuityStore.paths.auditFile
       },
       null,
@@ -295,6 +320,9 @@ export async function runSession(
     `Project-local continuity: ${localLocation.exists ? "active" : "missing"} (${localLocation.path})`,
     `Latest generation: ${latestContinuityDiagnostics ? formatSessionContinuityDiagnostics(latestContinuityDiagnostics) : "none recorded yet"}`,
     `Continuity audit: ${runtime.sessionContinuityStore.paths.auditFile}`,
+    "Recent generations:",
+    ...formatRecentGenerationLines(recentContinuityAuditEntries),
+    "",
     `Shared updated at: ${projectState?.updatedAt ?? "n/a"}`,
     `Project-local updated at: ${localState?.updatedAt ?? "n/a"}`,
     `Merged continuity layers: ${[projectState, localState].filter(Boolean).length}`,

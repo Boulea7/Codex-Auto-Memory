@@ -11,6 +11,8 @@ import type { AppConfig } from "../src/lib/types.js";
 
 const tempDirs: string[] = [];
 const originalSessionsDir = process.env.CAM_CODEX_SESSIONS_DIR;
+const tsxCliPath = path.resolve("node_modules/tsx/dist/cli.mjs");
+const sourceCliPath = path.resolve("src/cli.ts");
 
 async function tempDir(prefix: string): Promise<string> {
   const dir = await fs.mkdtemp(path.join(os.tmpdir(), prefix));
@@ -45,6 +47,23 @@ function configJson(overrides: Partial<AppConfig> = {}): AppConfig {
     codexBinary: "codex",
     ...overrides
   };
+}
+
+async function writeProjectConfig(
+  repoDir: string,
+  projectConfig: AppConfig,
+  localConfig: Record<string, unknown>
+): Promise<void> {
+  await fs.writeFile(
+    path.join(repoDir, "codex-auto-memory.json"),
+    JSON.stringify(projectConfig, null, 2),
+    "utf8"
+  );
+  await fs.writeFile(
+    path.join(repoDir, ".codex-auto-memory.local.json"),
+    JSON.stringify(localConfig, null, 2),
+    "utf8"
+  );
 }
 
 function rolloutFixture(projectDir: string, message: string): string {
@@ -95,21 +114,22 @@ describe("runSession", () => {
     const memoryRoot = await tempDir("cam-session-cmd-memory-");
     await initRepo(repoDir);
 
-    await fs.writeFile(
-      path.join(repoDir, "codex-auto-memory.json"),
-      JSON.stringify(configJson(), null, 2),
-      "utf8"
-    );
-    await fs.writeFile(
-      path.join(repoDir, ".codex-auto-memory.local.json"),
-      JSON.stringify({ autoMemoryDirectory: memoryRoot }, null, 2),
-      "utf8"
+    await writeProjectConfig(
+      repoDir,
+      configJson(),
+      { autoMemoryDirectory: memoryRoot }
     );
 
     const rolloutPath = path.join(repoDir, "rollout.jsonl");
     await fs.writeFile(
       rolloutPath,
       rolloutFixture(repoDir, "Continue the login cookie work and add middleware."),
+      "utf8"
+    );
+    const secondRolloutPath = path.join(repoDir, "rollout-2.jsonl");
+    await fs.writeFile(
+      secondRolloutPath,
+      rolloutFixture(repoDir, "Finish the middleware retry work and document the fallback."),
       "utf8"
     );
 
@@ -124,7 +144,7 @@ describe("runSession", () => {
     const saveJson = JSON.parse(
       await runSession("save", {
         cwd: repoDir,
-        rollout: rolloutPath,
+        rollout: secondRolloutPath,
         scope: "both",
         json: true
       })
@@ -134,11 +154,18 @@ describe("runSession", () => {
         actualPath: string;
         fallbackReason?: string;
       };
+      recentContinuityAuditEntries: Array<{
+        rolloutPath: string;
+        actualPath: string;
+      }>;
       continuityAuditPath: string;
     };
     expect(saveJson.diagnostics.preferredPath).toBe("heuristic");
     expect(saveJson.diagnostics.actualPath).toBe("heuristic");
     expect(saveJson.diagnostics.fallbackReason).toBe("configured-heuristic");
+    expect(saveJson.recentContinuityAuditEntries).toHaveLength(2);
+    expect(saveJson.recentContinuityAuditEntries[0]?.rolloutPath).toBe(secondRolloutPath);
+    expect(saveJson.recentContinuityAuditEntries[1]?.rolloutPath).toBe(rolloutPath);
     expect(saveJson.continuityAuditPath).toContain("session-continuity-log.jsonl");
 
     const loadJson = JSON.parse(
@@ -156,26 +183,43 @@ describe("runSession", () => {
         actualPath: string;
         fallbackReason?: string;
       } | null;
+      recentContinuityAuditEntries: Array<{
+        rolloutPath: string;
+        actualPath: string;
+      }>;
       continuityAuditPath: string;
     };
-    expect(loadJson.mergedState.goal).toContain("Continue the login cookie work");
+    expect(loadJson.mergedState.goal).toContain("Finish the middleware retry work");
     expect(loadJson.mergedState.confirmedWorking.join("\n")).toContain("pnpm test");
     expect(loadJson.localState?.incompleteNext.length).toBeGreaterThan(0);
     expect(loadJson.startup.text).toContain("# Session Continuity");
     expect(loadJson.latestContinuityDiagnostics?.actualPath).toBe("heuristic");
     expect(loadJson.latestContinuityDiagnostics?.fallbackReason).toBe("configured-heuristic");
+    expect(loadJson.recentContinuityAuditEntries).toHaveLength(2);
+    expect(loadJson.recentContinuityAuditEntries[0]?.rolloutPath).toBe(secondRolloutPath);
     expect(loadJson.continuityAuditPath).toContain("session-continuity-log.jsonl");
+
+    const loadOutput = await runSession("load", { cwd: repoDir });
+    expect(loadOutput).toContain("Recent generations:");
+    expect(loadOutput).toContain(secondRolloutPath);
 
     const statusJson = JSON.parse(
       await runSession("status", { cwd: repoDir, json: true })
     ) as {
       localPathStyle: string;
       latestContinuityDiagnostics: { actualPath: string } | null;
+      recentContinuityAuditEntries: Array<{ rolloutPath: string }>;
       continuityAuditPath: string;
     };
     expect(statusJson.localPathStyle).toBe("codex");
     expect(statusJson.latestContinuityDiagnostics?.actualPath).toBe("heuristic");
+    expect(statusJson.recentContinuityAuditEntries).toHaveLength(2);
+    expect(statusJson.recentContinuityAuditEntries[0]?.rolloutPath).toBe(secondRolloutPath);
     expect(statusJson.continuityAuditPath).toContain("session-continuity-log.jsonl");
+
+    const statusOutput = await runSession("status", { cwd: repoDir });
+    expect(statusOutput).toContain("Recent generations:");
+    expect(statusOutput).toContain(secondRolloutPath);
 
     const clearOutput = await runSession("clear", { cwd: repoDir, scope: "both" });
     expect(clearOutput).toContain("Cleared session continuity files");
@@ -188,6 +232,39 @@ describe("runSession", () => {
     expect(latestAudit?.actualPath).toBe("heuristic");
     expect(latestAudit?.fallbackReason).toBe("configured-heuristic");
     expect(await store.readMergedState()).toBeNull();
+  }, 15_000);
+
+  it("supports session save --json from the CLI command surface", async () => {
+    const repoDir = await tempDir("cam-session-cli-repo-");
+    const memoryRoot = await tempDir("cam-session-cli-memory-");
+    await initRepo(repoDir);
+
+    await writeProjectConfig(
+      repoDir,
+      configJson(),
+      { autoMemoryDirectory: memoryRoot }
+    );
+
+    const rolloutPath = path.join(repoDir, "rollout.jsonl");
+    await fs.writeFile(
+      rolloutPath,
+      rolloutFixture(repoDir, "Save continuity through the CLI command surface."),
+      "utf8"
+    );
+
+    const result = runCommandCapture(
+      process.execPath,
+      [tsxCliPath, sourceCliPath, "session", "save", "--json", "--rollout", rolloutPath],
+      repoDir
+    );
+
+    expect(result.exitCode).toBe(0);
+    const payload = JSON.parse(result.stdout) as {
+      diagnostics: { actualPath: string };
+      recentContinuityAuditEntries: Array<{ rolloutPath: string }>;
+    };
+    expect(payload.diagnostics.actualPath).toBe("heuristic");
+    expect(payload.recentContinuityAuditEntries[0]?.rolloutPath).toBe(rolloutPath);
   }, 15_000);
 });
 
@@ -225,29 +302,16 @@ fs.writeFileSync(rolloutPath, [
     );
     await fs.chmod(mockCodexPath, 0o755);
 
-    await fs.writeFile(
-      path.join(repoDir, "codex-auto-memory.json"),
-      JSON.stringify(
-        configJson({
-          codexBinary: mockCodexPath
-        }),
-        null,
-        2
-      ),
-      "utf8"
-    );
-    await fs.writeFile(
-      path.join(repoDir, ".codex-auto-memory.local.json"),
-      JSON.stringify(
-        {
-          autoMemoryDirectory: memoryRoot,
-          sessionContinuityAutoLoad: true,
-          sessionContinuityAutoSave: true
-        },
-        null,
-        2
-      ),
-      "utf8"
+    await writeProjectConfig(
+      repoDir,
+      configJson({
+        codexBinary: mockCodexPath
+      }),
+      {
+        autoMemoryDirectory: memoryRoot,
+        sessionContinuityAutoLoad: true,
+        sessionContinuityAutoSave: true
+      }
     );
 
     const continuityStore = new SessionContinuityStore(detectProjectContext(repoDir), {

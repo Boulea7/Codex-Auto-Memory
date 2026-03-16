@@ -110,6 +110,7 @@ async function main(): Promise<void> {
   sessionCommand
     .command("save")
     .description("Save temporary session continuity from a rollout")
+    .option("--json", "Print JSON output")
     .option("--rollout <path>", "Specific rollout JSONL file to summarize")
     .option("--scope <scope>", "Target continuity scope: project, project-local, or both", "both")
     .action(async (options) => {
