@@ -14,6 +14,8 @@ import {
 import { parseRolloutEvidence } from "../src/lib/domain/rollout.js";
 import { SessionContinuityStore } from "../src/lib/domain/session-continuity-store.js";
 import { detectProjectContext } from "../src/lib/domain/project-context.js";
+import { collectSessionContinuityEvidenceBuckets } from "../src/lib/extractor/session-continuity-evidence.js";
+import { buildSessionContinuityPrompt } from "../src/lib/extractor/session-continuity-prompt.js";
 import { SessionContinuitySummarizer } from "../src/lib/extractor/session-continuity-summarizer.js";
 import { runCommandCapture } from "../src/lib/util/process.js";
 import type { AppConfig, RolloutEvidence } from "../src/lib/types.js";
@@ -38,6 +40,23 @@ async function initRepo(repoDir: string): Promise<void> {
   await fs.writeFile(path.join(repoDir, "README.md"), "seed\n", "utf8");
   runCommandCapture("git", ["add", "README.md"], repoDir, gitEnv);
   runCommandCapture("git", ["commit", "-m", "init"], repoDir, gitEnv);
+}
+
+async function writeMockCodexBinary(tempRoot: string, body: string): Promise<string> {
+  const mockBinary = path.join(tempRoot, "mock-codex");
+  await fs.writeFile(
+    mockBinary,
+    `#!/usr/bin/env node
+const fs = require("node:fs");
+const args = process.argv.slice(2);
+const outputIndex = args.indexOf("-o");
+const outputPath = args[outputIndex + 1];
+${body}
+`,
+    "utf8"
+  );
+  await fs.chmod(mockBinary, 0o755);
+  return mockBinary;
 }
 
 function baseConfig(memoryRoot: string, overrides: Partial<AppConfig> = {}): AppConfig {
@@ -359,6 +378,237 @@ describe("session continuity domain", () => {
     const localNext = summary.projectLocal.incompleteNext.join("\n");
     expect(localNext).toContain("update src/auth/login.ts");
     expect(localNext).toContain("add middleware");
+  });
+
+  it("prompt includes evidence buckets for commands, file writes, and next steps", () => {
+    const evidence: RolloutEvidence = {
+      sessionId: "session-prompt-buckets",
+      createdAt: "2026-03-15T00:00:00.000Z",
+      cwd: "/tmp/project",
+      userMessages: [
+        "We haven't tried switching the login route to cookies() yet.",
+        "Next step: update src/auth/login.ts to set an httpOnly cookie."
+      ],
+      agentMessages: ["Remaining work: add middleware for the protected route redirect."],
+      toolCalls: [
+        {
+          name: "exec_command",
+          arguments: JSON.stringify({ cmd: "pnpm test" }),
+          output: "Process exited with code 0"
+        },
+        {
+          name: "apply_patch_freeform",
+          arguments:
+            "diff --git a/src/auth/login.ts b/src/auth/login.ts\nindex abc..def 100644\n--- a/src/auth/login.ts\n+++ b/src/auth/login.ts\n@@ -1,3 +1,4 @@\n+setCookie(token);\n export {};",
+          output: undefined
+        }
+      ],
+      rolloutPath: "/tmp/rollout.jsonl"
+    };
+
+    const prompt = buildSessionContinuityPrompt(
+      evidence,
+      undefined,
+      collectSessionContinuityEvidenceBuckets(evidence)
+    );
+
+    expect(prompt).toContain("Evidence buckets:");
+    expect(prompt).toContain("Recent successful commands:");
+    expect(prompt).toContain("Detected file writes:");
+    expect(prompt).toContain("Candidate explicit next-step phrases:");
+    expect(prompt).toContain("Candidate explicit untried phrases:");
+    expect(prompt).toContain("pnpm test");
+    expect(prompt).toContain("login.ts");
+  });
+
+  it("codex mode returns valid layered output from a mocked codex binary", async () => {
+    const temp = await tempDir("cam-session-codex-valid-");
+    const mockBinary = await writeMockCodexBinary(
+      temp,
+      `fs.writeFileSync(outputPath, JSON.stringify({
+  project: {
+    goal: "Keep the auth rollout moving.",
+    confirmedWorking: ["Command succeeded: pnpm test"],
+    triedAndFailed: ["Command failed: pnpm build - Missing env var"],
+    notYetTried: ["Try switching the login route to cookies()."],
+    incompleteNext: [],
+    filesDecisionsEnvironment: ["Redis must be running before integration tests."]
+  },
+  projectLocal: {
+    goal: "",
+    confirmedWorking: [],
+    triedAndFailed: [],
+    notYetTried: [],
+    incompleteNext: ["Update src/auth/login.ts to set an httpOnly cookie."],
+    filesDecisionsEnvironment: ["File modified: login.ts"]
+  }
+}));`
+    );
+    const evidence: RolloutEvidence = {
+      sessionId: "session-codex-valid",
+      createdAt: "2026-03-15T00:00:00.000Z",
+      cwd: temp,
+      userMessages: ["Continue the auth rollout."],
+      agentMessages: [],
+      toolCalls: [],
+      rolloutPath: "/tmp/rollout.jsonl"
+    };
+
+    const summarizer = new SessionContinuitySummarizer(
+      baseConfig("/tmp/memory-root", {
+        extractorMode: "codex",
+        codexBinary: mockBinary
+      })
+    );
+    const summary = await summarizer.summarize(evidence);
+
+    expect(summary.sourceSessionId).toBe("session-codex-valid");
+    expect(summary.project.confirmedWorking).toEqual(["Command succeeded: pnpm test"]);
+    expect(summary.project.triedAndFailed).toEqual([
+      "Command failed: pnpm build - Missing env var"
+    ]);
+    expect(summary.projectLocal.incompleteNext).toEqual([
+      "Update src/auth/login.ts to set an httpOnly cookie."
+    ]);
+    expect(summary.projectLocal.filesDecisionsEnvironment).toEqual([
+      "File modified: login.ts"
+    ]);
+  });
+
+  it("codex mode falls back to heuristic when the mocked codex output is invalid", async () => {
+    const invalidCases = [
+      `fs.writeFileSync(outputPath, "{not valid json");`,
+      `fs.writeFileSync(outputPath, JSON.stringify({ project: { goal: "" } }));`,
+      `fs.writeFileSync(outputPath, JSON.stringify({
+  project: {
+    goal: "",
+    confirmedWorking: "bad",
+    triedAndFailed: [],
+    notYetTried: [],
+    incompleteNext: [],
+    filesDecisionsEnvironment: []
+  },
+  projectLocal: {
+    goal: "",
+    confirmedWorking: [],
+    triedAndFailed: [],
+    notYetTried: [],
+    incompleteNext: [],
+    filesDecisionsEnvironment: []
+  }
+}));`
+    ];
+
+    for (const [index, body] of invalidCases.entries()) {
+      const temp = await tempDir(`cam-session-codex-invalid-${index}-`);
+      const mockBinary = await writeMockCodexBinary(temp, body);
+      const evidence: RolloutEvidence = {
+        sessionId: `session-codex-invalid-${index}`,
+        createdAt: "2026-03-15T00:00:00.000Z",
+        cwd: temp,
+        userMessages: [
+          "We haven't tried switching the login route to cookies() yet.",
+          "Next step: update src/auth/login.ts to set an httpOnly cookie."
+        ],
+        agentMessages: [],
+        toolCalls: [
+          {
+            name: "exec_command",
+            arguments: JSON.stringify({ cmd: "pnpm test" }),
+            output: "Process exited with code 0"
+          },
+          {
+            name: "apply_patch_freeform",
+            arguments:
+              "diff --git a/src/auth/login.ts b/src/auth/login.ts\nindex abc..def 100644\n--- a/src/auth/login.ts\n+++ b/src/auth/login.ts\n@@ -1,3 +1,4 @@\n+setCookie(token);\n export {};",
+            output: undefined
+          }
+        ],
+        rolloutPath: "/tmp/rollout.jsonl"
+      };
+
+      const summarizer = new SessionContinuitySummarizer(
+        baseConfig("/tmp/memory-root", {
+          extractorMode: "codex",
+          codexBinary: mockBinary
+        })
+      );
+      const summary = await summarizer.summarize(evidence);
+
+      expect(summary.project.confirmedWorking.join("\n")).toContain("pnpm test");
+      expect(summary.project.notYetTried.join("\n")).toContain("switching the login route to cookies()");
+      expect(summary.projectLocal.incompleteNext.join("\n")).toContain(
+        "update src/auth/login.ts"
+      );
+      expect(summary.projectLocal.filesDecisionsEnvironment.join("\n")).toContain("login.ts");
+    }
+  });
+
+  it("codex mode falls back to heuristic when the mocked codex output is low-signal", async () => {
+    const temp = await tempDir("cam-session-codex-low-signal-");
+    const mockBinary = await writeMockCodexBinary(
+      temp,
+      `fs.writeFileSync(outputPath, JSON.stringify({
+  project: {
+    goal: "",
+    confirmedWorking: [],
+    triedAndFailed: [],
+    notYetTried: [],
+    incompleteNext: [],
+    filesDecisionsEnvironment: []
+  },
+  projectLocal: {
+    goal: "",
+    confirmedWorking: [],
+    triedAndFailed: [],
+    notYetTried: [],
+    incompleteNext: [],
+    filesDecisionsEnvironment: []
+  }
+}));`
+    );
+    const evidence: RolloutEvidence = {
+      sessionId: "session-codex-low-signal",
+      createdAt: "2026-03-15T00:00:00.000Z",
+      cwd: temp,
+      userMessages: [
+        "We haven't tried switching the login route to cookies() yet.",
+        "Next step: update src/auth/login.ts to set an httpOnly cookie."
+      ],
+      agentMessages: ["Remaining work: add middleware for the protected route redirect."],
+      toolCalls: [
+        {
+          name: "exec_command",
+          arguments: JSON.stringify({ cmd: "pnpm test" }),
+          output: "Process exited with code 0"
+        },
+        {
+          name: "exec_command",
+          arguments: JSON.stringify({ cmd: "pnpm build" }),
+          output: "Error: missing env var"
+        },
+        {
+          name: "apply_patch_freeform",
+          arguments:
+            "diff --git a/src/auth/login.ts b/src/auth/login.ts\nindex abc..def 100644\n--- a/src/auth/login.ts\n+++ b/src/auth/login.ts\n@@ -1,3 +1,4 @@\n+setCookie(token);\n export {};",
+          output: undefined
+        }
+      ],
+      rolloutPath: "/tmp/rollout.jsonl"
+    };
+
+    const summarizer = new SessionContinuitySummarizer(
+      baseConfig("/tmp/memory-root", {
+        extractorMode: "codex",
+        codexBinary: mockBinary
+      })
+    );
+    const summary = await summarizer.summarize(evidence);
+
+    expect(summary.project.confirmedWorking.join("\n")).toContain("pnpm test");
+    expect(summary.project.triedAndFailed.join("\n")).toContain("pnpm build");
+    expect(summary.projectLocal.incompleteNext.join("\n")).toContain("add middleware");
+    expect(summary.projectLocal.filesDecisionsEnvironment.join("\n")).toContain("login.ts");
   });
 
   it("applySessionContinuityLayerSummary merges summary into base state", () => {

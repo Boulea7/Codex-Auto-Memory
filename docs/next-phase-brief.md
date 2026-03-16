@@ -1,59 +1,40 @@
 # Next Phase Brief
 
-This brief prepares the next implementation window after `0.1.0-alpha.11`.
+This brief prepares the next implementation window after `0.1.0-alpha.12`.
 
-## Milestone 12 focus
+## Milestone 13 focus
 
-The next phase should improve:
+The next phase should stay small and reviewer-oriented:
 
-- Codex-backed continuity summary quality
-- `cam memory` parity with Claude Code's `/memory` interaction model
+- improve observability around Codex continuity fallback behavior
+- keep `cam memory` easy to audit without reopening a much larger `/memory` UX expansion
+- keep native Codex memory and hook work in the migration seam, not on the active implementation path
 
-Do **not** reopen startup injection or session continuity storage design unless a new regression is found. The current topic-aware startup path plus split shared/local continuity model (delivered through alpha.9–alpha.11) are the baseline for this phase.
+Do **not** reopen startup injection, continuity storage layout, or broader command-surface redesign unless a concrete regression appears.
 
 ## Goals
 
-1. Improve Codex-backed continuity summaries for exact next-step quality and cleaner project vs local separation.
-2. Expand contradiction handling beyond command replacement.
-3. Push `cam memory` closer to Claude `/memory` for review and editing workflows.
-4. Expand rollout fixtures so regressions stay caught before release.
+1. Make Codex continuity fallback reasons easier to inspect during review and smoke testing.
+2. Tighten reviewer-facing `cam memory` output only where it directly helps startup and topic-file auditing.
+3. Expand contradiction and mixed-signal rollout coverage only when it materially improves confidence in the current companion path.
+4. Keep documentation aligned with the public Codex surface and the current native-readiness reality.
 
 ## In scope
 
-- Add harder synthetic rollout fixtures covering:
-  - architecture or workflow contradictions, not just command replacement
-  - mixed durable-memory and continuity signals in one session
-  - sensitive-looking noise adjacent to valid durable memory
-  - repeated remember / forget flows across scopes
-- Strengthen extractor behavior in:
-  - `src/lib/extractor/heuristic-extractor.ts`
-  - `src/lib/extractor/prompt.ts`
-  - `src/lib/extractor/safety.ts`
-- Improve `cam memory` so reviewers can more easily answer:
-  - which files are active at startup
-  - which topic files are available for on-demand reads
-  - whether auto memory is enabled and where edits should happen
-- Improve continuity extraction so `cam session load` better reflects:
-  - what is truly confirmed working
-  - what failed and why
-  - what is still untried
-  - what exactly should happen next, especially in Codex-backed mode
-- Update docs and reviewer materials when behavior changes.
+- Add light observability or reviewer-facing diagnostics for:
+  - why Codex continuity fell back to heuristic
+  - whether the model output was malformed or merely low-signal
+  - which startup/topic refs were actually active in a given review
+- Add targeted fixtures when they protect the current Codex-first path better than broad heuristic expansion.
+- Keep docs current when public Codex capabilities or local readiness checks materially change.
 
 ## Out of scope
 
 - native Codex memory adoption
-- cloud sync or account-level memory
+- broad `/memory` interaction redesign
+- hook bridge feature work
 - GUI / TUI work
 - another startup injection redesign
-
-## Suggested implementation order
-
-1. Expand fixtures and failing tests first.
-2. Improve Codex-backed continuity prompt/schema quality.
-3. Tighten extractor stale-replacement logic beyond commands.
-4. Improve `cam memory` output around editing and loaded-file visibility.
-5. Sync `README.md`, `docs/progress-log.md`, `docs/reviewer-handoff.md`, and `CHANGELOG.md`.
 
 ## Acceptance checks
 
@@ -65,12 +46,13 @@ pnpm test
 pnpm build
 pnpm exec tsx src/cli.ts audit --json
 pnpm exec tsx src/cli.ts doctor --json
+pnpm exec tsx src/cli.ts session load --json
+pnpm exec tsx src/cli.ts memory --json
 ```
 
 Expected review outcome:
 
 - no new medium/high audit findings
-- broader extractor fixture coverage
-- clearer `cam memory` reviewer workflow
-- better continuity summaries with less overlap between shared and local state
-- less heuristic fallback phrasing in `cam session load`
+- Codex continuity fallback is easier to reason about during review
+- `cam memory` remains compact but more obviously reviewer-friendly
+- companion-first behavior stays aligned with the current public Codex surface

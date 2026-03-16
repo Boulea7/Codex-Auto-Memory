@@ -4,9 +4,9 @@ This document tracks implementation progress in a format that is easy to consume
 
 ## Current completion snapshot
 
-- Approximate overall progress toward a strong Claude-style alpha: `94%`
-- Approximate progress toward a working local MVP: `98%`
-- Current phase: `Phase 11 - continuity layering, extractor contradiction coverage, and memory inspection UX`
+- Approximate overall progress toward a strong Claude-style alpha: `96%`
+- Approximate progress toward a working local MVP: `99%`
+- Current phase: `Phase 12 - Codex-first continuity hardening and reviewer-oriented memory grouping`
 
 ## Completed milestones
 
@@ -142,6 +142,16 @@ This document tracks implementation progress in a format that is easy to consume
 - `cam memory` now shows startup-loaded memory files, on-demand topic refs, and edit paths directly in the default output.
 - `MemoryStore.ensureLayout()` now normalizes the legacy empty `MEMORY.md` template only when it exactly matches the old generated empty file.
 
+### Milestone 12: Codex-first continuity hardening
+
+- Added a shared continuity evidence-bucket helper so prompt construction, heuristic synthesis, and Codex low-signal fallback all reason over the same recent command, file-write, next-step, and untried evidence.
+- `extractorMode=codex` continuity is now covered directly by mocked integration tests for valid layered output, malformed output fallback, and low-signal empty output fallback.
+- Codex-backed continuity now performs local structural validation after JSON output and falls back to heuristic mode when the result is malformed or evidence-empty.
+- Heuristic durable extraction now supports high-confidence stale replacement for explicit `preferences` and `workflow` corrections without widening deletion into broader fuzzy contradiction matching.
+- Added real JSONL rollout fixtures for preferences correction, workflow correction, and mixed durable-memory plus continuity-noise sessions.
+- `cam memory` now groups on-demand topic refs by scope in default output and exposes `startupFilesByScope` plus `topicFilesByScope` in JSON mode for reviewer tooling.
+- Native migration and continuity docs now reflect the current public Codex surface more clearly while keeping native `memories` and `codex_hooks` outside the trusted implementation path.
+
 ## Reviewer checkpoints
 
 If you are reviewing the repository now, start here:
@@ -158,23 +168,22 @@ If you are reviewing the repository now, start here:
 
 ## Known gaps
 
-- Extractor quality is stronger, but still needs broader real-world rollout fixtures and more nuanced contradiction handling beyond command replacement.
-- `cam memory` now exposes loaded files and topic refs, but still remains below Claude Code's `/memory` interaction depth for edit / toggle ergonomics.
-- Native Codex memory and hook support is still companion-first; no native path is activated. Codex now ships native memory but parity verification against our contract is pending.
+- Extractor quality is stronger, but contradiction handling is still intentionally conservative outside explicit commands, preferences, and workflow corrections.
+- `cam memory` now exposes grouped startup/topic refs more directly, but it still remains below Claude Code's `/memory` interaction depth for edit / toggle ergonomics.
+- Native Codex memory and hook support is still companion-first; local `cam doctor --json` on 2026-03-17 still reports `memories` and `codex_hooks` as `under development` and disabled.
 - Topic files are now surfaced for on-demand reads, but the companion runtime still relies on generic file-read tools rather than a native lazy topic loader.
-- Session continuity heuristic is materially better, but still weaker than the Codex-backed schema path for nuanced next-step synthesis and contradiction cleanup.
+- Session continuity heuristic remains a fallback path; the repository still lacks richer observability around when Codex output degraded and why fallback happened.
 - Release hygiene is stronger now, but still needs a per-release reviewer packet refresh discipline.
 - `cam audit` is rule-based and conservative; it reduces obvious risk but is not a substitute for human review.
 - Earlier commits still contain a small number of synthetic secret-like fixtures because the repository intentionally avoided git history rewrite.
 
 ## Next planned milestones
 
-### Milestone 12: Deeper `/memory` parity and Codex-backed continuity quality
+### Milestone 13: Observability and reviewer ergonomics
 
-- Push `cam memory` closer to Claude `/memory` for loaded-file visibility and edit affordances.
-- Improve Codex-backed continuity summaries for project vs local separation and exact next-step quality.
-- Expand contradiction coverage beyond command replacement into more durable memory categories.
-- Use `docs/next-phase-brief.md` as the execution brief for the next implementation window.
+- Make Codex continuity fallback reasons easier to inspect during review and smoke tests.
+- Tighten `cam memory` review surfaces without reopening a large `/memory` command expansion.
+- Keep monitoring official Codex memory and hook surfaces, but stay companion-first until native readiness becomes both public and testable.
 
 ## Review-ready habits
 

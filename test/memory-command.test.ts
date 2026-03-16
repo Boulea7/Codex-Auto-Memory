@@ -86,9 +86,87 @@ describe("runMemory", () => {
     expect(output).toContain("Startup loaded files:");
     expect(output).toContain(store.getMemoryFile("project"));
     expect(output).toContain("Topic files on demand:");
+    expect(output).toContain("- global:");
+    expect(output).toContain("- project:");
+    expect(output).toContain("  - workflow:");
     expect(output).toContain(store.getTopicFile("project", "workflow"));
     expect(output).toContain("Recent sync events");
     expect(output).toContain("1 operation(s) applied");
+  });
+
+  it("adds startupFilesByScope and topicFilesByScope in json output", async () => {
+    const homeDir = await tempDir("cam-memory-json-home-");
+    const projectDir = await tempDir("cam-memory-json-project-");
+    const memoryRoot = await tempDir("cam-memory-json-root-");
+    process.env.HOME = homeDir;
+
+    const projectConfig: AppConfig = {
+      autoMemoryEnabled: true,
+      extractorMode: "heuristic",
+      defaultScope: "project",
+      maxStartupLines: 200,
+      sessionContinuityAutoLoad: false,
+      sessionContinuityAutoSave: false,
+      sessionContinuityLocalPathStyle: "codex",
+      maxSessionContinuityLines: 60,
+      codexBinary: "codex"
+    };
+    await fs.writeFile(
+      path.join(projectDir, "codex-auto-memory.json"),
+      JSON.stringify(projectConfig),
+      "utf8"
+    );
+    await fs.writeFile(
+      path.join(projectDir, ".codex-auto-memory.local.json"),
+      JSON.stringify({
+        autoMemoryDirectory: memoryRoot
+      }),
+      "utf8"
+    );
+
+    const store = new MemoryStore(detectProjectContext(projectDir), {
+      ...projectConfig,
+      autoMemoryDirectory: memoryRoot
+    });
+    await store.ensureLayout();
+    await store.remember(
+      "project",
+      "workflow",
+      "prefer-pnpm",
+      "Prefer pnpm in this repository.",
+      ["Use pnpm instead of npm in this repository."],
+      "Manual note."
+    );
+
+    const output = JSON.parse(
+      await runMemory({
+        cwd: projectDir,
+        json: true
+      })
+    ) as {
+      startupFilesByScope: {
+        global: string[];
+        project: string[];
+        projectLocal: string[];
+      };
+      topicFilesByScope: {
+        global: Array<{ topic: string; path: string }>;
+        project: Array<{ topic: string; path: string }>;
+        projectLocal: Array<{ topic: string; path: string }>;
+      };
+    };
+
+    expect(output.startupFilesByScope.global).toHaveLength(1);
+    expect(output.startupFilesByScope.project).toContain(store.getMemoryFile("project"));
+    expect(output.startupFilesByScope.projectLocal).toHaveLength(1);
+    expect(output.topicFilesByScope.global).toEqual([]);
+    expect(output.topicFilesByScope.project).toEqual([
+      expect.objectContaining({
+        topic: "workflow",
+        path: store.getTopicFile("project", "workflow")
+      })
+    ]);
+    expect(output.topicFilesByScope.projectLocal).toEqual([]);
   });
 
   it("updates local config when enabling or disabling auto memory", async () => {

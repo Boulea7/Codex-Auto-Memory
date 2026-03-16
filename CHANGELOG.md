@@ -4,6 +4,34 @@ All notable changes to `codex-auto-memory` will be documented in this file.
 
 The format is intentionally simple and reviewer-friendly: each entry maps to a concrete implementation milestone and, when possible, a single Git commit.
 
+## 0.1.0-alpha.12 - 2026-03-17
+
+### Added
+
+- Added shared continuity evidence buckets for recent successful commands, recent failed commands, detected file writes, explicit next steps, and explicit untried ideas.
+- Added Codex-mode continuity regression coverage for valid layered output, invalid model output fallback, low-signal model output fallback, and prompt bucket rendering.
+- Added real JSONL rollout fixtures for preferences correction, workflow correction, and mixed durable-memory plus continuity-noise sessions.
+- Added `startupFilesByScope` and `topicFilesByScope` to `cam memory --json` so reviewers no longer need to regroup startup and topic refs manually.
+
+### Changed
+
+- `extractorMode=codex` is now the tested primary continuity path instead of relying on heuristic-only indirect coverage.
+- Continuity prompts now keep the existing schema-first structure but include short evidence buckets that make shared-vs-local assignment and exact next-step extraction more reliable.
+- `cam memory` now groups on-demand topic refs by scope in the default output while preserving the existing command surface.
+- Milestone planning docs now reflect the Codex-first continuity focus and the current public Codex surface more explicitly.
+
+### Fixed
+
+- Codex-backed continuity extraction now falls back to the heuristic summarizer when the model output is invalid JSON, misses required layers or fields, or returns a formally valid but evidence-empty summary.
+- Heuristic durable extraction now supports high-confidence stale replacement for explicit `preferences` and `workflow` corrections without widening contradiction deletion into fuzzier topics.
+- Durable extraction now keeps temporary next-step and local file-edit continuity noise out of durable memory more explicitly during mixed sessions.
+
+### Review focus
+
+- Confirm that Codex-mode continuity now degrades safely to heuristic output instead of silently accepting empty or malformed summaries.
+- Confirm that explicit preferences and workflow corrections delete only the stale entry they clearly replace.
+- Confirm that `cam memory --json` is easier to audit while staying backward compatible for existing consumers.
+
 ## 0.1.0-alpha.11 - 2026-03-15
 
 ### Added

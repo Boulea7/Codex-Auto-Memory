@@ -113,6 +113,23 @@ Default assignment rules:
 - file modification notes go to the local layer by default
 - project-wide prerequisites and decisions stay in the shared layer
 
+## Codex-backed extraction quality guardrails
+
+`extractorMode=codex` is now the preferred continuity path, but it is still treated as a companion integration rather than a blind source of truth.
+
+Current implementation rules:
+
+- the prompt keeps the existing schema-first structure and now adds short evidence buckets for:
+  - recent successful commands
+  - recent failed commands
+  - detected file writes
+  - candidate explicit next steps
+  - candidate explicit untried ideas
+- Codex output must still pass local structural validation after the CLI writes JSON
+- if the model output is malformed, missing required layers, or returns an evidence-empty summary while the rollout clearly contains command / file / next-step evidence, the system falls back to the heuristic summarizer
+
+This keeps Codex-backed continuity as the primary quality path while preserving a deterministic local fallback for degraded sessions or brittle model output.
+
 ## Why the project-local layer is not the shared layer
 
 Even when users prefer project-folder-local files, git worktrees do not provide a single shared filesystem path for all worktrees.
@@ -188,7 +205,8 @@ Current Codex reality:
 
 - rollout JSONL is available
 - wrapper injection is available
-- native `memories` and `codex_hooks` are still not publicly stable enough to depend on
+- official public Codex surfaces now include `AGENTS.md` layering, project-level `.codex/config.toml` overrides, multi-agent workflows, and handoff-oriented transcript context improvements
+- local `cam doctor --json` on 2026-03-17 still reports `memories` and `codex_hooks` as `under development` and disabled, so native memory remains outside the current trusted path
 
 Therefore the current implementation is:
 
