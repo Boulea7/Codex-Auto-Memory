@@ -3,6 +3,7 @@ import type {
   RolloutEvidence,
   SessionContinuityState
 } from "../types.js";
+import type { SessionContinuityEvidenceBuckets } from "./session-continuity-evidence.js";
 import { trimText } from "../util/text.js";
 
 function formatToolCalls(evidence: RolloutEvidence): string {
@@ -49,9 +50,32 @@ function formatExistingState(existingState?: ExistingSessionContinuityState): st
   ].join("\n");
 }
 
+function formatBucket(title: string, items: string[]): string {
+  if (items.length === 0) {
+    return `${title}:\n- None`;
+  }
+
+  return `${title}:\n${items.map((item) => `- ${item}`).join("\n")}`;
+}
+
+function formatEvidenceBuckets(buckets: SessionContinuityEvidenceBuckets): string {
+  return [
+    formatBucket("Recent successful commands", buckets.recentSuccessfulCommands),
+    "",
+    formatBucket("Recent failed commands", buckets.recentFailedCommands),
+    "",
+    formatBucket("Detected file writes", buckets.detectedFileWrites),
+    "",
+    formatBucket("Candidate explicit next-step phrases", buckets.explicitNextSteps),
+    "",
+    formatBucket("Candidate explicit untried phrases", buckets.explicitUntried)
+  ].join("\n");
+}
+
 export function buildSessionContinuityPrompt(
   evidence: RolloutEvidence,
-  existingState?: ExistingSessionContinuityState
+  existingState?: ExistingSessionContinuityState,
+  buckets?: SessionContinuityEvidenceBuckets
 ): string {
   const userMessages = evidence.userMessages
     .slice(-20)
@@ -114,6 +138,17 @@ ${agentMessages || "- None"}
 
 Tool calls:
 ${formatToolCalls(evidence)}
+
+Evidence buckets:
+${formatEvidenceBuckets(
+  buckets ?? {
+    recentSuccessfulCommands: [],
+    recentFailedCommands: [],
+    detectedFileWrites: [],
+    explicitNextSteps: [],
+    explicitUntried: []
+  }
+)}
 
 Return JSON only, matching the provided schema.
 `.trim();

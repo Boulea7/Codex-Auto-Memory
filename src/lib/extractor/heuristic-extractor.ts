@@ -3,6 +3,13 @@ import type { MemoryEntry, MemoryOperation, RolloutEvidence } from "../types.js"
 import type { MemoryExtractorAdapter } from "../runtime/contracts.js";
 import { slugify } from "../util/text.js";
 
+interface ExplicitCorrection {
+  scope: MemoryOperation["scope"];
+  topic: "preferences" | "workflow";
+  summary: string;
+  staleText: string;
+}
+
 function inferScope(message: string): MemoryOperation["scope"] {
   if (/(all projects|across projects|globally|every repo|所有项目|全局)/iu.test(message)) {
     return "global";
@@ -121,6 +128,142 @@ function overlappingEntryIdsWithThreshold(
     .map((entry) => entry.id);
 }
 
+function normalizeForComparison(text: string): string {
+  return text.toLowerCase().replace(/\s+/g, " ").trim();
+}
+
+function trimTrailingPunctuation(text: string): string {
+  return text.trim().replace(/[。.!]+$/u, "");
+}
+
+function tokenizeForOverlap(text: string, minimumLength = 4): string[] {
+  return normalizeForComparison(text)
+    .split(/[^a-z0-9]+/u)
+    .filter((token) => token.length >= minimumLength);
+}
+
+function stripRememberPrefix(message: string): string {
+  return message.replace(/^remember that\s+/iu, "").replace(/^记住/u, "").trim();
+}
+
+function extractExplicitCorrection(message: string): ExplicitCorrection | null {
+  const trimmed = trimTrailingPunctuation(stripRememberPrefix(message));
+  const patterns = [
+    /^(?:actually\s+)?we use\s+(.+?),\s*not\s+(.+)$/iu,
+    /^(?:actually\s+)?use\s+(.+?),\s*not\s+(.+)$/iu,
+    /^not\s+(.+?),\s*(?:actually\s+)?use\s+(.+)$/iu,
+    /^(?:actually\s+)?use\s+(.+?)\s+instead of\s+(.+)$/iu,
+    /^我们用\s*(.+?)\s*[,，]\s*不用\s*(.+)$/u,
+    /^别用\s*(.+?)\s*[,，]\s*用\s*(.+)$/u,
+    /^实际上用\s*(.+?)\s*[,，]\s*不要用\s*(.+)$/u
+  ] as const;
+
+  for (const pattern of patterns) {
+    const match = trimmed.match(pattern);
+    if (!match?.[1] || !match?.[2]) {
+      continue;
+    }
+
+    const rawTopic = inferTopic(trimmed);
+    const topic =
+      rawTopic === "preferences" || rawTopic === "workflow" ? rawTopic : null;
+    if (!topic) {
+      return null;
+    }
+
+    const staleText = pattern === patterns[2] || pattern === patterns[5]
+      ? match[1]
+      : match[2];
+
+    return {
+      scope: inferScope(trimmed),
+      topic,
+      summary: trimmed,
+      staleText: trimTrailingPunctuation(staleText)
+    };
+  }
+
+  return null;
+}
+
+function collectExplicitCorrectionDeletes(
+  existingEntries: MemoryEntry[],
+  correction: ExplicitCorrection
+): string[] {
+  const scopedEntries = existingEntries.filter(
+    (entry) => entry.scope === correction.scope && entry.topic === correction.topic
+  );
+  if (scopedEntries.length === 0) {
+    return [];
+  }
+
+  const staleNeedle = normalizeForComparison(correction.staleText);
+  if (staleNeedle.length < 2) {
+    return [];
+  }
+
+  const summaryTokens = tokenizeForOverlap(correction.summary);
+  const directCandidates = scopedEntries.filter((entry) => {
+    if (normalizeForComparison(entry.summary) === normalizeForComparison(correction.summary)) {
+      return false;
+    }
+
+    const haystack = normalizeForComparison(`${entry.summary}\n${entry.details.join("\n")}`);
+    return haystack.includes(staleNeedle);
+  });
+
+  if (directCandidates.length <= 1) {
+    return directCandidates.map((entry) => entry.id);
+  }
+
+  return directCandidates
+    .filter((entry) => {
+      if (summaryTokens.length === 0) {
+        return false;
+      }
+
+      const haystack = normalizeForComparison(`${entry.summary}\n${entry.details.join("\n")}`);
+      return summaryTokens.some((token) => haystack.includes(token));
+    })
+    .map((entry) => entry.id);
+}
+
+function queueDelete(
+  operations: MemoryOperation[],
+  queuedDeleteIds: Set<string>,
+  entry: MemoryEntry,
+  reason: string,
+  rolloutPath: string
+): void {
+  if (queuedDeleteIds.has(entry.id)) {
+    return;
+  }
+
+  operations.push({
+    action: "delete",
+    scope: entry.scope,
+    topic: entry.topic,
+    id: entry.id,
+    reason,
+    sources: [rolloutPath]
+  });
+  queuedDeleteIds.add(entry.id);
+}
+
+function queueUpsert(
+  operations: MemoryOperation[],
+  knownSummaries: Set<string>,
+  operation: MemoryOperation
+): void {
+  const normalizedSummary = operation.summary?.toLowerCase();
+  if (!normalizedSummary || knownSummaries.has(normalizedSummary)) {
+    return;
+  }
+
+  operations.push(operation);
+  knownSummaries.add(normalizedSummary);
+}
+
 function commandSummary(command: string): { summary: string; details: string[] } {
   if (/\b(test|vitest|jest|pytest|go test)\b/u.test(command)) {
     return {
@@ -167,11 +310,41 @@ export class HeuristicExtractor implements MemoryExtractorAdapter {
     existingEntries: MemoryEntry[]
   ): Promise<MemoryOperation[]> {
     const operations: MemoryOperation[] = [];
-    const existingSummaries = new Set(existingEntries.map((entry) => entry.summary.toLowerCase()));
+    const knownSummaries = new Set(existingEntries.map((entry) => entry.summary.toLowerCase()));
+    const queuedDeleteIds = new Set<string>();
     const allowedTopics = new Set<string>(DEFAULT_MEMORY_TOPICS);
 
     for (const message of evidence.userMessages) {
-      const normalized = message.toLowerCase();
+      const explicitCorrection = extractExplicitCorrection(message);
+      if (explicitCorrection) {
+        for (const entryId of collectExplicitCorrectionDeletes(existingEntries, explicitCorrection)) {
+          const entry = existingEntries.find((candidate) => candidate.id === entryId);
+          if (!entry) {
+            continue;
+          }
+
+          queueDelete(
+            operations,
+            queuedDeleteIds,
+            entry,
+            "Superseded by a newer explicit user correction.",
+            evidence.rolloutPath
+          );
+        }
+
+        queueUpsert(operations, knownSummaries, {
+          action: "upsert",
+          scope: explicitCorrection.scope,
+          topic: explicitCorrection.topic,
+          id: slugify(explicitCorrection.summary),
+          summary: explicitCorrection.summary,
+          details: [explicitCorrection.summary],
+          reason: "Explicit user correction that should replace stale memory.",
+          sources: [evidence.rolloutPath]
+        });
+        continue;
+      }
+
       const rememberMatch =
         message.match(/remember that\s+(.+)/i) ??
         message.match(/save to memory that\s+(.+)/i) ??
@@ -196,21 +369,20 @@ export class HeuristicExtractor implements MemoryExtractorAdapter {
           ) {
             continue;
           }
-          operations.push({
-            action: "delete",
-            scope: entry.scope,
-            topic: entry.topic,
-            id: entry.id,
-            reason: "Explicit forget instruction from the user.",
-            sources: [evidence.rolloutPath]
-          });
+          queueDelete(
+            operations,
+            queuedDeleteIds,
+            entry,
+            "Explicit forget instruction from the user.",
+            evidence.rolloutPath
+          );
         }
         continue;
       }
 
       if (rememberMatch?.[1]) {
         const summary = rememberMatch[1].trim().replace(/[。.]$/u, "");
-        if (existingSummaries.has(summary.toLowerCase())) {
+        if (knownSummaries.has(summary.toLowerCase())) {
           continue;
         }
 
@@ -221,17 +393,16 @@ export class HeuristicExtractor implements MemoryExtractorAdapter {
           if (!entry || entry.summary.toLowerCase() === summary.toLowerCase()) {
             continue;
           }
-          operations.push({
-            action: "delete",
-            scope: entry.scope,
-            topic: entry.topic,
-            id: entry.id,
-            reason: "Superseded by a newer user correction.",
-            sources: [evidence.rolloutPath]
-          });
+          queueDelete(
+            operations,
+            queuedDeleteIds,
+            entry,
+            "Superseded by a newer user correction.",
+            evidence.rolloutPath
+          );
         }
 
-        operations.push({
+        queueUpsert(operations, knownSummaries, {
           action: "upsert",
           scope,
           topic: allowedTopics.has(topic) ? topic : "workflow",
@@ -251,8 +422,8 @@ export class HeuristicExtractor implements MemoryExtractorAdapter {
       );
       if (insightMatch?.[0]) {
         const summary = message.trim().replace(/[。.]$/u, "");
-        if (!existingSummaries.has(summary.toLowerCase())) {
-          operations.push({
+        if (!knownSummaries.has(summary.toLowerCase())) {
+          queueUpsert(operations, knownSummaries, {
             action: "upsert",
             scope: inferScope(message),
             topic: "debugging",
@@ -284,7 +455,7 @@ export class HeuristicExtractor implements MemoryExtractorAdapter {
 
       const { summary, details } = commandSummary(command);
       const signature = commandSignature(command);
-      if (existingSummaries.has(summary.toLowerCase())) {
+      if (knownSummaries.has(summary.toLowerCase())) {
         continue;
       }
 
@@ -301,19 +472,18 @@ export class HeuristicExtractor implements MemoryExtractorAdapter {
             commandSignature(existingCommand) === signature &&
             entry.summary.toLowerCase() !== summary.toLowerCase()
           ) {
-            operations.push({
-              action: "delete",
-              scope: entry.scope,
-              topic: entry.topic,
-              id: entry.id,
-              reason: "Superseded by a newer successful command extracted from the session.",
-              sources: [evidence.rolloutPath]
-            });
+            queueDelete(
+              operations,
+              queuedDeleteIds,
+              entry,
+              "Superseded by a newer successful command extracted from the session.",
+              evidence.rolloutPath
+            );
           }
         }
       }
 
-      operations.push({
+      queueUpsert(operations, knownSummaries, {
         action: "upsert",
         scope: "project",
         topic: "commands",
