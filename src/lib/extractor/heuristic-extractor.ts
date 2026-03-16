@@ -61,6 +61,32 @@ function commandSucceeded(toolCall: RolloutEvidence["toolCalls"][number]): boole
   );
 }
 
+function extractCommandFromSummary(summary: string): string | null {
+  const match = summary.match(/`([^`]+)`/u);
+  return match?.[1] ?? null;
+}
+
+function commandSignature(command: string): string | null {
+  const normalized = command.toLowerCase().trim();
+  if (/\b(?:pnpm|npm|bun|yarn)\s+(test|lint|build|install)\b/u.test(normalized)) {
+    return normalized.match(/\b(?:pnpm|npm|bun|yarn)\s+(test|lint|build|install)\b/u)?.[1] ?? null;
+  }
+
+  if (/\b(?:cargo)\s+(test|build|check)\b/u.test(normalized)) {
+    return normalized.match(/\bcargo\s+(test|build|check)\b/u)?.[1] ?? null;
+  }
+
+  if (/\b(?:pytest|jest|vitest|go test|dotnet test|rake)\b/u.test(normalized)) {
+    return "test";
+  }
+
+  if (/\b(?:tsc|vite build|next build|gradle|mvn|make)\b/u.test(normalized)) {
+    return "build";
+  }
+
+  return null;
+}
+
 function overlappingEntryIds(existingEntries: MemoryEntry[], text: string): string[] {
   return overlappingEntryIdsWithThreshold(existingEntries, text, 2);
 }
@@ -257,8 +283,34 @@ export class HeuristicExtractor implements MemoryExtractorAdapter {
       }
 
       const { summary, details } = commandSummary(command);
+      const signature = commandSignature(command);
       if (existingSummaries.has(summary.toLowerCase())) {
         continue;
+      }
+
+      if (signature) {
+        for (const entry of existingEntries) {
+          if (entry.scope !== "project" || entry.topic !== "commands") {
+            continue;
+          }
+          const existingCommand = extractCommandFromSummary(entry.summary);
+          if (!existingCommand) {
+            continue;
+          }
+          if (
+            commandSignature(existingCommand) === signature &&
+            entry.summary.toLowerCase() !== summary.toLowerCase()
+          ) {
+            operations.push({
+              action: "delete",
+              scope: entry.scope,
+              topic: entry.topic,
+              id: entry.id,
+              reason: "Superseded by a newer successful command extracted from the session.",
+              sources: [evidence.rolloutPath]
+            });
+          }
+        }
       }
 
       operations.push({
