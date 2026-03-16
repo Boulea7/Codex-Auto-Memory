@@ -242,4 +242,49 @@ describe("MemoryStore", () => {
     expect(auditEntries[0]?.resultSummary).toBe("still ok");
     expect(auditEntries[1]?.resultSummary).toBe("ok");
   });
+
+  it("normalizes the legacy empty MEMORY.md template without rewriting user-edited files", async () => {
+    const projectDir = await tempDir("cam-store-legacy-index-");
+    const memoryRoot = await tempDir("cam-store-legacy-index-mem-");
+    const config: AppConfig = {
+      autoMemoryEnabled: true,
+      autoMemoryDirectory: memoryRoot,
+      extractorMode: "heuristic",
+      defaultScope: "project",
+      maxStartupLines: 200,
+      sessionContinuityAutoLoad: false,
+      sessionContinuityAutoSave: false,
+      sessionContinuityLocalPathStyle: "codex",
+      maxSessionContinuityLines: 60,
+      codexBinary: "codex"
+    };
+    const store = new MemoryStore(detectProjectContext(projectDir), config);
+    await store.ensureLayout();
+
+    const projectMemoryFile = store.getMemoryFile("project");
+    await fs.writeFile(
+      projectMemoryFile,
+      [
+        "# Project Memory",
+        "",
+        "This file is the concise startup index for this scope.",
+        "It is intentionally short so it can be injected into Codex at session start.",
+        "",
+        "## Topics",
+        "- No topic files yet.",
+        "",
+        "## Highlights",
+        "- No memory entries yet.",
+        ""
+      ].join("\n"),
+      "utf8"
+    );
+    const projectLocalFile = store.getMemoryFile("project-local");
+    await fs.writeFile(projectLocalFile, "# Project Local Memory\n\nCustom note.\n", "utf8");
+
+    await store.ensureLayout();
+
+    expect(await store.readMemoryFile("project")).not.toContain("## Highlights");
+    expect(await store.readMemoryFile("project-local")).toContain("Custom note.");
+  });
 });
