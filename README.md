@@ -86,7 +86,7 @@ cam audit
 Current reviewer-oriented behavior:
 
 - `cam memory` shows the active startup-loaded memory files, grouped topic refs for on-demand reads, startup budget usage, and the exact Markdown paths to edit per scope.
-- `cam session load` shows shared project continuity, project-local continuity, the merged resume brief, and the latest continuity generation path.
+- `cam session load` shows shared project continuity, project-local continuity, the merged resume brief, the latest continuity generation path, and a compact recent generation preview sourced from the audit log.
 
 ## Architecture Overview
 

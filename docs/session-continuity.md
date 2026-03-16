@@ -158,6 +158,7 @@ cam session clear
 - project-local continuity
 - the effective merged resume brief
 - the latest continuity generation path and fallback status
+- a compact recent generation preview sourced from the continuity audit log
 
 Automatic injection and automatic saving are disabled by default.
 
@@ -185,7 +186,8 @@ Reason:
 
 - the continuity files should stay compact and human-editable
 - reviewer/debug data belongs in an audit surface, not in the working-state note itself
-- the latest audit entry is exposed through `cam session save --json`, `cam session load --json`, and `cam session status --json`
+- the latest audit entry remains exposed through `cam session save --json`, `cam session load --json`, and `cam session status --json`
+- the same commands now also expose recent audit entries so reviewers can verify short history without opening the JSONL directly
 
 ## Startup behavior
 

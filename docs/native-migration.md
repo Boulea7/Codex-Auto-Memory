@@ -12,6 +12,7 @@ Codex already exposes useful foundations:
 - public project-level `.codex/config.toml` overrides
 - public multi-agent workflows and handoff-oriented transcript context improvements
 - experimental `memories` and `codex_hooks` feature flags
+- official public Codex materials now also mention experimental memory and hook work, but still do not document a stable end-user contract for memory layout, scope semantics, or hook event behavior
 
 ### Codex native memory status (as of 2026-03-17)
 
