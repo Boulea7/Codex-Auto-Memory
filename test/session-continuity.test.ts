@@ -3,7 +3,7 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import {
-  applySessionContinuitySummary,
+  applySessionContinuityLayerSummary,
   compileSessionContinuity,
   createEmptySessionContinuityState,
   mergeSessionContinuityStates,
@@ -11,6 +11,7 @@ import {
   renderSessionContinuity,
   sanitizeSessionContinuitySummary
 } from "../src/lib/domain/session-continuity.js";
+import { parseRolloutEvidence } from "../src/lib/domain/rollout.js";
 import { SessionContinuityStore } from "../src/lib/domain/session-continuity-store.js";
 import { detectProjectContext } from "../src/lib/domain/project-context.js";
 import { SessionContinuitySummarizer } from "../src/lib/extractor/session-continuity-summarizer.js";
@@ -153,11 +154,11 @@ describe("session continuity domain", () => {
     });
 
     const summary = await summarizer.summarize(evidence);
-    expect(summary.goal).toContain("Fix the login bug");
-    expect(summary.confirmedWorking.join("\n")).toContain("pnpm test");
-    expect(summary.confirmedWorking.join("\n")).not.toContain("auth.ts");
-    expect(summary.triedAndFailed.join("\n")).toContain("pnpm build");
-    expect(summary.filesDecisionsEnvironment.join("\n")).toContain("auth.ts");
+    expect(summary.project.goal).toContain("Fix the login bug");
+    expect(summary.project.confirmedWorking.join("\n")).toContain("pnpm test");
+    expect(summary.project.confirmedWorking.join("\n")).not.toContain("auth.ts");
+    expect(summary.project.triedAndFailed.join("\n")).toContain("pnpm build");
+    expect(summary.projectLocal.filesDecisionsEnvironment.join("\n")).toContain("auth.ts");
   });
 
   it("heuristic summarizer extracts file path from apply_patch_freeform raw patch text", async () => {
@@ -196,10 +197,10 @@ describe("session continuity domain", () => {
     });
 
     const summary = await summarizer.summarize(evidence);
-    const fde = summary.filesDecisionsEnvironment.join("\n");
+    const fde = summary.projectLocal.filesDecisionsEnvironment.join("\n");
     expect(fde).toContain("utils.ts");
     expect(fde).toContain("db.ts");
-    expect(summary.confirmedWorking).toHaveLength(0);
+    expect(summary.project.confirmedWorking).toHaveLength(0);
   });
 
   it("heuristic summarizer recognizes expanded success patterns", async () => {
@@ -230,14 +231,17 @@ describe("session continuity domain", () => {
     });
 
     const summary = await summarizer.summarize(evidence);
-    expect(summary.confirmedWorking.length).toBe(3);
-    expect(summary.triedAndFailed).toHaveLength(0);
+    expect(summary.project.confirmedWorking.length).toBe(3);
+    expect(summary.project.triedAndFailed).toHaveLength(0);
   });
 
-  it("heuristic summarizer preserves existing notYetTried", async () => {
+  it("heuristic summarizer preserves existing shared notYetTried", async () => {
     const existing = {
-      ...createEmptySessionContinuityState("project", "p1", "w1"),
-      notYetTried: ["Try Redis cache"]
+      project: {
+        ...createEmptySessionContinuityState("project", "p1", "w1"),
+        notYetTried: ["Try Redis cache"]
+      },
+      projectLocal: createEmptySessionContinuityState("project-local", "p1", "w1")
     };
     const evidence: RolloutEvidence = {
       sessionId: "session-preserve",
@@ -262,10 +266,72 @@ describe("session continuity domain", () => {
     });
 
     const summary = await summarizer.summarize(evidence, existing);
-    expect(summary.notYetTried).toContain("Try Redis cache");
+    expect(summary.project.notYetTried).toContain("Try Redis cache");
   });
 
-  it("applySessionContinuitySummary merges summary into base state", () => {
+  it("heuristic summarizer splits shared and local continuity heuristically", async () => {
+    const evidence: RolloutEvidence = {
+      sessionId: "session-layered",
+      createdAt: "2026-03-15T00:00:00.000Z",
+      cwd: "/tmp/project",
+      userMessages: [
+        "We haven't tried switching the login route to cookies() yet.",
+        "Next step: update src/auth/login.ts to set an httpOnly cookie.",
+        "Redis must be running before integration tests."
+      ],
+      agentMessages: ["Remaining work: add middleware for the protected route redirect."],
+      toolCalls: [],
+      rolloutPath: "/tmp/rollout.jsonl"
+    };
+
+    const summarizer = new SessionContinuitySummarizer(baseConfig("/tmp/memory-root"));
+    const summary = await summarizer.summarize(evidence);
+
+    expect(summary.project.notYetTried.join("\n")).toContain("switching the login route to cookies()");
+    expect(summary.project.filesDecisionsEnvironment.join("\n")).toContain("Redis must be running");
+    expect(summary.projectLocal.incompleteNext.join("\n")).toContain("add middleware");
+    expect(summary.projectLocal.incompleteNext.join("\n")).toContain("update src/auth/login.ts");
+  });
+
+  it("heuristic summarizer extracts layered continuity from a real rollout fixture", async () => {
+    const evidence = await parseRolloutEvidence(
+      path.join(process.cwd(), "test/fixtures/rollouts/session-continuity-layered.jsonl")
+    );
+    expect(evidence).not.toBeNull();
+
+    const summarizer = new SessionContinuitySummarizer(baseConfig("/tmp/memory-root"));
+    const summary = await summarizer.summarize(evidence!);
+
+    expect(summary.project.notYetTried.join("\n")).toContain("switching the login route to cookies()");
+    expect(summary.project.filesDecisionsEnvironment.join("\n")).toContain("Redis must be running");
+    expect(summary.projectLocal.filesDecisionsEnvironment.join("\n")).toContain("login.ts");
+    expect(summary.projectLocal.incompleteNext.join("\n")).toContain("add middleware");
+  });
+
+  it("heuristic summarizer keeps version-slash notes in shared layer, not local", async () => {
+    // "Redis 7.0/7.1" contains a slash but is NOT a file path.
+    // looksLocalSpecific() must not misclassify it, so the note should land
+    // in shared project.filesDecisionsEnvironment, not in projectLocal.
+    const evidence: RolloutEvidence = {
+      sessionId: "session-slash-version",
+      createdAt: "2026-03-15T00:00:00.000Z",
+      cwd: "/tmp/project",
+      userMessages: ["Redis 7.0/7.1 must be running before integration tests."],
+      agentMessages: [],
+      toolCalls: [],
+      rolloutPath: "/tmp/rollout.jsonl"
+    };
+
+    const summarizer = new SessionContinuitySummarizer(baseConfig("/tmp/memory-root"));
+    const summary = await summarizer.summarize(evidence);
+
+    const projectNotes = summary.project.filesDecisionsEnvironment.join("\n");
+    const localNotes = summary.projectLocal.filesDecisionsEnvironment.join("\n");
+    expect(projectNotes).toContain("Redis");
+    expect(localNotes).not.toContain("Redis 7.0/7.1");
+  });
+
+  it("applySessionContinuityLayerSummary merges summary into base state", () => {
     const base = {
       ...createEmptySessionContinuityState("project", "p1", "w1"),
       updatedAt: "2026-01-01T00:00:00.000Z",
@@ -282,28 +348,39 @@ describe("session continuity domain", () => {
       filesDecisionsEnvironment: ["New file note"]
     };
 
-    const merged = applySessionContinuitySummary(base, summary);
+    const merged = applySessionContinuityLayerSummary(base, summary, "session-2");
     expect(merged.confirmedWorking).toContain("New success");
     expect(merged.confirmedWorking).toContain("Old success");
     expect(merged.filesDecisionsEnvironment).toContain("New file note");
     expect(merged.updatedAt).not.toBe("2026-01-01T00:00:00.000Z");
     expect(merged.status).toBe("active");
+    expect(merged.sourceSessionId).toBe("session-2");
   });
 
   it("sanitizeSessionContinuitySummary strips sensitive items", () => {
     const syntheticBearer = `Bearer ${["sk", "12345678901234567890"].join("-")}`;
     const summary = {
-      goal: "Fix auth",
-      confirmedWorking: ["Clean item", syntheticBearer],
-      triedAndFailed: [],
-      notYetTried: [],
-      incompleteNext: [],
-      filesDecisionsEnvironment: []
+      project: {
+        goal: "Fix auth",
+        confirmedWorking: ["Clean item", syntheticBearer],
+        triedAndFailed: [],
+        notYetTried: [],
+        incompleteNext: [],
+        filesDecisionsEnvironment: []
+      },
+      projectLocal: {
+        goal: "",
+        confirmedWorking: [],
+        triedAndFailed: [],
+        notYetTried: [],
+        incompleteNext: [],
+        filesDecisionsEnvironment: []
+      }
     };
 
     const sanitized = sanitizeSessionContinuitySummary(summary);
-    expect(sanitized.confirmedWorking).toContain("Clean item");
-    expect(sanitized.confirmedWorking.join("\n")).not.toContain("12345678901234567890");
+    expect(sanitized.project.confirmedWorking).toContain("Clean item");
+    expect(sanitized.project.confirmedWorking.join("\n")).not.toContain("12345678901234567890");
   });
 
   it("compiled startup block includes filesDecisionsEnvironment section", () => {
@@ -352,12 +429,22 @@ describe("SessionContinuityStore", () => {
 
     const written = await store.saveSummary(
       {
-        goal: "Finish auth continuity.",
-        confirmedWorking: ["Register works"],
-        triedAndFailed: ["LocalStorage JWT caused hydration mismatch."],
-        notYetTried: ["Use cookies().set in the login route."],
-        incompleteNext: ["Add middleware."],
-        filesDecisionsEnvironment: ["Use pnpm."]
+        project: {
+          goal: "Finish auth continuity.",
+          confirmedWorking: ["Register works"],
+          triedAndFailed: ["LocalStorage JWT caused hydration mismatch."],
+          notYetTried: ["Try middleware after cookies land."],
+          incompleteNext: [],
+          filesDecisionsEnvironment: ["Use pnpm."]
+        },
+        projectLocal: {
+          goal: "",
+          confirmedWorking: [],
+          triedAndFailed: [],
+          notYetTried: ["Use cookies().set in the login route."],
+          incompleteNext: ["Add middleware."],
+          filesDecisionsEnvironment: ["File modified: auth.ts"]
+        }
       },
       "both"
     );
@@ -369,6 +456,8 @@ describe("SessionContinuityStore", () => {
 
     const excludePath = path.join(detectProjectContext(repoDir).gitDir!, "info", "exclude");
     expect(await fs.readFile(excludePath, "utf8")).toContain(".codex-auto-memory/");
+    expect((await store.readState("project"))?.filesDecisionsEnvironment).toContain("Use pnpm.");
+    expect((await store.readState("project-local"))?.incompleteNext).toContain("Add middleware.");
   });
 
   it("supports claude-style local files and clears all active local session tmp files", async () => {
@@ -382,12 +471,22 @@ describe("SessionContinuityStore", () => {
     );
     await store.saveSummary(
       {
-        goal: "Continue Claude-compatible session state.",
-        confirmedWorking: [],
-        triedAndFailed: [],
-        notYetTried: [],
-        incompleteNext: ["Resume from the latest session file."],
-        filesDecisionsEnvironment: []
+        project: {
+          goal: "",
+          confirmedWorking: [],
+          triedAndFailed: [],
+          notYetTried: [],
+          incompleteNext: [],
+          filesDecisionsEnvironment: []
+        },
+        projectLocal: {
+          goal: "Continue Claude-compatible session state.",
+          confirmedWorking: [],
+          triedAndFailed: [],
+          notYetTried: [],
+          incompleteNext: ["Resume from the latest session file."],
+          filesDecisionsEnvironment: []
+        }
       },
       "project-local"
     );
