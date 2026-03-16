@@ -59,15 +59,17 @@ If any step is skipped, explain why in the final handoff.
 - Milestone 12 is complete: Codex-backed continuity now uses shared evidence buckets, explicit structural validation, and low-signal fallback to the heuristic summarizer.
 - Durable contradiction handling now covers high-confidence explicit corrections in `preferences` and `workflow`, in addition to the earlier command replacement path.
 - `cam memory --json` now exposes `startupFilesByScope` and `topicFilesByScope`, and default output groups on-demand topic refs by scope.
+- Milestone 13 is complete: session continuity generation now writes reviewer-oriented diagnostics to `projects/<project-id>/audit/session-continuity-log.jsonl`, and `cam session` surfaces the latest generation path plus fallback reason in JSON mode.
+- `cam memory --json` now also exposes `startupBudget` and `refCountsByScope` for reviewer tooling.
 - Native Codex `memories` and `codex_hooks` still remain outside the trusted implementation path until `cam doctor --json` and public docs both show stable support.
 
 ## Planning Notes
 
 Short-term priorities:
 
-- keep Codex-backed continuity as the tested primary path and make fallback reasons more inspectable
+- keep Codex-backed continuity as the tested primary path and make diagnostics easy to review without polluting Markdown continuity files
 - expand contradiction fixtures conservatively for explicit `preferences` / `workflow` replacement without broad fuzzy deletion
-- keep `cam memory` useful as a grouped startup/topic-file audit surface
+- keep `cam memory` useful as a grouped startup/topic-file audit surface with compact reviewer summaries
 - keep startup injection limited to quoted `MEMORY.md` indexes plus topic-file references; do not reintroduce eager topic-entry loading
 - keep session continuity separate from durable memory; optimize Codex compatibility first and treat Claude-style continuity as an adapter layer
 

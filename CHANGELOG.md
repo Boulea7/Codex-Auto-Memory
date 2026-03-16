@@ -4,6 +4,26 @@ All notable changes to `codex-auto-memory` will be documented in this file.
 
 The format is intentionally simple and reviewer-friendly: each entry maps to a concrete implementation milestone and, when possible, a single Git commit.
 
+## 0.1.0-alpha.13 - 2026-03-17
+
+### Added
+
+- Added structured continuity diagnostics that record preferred vs actual extractor path, fallback reason, Codex exit code, and evidence counts.
+- Added a dedicated reviewer-oriented continuity audit log at `projects/<project-id>/audit/session-continuity-log.jsonl`.
+- Added `startupBudget` and `refCountsByScope` to `cam memory --json`.
+
+### Changed
+
+- `cam session save --json`, `cam session load --json`, and `cam session status --json` now expose the latest continuity diagnostics and audit-log path.
+- Wrapper auto-save now records the same continuity diagnostics used by manual `cam session save`.
+- Reviewer-facing docs and handoff materials now track the current alpha window instead of the earlier alpha.11 state.
+
+### Review focus
+
+- Confirm that continuity diagnostics stay out of the Markdown continuity files and only land in the dedicated audit JSONL.
+- Confirm that reviewer JSON surfaces are richer without forcing a larger command-surface redesign.
+- Confirm that the new diagnostics remain aligned with the actual fallback behavior under Codex success, malformed output, low-signal output, and configured heuristic mode.
+
 ## 0.1.0-alpha.12 - 2026-03-17
 
 ### Added

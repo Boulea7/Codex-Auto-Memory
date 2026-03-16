@@ -1,37 +1,35 @@
 # Next Phase Brief
 
-This brief prepares the next implementation window after `0.1.0-alpha.12`.
+This brief prepares the next implementation window after `0.1.0-alpha.13`.
 
-## Milestone 13 focus
+## Milestone 14 focus
 
-The next phase should stay small and reviewer-oriented:
+The next phase should continue to stay compact and reviewer-oriented:
 
-- improve observability around Codex continuity fallback behavior
-- keep `cam memory` easy to audit without reopening a much larger `/memory` UX expansion
-- keep native Codex memory and hook work in the migration seam, not on the active implementation path
+- refresh reviewer packets and release-facing docs more systematically
+- improve the highest-value memory review surfaces without reopening a larger `/memory` redesign
+- keep monitoring native Codex memory and hooks, but remain companion-first until public docs and local readiness both improve
 
-Do **not** reopen startup injection, continuity storage layout, or broader command-surface redesign unless a concrete regression appears.
+Do **not** reopen startup injection, session continuity storage layout, or broad command-surface expansion unless a concrete regression appears.
 
 ## Goals
 
-1. Make Codex continuity fallback reasons easier to inspect during review and smoke testing.
-2. Tighten reviewer-facing `cam memory` output only where it directly helps startup and topic-file auditing.
-3. Expand contradiction and mixed-signal rollout coverage only when it materially improves confidence in the current companion path.
-4. Keep documentation aligned with the public Codex surface and the current native-readiness reality.
+1. Reduce reviewer drift between docs, changelog, handoff packets, and actual CLI output.
+2. Tighten `cam memory` and `cam session` review surfaces only where they directly reduce audit friction.
+3. Keep contradiction handling conservative unless new rollout fixtures justify a safe expansion.
+4. Continue external research on official Codex memory and hook readiness without treating local observations as stable product contract.
 
 ## In scope
 
-- Add light observability or reviewer-facing diagnostics for:
-  - why Codex continuity fell back to heuristic
-  - whether the model output was malformed or merely low-signal
-  - which startup/topic refs were actually active in a given review
-- Add targeted fixtures when they protect the current Codex-first path better than broad heuristic expansion.
-- Keep docs current when public Codex capabilities or local readiness checks materially change.
+- Refresh reviewer-facing docs whenever implementation windows close.
+- Add small reviewer-oriented CLI summaries if they clearly remove ambiguity.
+- Add targeted fixtures that protect current behavior better than broad heuristic complexity.
+- Re-check official Codex public docs and local `doctor` output before changing migration guidance.
 
 ## Out of scope
 
 - native Codex memory adoption
-- broad `/memory` interaction redesign
+- broad `/memory` UX redesign
 - hook bridge feature work
 - GUI / TUI work
 - another startup injection redesign
@@ -53,6 +51,6 @@ pnpm exec tsx src/cli.ts memory --json
 Expected review outcome:
 
 - no new medium/high audit findings
-- Codex continuity fallback is easier to reason about during review
-- `cam memory` remains compact but more obviously reviewer-friendly
+- reviewer docs stay aligned with actual CLI behavior
+- continuity and memory review surfaces remain compact but easier to trust
 - companion-first behavior stays aligned with the current public Codex surface

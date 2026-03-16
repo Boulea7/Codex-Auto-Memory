@@ -30,19 +30,14 @@ The repository currently has:
 - review-oriented docs and changelog tracking
 - a repository privacy audit command: `cam audit`
 - a reviewer-oriented `cam memory` surface that shows startup-loaded files, topic refs, and edit paths
+- a reviewer-oriented continuity audit log that records preferred vs actual generation path and fallback reasons
 
 ## Most recent milestone commits
 
-- current implementation window: alpha.11 continuity layering, extractor contradiction coverage, and `cam memory` reviewer UX hardening
-- `47871b6` `chore(test): reduce audit fixture scanner noise`
-- `3b25bf1` `fix(session): correct file-write detection and confirmedWorking evidence gate`
-- `b406163` `feat(session): improve heuristic summarizer and sync docs for alpha.10`
-- `a8257b6` `feat(session): add codex-first continuity layer`
-- `214022f` `feat(runtime): add topic-aware startup guardrails`
-- `14060b2` `docs(review): add security audit workflow and handoff packet`
-- `f0f079f` `fix(audit): reduce noise in history findings`
-- `680fb2a` `fix(parity): retain reviewed claudecode hardening patch`
-- `b142288` `feat(audit): add repository privacy scanner and scrub fixtures`
+- current implementation window: alpha.13 continuity diagnostics and reviewer observability
+- `3bacd60` `feat(alpha.12): harden codex continuity and memory grouping`
+- `e8a5db5` `docs(alpha.11): sync continuity layering and reviewer ux`
+- `e11b64d` `fix(extractor): add contradiction fixtures and stale replacement`
 
 ## Verified safety status
 
@@ -62,10 +57,10 @@ The project intentionally chose a **forward-only cleanup** strategy. Earlier com
 ## Highest-value remaining gaps
 
 - topic files are now referenced for on-demand reads, but the runtime still relies on generic file-read tools rather than a native lazy-loading hook
-- extractor quality still needs broader contradiction handling beyond command replacement
+- extractor quality still needs broader contradiction handling beyond explicit commands, preferences, and workflow corrections
 - `cam memory` is still shallower than Claude Code’s `/memory`, especially around edit/toggle ergonomics
-- heuristic continuity layering is now useful, but Codex-backed summaries still need better exact next-step quality
-- `docs/next-phase-brief.md` captures the recommended Milestone 12 execution brief
+- continuity diagnostics are now inspectable, but the CLI still only exposes the latest generation rather than a richer history browser
+- `docs/next-phase-brief.md` now captures the recommended Milestone 14 execution brief
 
 ## Recommended review sequence
 
@@ -89,6 +84,8 @@ pnpm test
 pnpm build
 node dist/cli.js audit --json
 node dist/cli.js doctor --json
+node dist/cli.js session load --json
+node dist/cli.js memory --json
 ```
 
 ## Review stance

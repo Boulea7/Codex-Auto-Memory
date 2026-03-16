@@ -4,9 +4,9 @@ This document tracks implementation progress in a format that is easy to consume
 
 ## Current completion snapshot
 
-- Approximate overall progress toward a strong Claude-style alpha: `96%`
+- Approximate overall progress toward a strong Claude-style alpha: `97%`
 - Approximate progress toward a working local MVP: `99%`
-- Current phase: `Phase 12 - Codex-first continuity hardening and reviewer-oriented memory grouping`
+- Current phase: `Phase 13 - continuity diagnostics and reviewer observability`
 
 ## Completed milestones
 
@@ -152,6 +152,14 @@ This document tracks implementation progress in a format that is easy to consume
 - `cam memory` now groups on-demand topic refs by scope in default output and exposes `startupFilesByScope` plus `topicFilesByScope` in JSON mode for reviewer tooling.
 - Native migration and continuity docs now reflect the current public Codex surface more clearly while keeping native `memories` and `codex_hooks` outside the trusted implementation path.
 
+### Milestone 13: Continuity diagnostics and reviewer observability
+
+- Session continuity generation now produces structured diagnostics describing preferred vs actual path, fallback reason, Codex exit status, and evidence counts.
+- `cam session save --json`, `cam session load --json`, and `cam session status --json` now expose the latest continuity diagnostics and the continuity audit-log path.
+- Wrapper auto-save now records continuity generation events to a dedicated reviewer-oriented JSONL log at `projects/<project-id>/audit/session-continuity-log.jsonl`.
+- `cam memory --json` now adds `startupBudget` and `refCountsByScope`, and the default output shows a compact startup-budget plus ref-count summary.
+- Reviewer docs were refreshed so handoff packets and guides no longer lag behind the current alpha window.
+
 ## Reviewer checkpoints
 
 If you are reviewing the repository now, start here:
@@ -172,17 +180,17 @@ If you are reviewing the repository now, start here:
 - `cam memory` now exposes grouped startup/topic refs more directly, but it still remains below Claude Code's `/memory` interaction depth for edit / toggle ergonomics.
 - Native Codex memory and hook support is still companion-first; local `cam doctor --json` on 2026-03-17 still reports `memories` and `codex_hooks` as `under development` and disabled.
 - Topic files are now surfaced for on-demand reads, but the companion runtime still relies on generic file-read tools rather than a native lazy topic loader.
-- Session continuity heuristic remains a fallback path; the repository still lacks richer observability around when Codex output degraded and why fallback happened.
+- Session continuity diagnostics now explain the latest fallback, but the CLI still lacks a richer history browser beyond the audit JSONL.
 - Release hygiene is stronger now, but still needs a per-release reviewer packet refresh discipline.
 - `cam audit` is rule-based and conservative; it reduces obvious risk but is not a substitute for human review.
 - Earlier commits still contain a small number of synthetic secret-like fixtures because the repository intentionally avoided git history rewrite.
 
 ## Next planned milestones
 
-### Milestone 13: Observability and reviewer ergonomics
+### Milestone 14: Reviewer packet refresh and targeted ergonomics
 
-- Make Codex continuity fallback reasons easier to inspect during review and smoke tests.
-- Tighten `cam memory` review surfaces without reopening a large `/memory` command expansion.
+- Keep reviewer-facing docs, handoff packets, and CLI output aligned at the end of each implementation window.
+- Tighten `cam memory` and `cam session` review surfaces without reopening a large `/memory` command expansion.
 - Keep monitoring official Codex memory and hook surfaces, but stay companion-first until native readiness becomes both public and testable.
 
 ## Review-ready habits

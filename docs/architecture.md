@@ -129,6 +129,7 @@ Current storage model:
 - shared project continuity: `~/.codex-auto-memory/projects/<project-id>/continuity/project/active.md`
 - Codex-first local continuity: `<project-root>/.codex-auto-memory/sessions/active.md`
 - Claude-compatible local continuity (optional path style): `<project-root>/.claude/sessions/<date>-<short-id>-session.tmp`
+- reviewer-oriented continuity diagnostics audit: `~/.codex-auto-memory/projects/<project-id>/audit/session-continuity-log.jsonl`
 
 This split preserves cross-worktree sharing through the companion store while still supporting project-local hidden files for worktree-specific state.
 
