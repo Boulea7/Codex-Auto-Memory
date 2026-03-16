@@ -1,4 +1,8 @@
-import type { RolloutEvidence, SessionContinuityState } from "../types.js";
+import type {
+  ExistingSessionContinuityState,
+  RolloutEvidence,
+  SessionContinuityState
+} from "../types.js";
 import { trimText } from "../util/text.js";
 
 function formatToolCalls(evidence: RolloutEvidence): string {
@@ -21,24 +25,33 @@ function formatToolCalls(evidence: RolloutEvidence): string {
     .join("\n");
 }
 
-function formatExistingState(existingState?: SessionContinuityState | null): string {
-  if (!existingState) {
-    return "No existing session continuity state.";
+function formatStateBlock(title: string, state?: SessionContinuityState | null): string {
+  if (!state) {
+    return `${title}:\n- None`;
   }
 
   return [
-    `Goal: ${existingState.goal || "None"}`,
-    `Confirmed working: ${existingState.confirmedWorking.join(" | ") || "None"}`,
-    `Tried and failed: ${existingState.triedAndFailed.join(" | ") || "None"}`,
-    `Not yet tried: ${existingState.notYetTried.join(" | ") || "None"}`,
-    `Incomplete / next: ${existingState.incompleteNext.join(" | ") || "None"}`,
-    `Files / decisions / environment: ${existingState.filesDecisionsEnvironment.join(" | ") || "None"}`
+    `${title}:`,
+    `- Goal: ${state.goal || "None"}`,
+    `- Confirmed working: ${state.confirmedWorking.join(" | ") || "None"}`,
+    `- Tried and failed: ${state.triedAndFailed.join(" | ") || "None"}`,
+    `- Not yet tried: ${state.notYetTried.join(" | ") || "None"}`,
+    `- Incomplete / next: ${state.incompleteNext.join(" | ") || "None"}`,
+    `- Files / decisions / environment: ${state.filesDecisionsEnvironment.join(" | ") || "None"}`
+  ].join("\n");
+}
+
+function formatExistingState(existingState?: ExistingSessionContinuityState): string {
+  return [
+    formatStateBlock("Existing shared project continuity", existingState?.project),
+    "",
+    formatStateBlock("Existing project-local continuity", existingState?.projectLocal)
   ].join("\n");
 }
 
 export function buildSessionContinuityPrompt(
   evidence: RolloutEvidence,
-  existingState?: SessionContinuityState | null
+  existingState?: ExistingSessionContinuityState
 ): string {
   const userMessages = evidence.userMessages
     .slice(-20)
@@ -62,6 +75,10 @@ Capture only the current working state that should survive into the next convers
 - what is incomplete or should happen next
 - important file, decision, or environment notes only when needed for continuity
 
+Return TWO summaries:
+- project: shared repository continuity that should be useful across worktrees
+- projectLocal: worktree-local continuity for the current working tree only
+
 Do NOT output:
 - raw transcript summaries
 - long narrative recaps
@@ -72,8 +89,13 @@ Important product rule:
 - Keep this practical and resume-oriented.
 - Prefer concise bullet-like items that help the next conversation continue work without re-trying dead ends.
 - If something is uncertain, omit it rather than guessing.
-- If the existing continuity state contains useful items that still apply, preserve them.
+- If the existing continuity state contains useful items that still apply, preserve them in the right layer.
 - Return no more than 8 items per section.
+- Put exact next-step instructions in projectLocal unless they are clearly repository-wide.
+- Put file-modification notes in projectLocal by default.
+- Put project-wide prerequisites or decisions in project.
+- Do not guess untried options; only include them when the rollout explicitly suggests them.
+- Do not mark something as confirmed working unless there is concrete evidence in tool output or clear confirmation in the conversation.
 
 Current rollout:
 - Session id: ${evidence.sessionId}

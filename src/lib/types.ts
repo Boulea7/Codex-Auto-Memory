@@ -127,14 +127,24 @@ export interface SessionContinuityState {
   filesDecisionsEnvironment: string[];
 }
 
-export interface SessionContinuitySummary {
-  sourceSessionId?: string;
+export interface SessionContinuityLayerSummary {
   goal: string;
   confirmedWorking: string[];
   triedAndFailed: string[];
   notYetTried: string[];
   incompleteNext: string[];
   filesDecisionsEnvironment: string[];
+}
+
+export interface SessionContinuitySummary {
+  sourceSessionId?: string;
+  project: SessionContinuityLayerSummary;
+  projectLocal: SessionContinuityLayerSummary;
+}
+
+export interface ExistingSessionContinuityState {
+  project?: SessionContinuityState | null;
+  projectLocal?: SessionContinuityState | null;
 }
 
 export interface SessionContinuityLocation {

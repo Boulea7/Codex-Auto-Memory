@@ -91,7 +91,10 @@ async function saveSessionContinuity(
     return null;
   }
 
-  const existing = await runtime.sessionContinuityStore.readMergedState();
+  const existing = {
+    project: await runtime.sessionContinuityStore.readState("project"),
+    projectLocal: await runtime.sessionContinuityStore.readState("project-local")
+  };
   const summarizer = new SessionContinuitySummarizer(runtime.loadedConfig.config);
   const summary = await summarizer.summarize(evidence, existing);
   const written = await runtime.sessionContinuityStore.saveSummary(summary, "both");
