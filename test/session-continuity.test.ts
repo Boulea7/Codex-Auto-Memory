@@ -316,7 +316,11 @@ describe("session continuity domain", () => {
       sessionId: "session-slash-version",
       createdAt: "2026-03-15T00:00:00.000Z",
       cwd: "/tmp/project",
-      userMessages: ["Redis 7.0/7.1 must be running before integration tests."],
+      userMessages: [
+        "Redis 7.0/7.1 must be running before integration tests.",
+        "OAuth2/token compatibility must remain intact for the auth proxy.",
+        "v1/v2 migration must stay compatible with the API gateway."
+      ],
       agentMessages: [],
       toolCalls: [],
       rolloutPath: "/tmp/rollout.jsonl"
@@ -328,7 +332,33 @@ describe("session continuity domain", () => {
     const projectNotes = summary.project.filesDecisionsEnvironment.join("\n");
     const localNotes = summary.projectLocal.filesDecisionsEnvironment.join("\n");
     expect(projectNotes).toContain("Redis");
+    expect(projectNotes).toContain("OAuth2/token");
+    expect(projectNotes).toContain("v1/v2");
     expect(localNotes).not.toContain("Redis 7.0/7.1");
+    expect(localNotes).not.toContain("OAuth2/token");
+    expect(localNotes).not.toContain("v1/v2");
+  });
+
+  it("heuristic summarizer keeps anchored need-to sentences as next steps", async () => {
+    const evidence: RolloutEvidence = {
+      sessionId: "session-need-to",
+      createdAt: "2026-03-15T00:00:00.000Z",
+      cwd: "/tmp/project",
+      userMessages: [
+        "Need to update src/auth/login.ts to set an httpOnly cookie.",
+        "We need to add middleware after that."
+      ],
+      agentMessages: [],
+      toolCalls: [],
+      rolloutPath: "/tmp/rollout.jsonl"
+    };
+
+    const summarizer = new SessionContinuitySummarizer(baseConfig("/tmp/memory-root"));
+    const summary = await summarizer.summarize(evidence);
+
+    const localNext = summary.projectLocal.incompleteNext.join("\n");
+    expect(localNext).toContain("update src/auth/login.ts");
+    expect(localNext).toContain("add middleware");
   });
 
   it("applySessionContinuityLayerSummary merges summary into base state", () => {

@@ -39,6 +39,7 @@ const UNTRIED_PATTERNS = [
 ];
 const NEXT_STEP_PATTERNS = [
   /(?:next step|follow up by|follow-up|remaining work|still need to|left to do|continue by|continue with|resume by|todo)\s*[:,-]?\s*(.+)/iu,
+  /^\s*(?:we|you|i)?\s*need(?:s)?\s+to\s+(.+)/iu,
   /(?:下一步|接下来|还需要|继续|待完成|剩下的工作)\s*[:：,-]?\s*(.+)/u
 ];
 const PROJECT_NOTE_PATTERNS = [
@@ -139,9 +140,15 @@ function extractPatternMatches(
 }
 
 function looksLocalSpecific(text: string): boolean {
+  const repoRelativePathPatterns = [
+    /(?:^|[\s"'`(])\.[./][\w]/u,
+    /(?:^|[\s"'`(])\.\.\/[\w]/u,
+    /(?:^|[\s"'`(])(?:src|app|lib|test|tests|docs|scripts|server|client|components|routes|pages|api|schemas|migrations|styles|config)\/[\w.-]+/iu
+  ];
+
   return (
-    /(?:^|[\s"'`(])\.[./][\w]|(?:^|[\s"'`(])\.\.\/|[a-zA-Z]\w*\/[a-zA-Z]\w*/u.test(text) ||
-    /\\\w/u.test(text) ||
+    repoRelativePathPatterns.some((pattern) => pattern.test(text)) ||
+    /(?:^[A-Za-z]:|[\s"'`(])\\[\w.-]+/u.test(text) ||
     /\b[a-z0-9_.-]+\.(?:ts|tsx|js|jsx|json|md|yml|yaml|toml|css|scss|sql|py|go|rs|sh)\b/iu.test(
       text
     ) ||
