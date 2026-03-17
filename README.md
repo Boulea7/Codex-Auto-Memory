@@ -23,8 +23,18 @@
   </p>
 </div>
 
-> `codex-auto-memory` 不是通用笔记软件，也不是云端记忆服务。  
+> `codex-auto-memory` 不是通用笔记软件，也不是云端记忆服务。
 > 它的目标是：在今天的 Codex CLI 上，用本地 Markdown、紧凑 startup injection、按需 topic file 读取与 companion runtime，尽可能复现 Claude Code auto memory 的可观察产品契约。
+
+---
+
+**三个要点，快速定位：**
+
+1. **它做什么** — 每次 Codex 会话结束后，自动把有用的信息提取出来，写进本地 Markdown 文件，下次启动时注入给 Codex，让它"记得"你的项目。
+2. **它怎么存** — 全部是本地 Markdown 文件，放在 `~/.codex-auto-memory/`，你随时可以查看、编辑、纳入 Git 审查。
+3. **它和 Claude 的关系** — 这是一个 companion CLI，目标是在 Codex 上复现 Claude Code auto memory 的工作方式。不是 Claude 官方产品，不涉及云端。
+
+---
 
 ## 目录
 
@@ -108,47 +118,48 @@ Claude Code 已经公开了一套相对清晰的 auto memory 产品契约：
 
 ## 快速开始
 
-### 1. 安装依赖
+### 1. 克隆并安装
 
 ```bash
+git clone https://github.com/Boulea7/Codex-Auto-Memory.git
+cd Codex-Auto-Memory
 pnpm install
 ```
 
-### 2. 构建 CLI
+### 2. 构建并链接全局命令
 
 ```bash
 pnpm build
+pnpm link --global
 ```
 
-### 3. 在项目中初始化
+> 链接之后，`cam` 命令就可以在任意目录使用了。
+
+### 3. 在你的项目里初始化
 
 ```bash
-pnpm exec tsx src/cli.ts init
+cd /你的项目目录
+cam init
 ```
 
-这会创建跟踪到仓库的 `codex-auto-memory.json`，并说明本地覆盖配置 `.codex-auto-memory.local.json` 的使用方式。
+这会在项目根目录生成 `codex-auto-memory.json`（跟踪到 Git），并在本地创建 `.codex-auto-memory.local.json`（默认 gitignored）。
 
-### 4. 通过 wrapper 启动 Codex
-
-```bash
-pnpm exec tsx src/cli.ts run
-```
-
-如果你已经把 CLI 链接到全局环境，也可以直接使用：
+### 4. 通过 wrapper 启动 Codex（自动记忆开始工作）
 
 ```bash
 cam run
 ```
 
-### 5. 检查 memory 与 continuity
+每次会话结束，`cam` 会自动从 Codex 的 rollout 日志里提取信息并写入 memory 文件。
+
+### 5. 查看 memory 状态
 
 ```bash
-cam memory
-cam session status
-cam session load --print-startup
-cam remember "Always use pnpm instead of npm"
-cam forget "old debug note"
-cam audit
+cam memory          # 查看当前 memory 文件和 startup budget
+cam session status  # 查看 session continuity 状态
+cam remember "Always use pnpm instead of npm"   # 手动记录偏好
+cam forget "old debug note"                     # 删除过时记录
+cam audit           # 检查仓库有没有意外的敏感内容
 ```
 
 ## 常用命令

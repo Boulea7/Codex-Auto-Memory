@@ -4,6 +4,11 @@ import type {
   SessionContinuityEvidenceCounts
 } from "../types.js";
 import { trimText } from "../util/text.js";
+import {
+  commandSucceeded,
+  extractCommand,
+  isCommandToolCall
+} from "./command-utils.js";
 
 const FILE_WRITE_PATTERNS = ["apply_patch", "write_file", "create_file", "edit_file"];
 
@@ -90,27 +95,6 @@ export function looksLocalSpecific(text: string): boolean {
   );
 }
 
-export function extractCommand(toolCall: RolloutToolCall): string | null {
-  try {
-    const parsed = JSON.parse(toolCall.arguments) as { cmd?: string; command?: string };
-    return parsed.cmd ?? parsed.command ?? null;
-  } catch {
-    const match =
-      toolCall.arguments.match(/"cmd":"([^"]+)"/u) ??
-      toolCall.arguments.match(/"command":"([^"]+)"/u);
-    return match?.[1] ?? null;
-  }
-}
-
-export function commandSucceeded(toolCall: RolloutToolCall): boolean {
-  return Boolean(
-    toolCall.output &&
-      /(exit code 0|Process exited with code 0|done in |completed successfully|tests?\s+passed|\b0 errors?\b|all checks passed|0 failing|\bPASS\b|compiled successfully|build succeeded)/iu.test(
-        toolCall.output
-      )
-  );
-}
-
 export function summarizeCommandResult(toolCall: RolloutToolCall, success: boolean): string | null {
   const command = extractCommand(toolCall);
   if (!command) {
@@ -185,14 +169,14 @@ export function collectSessionContinuityEvidenceBuckets(
   const recentMessagesReversed = [...recentMessages].reverse();
 
   const recentSuccessfulCommands = evidence.toolCalls
-    .filter((toolCall) => toolCall.name.includes("exec_command"))
+    .filter(isCommandToolCall)
     .filter(commandSucceeded)
     .map((toolCall) => summarizeCommandResult(toolCall, true))
     .filter((item): item is string => Boolean(item))
     .slice(0, 6);
 
   const recentFailedCommands = evidence.toolCalls
-    .filter((toolCall) => toolCall.name.includes("exec_command"))
+    .filter(isCommandToolCall)
     .filter((toolCall) => toolCall.output && !commandSucceeded(toolCall))
     .map((toolCall) => summarizeCommandResult(toolCall, false))
     .filter((item): item is string => Boolean(item))
