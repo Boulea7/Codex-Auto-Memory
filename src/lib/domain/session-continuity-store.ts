@@ -13,6 +13,7 @@ import type {
 } from "../types.js";
 import { appendJsonl, fileExists, readTextFile, writeTextFile } from "../util/fs.js";
 import { getDefaultMemoryDirectory } from "./project-context.js";
+import { isSessionContinuityAuditEntry } from "./session-continuity-diagnostics.js";
 import {
   applySessionContinuityLayerSummary,
   createEmptySessionContinuityState,
@@ -221,7 +222,8 @@ export class SessionContinuityStore {
       .filter(Boolean)
       .flatMap((line) => {
         try {
-          return [JSON.parse(line) as SessionContinuityAuditEntry];
+          const parsed = JSON.parse(line) as unknown;
+          return isSessionContinuityAuditEntry(parsed) ? [parsed] : [];
         } catch {
           return [];
         }

@@ -3,7 +3,8 @@ import { openPath } from "../util/open.js";
 import {
   buildSessionContinuityAuditEntry,
   formatSessionContinuityAuditDrillDown,
-  formatSessionContinuityDiagnostics
+  formatSessionContinuityDiagnostics,
+  toSessionContinuityDiagnostics
 } from "../domain/session-continuity-diagnostics.js";
 import {
   compileSessionContinuity,
@@ -85,7 +86,8 @@ export async function runSession(
         scope
       )
     );
-    const excludePath = await runtime.sessionContinuityStore.ensureLocalIgnore();
+    const excludePath =
+      scope === "project" ? null : await runtime.sessionContinuityStore.ensureLocalIgnore();
     const recentContinuityAuditEntries = await runtime.sessionContinuityStore.readRecentAuditEntries(
       recentContinuityAuditLimit
     );
@@ -148,7 +150,9 @@ export async function runSession(
     recentContinuityAuditLimit
   );
   const latestContinuityAuditEntry = recentContinuityAuditEntries[0] ?? null;
-  const latestContinuityDiagnostics = latestContinuityAuditEntry;
+  const latestContinuityDiagnostics = latestContinuityAuditEntry
+    ? toSessionContinuityDiagnostics(latestContinuityAuditEntry)
+    : null;
   const mergedState =
     (await runtime.sessionContinuityStore.readMergedState()) ??
     createEmptySessionContinuityState(

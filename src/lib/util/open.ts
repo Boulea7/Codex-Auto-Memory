@@ -1,18 +1,34 @@
 import { spawn } from "node:child_process";
 
+export function buildOpenCommand(
+  targetPath: string,
+  platform = process.platform
+): {
+  command: string;
+  args: string[];
+} {
+  if (platform === "darwin") {
+    return {
+      command: "open",
+      args: [targetPath]
+    };
+  }
+
+  if (platform === "win32") {
+    return {
+      command: "cmd",
+      args: ["/c", "start", "", targetPath]
+    };
+  }
+
+  return {
+    command: "xdg-open",
+    args: [targetPath]
+  };
+}
+
 export function openPath(targetPath: string): void {
-  const command =
-    process.platform === "darwin"
-      ? "open"
-      : process.platform === "win32"
-        ? "cmd"
-        : "xdg-open";
-  const args =
-    process.platform === "darwin"
-      ? [targetPath]
-      : process.platform === "win32"
-        ? ["/c", "start", "", targetPath]
-        : [targetPath];
+  const { command, args } = buildOpenCommand(targetPath);
 
   const child = spawn(command, args, {
     detached: true,
