@@ -7,16 +7,19 @@ import type {
   MemoryOperation,
   MemoryScope,
   MemorySyncAuditEntry,
+  ProcessedRolloutIdentity,
+  ProcessedRolloutRecord,
   ProjectContext,
   ScopePaths,
   TopicFileRef
 } from "../types.js";
 import { appendJsonl, ensureDir, fileExists, readJsonFile, readTextFile, writeJsonFile, writeTextFile } from "../util/fs.js";
-import { isMemorySyncAuditEntry } from "./memory-sync-audit.js";
+import { parseMemorySyncAuditEntry } from "./memory-sync-audit.js";
 import { getDefaultMemoryDirectory } from "./project-context.js";
 
 interface SyncState {
-  processedRollouts: Record<string, string>;
+  processedRollouts?: Record<string, string>;
+  processedRolloutEntries?: ProcessedRolloutRecord[];
 }
 
 const topicNamePattern = /^[a-z0-9]+(?:-[a-z0-9]+)*$/u;
@@ -156,6 +159,58 @@ function legacyEmptyIndexContents(scope: MemoryScope): string {
 
 function matchesLegacyEmptyIndex(scope: MemoryScope, contents: string): boolean {
   return contents.trim() === legacyEmptyIndexContents(scope).trim();
+}
+
+function isStringRecord(value: unknown): value is Record<string, string> {
+  return (
+    Boolean(value) &&
+    typeof value === "object" &&
+    !Array.isArray(value) &&
+    Object.values(value as Record<string, unknown>).every((item) => typeof item === "string")
+  );
+}
+
+function isProcessedRolloutRecord(value: unknown): value is ProcessedRolloutRecord {
+  if (!value || typeof value !== "object") {
+    return false;
+  }
+
+  const record = value as Record<string, unknown>;
+  return (
+    typeof record.projectId === "string" &&
+    typeof record.worktreeId === "string" &&
+    typeof record.sessionId === "string" &&
+    typeof record.rolloutPath === "string" &&
+    typeof record.sizeBytes === "number" &&
+    typeof record.mtimeMs === "number" &&
+    typeof record.processedAt === "string"
+  );
+}
+
+function normalizeSyncState(value: SyncState | null | undefined): Required<SyncState> {
+  const processedRollouts = isStringRecord(value?.processedRollouts) ? value.processedRollouts : {};
+  const processedRolloutEntries = Array.isArray(value?.processedRolloutEntries)
+    ? value.processedRolloutEntries.filter((entry): entry is ProcessedRolloutRecord => isProcessedRolloutRecord(entry))
+    : [];
+
+  return {
+    processedRollouts,
+    processedRolloutEntries
+  };
+}
+
+function sameProcessedIdentity(
+  left: ProcessedRolloutIdentity,
+  right: ProcessedRolloutIdentity
+): boolean {
+  return (
+    left.projectId === right.projectId &&
+    left.worktreeId === right.worktreeId &&
+    left.sessionId === right.sessionId &&
+    left.rolloutPath === right.rolloutPath &&
+    left.sizeBytes === right.sizeBytes &&
+    left.mtimeMs === right.mtimeMs
+  );
 }
 
 export class MemoryStore {
@@ -440,19 +495,27 @@ export class MemoryStore {
     return readTextFile(memoryFile);
   }
 
-  public async getSyncState(): Promise<SyncState> {
-    return (await readJsonFile<SyncState>(this.paths.stateFile)) ?? { processedRollouts: {} };
+  public async getSyncState(): Promise<Required<SyncState>> {
+    return normalizeSyncState(await readJsonFile<SyncState>(this.paths.stateFile));
   }
 
-  public async markRolloutProcessed(rolloutPath: string): Promise<void> {
+  public async markRolloutProcessed(identity: ProcessedRolloutIdentity): Promise<void> {
     const state = await this.getSyncState();
-    state.processedRollouts[rolloutPath] = new Date().toISOString();
+    const processedAt = new Date().toISOString();
+    state.processedRollouts[identity.rolloutPath] = processedAt;
+    state.processedRolloutEntries = [
+      ...state.processedRolloutEntries.filter((entry) => !sameProcessedIdentity(entry, identity)),
+      {
+        ...identity,
+        processedAt
+      }
+    ];
     await writeJsonFile(this.paths.stateFile, state);
   }
 
-  public async hasProcessedRollout(rolloutPath: string): Promise<boolean> {
+  public async hasProcessedRollout(identity: ProcessedRolloutIdentity): Promise<boolean> {
     const state = await this.getSyncState();
-    return rolloutPath in state.processedRollouts;
+    return state.processedRolloutEntries.some((entry) => sameProcessedIdentity(entry, identity));
   }
 
   public async appendSyncAuditEntry(entry: MemorySyncAuditEntry): Promise<void> {
@@ -473,8 +536,8 @@ export class MemoryStore {
       .filter(Boolean)
       .flatMap((line) => {
         try {
-          const parsed = JSON.parse(line) as unknown;
-          return isMemorySyncAuditEntry(parsed) ? [parsed] : [];
+          const parsed = parseMemorySyncAuditEntry(JSON.parse(line) as unknown);
+          return parsed ? [parsed] : [];
         } catch {
           return [];
         }

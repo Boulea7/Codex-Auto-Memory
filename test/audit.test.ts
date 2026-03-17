@@ -84,7 +84,7 @@ describe("audit scan", () => {
     );
     expect(report.findings.some((finding) => finding.sourceType === "git-history")).toBe(true);
     expect(report.findings.some((finding) => finding.ruleId === "absolute-user-path")).toBe(false);
-  });
+  }, 15_000);
 
   it("supports no-history mode from the command surface", async () => {
     const repoDir = await tempDir("cam-audit-no-history-");

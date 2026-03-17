@@ -4,7 +4,7 @@ import path from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { SyncService } from "../src/lib/domain/sync-service.js";
 import { detectProjectContext } from "../src/lib/domain/project-context.js";
-import type { AppConfig } from "../src/lib/types.js";
+import type { AppConfig, MemoryOperation, ProcessedRolloutIdentity } from "../src/lib/types.js";
 
 const tempDirs: string[] = [];
 
@@ -26,6 +26,23 @@ function baseConfig(memoryRoot: string): AppConfig {
     sessionContinuityLocalPathStyle: "codex",
     maxSessionContinuityLines: 60,
     codexBinary: "codex"
+  };
+}
+
+async function processedIdentity(
+  service: SyncService,
+  rolloutPath: string,
+  sessionId: string
+): Promise<ProcessedRolloutIdentity> {
+  const stats = await fs.stat(rolloutPath);
+  const project = detectProjectContext(path.dirname(rolloutPath));
+  return {
+    projectId: project.projectId,
+    worktreeId: project.worktreeId,
+    sessionId,
+    rolloutPath,
+    sizeBytes: stats.size,
+    mtimeMs: stats.mtimeMs
   };
 }
 
@@ -119,19 +136,24 @@ describe("SyncService", () => {
     const result = await service.syncRollout(rolloutPath, true);
     const projectEntries = await service.memoryStore.listEntries("project");
     const auditEntries = await service.memoryStore.readRecentSyncAuditEntries(5);
+    const identity = await processedIdentity(service, rolloutPath, "session-1");
 
     expect(result.skipped).toBe(false);
     expect(projectEntries.map((entry) => entry.summary).join("\n")).toContain("pnpm");
-    expect(await service.memoryStore.hasProcessedRollout(rolloutPath)).toBe(true);
+    expect(await service.memoryStore.hasProcessedRollout(identity)).toBe(true);
     expect(auditEntries).toHaveLength(1);
     expect(auditEntries[0]).toMatchObject({
       rolloutPath,
       sessionId: "session-1",
+      configuredExtractorMode: "heuristic",
+      configuredExtractorName: "heuristic",
+      actualExtractorMode: "heuristic",
+      actualExtractorName: "heuristic",
       extractorMode: "heuristic",
       extractorName: "heuristic",
       sessionSource: "rollout-jsonl",
       status: "applied",
-      scopesTouched: ["project"],
+      scopesTouched: ["project"]
     });
     expect(auditEntries[0]?.appliedCount).toBe(result.applied.length);
     expect(auditEntries[0]?.resultSummary).toBe(`${result.applied.length} operation(s) applied`);
@@ -152,13 +174,16 @@ describe("SyncService", () => {
 
     const result = await service.syncRollout(rolloutPath, true);
     const auditEntries = await service.memoryStore.readRecentSyncAuditEntries(5);
+    const identity = await processedIdentity(service, rolloutPath, "session-2");
 
     expect(result.skipped).toBe(false);
     expect(result.applied).toEqual([]);
-    expect(await service.memoryStore.hasProcessedRollout(rolloutPath)).toBe(true);
+    expect(await service.memoryStore.hasProcessedRollout(identity)).toBe(true);
     expect(auditEntries[0]).toMatchObject({
       rolloutPath,
       sessionId: "session-2",
+      configuredExtractorMode: "heuristic",
+      actualExtractorMode: "heuristic",
       status: "no-op",
       appliedCount: 0,
       scopesTouched: [],
@@ -209,6 +234,157 @@ describe("SyncService", () => {
     });
   });
 
+  it("does not treat a rewritten rollout at the same path as already processed", async () => {
+    const projectDir = await tempDir("cam-sync-rewrite-project-");
+    const memoryRoot = await tempDir("cam-sync-rewrite-memory-");
+    const rolloutPath = path.join(projectDir, "reused-rollout.jsonl");
+    await fs.writeFile(rolloutPath, rolloutFixture(projectDir, "session-old"), "utf8");
+
+    const service = new SyncService(
+      detectProjectContext(projectDir),
+      baseConfig(memoryRoot),
+      path.resolve("schemas/memory-operations.schema.json")
+    );
+
+    await service.syncRollout(rolloutPath, false);
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    await fs.writeFile(rolloutPath, noOpRolloutFixture(projectDir, "session-new"), "utf8");
+
+    const result = await service.syncRollout(rolloutPath, false);
+    const auditEntries = await service.memoryStore.readRecentSyncAuditEntries(10);
+
+    expect(result.skipped).toBe(false);
+    expect(auditEntries[0]).toMatchObject({
+      rolloutPath,
+      sessionId: "session-new",
+      status: "no-op"
+    });
+    expect(auditEntries.some((entry) => entry.sessionId === "session-old" && entry.status === "applied")).toBe(true);
+  });
+
+  it("allows a legacy path-only processed state entry to re-sync once under the new identity rules", async () => {
+    const projectDir = await tempDir("cam-sync-legacy-project-");
+    const memoryRoot = await tempDir("cam-sync-legacy-memory-");
+    const rolloutPath = path.join(projectDir, "legacy-rollout.jsonl");
+    await fs.writeFile(rolloutPath, rolloutFixture(projectDir, "session-legacy"), "utf8");
+
+    const service = new SyncService(
+      detectProjectContext(projectDir),
+      baseConfig(memoryRoot),
+      path.resolve("schemas/memory-operations.schema.json")
+    );
+    await service.memoryStore.ensureLayout();
+    await fs.writeFile(
+      service.memoryStore.paths.stateFile,
+      JSON.stringify({
+        processedRollouts: {
+          [rolloutPath]: "2026-03-14T00:00:00.000Z"
+        }
+      }),
+      "utf8"
+    );
+
+    const result = await service.syncRollout(rolloutPath, false);
+    const auditEntries = await service.memoryStore.readRecentSyncAuditEntries(5);
+    const syncState = await service.memoryStore.getSyncState();
+
+    expect(result.skipped).toBe(false);
+    expect(auditEntries[0]).toMatchObject({
+      rolloutPath,
+      sessionId: "session-legacy",
+      status: "applied"
+    });
+    expect(syncState.processedRolloutEntries).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          rolloutPath,
+          sessionId: "session-legacy"
+        })
+      ])
+    );
+  });
+
+  it("records actual heuristic execution when codex mode falls back during durable sync extraction", async () => {
+    const projectDir = await tempDir("cam-sync-codex-fallback-project-");
+    const memoryRoot = await tempDir("cam-sync-codex-fallback-memory-");
+    const rolloutPath = path.join(projectDir, "rollout.jsonl");
+    await fs.writeFile(rolloutPath, rolloutFixture(projectDir, "session-codex-fallback"), "utf8");
+
+    const service = new SyncService(
+      detectProjectContext(projectDir),
+      {
+        ...baseConfig(memoryRoot),
+        extractorMode: "codex"
+      },
+      path.resolve("schemas/memory-operations.schema.json")
+    );
+    const primaryExtractor = (service as unknown as {
+      primaryExtractor: { extract: () => Promise<MemoryOperation[] | null> };
+    }).primaryExtractor;
+    vi.spyOn(primaryExtractor, "extract").mockResolvedValueOnce(null);
+
+    const result = await service.syncRollout(rolloutPath, true);
+    const auditEntries = await service.memoryStore.readRecentSyncAuditEntries(5);
+
+    expect(result.skipped).toBe(false);
+    expect(auditEntries[0]).toMatchObject({
+      rolloutPath,
+      sessionId: "session-codex-fallback",
+      configuredExtractorMode: "codex",
+      configuredExtractorName: "codex-ephemeral",
+      actualExtractorMode: "heuristic",
+      actualExtractorName: "heuristic",
+      extractorMode: "heuristic",
+      extractorName: "heuristic"
+    });
+  });
+
+  it("records actual codex execution when codex mode succeeds during durable sync extraction", async () => {
+    const projectDir = await tempDir("cam-sync-codex-success-project-");
+    const memoryRoot = await tempDir("cam-sync-codex-success-memory-");
+    const rolloutPath = path.join(projectDir, "rollout.jsonl");
+    await fs.writeFile(rolloutPath, rolloutFixture(projectDir, "session-codex-success"), "utf8");
+
+    const service = new SyncService(
+      detectProjectContext(projectDir),
+      {
+        ...baseConfig(memoryRoot),
+        extractorMode: "codex"
+      },
+      path.resolve("schemas/memory-operations.schema.json")
+    );
+    const primaryExtractor = (service as unknown as {
+      primaryExtractor: { extract: () => Promise<MemoryOperation[] | null> };
+    }).primaryExtractor;
+    vi.spyOn(primaryExtractor, "extract").mockResolvedValueOnce([
+      {
+        action: "upsert",
+        scope: "project",
+        topic: "workflow",
+        id: "codex-note",
+        summary: "Codex-derived durable memory.",
+        details: ["Remember the codex result."],
+        sources: ["codex"]
+      }
+    ]);
+
+    const result = await service.syncRollout(rolloutPath, true);
+    const auditEntries = await service.memoryStore.readRecentSyncAuditEntries(5);
+
+    expect(result.skipped).toBe(false);
+    expect(auditEntries[0]).toMatchObject({
+      rolloutPath,
+      sessionId: "session-codex-success",
+      configuredExtractorMode: "codex",
+      configuredExtractorName: "codex-ephemeral",
+      actualExtractorMode: "codex",
+      actualExtractorName: "codex-ephemeral",
+      extractorMode: "codex",
+      extractorName: "codex-ephemeral",
+      appliedCount: 1
+    });
+  });
+
   it("does not mark a rollout as processed when sync audit persistence fails", async () => {
     const projectDir = await tempDir("cam-sync-audit-fail-project-");
     const memoryRoot = await tempDir("cam-sync-audit-fail-memory-");
@@ -225,6 +401,6 @@ describe("SyncService", () => {
     );
 
     await expect(service.syncRollout(rolloutPath, true)).rejects.toThrow("audit write failed");
-    expect(await service.memoryStore.hasProcessedRollout(rolloutPath)).toBe(false);
+    expect((await service.memoryStore.getSyncState()).processedRolloutEntries).toEqual([]);
   });
 });

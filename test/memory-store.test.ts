@@ -207,7 +207,7 @@ describe("MemoryStore", () => {
     expect(startup.topicFiles).toHaveLength(topicLines.length);
   });
 
-  it("rejects topic traversal and skips corrupted or invalid sync audit lines", async () => {
+  it("rejects topic traversal, skips invalid sync audit lines, and normalizes legacy audit entries", async () => {
     const projectDir = await tempDir("cam-store-guardrails-");
     const memoryRoot = await tempDir("cam-store-guardrails-mem-");
     const config: AppConfig = {
@@ -267,6 +267,10 @@ describe("MemoryStore", () => {
           projectId: "project-1",
           worktreeId: "worktree-1",
           rolloutPath: "/tmp/rollout-2.jsonl",
+          configuredExtractorMode: "codex",
+          configuredExtractorName: "codex-ephemeral",
+          actualExtractorMode: "heuristic",
+          actualExtractorName: "heuristic",
           extractorMode: "heuristic",
           extractorName: "heuristic",
           sessionSource: "rollout-jsonl",
@@ -283,8 +287,16 @@ describe("MemoryStore", () => {
 
     const auditEntries = await store.readRecentSyncAuditEntries(10);
     expect(auditEntries).toHaveLength(2);
-    expect(auditEntries[0]?.resultSummary).toBe("Skipped rollout; it was already processed");
-    expect(auditEntries[1]?.resultSummary).toBe("1 operation(s) applied");
+    expect(auditEntries[0]).toMatchObject({
+      resultSummary: "Skipped rollout; it was already processed",
+      configuredExtractorMode: "codex",
+      actualExtractorMode: "heuristic"
+    });
+    expect(auditEntries[1]).toMatchObject({
+      resultSummary: "1 operation(s) applied",
+      configuredExtractorMode: "heuristic",
+      actualExtractorMode: "heuristic"
+    });
   });
 
   it("normalizes the legacy empty MEMORY.md template without rewriting user-edited files", async () => {
