@@ -249,6 +249,12 @@ describe("runMemory", () => {
     expect(output.startupFilesByScope.global).toHaveLength(1);
     expect(output.startupFilesByScope.project).toContain(store.getMemoryFile("project"));
     expect(output.startupFilesByScope.projectLocal).toHaveLength(1);
+    expect(output.loadedFiles).toEqual([
+      store.getMemoryFile("project-local"),
+      store.getMemoryFile("project"),
+      store.getMemoryFile("global")
+    ]);
+    expect(output.loadedFiles).not.toContain(store.getTopicFile("project", "workflow"));
     expect(output.refCountsByScope.global).toEqual({ startupFiles: 1, topicFiles: 0 });
     expect(output.refCountsByScope.project).toEqual({ startupFiles: 1, topicFiles: 1 });
     expect(output.refCountsByScope.projectLocal).toEqual({ startupFiles: 1, topicFiles: 0 });
@@ -270,6 +276,69 @@ describe("runMemory", () => {
       actualExtractorMode: "heuristic"
     });
     expect(output.recentAudit).toEqual(output.recentSyncAudit);
+  });
+
+  it("keeps manual remember and forget outside the recent durable sync audit surface", async () => {
+    const homeDir = await tempDir("cam-memory-manual-home-");
+    const projectDir = await tempDir("cam-memory-manual-project-");
+    const memoryRoot = await tempDir("cam-memory-manual-root-");
+    process.env.HOME = homeDir;
+
+    const projectConfig: AppConfig = {
+      autoMemoryEnabled: true,
+      extractorMode: "heuristic",
+      defaultScope: "project",
+      maxStartupLines: 200,
+      sessionContinuityAutoLoad: false,
+      sessionContinuityAutoSave: false,
+      sessionContinuityLocalPathStyle: "codex",
+      maxSessionContinuityLines: 60,
+      codexBinary: "codex"
+    };
+    await fs.writeFile(
+      path.join(projectDir, "codex-auto-memory.json"),
+      JSON.stringify(projectConfig),
+      "utf8"
+    );
+    await fs.writeFile(
+      path.join(projectDir, ".codex-auto-memory.local.json"),
+      JSON.stringify({
+        autoMemoryDirectory: memoryRoot
+      }),
+      "utf8"
+    );
+
+    const project = detectProjectContext(projectDir);
+    const store = new MemoryStore(project, {
+      ...projectConfig,
+      autoMemoryDirectory: memoryRoot
+    });
+    await store.ensureLayout();
+    await store.remember(
+      "project",
+      "workflow",
+      "prefer-pnpm",
+      "Prefer pnpm in this repository.",
+      ["Use pnpm instead of npm in this repository."],
+      "Manual note."
+    );
+    await store.forget("project", "prefer-pnpm");
+
+    const jsonOutput = JSON.parse(
+      await runMemory({
+        cwd: projectDir,
+        json: true,
+        recent: "5"
+      })
+    ) as MemoryCommandOutput;
+    const textOutput = await runMemory({
+      cwd: projectDir,
+      recent: "5"
+    });
+
+    expect(jsonOutput.recentSyncAudit).toEqual([]);
+    expect(jsonOutput.recentAudit).toEqual([]);
+    expect(textOutput).not.toContain("Recent sync events");
   });
 
   it("updates local config when enabling or disabling auto memory", async () => {

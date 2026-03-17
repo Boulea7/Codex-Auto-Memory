@@ -5,6 +5,7 @@ import type {
 } from "../types.js";
 import { trimText } from "../util/text.js";
 import {
+  commandFailed,
   commandSucceeded,
   extractCommand,
   isCommandToolCall
@@ -177,7 +178,7 @@ export function collectSessionContinuityEvidenceBuckets(
 
   const recentFailedCommands = evidence.toolCalls
     .filter(isCommandToolCall)
-    .filter((toolCall) => toolCall.output && !commandSucceeded(toolCall))
+    .filter(commandFailed)
     .map((toolCall) => summarizeCommandResult(toolCall, false))
     .filter((item): item is string => Boolean(item))
     .slice(0, 6);
