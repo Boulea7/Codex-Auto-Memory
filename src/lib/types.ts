@@ -75,6 +75,7 @@ export interface ScopePaths {
   projectLocalDir: string;
   stateFile: string;
   auditDir: string;
+  syncRecoveryFile: string;
 }
 
 export interface SessionContinuityPaths {
@@ -86,6 +87,7 @@ export interface SessionContinuityPaths {
   codexSessionDir: string;
   auditDir: string;
   auditFile: string;
+  recoveryFile: string;
 }
 
 export interface RolloutToolCall {
@@ -235,6 +237,26 @@ export interface MemorySyncAuditEntry {
   operations: MemoryOperation[];
 }
 
+export type SyncRecoveryFailedStage = "audit-write" | "processed-state-write";
+
+export interface SyncRecoveryRecord {
+  recordedAt: string;
+  projectId: string;
+  worktreeId: string;
+  rolloutPath: string;
+  sessionId?: string;
+  configuredExtractorMode: AppConfig["extractorMode"];
+  configuredExtractorName: string;
+  actualExtractorMode: AppConfig["extractorMode"];
+  actualExtractorName: string;
+  status: "applied" | "no-op";
+  appliedCount: number;
+  scopesTouched: MemoryScope[];
+  failedStage: SyncRecoveryFailedStage;
+  failureMessage: string;
+  auditEntryWritten: boolean;
+}
+
 export interface ProcessedRolloutIdentity {
   projectId: string;
   worktreeId: string;
@@ -290,12 +312,33 @@ export interface MemoryCommandOutput {
   recentSyncAudit: MemorySyncAuditEntry[];
   recentAudit: MemorySyncAuditEntry[];
   syncAuditPath: string;
+  pendingSyncRecovery: SyncRecoveryRecord | null;
+  syncRecoveryPath: string;
 }
 
 export interface SyncResult {
   applied: MemoryOperation[];
   skipped: boolean;
   message: string;
+}
+
+export type ContinuityRecoveryFailedStage = "audit-write";
+
+export interface ContinuityRecoveryRecord {
+  recordedAt: string;
+  projectId: string;
+  worktreeId: string;
+  rolloutPath: string;
+  sourceSessionId: string;
+  scope: SessionContinuityScope | "both";
+  writtenPaths: string[];
+  preferredPath: SessionContinuityExtractorPath;
+  actualPath: SessionContinuityExtractorPath;
+  fallbackReason?: SessionContinuityFallbackReason;
+  codexExitCode?: number;
+  evidenceCounts: SessionContinuityEvidenceCounts;
+  failedStage: ContinuityRecoveryFailedStage;
+  failureMessage: string;
 }
 
 export type AuditSeverity = "high" | "medium" | "low" | "info";

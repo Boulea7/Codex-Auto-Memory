@@ -341,6 +341,138 @@ describe("runMemory", () => {
     expect(textOutput).not.toContain("Recent sync events");
   });
 
+  it("surfaces a pending sync recovery marker without mixing it into recent sync audit", async () => {
+    const homeDir = await tempDir("cam-memory-recovery-home-");
+    const projectDir = await tempDir("cam-memory-recovery-project-");
+    const memoryRoot = await tempDir("cam-memory-recovery-root-");
+    process.env.HOME = homeDir;
+
+    const projectConfig: AppConfig = {
+      autoMemoryEnabled: true,
+      extractorMode: "heuristic",
+      defaultScope: "project",
+      maxStartupLines: 200,
+      sessionContinuityAutoLoad: false,
+      sessionContinuityAutoSave: false,
+      sessionContinuityLocalPathStyle: "codex",
+      maxSessionContinuityLines: 60,
+      codexBinary: "codex"
+    };
+    await fs.writeFile(
+      path.join(projectDir, "codex-auto-memory.json"),
+      JSON.stringify(projectConfig),
+      "utf8"
+    );
+    await fs.writeFile(
+      path.join(projectDir, ".codex-auto-memory.local.json"),
+      JSON.stringify({
+        autoMemoryDirectory: memoryRoot
+      }),
+      "utf8"
+    );
+
+    const project = detectProjectContext(projectDir);
+    const store = new MemoryStore(project, {
+      ...projectConfig,
+      autoMemoryDirectory: memoryRoot
+    });
+    await store.ensureLayout();
+    await store.writeSyncRecoveryRecord({
+      recordedAt: "2026-03-18T00:00:00.000Z",
+      projectId: project.projectId,
+      worktreeId: project.worktreeId,
+      rolloutPath: "/tmp/rollout-sync-fail.jsonl",
+      sessionId: "session-recovery",
+      configuredExtractorMode: "heuristic",
+      configuredExtractorName: "heuristic",
+      actualExtractorMode: "heuristic",
+      actualExtractorName: "heuristic",
+      status: "applied",
+      appliedCount: 1,
+      scopesTouched: ["project"],
+      failedStage: "audit-write",
+      failureMessage: "audit write failed",
+      auditEntryWritten: false
+    });
+
+    const jsonOutput = JSON.parse(
+      await runMemory({
+        cwd: projectDir,
+        json: true,
+        recent: "5"
+      })
+    ) as MemoryCommandOutput;
+    const textOutput = await runMemory({
+      cwd: projectDir,
+      recent: "5"
+    });
+
+    expect(jsonOutput.recentSyncAudit).toEqual([]);
+    expect(jsonOutput.pendingSyncRecovery).toMatchObject({
+      rolloutPath: "/tmp/rollout-sync-fail.jsonl",
+      failedStage: "audit-write",
+      failureMessage: "audit write failed"
+    });
+    expect(jsonOutput.syncRecoveryPath).toBe(store.getSyncRecoveryPath());
+    expect(textOutput).toContain("Pending sync recovery:");
+    expect(textOutput).toContain("/tmp/rollout-sync-fail.jsonl");
+    expect(textOutput).not.toContain("Recent sync events");
+  });
+
+  it("ignores a corrupted sync recovery marker instead of crashing the reviewer surface", async () => {
+    const homeDir = await tempDir("cam-memory-bad-recovery-home-");
+    const projectDir = await tempDir("cam-memory-bad-recovery-project-");
+    const memoryRoot = await tempDir("cam-memory-bad-recovery-root-");
+    process.env.HOME = homeDir;
+
+    const projectConfig: AppConfig = {
+      autoMemoryEnabled: true,
+      extractorMode: "heuristic",
+      defaultScope: "project",
+      maxStartupLines: 200,
+      sessionContinuityAutoLoad: false,
+      sessionContinuityAutoSave: false,
+      sessionContinuityLocalPathStyle: "codex",
+      maxSessionContinuityLines: 60,
+      codexBinary: "codex"
+    };
+    await fs.writeFile(
+      path.join(projectDir, "codex-auto-memory.json"),
+      JSON.stringify(projectConfig),
+      "utf8"
+    );
+    await fs.writeFile(
+      path.join(projectDir, ".codex-auto-memory.local.json"),
+      JSON.stringify({
+        autoMemoryDirectory: memoryRoot
+      }),
+      "utf8"
+    );
+
+    const project = detectProjectContext(projectDir);
+    const store = new MemoryStore(project, {
+      ...projectConfig,
+      autoMemoryDirectory: memoryRoot
+    });
+    await store.ensureLayout();
+    await fs.writeFile(store.getSyncRecoveryPath(), "{\"broken\":\n", "utf8");
+
+    const jsonOutput = JSON.parse(
+      await runMemory({
+        cwd: projectDir,
+        json: true,
+        recent: "5"
+      })
+    ) as MemoryCommandOutput;
+    const textOutput = await runMemory({
+      cwd: projectDir,
+      recent: "5"
+    });
+
+    expect(jsonOutput.pendingSyncRecovery).toBeNull();
+    expect(textOutput).not.toContain("Pending sync recovery:");
+  });
+
   it("updates local config when enabling or disabling auto memory", async () => {
     const homeDir = await tempDir("cam-memory-home-");
     const projectDir = await tempDir("cam-memory-project-");

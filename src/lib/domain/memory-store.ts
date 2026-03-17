@@ -11,11 +11,13 @@ import type {
   ProcessedRolloutRecord,
   ProjectContext,
   ScopePaths,
+  SyncRecoveryRecord,
   TopicFileRef
 } from "../types.js";
 import { appendJsonl, ensureDir, fileExists, readJsonFile, readTextFile, writeJsonFile, writeTextFile } from "../util/fs.js";
 import { parseMemorySyncAuditEntry } from "./memory-sync-audit.js";
 import { getDefaultMemoryDirectory } from "./project-context.js";
+import { isSyncRecoveryRecord } from "./recovery-records.js";
 
 interface SyncState {
   processedRollouts?: Record<string, string>;
@@ -263,7 +265,8 @@ export class MemoryStore {
         project.worktreeId
       ),
       stateFile: path.join(baseDir, "state.json"),
-      auditDir: path.join(baseDir, "projects", project.projectId, "audit")
+      auditDir: path.join(baseDir, "projects", project.projectId, "audit"),
+      syncRecoveryFile: path.join(baseDir, "projects", project.projectId, "audit", "sync-recovery.json")
     };
   }
 
@@ -288,6 +291,10 @@ export class MemoryStore {
 
   public getSyncAuditPath(): string {
     return path.join(this.paths.auditDir, "sync-log.jsonl");
+  }
+
+  public getSyncRecoveryPath(): string {
+    return this.paths.syncRecoveryFile;
   }
 
   public async ensureLayout(): Promise<void> {
@@ -568,6 +575,23 @@ export class MemoryStore {
       })
       .slice(-limit)
       .reverse();
+  }
+
+  public async writeSyncRecoveryRecord(record: SyncRecoveryRecord): Promise<void> {
+    await writeJsonFile(this.getSyncRecoveryPath(), record);
+  }
+
+  public async readSyncRecoveryRecord(): Promise<SyncRecoveryRecord | null> {
+    try {
+      const record = await readJsonFile<unknown>(this.getSyncRecoveryPath());
+      return isSyncRecoveryRecord(record) ? record : null;
+    } catch {
+      return null;
+    }
+  }
+
+  public async clearSyncRecoveryRecord(): Promise<void> {
+    await fs.rm(this.getSyncRecoveryPath(), { force: true });
   }
 
   public listSuggestedTopics(): readonly string[] {
