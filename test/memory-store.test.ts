@@ -107,12 +107,70 @@ describe("MemoryStore", () => {
     expect(startup.text).toContain("### Topic files");
     expect(startup.text).toContain(store.getTopicFile("project", "workflow"));
     expect(startup.text).not.toContain("Broken entry that should not be parsed during startup compile.");
-    expect(startup.sourceFiles).toContain(store.getTopicFile("project", "workflow"));
+    expect(startup.sourceFiles).not.toContain(store.getTopicFile("project", "workflow"));
+    expect(startup.sourceFiles).toEqual([
+      store.getMemoryFile("project-local"),
+      store.getMemoryFile("project"),
+      store.getMemoryFile("global")
+    ]);
     expect(startup.topicFiles).toContainEqual({
       scope: "project",
       topic: "workflow",
       path: store.getTopicFile("project", "workflow")
     });
+  });
+
+  it("skips valid-json entry metadata that does not match the expected shape", async () => {
+    const projectDir = await tempDir("cam-store-entry-shape-");
+    const memoryRoot = await tempDir("cam-store-entry-shape-mem-");
+    const config: AppConfig = {
+      autoMemoryEnabled: true,
+      autoMemoryDirectory: memoryRoot,
+      extractorMode: "heuristic",
+      defaultScope: "project",
+      maxStartupLines: 200,
+      sessionContinuityAutoLoad: false,
+      sessionContinuityAutoSave: false,
+      sessionContinuityLocalPathStyle: "codex",
+      maxSessionContinuityLines: 60,
+      codexBinary: "codex"
+    };
+    const store = new MemoryStore(detectProjectContext(projectDir), config);
+    await store.ensureLayout();
+
+    await fs.writeFile(
+      store.getTopicFile("project", "workflow"),
+      [
+        "# Workflow",
+        "",
+        "<!-- cam:topic workflow -->",
+        "",
+        "## valid-entry",
+        "<!-- cam:entry {\"id\":\"valid-entry\",\"scope\":\"project\",\"updatedAt\":\"2026-03-14T00:00:00.000Z\",\"sources\":[\"manual\"]} -->",
+        "Summary: Valid entry.",
+        "Details:",
+        "- Keep this.",
+        "",
+        "## wrong-scope",
+        "<!-- cam:entry {\"id\":\"wrong-scope\",\"scope\":\"invalid\",\"updatedAt\":\"2026-03-14T00:00:00.000Z\"} -->",
+        "Summary: Wrong scope.",
+        "Details:",
+        "- Skip this.",
+        "",
+        "## wrong-sources",
+        "<!-- cam:entry {\"id\":\"wrong-sources\",\"scope\":\"project\",\"updatedAt\":\"2026-03-14T00:00:00.000Z\",\"sources\":\"manual\"} -->",
+        "Summary: Wrong sources.",
+        "Details:",
+        "- Skip this too.",
+        ""
+      ].join("\n"),
+      "utf8"
+    );
+
+    const entries = await store.listEntries("project");
+
+    expect(entries).toHaveLength(1);
+    expect(entries[0]?.id).toBe("valid-entry");
   });
 
   it("writes topic files, rebuilds MEMORY.md, and supports forgetting entries", async () => {
