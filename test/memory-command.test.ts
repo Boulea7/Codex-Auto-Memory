@@ -73,6 +73,10 @@ describe("runMemory", () => {
       worktreeId: project.worktreeId,
       rolloutPath: "/tmp/rollout-1.jsonl",
       sessionId: "session-1",
+      configuredExtractorMode: "heuristic",
+      configuredExtractorName: "heuristic",
+      actualExtractorMode: "heuristic",
+      actualExtractorName: "heuristic",
       extractorMode: "heuristic",
       extractorName: "heuristic",
       sessionSource: "rollout-jsonl",
@@ -99,6 +103,10 @@ describe("runMemory", () => {
       worktreeId: project.worktreeId,
       rolloutPath: "/tmp/rollout-2.jsonl",
       sessionId: "session-2",
+      configuredExtractorMode: "heuristic",
+      configuredExtractorName: "heuristic",
+      actualExtractorMode: "heuristic",
+      actualExtractorName: "heuristic",
       extractorMode: "heuristic",
       extractorName: "heuristic",
       sessionSource: "rollout-jsonl",
@@ -113,6 +121,10 @@ describe("runMemory", () => {
       projectId: project.projectId,
       worktreeId: project.worktreeId,
       rolloutPath: "/tmp/rollout-3.jsonl",
+      configuredExtractorMode: "codex",
+      configuredExtractorName: "codex-ephemeral",
+      actualExtractorMode: "heuristic",
+      actualExtractorName: "heuristic",
       extractorMode: "heuristic",
       extractorName: "heuristic",
       sessionSource: "rollout-jsonl",
@@ -144,6 +156,7 @@ describe("runMemory", () => {
     expect(output).toContain("Recent sync events");
     expect(output).toContain("1 operation(s) applied");
     expect(output).toContain("[skipped] Skipped rollout; it was already processed");
+    expect(output).toContain("Configured: codex-ephemeral (codex) -> Actual: heuristic (heuristic)");
     expect(output).toContain("Skip reason: already-processed");
     expect(output).toContain("Applied: 0 | Scopes: none");
   });
@@ -198,6 +211,10 @@ describe("runMemory", () => {
       worktreeId: project.worktreeId,
       rolloutPath: "/tmp/rollout-1.jsonl",
       sessionId: "session-1",
+      configuredExtractorMode: "codex",
+      configuredExtractorName: "codex-ephemeral",
+      actualExtractorMode: "heuristic",
+      actualExtractorName: "heuristic",
       extractorMode: "heuristic",
       extractorName: "heuristic",
       sessionSource: "rollout-jsonl",
@@ -248,7 +265,9 @@ describe("runMemory", () => {
     expect(output.recentSyncAudit[0]).toMatchObject({
       rolloutPath: "/tmp/rollout-1.jsonl",
       status: "applied",
-      appliedCount: 1
+      appliedCount: 1,
+      configuredExtractorMode: "codex",
+      actualExtractorMode: "heuristic"
     });
     expect(output.recentAudit).toEqual(output.recentSyncAudit);
   });

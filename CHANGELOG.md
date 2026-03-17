@@ -16,6 +16,31 @@ The format is intentionally simple and reviewer-friendly: each entry maps to a c
 - `cam session save --scope project` no longer updates local `.git/info/exclude` when only shared continuity is being written.
 - Continuity audit history now skips JSONL entries that parse successfully but do not match the expected `SessionContinuityAuditEntry` shape, preventing malformed audit data from leaking into `cam session load/status`.
 
+## 0.1.0-alpha.19 - 2026-03-18
+
+### Added
+
+- Added structured processed-rollout identity tracking so durable sync no longer relies on path-only processed state.
+- Added regression coverage for rewritten same-path rollouts, legacy path-only processed state compatibility, and configured-vs-actual extractor audit fields.
+- Added explicit timeout headroom for the slower `audit` and `project-context` tests so reviewer validation is less likely to fail on default 5-second boundaries.
+
+### Changed
+
+- Durable sync now skips only when the processed rollout identity matches by project, worktree, session, path, size, and mtime, instead of relying on `rolloutPath` alone.
+- Durable sync audit now records both configured extractor and actual extractor, while the compatibility `extractorMode` / `extractorName` fields now reflect the actual extractor used.
+- Milestone acceptance docs now explicitly verify `cam session save --json`, `cam memory --json --recent 5`, and the companion-first `cam doctor --json` gate.
+
+### Fixed
+
+- Rewritten rollouts at the same file path no longer risk false `already-processed` skips just because an older path-only processed record exists.
+- Durable sync audit no longer misreports heuristic fallback as if the configured Codex extractor actually produced the saved memory updates.
+
+### Review focus
+
+- Confirm that structured processed-rollout identity reduces false skips without introducing broad migration complexity.
+- Confirm that configured-vs-actual extractor audit stays compact in `cam memory --recent` and additive in JSON mode.
+- Confirm that the reviewer acceptance checklist now exercises the declared durable sync, continuity save, and doctor-gate surfaces explicitly.
+
 ## 0.1.0-alpha.18 - 2026-03-17
 
 ### Added

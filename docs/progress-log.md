@@ -6,7 +6,7 @@ This document tracks implementation progress in a format that is easy to consume
 
 - Approximate overall progress toward a strong Claude-style alpha: `99%`
 - Approximate progress toward a working local MVP: `99%`
-- Current phase: `Phase 18 - durable sync audit contract and reviewer boundary tightening`
+- Current phase: `Phase 19 - sync identity hardening and extractor audit truth`
 
 ## Completed milestones
 
@@ -198,6 +198,14 @@ This document tracks implementation progress in a format that is easy to consume
 - Memory-store parsing now skips corrupted JSONL lines and valid JSON lines that do not match the expected durable sync audit shape.
 - Added regression coverage for typed durable sync audit entries, skip/no-op paths, and `cam memory`'s additive reviewer JSON fields.
 
+### Milestone 19: Sync identity hardening and extractor audit truth
+
+- Durable sync processed state now uses a structured rollout identity keyed by project, worktree, session, path, size, and mtime instead of relying on `rolloutPath` alone.
+- Legacy path-only processed state remains readable, but it is no longer treated as authoritative for skip decisions; the new logic accepts a conservative one-time re-sync to avoid false skips.
+- Durable sync audit now records both configured and actual extractor metadata, while the compatibility `extractorMode` / `extractorName` fields now reflect the actual extractor that produced the saved updates.
+- Added regression coverage for rewritten same-path rollouts, legacy processed-state compatibility, and Codex-configured fallback-to-heuristic audit truth.
+- Added explicit timeout headroom for the slower `audit` and `project-context` tests so reviewer validation is more stable on typical local machines.
+
 ## Reviewer checkpoints
 
 If you are reviewing the repository now, start here:
@@ -218,6 +226,7 @@ If you are reviewing the repository now, start here:
 - Extractor quality is stronger, and unsupported-topic auto-delete is now guarded more conservatively, but contradiction handling is still intentionally limited outside explicit commands, preferences, and workflow corrections.
 - `cam memory` now exposes grouped startup/topic refs more directly, but it still remains below Claude Code's `/memory` interaction depth for edit / toggle ergonomics.
 - durable sync audit is now more explicit and reviewer-friendly, but it still intentionally does not try to become a full edit-history browser or a manual memory journal.
+- structured processed-rollout identity is now more correct than the earlier path-only state, but the sync path still is not transactional across memory writes, audit append, and processed-state persistence.
 - Native Codex memory and hook support is still companion-first; local `cam doctor --json` on 2026-03-17 still reports `memories` and `codex_hooks` as `under development` and disabled.
 - Topic files are now surfaced for on-demand reads, but the companion runtime still relies on generic file-read tools rather than a native lazy topic loader.
 - bilingual public docs now exist, but they introduce a new maintenance burden: Chinese and English copies need active synchronization
@@ -228,9 +237,10 @@ If you are reviewing the repository now, start here:
 
 ## Next planned milestones
 
-### Milestone 19: Keep durable reviewer surfaces compact and migration posture conservative
+### Milestone 20: Keep reviewer gates explicit and migration posture conservative
 
-- Keep the durable sync audit contract stable and compact without expanding it into a history browser or manual-edit event stream.
+- Keep the structured processed-rollout identity stable and compact without reintroducing path-only skip semantics.
+- Keep actual-vs-configured extractor audit visible without turning `cam memory` into a history browser.
 - Keep the latest continuity drill-down stable and compact without turning it into a browser, filter UI, or export flow.
 - Keep Chinese / English public docs synchronized as a routine release discipline rather than a one-off cleanup.
 - Keep official Codex migration guidance conservative until public docs and local readiness both move.

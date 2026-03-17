@@ -24,6 +24,10 @@ function isStringArray(value: unknown): value is string[] {
   return Array.isArray(value) && value.every((item) => typeof item === "string");
 }
 
+function isExtractorMode(value: unknown): value is AppConfig["extractorMode"] {
+  return value === "codex" || value === "heuristic";
+}
+
 function isMemoryOperation(value: unknown): value is MemoryOperation {
   if (!value || typeof value !== "object") {
     return false;
@@ -59,37 +63,73 @@ function summaryForStatus(
   }
 }
 
-export function isMemorySyncAuditEntry(value: unknown): value is MemorySyncAuditEntry {
+export function parseMemorySyncAuditEntry(value: unknown): MemorySyncAuditEntry | null {
   if (!value || typeof value !== "object") {
-    return false;
+    return null;
   }
 
   const entry = value as Record<string, unknown>;
-  return (
-    typeof entry.appliedAt === "string" &&
-    typeof entry.projectId === "string" &&
-    typeof entry.worktreeId === "string" &&
-    typeof entry.rolloutPath === "string" &&
-    (entry.sessionId === undefined || typeof entry.sessionId === "string") &&
-    (entry.extractorMode === "codex" || entry.extractorMode === "heuristic") &&
-    typeof entry.extractorName === "string" &&
-    typeof entry.sessionSource === "string" &&
-    isMemorySyncAuditStatus(entry.status) &&
-    isMemorySyncAuditSkipReason(entry.skipReason) &&
-    typeof entry.appliedCount === "number" &&
-    Array.isArray(entry.scopesTouched) &&
-    entry.scopesTouched.every((scope) => isMemoryScope(scope)) &&
-    typeof entry.resultSummary === "string" &&
-    Array.isArray(entry.operations) &&
-    entry.operations.every((operation) => isMemoryOperation(operation))
-  );
+  const actualExtractorMode = entry.actualExtractorMode ?? entry.extractorMode;
+  const actualExtractorName = entry.actualExtractorName ?? entry.extractorName;
+  const configuredExtractorMode = entry.configuredExtractorMode ?? actualExtractorMode;
+  const configuredExtractorName = entry.configuredExtractorName ?? actualExtractorName;
+
+  if (
+    typeof entry.appliedAt !== "string" ||
+    typeof entry.projectId !== "string" ||
+    typeof entry.worktreeId !== "string" ||
+    typeof entry.rolloutPath !== "string" ||
+    (entry.sessionId !== undefined && typeof entry.sessionId !== "string") ||
+    !isExtractorMode(actualExtractorMode) ||
+    typeof actualExtractorName !== "string" ||
+    !isExtractorMode(configuredExtractorMode) ||
+    typeof configuredExtractorName !== "string" ||
+    typeof entry.sessionSource !== "string" ||
+    !isMemorySyncAuditStatus(entry.status) ||
+    !isMemorySyncAuditSkipReason(entry.skipReason) ||
+    typeof entry.appliedCount !== "number" ||
+    !Array.isArray(entry.scopesTouched) ||
+    !entry.scopesTouched.every((scope) => isMemoryScope(scope)) ||
+    typeof entry.resultSummary !== "string" ||
+    !Array.isArray(entry.operations) ||
+    !entry.operations.every((operation) => isMemoryOperation(operation))
+  ) {
+    return null;
+  }
+
+  return {
+    appliedAt: entry.appliedAt,
+    projectId: entry.projectId,
+    worktreeId: entry.worktreeId,
+    rolloutPath: entry.rolloutPath,
+    sessionId: entry.sessionId,
+    configuredExtractorMode,
+    configuredExtractorName,
+    actualExtractorMode,
+    actualExtractorName,
+    extractorMode: actualExtractorMode,
+    extractorName: actualExtractorName,
+    sessionSource: entry.sessionSource,
+    status: entry.status,
+    skipReason: entry.status === "skipped" ? entry.skipReason : undefined,
+    appliedCount: entry.appliedCount,
+    scopesTouched: entry.scopesTouched,
+    resultSummary: entry.resultSummary,
+    operations: entry.operations
+  };
+}
+
+export function isMemorySyncAuditEntry(value: unknown): value is MemorySyncAuditEntry {
+  return parseMemorySyncAuditEntry(value) !== null;
 }
 
 interface BuildMemorySyncAuditEntryOptions {
   project: ProjectContext;
   config: AppConfig;
   rolloutPath: string;
-  extractorName: string;
+  configuredExtractorName: string;
+  actualExtractorMode: AppConfig["extractorMode"];
+  actualExtractorName: string;
   sessionSource: string;
   status: MemorySyncAuditStatus;
   appliedAt?: string;
@@ -111,8 +151,12 @@ export function buildMemorySyncAuditEntry(
     worktreeId: options.project.worktreeId,
     rolloutPath: options.rolloutPath,
     sessionId: options.sessionId,
-    extractorMode: options.config.extractorMode,
-    extractorName: options.extractorName,
+    configuredExtractorMode: options.config.extractorMode,
+    configuredExtractorName: options.configuredExtractorName,
+    actualExtractorMode: options.actualExtractorMode,
+    actualExtractorName: options.actualExtractorName,
+    extractorMode: options.actualExtractorMode,
+    extractorName: options.actualExtractorName,
     sessionSource: options.sessionSource,
     status: options.status,
     skipReason: options.status === "skipped" ? options.skipReason : undefined,
@@ -126,9 +170,18 @@ export function buildMemorySyncAuditEntry(
 export function formatMemorySyncAuditEntry(entry: MemorySyncAuditEntry): string[] {
   const lines = [
     `- ${entry.appliedAt}: [${entry.status}] ${entry.resultSummary}`,
-    `  Session: ${entry.sessionId ?? "unknown"} | Extractor: ${entry.extractorName || entry.extractorMode}`,
+    `  Session: ${entry.sessionId ?? "unknown"} | Extractor: ${entry.actualExtractorName || entry.actualExtractorMode}`,
     `  Applied: ${entry.appliedCount} | Scopes: ${entry.scopesTouched.length ? entry.scopesTouched.join(", ") : "none"}`
   ];
+
+  if (
+    entry.configuredExtractorMode !== entry.actualExtractorMode ||
+    entry.configuredExtractorName !== entry.actualExtractorName
+  ) {
+    lines.push(
+      `  Configured: ${entry.configuredExtractorName} (${entry.configuredExtractorMode}) -> Actual: ${entry.actualExtractorName} (${entry.actualExtractorMode})`
+    );
+  }
 
   if (entry.skipReason) {
     lines.push(`  Skip reason: ${entry.skipReason}`);

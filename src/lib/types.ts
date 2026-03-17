@@ -220,6 +220,10 @@ export interface MemorySyncAuditEntry {
   worktreeId: string;
   rolloutPath: string;
   sessionId?: string;
+  configuredExtractorMode: AppConfig["extractorMode"];
+  configuredExtractorName: string;
+  actualExtractorMode: AppConfig["extractorMode"];
+  actualExtractorName: string;
   extractorMode: AppConfig["extractorMode"];
   extractorName: string;
   sessionSource: string;
@@ -229,6 +233,19 @@ export interface MemorySyncAuditEntry {
   scopesTouched: MemoryScope[];
   resultSummary: string;
   operations: MemoryOperation[];
+}
+
+export interface ProcessedRolloutIdentity {
+  projectId: string;
+  worktreeId: string;
+  sessionId: string;
+  rolloutPath: string;
+  sizeBytes: number;
+  mtimeMs: number;
+}
+
+export interface ProcessedRolloutRecord extends ProcessedRolloutIdentity {
+  processedAt: string;
 }
 
 export interface MemoryCommandScopeSummary {
