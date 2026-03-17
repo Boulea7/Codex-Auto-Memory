@@ -143,6 +143,28 @@ describe("HeuristicExtractor", () => {
     expect(upserts[0]?.summary).not.toContain("npm install");
   });
 
+  it("treats bash-named tool calls with expanded success output as reusable commands", async () => {
+    const extractor = new HeuristicExtractor();
+    const operations = await extractor.extract(
+      baseEvidence({
+        toolCalls: [
+          {
+            callId: "call-bash-success",
+            name: "Bash",
+            arguments: "{\"cmd\":\"pnpm lint\"}",
+            output: "Tests passed"
+          }
+        ]
+      }),
+      []
+    );
+
+    const upserts = operations.filter((operation) => operation.action === "upsert");
+    expect(upserts).toHaveLength(1);
+    expect(upserts[0]?.topic).toBe("commands");
+    expect(upserts[0]?.summary).toContain("pnpm lint");
+  });
+
   it("replaces stale command memory from a real rollout fixture", async () => {
     const extractor = new HeuristicExtractor();
     const evidence = await parseRolloutEvidence(

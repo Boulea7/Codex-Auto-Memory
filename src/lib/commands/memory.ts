@@ -1,6 +1,6 @@
-import { spawn } from "node:child_process";
 import path from "node:path";
 import { patchConfigFile } from "../config/write-config.js";
+import { openPath } from "../util/open.js";
 import { compileStartupMemory } from "../domain/startup-memory.js";
 import type { ConfigScope, MemoryScope } from "../types.js";
 import { buildRuntimeContext } from "./common.js";
@@ -15,27 +15,6 @@ interface MemoryOptions {
   enable?: boolean;
   disable?: boolean;
   configScope?: ConfigScope;
-}
-
-function openPath(targetPath: string): void {
-  const command =
-    process.platform === "darwin"
-      ? "open"
-      : process.platform === "win32"
-        ? "cmd"
-        : "xdg-open";
-  const args =
-    process.platform === "darwin"
-      ? [targetPath]
-      : process.platform === "win32"
-        ? ["/c", "start", "", targetPath]
-        : [targetPath];
-
-  const child = spawn(command, args, {
-    detached: true,
-    stdio: "ignore"
-  });
-  child.unref();
 }
 
 export async function runMemory(options: MemoryOptions = {}): Promise<string> {
