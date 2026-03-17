@@ -8,8 +8,10 @@
   },
   "files": [
     "dist",
+    "docs",
     "schemas",
     "README.md",
+    "README.en.md",
     "LICENSE"
   ],
   "engines": {

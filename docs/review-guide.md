@@ -19,6 +19,7 @@ A useful review should ask:
 
 Read first:
 
+- `docs/README.md`
 - `docs/claude-reference.md`
 - `README.md`
 - `docs/architecture.md`
@@ -112,6 +113,7 @@ Review questions:
 - Incorrect tool output stitching when multiple calls share the same function name
 - Silent memory pollution from temporary or speculative session content
 - Drift between README promises and current CLI behavior
+- Drift between Chinese and English public docs
 - Overfitting to current Codex rollout artifacts in a way that would make migration painful
 - Documentation that upgrades local observations into unsupported official product claims
 - Scanner-triggering synthetic fixtures that may not be real leaks but still create review noise
@@ -120,20 +122,21 @@ Review questions:
 
 ## Suggested review order for other tools
 
-1. Read `README.md`
-2. Read `docs/claude-reference.md`
-3. Read `docs/session-continuity.md`
-4. Read `docs/progress-log.md`
-5. Read `CHANGELOG.md`
-6. Run `cam audit`
-7. Inspect `src/lib/domain/rollout.ts`
-8. Inspect `src/lib/domain/sync-service.ts`
-9. Inspect `src/lib/domain/memory-store.ts`
-10. Inspect `src/lib/domain/session-continuity-store.ts`
-11. Inspect extractor files
-12. Run `pnpm test`
-13. Read `docs/claudecode-patch-audit.md`
-14. Read `docs/reviewer-handoff.md`
+1. Read `README.md` or `README.en.md`
+2. Read `docs/README.md` or `docs/README.en.md`
+3. Read `docs/claude-reference.md`
+4. Read `docs/session-continuity.md`
+5. Read `docs/progress-log.md`
+6. Read `CHANGELOG.md`
+7. Run `cam audit`
+8. Inspect `src/lib/domain/rollout.ts`
+9. Inspect `src/lib/domain/sync-service.ts`
+10. Inspect `src/lib/domain/memory-store.ts`
+11. Inspect `src/lib/domain/session-continuity-store.ts`
+12. Inspect extractor files
+13. Run `pnpm test`
+14. Read `docs/claudecode-patch-audit.md`
+15. Read `docs/reviewer-handoff.md`
 
 ## Claude parity checklist
 

@@ -4,6 +4,26 @@ All notable changes to `codex-auto-memory` will be documented in this file.
 
 The format is intentionally simple and reviewer-friendly: each entry maps to a concrete implementation milestone and, when possible, a single Git commit.
 
+## 0.1.0-alpha.16 - 2026-03-17
+
+### Added
+
+- Added a Chinese-first public `README.md` and a switchable English `README.en.md`.
+- Added bilingual docs entry pages at `docs/README.md` and `docs/README.en.md`.
+- Added English mirror docs for the three core design references: Claude parity, architecture, and native migration.
+
+### Changed
+
+- The default repository front page is now optimized for Chinese-speaking open-source visitors with a stronger hero section, badges, quick navigation, command overview, and docs portal.
+- Core design docs were restructured around summary-first reading, clearer boundaries, and easier onboarding for both newcomers and maintainers.
+- Contributor and release docs now explicitly account for bilingual public-doc maintenance.
+
+### Review focus
+
+- Confirm that the new Chinese and English public docs describe the same product boundaries.
+- Confirm that README styling improvements stay GitHub-safe and readable without custom assets.
+- Confirm that public wording remains companion-first and does not overstate Claude parity or native Codex readiness.
+
 ## 0.1.0-alpha.15 - 2026-03-17
 
 ### Added
