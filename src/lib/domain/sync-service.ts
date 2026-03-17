@@ -7,6 +7,7 @@ import { CodexExtractor } from "../extractor/codex-extractor.js";
 import { filterMemoryOperations } from "../extractor/safety.js";
 import type { MemoryExtractorAdapter } from "../runtime/contracts.js";
 import { RolloutSessionSource } from "../runtime/rollout-session-source.js";
+import { buildMemorySyncAuditEntry } from "./memory-sync-audit.js";
 
 export class SyncService {
   private readonly store: MemoryStore;
@@ -30,6 +31,17 @@ export class SyncService {
   public async syncRollout(rolloutPath: string, force = false): Promise<SyncResult> {
     await this.store.ensureLayout();
     if (!force && (await this.store.hasProcessedRollout(rolloutPath))) {
+      await this.store.appendSyncAuditEntry(
+        buildMemorySyncAuditEntry({
+          project: this.project,
+          config: this.config,
+          rolloutPath,
+          extractorName: this.configuredExtractorName,
+          sessionSource: this.sessionSource.name,
+          status: "skipped",
+          skipReason: "already-processed"
+        })
+      );
       return {
         applied: [],
         skipped: true,
@@ -39,6 +51,17 @@ export class SyncService {
 
     const evidence = await this.sessionSource.parseEvidence(rolloutPath);
     if (!evidence) {
+      await this.store.appendSyncAuditEntry(
+        buildMemorySyncAuditEntry({
+          project: this.project,
+          config: this.config,
+          rolloutPath,
+          extractorName: this.configuredExtractorName,
+          sessionSource: this.sessionSource.name,
+          status: "skipped",
+          skipReason: "no-rollout-evidence"
+        })
+      );
       return {
         applied: [],
         skipped: true,
@@ -56,24 +79,19 @@ export class SyncService {
       await this.extractOperations(evidence, existingEntries)
     );
     const applied = await this.store.applyOperations(operations);
+    await this.store.appendSyncAuditEntry(
+      buildMemorySyncAuditEntry({
+        project: this.project,
+        config: this.config,
+        rolloutPath,
+        sessionId: evidence.sessionId,
+        extractorName: this.configuredExtractorName,
+        sessionSource: this.sessionSource.name,
+        status: applied.length === 0 ? "no-op" : "applied",
+        operations: applied
+      })
+    );
     await this.store.markRolloutProcessed(rolloutPath);
-    await this.store.appendAuditLog({
-      rolloutPath,
-      sessionId: evidence.sessionId,
-      projectId: this.project.projectId,
-      worktreeId: this.project.worktreeId,
-      extractorMode: this.config.extractorMode,
-      extractorName:
-        this.config.extractorMode === "codex"
-          ? this.primaryExtractor.name
-          : this.fallbackExtractor.name,
-      sessionSource: this.sessionSource.name,
-      appliedAt: new Date().toISOString(),
-      resultSummary: applied.length
-        ? `${applied.length} operation(s) applied`
-        : "No memory updates generated",
-      operations: applied
-    });
 
     return {
       applied,
@@ -96,5 +114,11 @@ export class SyncService {
     }
 
     return (await this.fallbackExtractor.extract(evidence, existingEntries)) ?? [];
+  }
+
+  private get configuredExtractorName(): string {
+    return this.config.extractorMode === "codex"
+      ? this.primaryExtractor.name
+      : this.fallbackExtractor.name;
   }
 }

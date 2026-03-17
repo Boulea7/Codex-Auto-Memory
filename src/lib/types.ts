@@ -210,6 +210,71 @@ export interface CompiledSessionContinuity {
   sourceFiles: string[];
 }
 
+export type MemorySyncAuditStatus = "applied" | "no-op" | "skipped";
+
+export type MemorySyncAuditSkipReason = "already-processed" | "no-rollout-evidence";
+
+export interface MemorySyncAuditEntry {
+  appliedAt: string;
+  projectId: string;
+  worktreeId: string;
+  rolloutPath: string;
+  sessionId?: string;
+  extractorMode: AppConfig["extractorMode"];
+  extractorName: string;
+  sessionSource: string;
+  status: MemorySyncAuditStatus;
+  skipReason?: MemorySyncAuditSkipReason;
+  appliedCount: number;
+  scopesTouched: MemoryScope[];
+  resultSummary: string;
+  operations: MemoryOperation[];
+}
+
+export interface MemoryCommandScopeSummary {
+  scope: MemoryScope;
+  count: number;
+  file: string;
+  topics: string[];
+}
+
+export interface MemoryCommandOutput {
+  configUpdateMessage?: string;
+  configFiles: string[];
+  warnings: string[];
+  startup: CompiledStartupMemory;
+  loadedFiles: string[];
+  topicFiles: TopicFileRef[];
+  startupFilesByScope: {
+    global: string[];
+    project: string[];
+    projectLocal: string[];
+  };
+  topicFilesByScope: {
+    global: TopicFileRef[];
+    project: TopicFileRef[];
+    projectLocal: TopicFileRef[];
+  };
+  startupBudget: {
+    usedLines: number;
+    maxLines: number;
+  };
+  refCountsByScope: {
+    global: { startupFiles: number; topicFiles: number };
+    project: { startupFiles: number; topicFiles: number };
+    projectLocal: { startupFiles: number; topicFiles: number };
+  };
+  scopes: MemoryCommandScopeSummary[];
+  editTargets: {
+    global: string;
+    project: string;
+    projectLocal: string;
+  };
+  recentSyncAudit: MemorySyncAuditEntry[];
+  recentAudit: MemorySyncAuditEntry[];
+  syncAuditPath: string;
+}
+
 export interface SyncResult {
   applied: MemoryOperation[];
   skipped: boolean;
