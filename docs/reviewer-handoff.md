@@ -31,15 +31,24 @@ The repository currently has:
 - explicit compatibility seams for session source, extractor, and runtime injector
 - review-oriented docs and changelog tracking
 - a repository privacy audit command: `cam audit`
-- a reviewer-oriented `cam memory` surface that shows startup-loaded files, topic refs, and edit paths
+- a reviewer-oriented durable sync audit log at `projects/<project-id>/audit/sync-log.jsonl`
+- a reviewer-oriented `cam memory` surface that shows startup-loaded files, topic refs, edit paths, and recent durable sync audit events
 - a reviewer-oriented continuity audit log that records preferred vs actual generation path, fallback reasons, evidence counts, and written continuity paths
 - a reviewer-oriented `cam session` surface that shows the latest continuity diagnostics, the latest evidence/written-path drill-down, and a compact recent generation preview
 - conservative contradiction handling that now has extra negative-fixture coverage so unsupported topics do not auto-delete stale memory
 - a release checklist that now explicitly calls out paired bilingual public-doc consistency checks
 
+## Audit surface map
+
+- `cam audit`: repository-level privacy and secret-hygiene audit
+- `cam memory --recent [count]`: durable sync audit for recent `applied` / `no-op` / `skipped` sync events
+- `cam session save|load|status`: continuity audit surface for the latest diagnostics and compact recent history
+
+Manual `cam remember` / `cam forget` updates remain outside the durable sync audit stream by design.
+
 ## Most recent milestone commits
 
-- current implementation window: alpha.17 continuity drill-down and bilingual docs discipline
+- current implementation window: alpha.18 durable sync audit contract and reviewer boundary tightening
 - `d8e88f9` `feat(alpha.17): add continuity drill-down and docs discipline`
 - `0f40277` `docs(alpha.16): redesign bilingual readme and docs portal`
 - `34934fc` `feat(alpha.15): harden contradiction boundaries and review wording`
@@ -66,9 +75,10 @@ The project intentionally chose a **forward-only cleanup** strategy. Earlier com
 - topic files are now referenced for on-demand reads, but the runtime still relies on generic file-read tools rather than a native lazy-loading hook
 - extractor quality still needs broader contradiction handling beyond explicit commands, preferences, and workflow corrections, even though unsupported-topic auto-delete is now guarded more conservatively
 - `cam memory` is still shallower than Claude Code’s `/memory`, especially around edit/toggle ergonomics
+- durable sync audit is now explicitly typed and reviewer-visible, but it still intentionally stays separate from manual `remember` / `forget` edit history
 - bilingual public docs now exist, but they require disciplined co-maintenance to avoid Chinese / English drift
 - continuity diagnostics now expose the latest generation, the latest evidence/written-path drill-down, and a short recent preview, but the CLI still does not provide a dedicated history browser beyond the audit JSONL
-- `docs/next-phase-brief.md` now captures the recommended post-alpha.17 execution brief
+- `docs/next-phase-brief.md` now captures the recommended post-alpha.18 execution brief
 
 ## Recommended review sequence
 
@@ -81,11 +91,14 @@ The project intentionally chose a **forward-only cleanup** strategy. Earlier com
 7. Read `docs/native-migration.md`
 8. Read `docs/progress-log.md`
 9. Read `docs/review-guide.md`
-10. Inspect `src/lib/extractor/heuristic-extractor.ts`
-11. Inspect `src/lib/commands/session.ts`
-12. Inspect `src/lib/domain/rollout.ts`
-13. Inspect `src/lib/domain/startup-memory.ts`
-14. Inspect `src/lib/domain/session-continuity-store.ts`
+10. Inspect `src/lib/domain/memory-sync-audit.ts`
+11. Inspect `src/lib/domain/sync-service.ts`
+12. Inspect `src/lib/commands/memory.ts`
+13. Inspect `src/lib/extractor/heuristic-extractor.ts`
+14. Inspect `src/lib/commands/session.ts`
+15. Inspect `src/lib/domain/rollout.ts`
+16. Inspect `src/lib/domain/startup-memory.ts`
+17. Inspect `src/lib/domain/session-continuity-store.ts`
 
 ## Suggested verification commands
 
@@ -97,7 +110,7 @@ node dist/cli.js audit --json
 node dist/cli.js doctor --json
 node dist/cli.js session status --json
 node dist/cli.js session load --json
-node dist/cli.js memory --json
+node dist/cli.js memory --json --recent 5
 ```
 
 ## Review stance

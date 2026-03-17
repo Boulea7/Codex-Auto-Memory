@@ -4,9 +4,9 @@ This document tracks implementation progress in a format that is easy to consume
 
 ## Current completion snapshot
 
-- Approximate overall progress toward a strong Claude-style alpha: `98%`
+- Approximate overall progress toward a strong Claude-style alpha: `99%`
 - Approximate progress toward a working local MVP: `99%`
-- Current phase: `Phase 17 - continuity drill-down and bilingual docs discipline`
+- Current phase: `Phase 18 - durable sync audit contract and reviewer boundary tightening`
 
 ## Completed milestones
 
@@ -190,6 +190,14 @@ This document tracks implementation progress in a format that is easy to consume
 - Reviewer docs, handoff notes, and release checks now explicitly verify paired bilingual public-doc consistency and the compact latest-audit continuity surface.
 - Official Codex and Claude public docs were re-checked before refreshing migration/reviewer wording; the project still remains companion-first because native memory/hooks posture is not yet stable enough for the trusted primary path.
 
+### Milestone 18: Durable sync audit contract and reviewer boundary tightening
+
+- Durable sync audit now has an explicit typed entry contract instead of relying on loose `Record<string, unknown>` payloads in the memory-store reviewer path.
+- `cam sync` now records reviewer-visible `applied`, `no-op`, and `skipped` events to `projects/<project-id>/audit/sync-log.jsonl`, and `cam memory --recent` remains scoped to that durable sync audit stream only.
+- `cam memory --json` now exposes `recentSyncAudit` and `syncAuditPath` while keeping the compatibility alias `recentAudit`.
+- Memory-store parsing now skips corrupted JSONL lines and valid JSON lines that do not match the expected durable sync audit shape.
+- Added regression coverage for typed durable sync audit entries, skip/no-op paths, and `cam memory`'s additive reviewer JSON fields.
+
 ## Reviewer checkpoints
 
 If you are reviewing the repository now, start here:
@@ -200,14 +208,16 @@ If you are reviewing the repository now, start here:
 4. `docs/architecture.md`
 5. `docs/review-guide.md`
 6. `src/lib/domain/rollout.ts`
-7. `src/lib/domain/sync-service.ts`
-8. `src/lib/domain/memory-store.ts`
-9. `src/lib/domain/session-continuity-store.ts`
+7. `src/lib/domain/memory-sync-audit.ts`
+8. `src/lib/domain/sync-service.ts`
+9. `src/lib/domain/memory-store.ts`
+10. `src/lib/domain/session-continuity-store.ts`
 
 ## Known gaps
 
 - Extractor quality is stronger, and unsupported-topic auto-delete is now guarded more conservatively, but contradiction handling is still intentionally limited outside explicit commands, preferences, and workflow corrections.
 - `cam memory` now exposes grouped startup/topic refs more directly, but it still remains below Claude Code's `/memory` interaction depth for edit / toggle ergonomics.
+- durable sync audit is now more explicit and reviewer-friendly, but it still intentionally does not try to become a full edit-history browser or a manual memory journal.
 - Native Codex memory and hook support is still companion-first; local `cam doctor --json` on 2026-03-17 still reports `memories` and `codex_hooks` as `under development` and disabled.
 - Topic files are now surfaced for on-demand reads, but the companion runtime still relies on generic file-read tools rather than a native lazy topic loader.
 - bilingual public docs now exist, but they introduce a new maintenance burden: Chinese and English copies need active synchronization
@@ -218,8 +228,9 @@ If you are reviewing the repository now, start here:
 
 ## Next planned milestones
 
-### Milestone 18: Keep reviewer surfaces compact and migration posture conservative
+### Milestone 19: Keep durable reviewer surfaces compact and migration posture conservative
 
+- Keep the durable sync audit contract stable and compact without expanding it into a history browser or manual-edit event stream.
 - Keep the latest continuity drill-down stable and compact without turning it into a browser, filter UI, or export flow.
 - Keep Chinese / English public docs synchronized as a routine release discipline rather than a one-off cleanup.
 - Keep official Codex migration guidance conservative until public docs and local readiness both move.

@@ -65,6 +65,7 @@ If any step is skipped, explain why in the final handoff.
 - Milestone 15 is complete: contradiction handling now has extra negative-fixture guardrails, generic `remember` overlap deletes stay constrained to supported correction paths, and public docs are more precise about `cam memory` inspection vs in-command editing.
 - Milestone 16 is complete: the default README is now Chinese-first, the repository ships an English `README.en.md`, and the three core design docs now have bilingual entry points.
 - Milestone 17 is complete: `cam session save|load|status --json` now also expose `latestContinuityAuditEntry`, and the default `cam session` text output includes latest-generation evidence counts plus written continuity paths.
+- Milestone 18 is complete: durable sync audit now uses an explicit reviewer contract, `cam memory --recent` now covers `applied` / `no-op` / `skipped` sync events, and `cam memory --json` now exposes `recentSyncAudit` plus `syncAuditPath` while keeping `recentAudit` as a compatibility alias.
 - `cam memory --json` now also exposes `startupBudget` and `refCountsByScope` for reviewer tooling.
 - Native Codex `memories` and `codex_hooks` still remain outside the trusted implementation path until `cam doctor --json` and public docs both show stable support.
 
@@ -76,6 +77,7 @@ Short-term priorities:
 - keep the latest continuity audit drill-down and recent previews compact and reviewer-friendly without turning `cam session` into a full history browser
 - keep contradiction deletes conservative outside the supported command / explicit `preferences` / explicit `workflow` paths
 - keep `cam memory` useful as a grouped startup/topic-file audit surface with compact reviewer summaries
+- keep durable sync audit explicit and typed without turning it into a manual-edit history browser
 - keep public wording precise whenever `cam memory` exposes edit paths rather than richer in-command editing
 - keep Chinese and English public docs aligned without turning the entire maintainer surface into full bilingual duplication
 - keep release hygiene explicit about paired bilingual public-doc checks and companion-first wording

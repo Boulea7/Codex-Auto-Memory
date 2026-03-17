@@ -113,7 +113,8 @@ Claude Code 已经公开了一套相对清晰的 auto memory 产品契约：
 | inspect / audit memory | `/memory` | 无等价命令 | `cam memory` |
 | native hooks / memory | Built in | Experimental / under development | 当前只保留迁移 seam |
 
-`cam memory` 当前是 inspection / audit surface：它会暴露 active files、startup budget、topic refs 与 edit paths。  
+`cam memory` 当前是 inspection / audit surface：它会暴露 active files、startup budget、topic refs、edit paths，以及 `--recent [count]` 下的 recent durable sync audit。
+这些 recent sync events 来自 `~/.codex-auto-memory/projects/<project-id>/audit/sync-log.jsonl`，只覆盖 sync flow 的 `applied` / `no-op` / `skipped` 事件，不包含 manual `cam remember` / `cam forget`。
 显式更新仍通过 `cam remember`、`cam forget` 或直接编辑 Markdown 文件完成，而不是提供 `/memory` 风格的命令内编辑器。
 
 ## 快速开始
@@ -168,11 +169,17 @@ cam audit           # 检查仓库有没有意外的敏感内容
 | :-- | :-- |
 | `cam run` / `cam exec` / `cam resume` | 编译 startup memory 并通过 wrapper 启动 Codex |
 | `cam sync` | 手动把最近 rollout 同步进 durable memory |
-| `cam memory` | 查看 startup loaded files、topic refs、startup budget、edit paths |
+| `cam memory` | 查看 startup loaded files、topic refs、startup budget、edit paths，以及 `--recent [count]` 下的 durable sync audit |
 | `cam remember` / `cam forget` | 显式新增或删除 memory |
 | `cam session save` / `load` / `status` / `clear` | 管理独立的 session continuity layer |
 | `cam audit` | 做仓库级隐私 / secret hygiene 审查 |
 | `cam doctor` | 检查当前 companion wiring 与 native readiness posture |
+
+## 审计面地图
+
+- `cam audit`: 仓库级的 privacy / secret hygiene 审计。
+- `cam memory --recent [count]`: durable sync audit，查看 recent `applied` / `no-op` / `skipped` sync 事件，不混入 manual `remember` / `forget`。
+- `cam session save|load|status`: continuity audit surface，查看最新 continuity diagnostics、latest audit drill-down 和 compact recent preview。
 
 ## 工作方式
 

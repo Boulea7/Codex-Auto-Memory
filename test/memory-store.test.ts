@@ -207,7 +207,7 @@ describe("MemoryStore", () => {
     expect(startup.topicFiles).toHaveLength(topicLines.length);
   });
 
-  it("rejects topic traversal and skips corrupted audit log lines", async () => {
+  it("rejects topic traversal and skips corrupted or invalid sync audit lines", async () => {
     const projectDir = await tempDir("cam-store-guardrails-");
     const memoryRoot = await tempDir("cam-store-guardrails-mem-");
     const config: AppConfig = {
@@ -230,17 +230,61 @@ describe("MemoryStore", () => {
     await fs.writeFile(
       path.join(store.paths.auditDir, "sync-log.jsonl"),
       [
-        "{\"appliedAt\":\"2026-03-14T00:00:00.000Z\",\"resultSummary\":\"ok\"}",
+        JSON.stringify({
+          appliedAt: "2026-03-14T00:00:00.000Z",
+          projectId: "project-1",
+          worktreeId: "worktree-1",
+          rolloutPath: "/tmp/rollout-1.jsonl",
+          sessionId: "session-1",
+          extractorMode: "heuristic",
+          extractorName: "heuristic",
+          sessionSource: "rollout-jsonl",
+          status: "applied",
+          appliedCount: 1,
+          scopesTouched: ["project"],
+          resultSummary: "1 operation(s) applied",
+          operations: [
+            {
+              action: "upsert",
+              scope: "project",
+              topic: "workflow",
+              id: "entry-1",
+              summary: "Prefer pnpm.",
+              details: ["Use pnpm."],
+              sources: ["manual"]
+            }
+          ]
+        }),
         "THIS IS NOT JSON",
-        "{\"appliedAt\":\"2026-03-14T00:01:00.000Z\",\"resultSummary\":\"still ok\"}"
+        "\"not an object\"",
+        "[]",
+        JSON.stringify({
+          appliedAt: "2026-03-14T00:01:00.000Z",
+          resultSummary: "missing required fields"
+        }),
+        JSON.stringify({
+          appliedAt: "2026-03-14T00:02:00.000Z",
+          projectId: "project-1",
+          worktreeId: "worktree-1",
+          rolloutPath: "/tmp/rollout-2.jsonl",
+          extractorMode: "heuristic",
+          extractorName: "heuristic",
+          sessionSource: "rollout-jsonl",
+          status: "skipped",
+          skipReason: "already-processed",
+          appliedCount: 0,
+          scopesTouched: [],
+          resultSummary: "Skipped rollout; it was already processed",
+          operations: []
+        })
       ].join("\n"),
       "utf8"
     );
 
-    const auditEntries = await store.readRecentAuditEntries(5);
+    const auditEntries = await store.readRecentSyncAuditEntries(10);
     expect(auditEntries).toHaveLength(2);
-    expect(auditEntries[0]?.resultSummary).toBe("still ok");
-    expect(auditEntries[1]?.resultSummary).toBe("ok");
+    expect(auditEntries[0]?.resultSummary).toBe("Skipped rollout; it was already processed");
+    expect(auditEntries[1]?.resultSummary).toBe("1 operation(s) applied");
   });
 
   it("normalizes the legacy empty MEMORY.md template without rewriting user-edited files", async () => {

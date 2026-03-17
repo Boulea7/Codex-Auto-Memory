@@ -16,6 +16,31 @@ The format is intentionally simple and reviewer-friendly: each entry maps to a c
 - `cam session save --scope project` no longer updates local `.git/info/exclude` when only shared continuity is being written.
 - Continuity audit history now skips JSONL entries that parse successfully but do not match the expected `SessionContinuityAuditEntry` shape, preventing malformed audit data from leaking into `cam session load/status`.
 
+## 0.1.0-alpha.18 - 2026-03-17
+
+### Added
+
+- Added an explicit durable sync audit entry contract for `projects/<project-id>/audit/sync-log.jsonl`.
+- Added `recentSyncAudit` and `syncAuditPath` to `cam memory --json` while keeping `recentAudit` as a compatibility alias.
+- Added regression coverage for durable sync audit `applied`, `no-op`, `skipped`, and audit-write-failure paths.
+
+### Changed
+
+- `cam sync` and wrapper-backed durable sync now record reviewer-visible `applied`, `no-op`, and `skipped` events instead of only recording successful memory updates.
+- `cam memory --recent [count]` now explicitly reports durable sync audit events only; manual `cam remember` / `cam forget` updates remain outside that audit stream by design.
+- README, reviewer docs, and milestone handoff materials now document the audit-surface map more explicitly: repository audit, durable sync audit, and continuity audit.
+
+### Fixed
+
+- Durable sync audit parsing now skips JSONL lines that are valid JSON but do not match the expected audit shape, rather than leaking malformed payloads into reviewer output.
+- Sync processing now writes the durable sync audit entry before marking a rollout as processed, reducing the chance of silently losing reviewer history for a rollout that is later skipped as already processed.
+
+### Review focus
+
+- Confirm that `cam memory --recent` stays compact and reviewer-friendly without becoming a general history browser.
+- Confirm that durable sync audit remains separate from manual `remember` / `forget` edits and from continuity diagnostics.
+- Confirm that the additive `cam memory --json` fields stay backward compatible for existing consumers.
+
 ## 0.1.0-alpha.17 - 2026-03-17
 
 ### Added
