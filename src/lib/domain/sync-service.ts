@@ -1,6 +1,15 @@
+import fs from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import type { AppConfig, MemoryEntry, MemoryOperation, ProjectContext, RolloutEvidence, SyncResult } from "../types.js";
+import type {
+  AppConfig,
+  MemoryEntry,
+  MemoryOperation,
+  ProcessedRolloutIdentity,
+  ProjectContext,
+  RolloutEvidence,
+  SyncResult
+} from "../types.js";
 import { MemoryStore } from "./memory-store.js";
 import { HeuristicExtractor } from "../extractor/heuristic-extractor.js";
 import { CodexExtractor } from "../extractor/codex-extractor.js";
@@ -8,6 +17,12 @@ import { filterMemoryOperations } from "../extractor/safety.js";
 import type { MemoryExtractorAdapter } from "../runtime/contracts.js";
 import { RolloutSessionSource } from "../runtime/rollout-session-source.js";
 import { buildMemorySyncAuditEntry } from "./memory-sync-audit.js";
+
+interface ExtractionResult {
+  operations: MemoryOperation[];
+  actualExtractorMode: AppConfig["extractorMode"];
+  actualExtractorName: string;
+}
 
 export class SyncService {
   private readonly store: MemoryStore;
@@ -30,25 +45,6 @@ export class SyncService {
 
   public async syncRollout(rolloutPath: string, force = false): Promise<SyncResult> {
     await this.store.ensureLayout();
-    if (!force && (await this.store.hasProcessedRollout(rolloutPath))) {
-      await this.store.appendSyncAuditEntry(
-        buildMemorySyncAuditEntry({
-          project: this.project,
-          config: this.config,
-          rolloutPath,
-          extractorName: this.configuredExtractorName,
-          sessionSource: this.sessionSource.name,
-          status: "skipped",
-          skipReason: "already-processed"
-        })
-      );
-      return {
-        applied: [],
-        skipped: true,
-        message: `Skipped ${rolloutPath}; it was already processed.`
-      };
-    }
-
     const evidence = await this.sessionSource.parseEvidence(rolloutPath);
     if (!evidence) {
       await this.store.appendSyncAuditEntry(
@@ -56,7 +52,9 @@ export class SyncService {
           project: this.project,
           config: this.config,
           rolloutPath,
-          extractorName: this.configuredExtractorName,
+          configuredExtractorName: this.configuredExtractorName,
+          actualExtractorMode: this.configuredExtractorMode,
+          actualExtractorName: this.configuredExtractorName,
           sessionSource: this.sessionSource.name,
           status: "skipped",
           skipReason: "no-rollout-evidence"
@@ -69,29 +67,54 @@ export class SyncService {
       };
     }
 
+    const processedIdentity = await this.getProcessedRolloutIdentity(rolloutPath, evidence);
+    if (!force && (await this.store.hasProcessedRollout(processedIdentity))) {
+      await this.store.appendSyncAuditEntry(
+        buildMemorySyncAuditEntry({
+          project: this.project,
+          config: this.config,
+          rolloutPath,
+          sessionId: evidence.sessionId,
+          configuredExtractorName: this.configuredExtractorName,
+          actualExtractorMode: this.configuredExtractorMode,
+          actualExtractorName: this.configuredExtractorName,
+          sessionSource: this.sessionSource.name,
+          status: "skipped",
+          skipReason: "already-processed"
+        })
+      );
+      return {
+        applied: [],
+        skipped: true,
+        message: `Skipped ${rolloutPath}; it was already processed.`
+      };
+    }
+
     const existingEntries = [
       ...(await this.store.listEntries("global")),
       ...(await this.store.listEntries("project")),
       ...(await this.store.listEntries("project-local"))
     ];
 
-    const operations = filterMemoryOperations(
-      await this.extractOperations(evidence, existingEntries)
+    const extraction = await this.extractOperations(evidence, existingEntries);
+    const applied = await this.store.applyOperations(
+      filterMemoryOperations(extraction.operations)
     );
-    const applied = await this.store.applyOperations(operations);
     await this.store.appendSyncAuditEntry(
       buildMemorySyncAuditEntry({
         project: this.project,
         config: this.config,
         rolloutPath,
         sessionId: evidence.sessionId,
-        extractorName: this.configuredExtractorName,
+        configuredExtractorName: this.configuredExtractorName,
+        actualExtractorMode: extraction.actualExtractorMode,
+        actualExtractorName: extraction.actualExtractorName,
         sessionSource: this.sessionSource.name,
         status: applied.length === 0 ? "no-op" : "applied",
         operations: applied
       })
     );
-    await this.store.markRolloutProcessed(rolloutPath);
+    await this.store.markRolloutProcessed(processedIdentity);
 
     return {
       applied,
@@ -105,15 +128,48 @@ export class SyncService {
   private async extractOperations(
     evidence: RolloutEvidence,
     existingEntries: MemoryEntry[]
-  ): Promise<MemoryOperation[]> {
+  ): Promise<ExtractionResult> {
     if (this.config.extractorMode === "codex") {
       const modelOperations = await this.primaryExtractor.extract(evidence, existingEntries);
       if (modelOperations) {
-        return modelOperations;
+        return {
+          operations: modelOperations,
+          actualExtractorMode: "codex",
+          actualExtractorName: this.primaryExtractor.name
+        };
       }
+
+      return {
+        operations: (await this.fallbackExtractor.extract(evidence, existingEntries)) ?? [],
+        actualExtractorMode: "heuristic",
+        actualExtractorName: this.fallbackExtractor.name
+      };
     }
 
-    return (await this.fallbackExtractor.extract(evidence, existingEntries)) ?? [];
+    return {
+      operations: (await this.fallbackExtractor.extract(evidence, existingEntries)) ?? [],
+      actualExtractorMode: "heuristic",
+      actualExtractorName: this.fallbackExtractor.name
+    };
+  }
+
+  private async getProcessedRolloutIdentity(
+    rolloutPath: string,
+    evidence: RolloutEvidence
+  ): Promise<ProcessedRolloutIdentity> {
+    const stats = await fs.stat(rolloutPath);
+    return {
+      projectId: this.project.projectId,
+      worktreeId: this.project.worktreeId,
+      sessionId: evidence.sessionId,
+      rolloutPath,
+      sizeBytes: stats.size,
+      mtimeMs: stats.mtimeMs
+    };
+  }
+
+  private get configuredExtractorMode(): AppConfig["extractorMode"] {
+    return this.config.extractorMode;
   }
 
   private get configuredExtractorName(): string {
