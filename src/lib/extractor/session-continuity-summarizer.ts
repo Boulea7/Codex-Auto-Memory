@@ -14,6 +14,7 @@ import type {
 } from "../types.js";
 import { runCommandCapture } from "../util/process.js";
 import { trimText } from "../util/text.js";
+import { sanitizeSessionContinuityLayerSummary } from "../domain/session-continuity.js";
 import {
   NEXT_STEP_PATTERNS,
   UNTRIED_PATTERNS,
@@ -61,15 +62,18 @@ function buildLayerSummary(
   existing: SessionContinuityLayerSummary | null | undefined,
   next: Partial<SessionContinuityLayerSummary>
 ): SessionContinuityLayerSummary {
+  const sanitizedExisting = existing
+    ? sanitizeSessionContinuityLayerSummary(existing)
+    : undefined;
   return {
-    goal: next.goal || existing?.goal || "",
-    confirmedWorking: mergeItems(next.confirmedWorking, existing?.confirmedWorking),
-    triedAndFailed: mergeItems(next.triedAndFailed, existing?.triedAndFailed),
-    notYetTried: mergeItems(next.notYetTried, existing?.notYetTried),
-    incompleteNext: mergeItems(next.incompleteNext, existing?.incompleteNext),
+    goal: next.goal || sanitizedExisting?.goal || "",
+    confirmedWorking: mergeItems(next.confirmedWorking, sanitizedExisting?.confirmedWorking),
+    triedAndFailed: mergeItems(next.triedAndFailed, sanitizedExisting?.triedAndFailed),
+    notYetTried: mergeItems(next.notYetTried, sanitizedExisting?.notYetTried),
+    incompleteNext: mergeItems(next.incompleteNext, sanitizedExisting?.incompleteNext),
     filesDecisionsEnvironment: mergeItems(
       next.filesDecisionsEnvironment,
-      existing?.filesDecisionsEnvironment
+      sanitizedExisting?.filesDecisionsEnvironment
     )
   };
 }

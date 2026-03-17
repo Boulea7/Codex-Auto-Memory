@@ -416,6 +416,27 @@ describe("SyncService", () => {
     expect(auditFailureRecovery?.appliedCount).toBeGreaterThan(0);
   });
 
+  it("preserves the original audit failure when sync recovery marker persistence also fails", async () => {
+    const projectDir = await tempDir("cam-sync-audit-fail-recovery-fail-project-");
+    const memoryRoot = await tempDir("cam-sync-audit-fail-recovery-fail-memory-");
+    const rolloutPath = path.join(projectDir, "rollout.jsonl");
+    await fs.writeFile(rolloutPath, rolloutFixture(projectDir, "session-fail-both"), "utf8");
+
+    const service = new SyncService(
+      detectProjectContext(projectDir),
+      baseConfig(memoryRoot),
+      path.resolve("schemas/memory-operations.schema.json")
+    );
+    vi.spyOn(service.memoryStore, "appendSyncAuditEntry").mockRejectedValueOnce(
+      new Error("audit write failed")
+    );
+    vi.spyOn(service.memoryStore, "writeSyncRecoveryRecord").mockRejectedValueOnce(
+      new Error("recovery write failed")
+    );
+
+    await expect(service.syncRollout(rolloutPath, true)).rejects.toThrow("audit write failed");
+  });
+
   it("writes a recovery marker when processed-state persistence fails after audit write", async () => {
     const projectDir = await tempDir("cam-sync-state-fail-project-");
     const memoryRoot = await tempDir("cam-sync-state-fail-memory-");
@@ -447,7 +468,7 @@ describe("SyncService", () => {
     expect(stateFailureRecovery?.appliedCount).toBeGreaterThan(0);
   });
 
-  it("clears a stale sync recovery marker after a successful sync", async () => {
+  it("does not clear an unrelated sync recovery marker after a successful sync", async () => {
     const projectDir = await tempDir("cam-sync-recovery-clear-project-");
     const memoryRoot = await tempDir("cam-sync-recovery-clear-memory-");
     const rolloutPath = path.join(projectDir, "rollout.jsonl");
@@ -473,6 +494,44 @@ describe("SyncService", () => {
       scopesTouched: ["project"],
       failedStage: "audit-write",
       failureMessage: "stale marker",
+      auditEntryWritten: false
+    });
+
+    const result = await service.syncRollout(rolloutPath, true);
+
+    expect(result.skipped).toBe(false);
+    expect(await service.memoryStore.readSyncRecoveryRecord()).toMatchObject({
+      rolloutPath: "/tmp/stale-rollout.jsonl",
+      sessionId: "stale-session"
+    });
+  });
+
+  it("clears a matching sync recovery marker after the same rollout succeeds", async () => {
+    const projectDir = await tempDir("cam-sync-recovery-match-project-");
+    const memoryRoot = await tempDir("cam-sync-recovery-match-memory-");
+    const rolloutPath = path.join(projectDir, "rollout.jsonl");
+    await fs.writeFile(rolloutPath, rolloutFixture(projectDir, "session-recovery-clear"), "utf8");
+
+    const service = new SyncService(
+      detectProjectContext(projectDir),
+      baseConfig(memoryRoot),
+      path.resolve("schemas/memory-operations.schema.json")
+    );
+    await service.memoryStore.writeSyncRecoveryRecord({
+      recordedAt: "2026-03-18T00:00:00.000Z",
+      projectId: detectProjectContext(projectDir).projectId,
+      worktreeId: detectProjectContext(projectDir).worktreeId,
+      rolloutPath,
+      sessionId: "session-recovery-clear",
+      configuredExtractorMode: "heuristic",
+      configuredExtractorName: "heuristic",
+      actualExtractorMode: "heuristic",
+      actualExtractorName: "heuristic",
+      status: "applied",
+      appliedCount: 1,
+      scopesTouched: ["project"],
+      failedStage: "audit-write",
+      failureMessage: "matching marker",
       auditEntryWritten: false
     });
 

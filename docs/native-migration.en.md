@@ -121,4 +121,4 @@ Migration becomes reasonable only when all of the following are true:
 - Codex CLI overview: <https://developers.openai.com/codex/cli>
 - Codex feature maturity: <https://developers.openai.com/codex/feature-maturity>
 - Codex changelog: <https://developers.openai.com/codex/changelog>
-- Codex config docs: <https://developers.openai.com/codex/config>
+- Codex config docs: <https://developers.openai.com/codex/cli/config>

@@ -120,6 +120,32 @@ describe("MemoryStore", () => {
     });
   });
 
+  it("does not report a memory file as startup-loaded when only header lines fit", async () => {
+    const projectDir = await tempDir("cam-store-startup-header-only-");
+    const memoryRoot = await tempDir("cam-store-startup-header-only-mem-");
+    const config: AppConfig = {
+      autoMemoryEnabled: true,
+      autoMemoryDirectory: memoryRoot,
+      extractorMode: "heuristic",
+      defaultScope: "project",
+      maxStartupLines: 200,
+      sessionContinuityAutoLoad: false,
+      sessionContinuityAutoSave: false,
+      sessionContinuityLocalPathStyle: "codex",
+      maxSessionContinuityLines: 60,
+      codexBinary: "codex"
+    };
+    const store = new MemoryStore(detectProjectContext(projectDir), config);
+    await store.ensureLayout();
+
+    const startup = await compileStartupMemory(store, 8);
+
+    expect(startup.lineCount).toBe(8);
+    expect(startup.text).toContain("## Project Local");
+    expect(startup.text).not.toContain("| # Project Local Memory");
+    expect(startup.sourceFiles).toEqual([]);
+  });
+
   it("skips valid-json entry metadata that does not match the expected shape", async () => {
     const projectDir = await tempDir("cam-store-entry-shape-");
     const memoryRoot = await tempDir("cam-store-entry-shape-mem-");
