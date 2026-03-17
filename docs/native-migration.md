@@ -14,15 +14,18 @@
 
 ## 当前现实
 
-Codex 已经公开了一些对本项目有价值的基础能力：
+Codex 的官方公开资料已经能确认一些对本项目有价值的基础能力：
 
-- rollout JSONL
-- resume / fork
 - `AGENTS.md`
 - project-level `.codex/config.toml`
 - multi-agent workflows
-- experimental `memories`
-- experimental `codex_hooks`
+- resume / fork
+
+本地运行时与 `cam doctor --json` 还能看到一些迁移相关 signal：
+
+- rollout JSONL
+- `memories`
+- `codex_hooks`
 
 但这些还不足以支撑“现在就把 companion path 废掉”。
 
@@ -51,7 +54,7 @@ Codex 已经公开了一些对本项目有价值的基础能力：
 | 问题 | 当前回答 |
 | :-- | :-- |
 | native memories 已稳定公开吗 | 还没有 |
-| native hooks 已足够支撑 Claude-style lifecycle 吗 | 还没有 |
+| 本地 native hooks signal 已足够支撑 Claude-style lifecycle 吗 | 还没有 |
 | 能在 CI 中可靠验证 native behavior 吗 | 还不够 |
 | 能保证与当前 Markdown contract 等价吗 | 还不能 |
 

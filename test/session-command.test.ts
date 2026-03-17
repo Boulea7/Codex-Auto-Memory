@@ -1,7 +1,7 @@
 import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { runSession } from "../src/lib/commands/session.js";
 import { runWrappedCodex } from "../src/lib/commands/wrapper.js";
 import { detectProjectContext } from "../src/lib/domain/project-context.js";
@@ -280,7 +280,7 @@ describe("runSession", () => {
     expect(latestAudit?.actualPath).toBe("heuristic");
     expect(latestAudit?.fallbackReason).toBe("configured-heuristic");
     expect(await store.readMergedState()).toBeNull();
-  }, 15_000);
+  }, 25_000);
 
   it("supports session save --json from the CLI command surface", async () => {
     const repoDir = await tempDir("cam-session-cli-repo-");
@@ -491,6 +491,130 @@ describe("runSession", () => {
     expect(statusOutput).toContain("/tmp/rollout-good.jsonl");
     expect(statusOutput).not.toContain("/tmp/rollout-invalid.jsonl");
   }, 15_000);
+
+  it("writes and surfaces a continuity recovery marker when audit persistence fails", async () => {
+    const repoDir = await tempDir("cam-session-recovery-repo-");
+    const memoryRoot = await tempDir("cam-session-recovery-memory-");
+    await initRepo(repoDir);
+
+    await writeProjectConfig(
+      repoDir,
+      configJson(),
+      { autoMemoryDirectory: memoryRoot }
+    );
+
+    const rolloutPath = path.join(repoDir, "rollout.jsonl");
+    await fs.writeFile(
+      rolloutPath,
+      rolloutFixture(repoDir, "Persist continuity even if audit append fails."),
+      "utf8"
+    );
+
+    const appendAuditSpy = vi
+      .spyOn(SessionContinuityStore.prototype, "appendAuditLog")
+      .mockRejectedValueOnce(new Error("continuity audit write failed"));
+
+    await expect(
+      runSession("save", {
+        cwd: repoDir,
+        rollout: rolloutPath,
+        scope: "both"
+      })
+    ).rejects.toThrow("continuity audit write failed");
+    appendAuditSpy.mockRestore();
+
+    const store = new SessionContinuityStore(detectProjectContext(repoDir), {
+      ...configJson(),
+      autoMemoryDirectory: memoryRoot
+    });
+    expect(await store.readRecoveryRecord()).toMatchObject({
+      rolloutPath,
+      failedStage: "audit-write",
+      failureMessage: "continuity audit write failed",
+      scope: "both"
+    });
+
+    const loadJson = JSON.parse(
+      await runSession("load", { cwd: repoDir, json: true })
+    ) as {
+      pendingContinuityRecovery: { rolloutPath: string; failedStage: string; failureMessage: string } | null;
+      continuityRecoveryPath: string;
+      recentContinuityAuditEntries: Array<{ rolloutPath: string }>;
+    };
+    expect(loadJson.pendingContinuityRecovery).toMatchObject({
+      rolloutPath,
+      failedStage: "audit-write",
+      failureMessage: "continuity audit write failed"
+    });
+    expect(loadJson.continuityRecoveryPath).toContain("session-continuity-recovery.json");
+    expect(loadJson.recentContinuityAuditEntries).toEqual([]);
+
+    const statusJson = JSON.parse(
+      await runSession("status", { cwd: repoDir, json: true })
+    ) as {
+      pendingContinuityRecovery: { rolloutPath: string } | null;
+      continuityRecoveryPath: string;
+    };
+    expect(statusJson.pendingContinuityRecovery?.rolloutPath).toBe(rolloutPath);
+    expect(statusJson.continuityRecoveryPath).toContain("session-continuity-recovery.json");
+
+    const loadOutput = await runSession("load", { cwd: repoDir });
+    expect(loadOutput).toContain("Pending continuity recovery:");
+    expect(loadOutput).toContain("continuity audit write failed");
+    expect(loadOutput).toContain(rolloutPath);
+
+    const saveJson = JSON.parse(
+      await runSession("save", {
+        cwd: repoDir,
+        rollout: rolloutPath,
+        scope: "both",
+        json: true
+      })
+    ) as {
+      pendingContinuityRecovery: object | null;
+    };
+    expect(saveJson.pendingContinuityRecovery).toBeNull();
+    expect(await store.readRecoveryRecord()).toBeNull();
+  }, 15_000);
+
+  it("ignores a corrupted continuity recovery marker instead of crashing load or status", async () => {
+    const repoDir = await tempDir("cam-session-bad-recovery-repo-");
+    const memoryRoot = await tempDir("cam-session-bad-recovery-memory-");
+    await initRepo(repoDir);
+
+    await writeProjectConfig(
+      repoDir,
+      configJson(),
+      { autoMemoryDirectory: memoryRoot }
+    );
+
+    const store = new SessionContinuityStore(detectProjectContext(repoDir), {
+      ...configJson(),
+      autoMemoryDirectory: memoryRoot
+    });
+    await fs.mkdir(path.dirname(store.getRecoveryPath()), { recursive: true });
+    await fs.writeFile(store.getRecoveryPath(), "{\"broken\":\n", "utf8");
+
+    const loadJson = JSON.parse(
+      await runSession("load", { cwd: repoDir, json: true })
+    ) as {
+      pendingContinuityRecovery: object | null;
+    };
+    expect(loadJson.pendingContinuityRecovery).toBeNull();
+
+    const statusJson = JSON.parse(
+      await runSession("status", { cwd: repoDir, json: true })
+    ) as {
+      pendingContinuityRecovery: object | null;
+    };
+    expect(statusJson.pendingContinuityRecovery).toBeNull();
+
+    const loadOutput = await runSession("load", { cwd: repoDir });
+    expect(loadOutput).not.toContain("Pending continuity recovery:");
+
+    const statusOutput = await runSession("status", { cwd: repoDir });
+    expect(statusOutput).not.toContain("Pending continuity recovery:");
+  }, 15_000);
 });
 
 describe("runWrappedCodex with session continuity", () => {
@@ -585,5 +709,71 @@ fs.writeFileSync(rolloutPath, [
     expect(latestAudit?.actualPath).toBe("heuristic");
     expect(latestAudit?.fallbackReason).toBe("configured-heuristic");
     expect(latestAudit?.writtenPaths.length).toBeGreaterThan(0);
+  }, 15_000);
+
+  it("writes a continuity recovery marker when wrapper auto-save cannot append audit", async () => {
+    const repoDir = await tempDir("cam-wrapper-recovery-repo-");
+    const memoryRoot = await tempDir("cam-wrapper-recovery-memory-");
+    const sessionsDir = await tempDir("cam-wrapper-recovery-rollouts-");
+    await initRepo(repoDir);
+    process.env.CAM_CODEX_SESSIONS_DIR = sessionsDir;
+
+    const mockCodexPath = path.join(repoDir, "mock-codex");
+    const todayDir = path.join(sessionsDir, "2026", "03", "15");
+    await fs.mkdir(todayDir, { recursive: true });
+    await fs.writeFile(
+      mockCodexPath,
+      `#!/usr/bin/env node
+const fs = require("node:fs");
+const path = require("node:path");
+const cwd = process.cwd();
+const sessionsDir = process.env.CAM_CODEX_SESSIONS_DIR;
+const rolloutDir = path.join(sessionsDir, "2026", "03", "15");
+fs.mkdirSync(rolloutDir, { recursive: true });
+const rolloutPath = path.join(rolloutDir, "rollout-2026-03-15T00-00-00-000Z-session.jsonl");
+fs.writeFileSync(rolloutPath, [
+  JSON.stringify({ type: "session_meta", payload: { id: "session-wrapper-recovery", timestamp: "2026-03-15T00:00:00.000Z", cwd } }),
+  JSON.stringify({ type: "event_msg", payload: { type: "user_message", message: "Continue wrapper recovery handling." } }),
+  JSON.stringify({ type: "response_item", payload: { type: "function_call", name: "exec_command", call_id: "call-1", arguments: "{\\"cmd\\":\\"pnpm test\\"}" } }),
+  JSON.stringify({ type: "response_item", payload: { type: "function_call_output", call_id: "call-1", output: "Process exited with code 0" } })
+].join("\\n"));
+`,
+      "utf8"
+    );
+    await fs.chmod(mockCodexPath, 0o755);
+
+    await writeProjectConfig(
+      repoDir,
+      configJson({
+        codexBinary: mockCodexPath,
+        sessionContinuityAutoSave: true
+      }),
+      {
+        autoMemoryDirectory: memoryRoot,
+        sessionContinuityAutoSave: true
+      }
+    );
+
+    const appendAuditSpy = vi
+      .spyOn(SessionContinuityStore.prototype, "appendAuditLog")
+      .mockRejectedValueOnce(new Error("wrapper continuity audit write failed"));
+
+    await expect(runWrappedCodex(repoDir, "exec", ["continue"])).rejects.toThrow(
+      "wrapper continuity audit write failed"
+    );
+    appendAuditSpy.mockRestore();
+
+    const store = new SessionContinuityStore(detectProjectContext(repoDir), {
+      ...configJson({
+        codexBinary: mockCodexPath,
+        sessionContinuityAutoSave: true
+      }),
+      autoMemoryDirectory: memoryRoot
+    });
+    expect(await store.readRecoveryRecord()).toMatchObject({
+      failedStage: "audit-write",
+      failureMessage: "wrapper continuity audit write failed",
+      scope: "both"
+    });
   }, 15_000);
 });

@@ -17,11 +17,16 @@ import { filterMemoryOperations } from "../extractor/safety.js";
 import type { MemoryExtractorAdapter } from "../runtime/contracts.js";
 import { RolloutSessionSource } from "../runtime/rollout-session-source.js";
 import { buildMemorySyncAuditEntry } from "./memory-sync-audit.js";
+import { buildSyncRecoveryRecord } from "./recovery-records.js";
 
 interface ExtractionResult {
   operations: MemoryOperation[];
   actualExtractorMode: AppConfig["extractorMode"];
   actualExtractorName: string;
+}
+
+function errorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
 }
 
 export class SyncService {
@@ -100,21 +105,57 @@ export class SyncService {
     const applied = await this.store.applyOperations(
       filterMemoryOperations(extraction.operations)
     );
-    await this.store.appendSyncAuditEntry(
-      buildMemorySyncAuditEntry({
-        project: this.project,
-        config: this.config,
+    const status = applied.length === 0 ? "no-op" : "applied";
+    const auditEntry = buildMemorySyncAuditEntry({
+      project: this.project,
+      config: this.config,
+      rolloutPath,
+      sessionId: evidence.sessionId,
+      configuredExtractorName: this.configuredExtractorName,
+      actualExtractorMode: extraction.actualExtractorMode,
+      actualExtractorName: extraction.actualExtractorName,
+      sessionSource: this.sessionSource.name,
+      status,
+      operations: applied
+    });
+
+    try {
+      await this.store.appendSyncAuditEntry(auditEntry);
+    } catch (error) {
+      await this.writeSyncRecoveryRecord({
         rolloutPath,
         sessionId: evidence.sessionId,
-        configuredExtractorName: this.configuredExtractorName,
         actualExtractorMode: extraction.actualExtractorMode,
         actualExtractorName: extraction.actualExtractorName,
-        sessionSource: this.sessionSource.name,
-        status: applied.length === 0 ? "no-op" : "applied",
-        operations: applied
-      })
-    );
-    await this.store.markRolloutProcessed(processedIdentity);
+        status,
+        appliedCount: auditEntry.appliedCount,
+        scopesTouched: auditEntry.scopesTouched,
+        failedStage: "audit-write",
+        failureMessage: errorMessage(error),
+        auditEntryWritten: false
+      });
+      throw error;
+    }
+
+    try {
+      await this.store.markRolloutProcessed(processedIdentity);
+    } catch (error) {
+      await this.writeSyncRecoveryRecord({
+        rolloutPath,
+        sessionId: evidence.sessionId,
+        actualExtractorMode: extraction.actualExtractorMode,
+        actualExtractorName: extraction.actualExtractorName,
+        status,
+        appliedCount: auditEntry.appliedCount,
+        scopesTouched: auditEntry.scopesTouched,
+        failedStage: "processed-state-write",
+        failureMessage: errorMessage(error),
+        auditEntryWritten: true
+      });
+      throw error;
+    }
+
+    await this.clearSyncRecoveryRecordBestEffort();
 
     return {
       applied,
@@ -176,5 +217,49 @@ export class SyncService {
     return this.config.extractorMode === "codex"
       ? this.primaryExtractor.name
       : this.fallbackExtractor.name;
+  }
+
+  private async writeSyncRecoveryRecord(options: {
+    rolloutPath: string;
+    sessionId?: string;
+    actualExtractorMode: AppConfig["extractorMode"];
+    actualExtractorName: string;
+    status: "applied" | "no-op";
+    appliedCount: number;
+    scopesTouched: MemoryOperation["scope"][];
+    failedStage: "audit-write" | "processed-state-write";
+    failureMessage: string;
+    auditEntryWritten: boolean;
+  }): Promise<void> {
+    try {
+      await this.store.writeSyncRecoveryRecord(
+        buildSyncRecoveryRecord({
+          projectId: this.project.projectId,
+          worktreeId: this.project.worktreeId,
+          rolloutPath: options.rolloutPath,
+          sessionId: options.sessionId,
+          configuredExtractorMode: this.configuredExtractorMode,
+          configuredExtractorName: this.configuredExtractorName,
+          actualExtractorMode: options.actualExtractorMode,
+          actualExtractorName: options.actualExtractorName,
+          status: options.status,
+          appliedCount: options.appliedCount,
+          scopesTouched: options.scopesTouched,
+          failedStage: options.failedStage,
+          failureMessage: options.failureMessage,
+          auditEntryWritten: options.auditEntryWritten
+        })
+      );
+    } catch {
+      // Best-effort marker persistence should not overwrite the original failure.
+    }
+  }
+
+  private async clearSyncRecoveryRecordBestEffort(): Promise<void> {
+    try {
+      await this.store.clearSyncRecoveryRecord();
+    } catch {
+      // Best-effort cleanup should not fail an otherwise successful sync.
+    }
   }
 }

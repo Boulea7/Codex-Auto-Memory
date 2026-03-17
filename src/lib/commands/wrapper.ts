@@ -3,6 +3,7 @@ import {
   buildSessionContinuityAuditEntry,
   formatSessionContinuityDiagnostics
 } from "../domain/session-continuity-diagnostics.js";
+import { buildContinuityRecoveryRecord } from "../domain/recovery-records.js";
 import { listRolloutFiles, parseRolloutEvidence } from "../domain/rollout.js";
 import { compileSessionContinuity } from "../domain/session-continuity.js";
 import { readCodexBaseInstructions } from "../runtime/codex-config.js";
@@ -14,6 +15,10 @@ import { SessionContinuitySummarizer } from "../extractor/session-continuity-sum
 
 const sessionSource = new RolloutSessionSource();
 const runtimeInjector = new WrapperRuntimeInjector();
+
+function errorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
+}
 
 async function syncRecentRollouts(
   cwd: string,
@@ -102,15 +107,38 @@ async function saveSessionContinuity(
   const summarizer = new SessionContinuitySummarizer(runtime.loadedConfig.config);
   const generation = await summarizer.summarizeWithDiagnostics(evidence, existing);
   const written = await runtime.sessionContinuityStore.saveSummary(generation.summary, "both");
-  await runtime.sessionContinuityStore.appendAuditLog(
-    buildSessionContinuityAuditEntry(
-      runtime.project,
-      runtime.loadedConfig.config,
-      generation.diagnostics,
-      written,
-      "both"
-    )
+  const auditEntry = buildSessionContinuityAuditEntry(
+    runtime.project,
+    runtime.loadedConfig.config,
+    generation.diagnostics,
+    written,
+    "both"
   );
+  try {
+    await runtime.sessionContinuityStore.appendAuditLog(auditEntry);
+  } catch (error) {
+    try {
+      await runtime.sessionContinuityStore.writeRecoveryRecord(
+        buildContinuityRecoveryRecord({
+          projectId: runtime.project.projectId,
+          worktreeId: runtime.project.worktreeId,
+          diagnostics: generation.diagnostics,
+          scope: "both",
+          writtenPaths: written,
+          failedStage: "audit-write",
+          failureMessage: errorMessage(error)
+        })
+      );
+    } catch {
+      // Best-effort marker persistence should not overwrite the original failure.
+    }
+    throw error;
+  }
+  try {
+    await runtime.sessionContinuityStore.clearRecoveryRecord();
+  } catch {
+    // Best-effort cleanup should not fail an otherwise successful auto-save.
+  }
   return written.length > 0
     ? [
         `Updated session continuity from ${rolloutPath}:`,
