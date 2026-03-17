@@ -421,6 +421,34 @@ describe("session continuity domain", () => {
     expect(prompt).toContain("login.ts");
   });
 
+  it("collects successful and failed bash tool calls in continuity evidence buckets", () => {
+    const evidence: RolloutEvidence = {
+      sessionId: "session-bash-buckets",
+      createdAt: "2026-03-15T00:00:00.000Z",
+      cwd: "/tmp/project",
+      userMessages: ["Run shell checks"],
+      agentMessages: [],
+      toolCalls: [
+        {
+          name: "Bash",
+          arguments: JSON.stringify({ cmd: "pnpm test" }),
+          output: "PASS"
+        },
+        {
+          name: "bash_runner",
+          arguments: JSON.stringify({ cmd: "pnpm build" }),
+          output: "Process exited with code 1"
+        }
+      ],
+      rolloutPath: "/tmp/rollout.jsonl"
+    };
+
+    const buckets = collectSessionContinuityEvidenceBuckets(evidence);
+
+    expect(buckets.recentSuccessfulCommands.join("\n")).toContain("pnpm test");
+    expect(buckets.recentFailedCommands.join("\n")).toContain("pnpm build");
+  });
+
   it("codex mode returns valid layered output from a mocked codex binary", async () => {
     const temp = await tempDir("cam-session-codex-valid-");
     const mockBinary = await writeMockCodexBinary(

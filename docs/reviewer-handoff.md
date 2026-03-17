@@ -40,6 +40,8 @@ The repository currently has:
 ## Most recent milestone commits
 
 - current implementation window: alpha.17 continuity drill-down and bilingual docs discipline
+- `d8e88f9` `feat(alpha.17): add continuity drill-down and docs discipline`
+- `0f40277` `docs(alpha.16): redesign bilingual readme and docs portal`
 - `34934fc` `feat(alpha.15): harden contradiction boundaries and review wording`
 - `7cb6337` `fix(ci): rely on packageManager for pnpm version`
 - `7bacf9f` `feat(alpha.14): refresh reviewer packet and session history preview`

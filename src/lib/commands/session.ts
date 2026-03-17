@@ -1,5 +1,5 @@
-import { spawn } from "node:child_process";
 import { findLatestProjectRollout } from "../domain/rollout.js";
+import { openPath } from "../util/open.js";
 import {
   buildSessionContinuityAuditEntry,
   formatSessionContinuityAuditDrillDown,
@@ -25,27 +25,6 @@ interface SessionOptions {
 
 const recentContinuityAuditLimit = 5;
 const recentContinuityPreviewLimit = 3;
-
-function openPath(targetPath: string): void {
-  const command =
-    process.platform === "darwin"
-      ? "open"
-      : process.platform === "win32"
-        ? "cmd"
-        : "xdg-open";
-  const args =
-    process.platform === "darwin"
-      ? [targetPath]
-      : process.platform === "win32"
-        ? ["/c", "start", "", targetPath]
-        : [targetPath];
-
-  const child = spawn(command, args, {
-    detached: true,
-    stdio: "ignore"
-  });
-  child.unref();
-}
 
 function selectedScope(scope?: SessionContinuityScope | "both"): SessionContinuityScope | "both" {
   if (!scope) {

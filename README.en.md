@@ -23,8 +23,18 @@
   </p>
 </div>
 
-> `codex-auto-memory` is not a generic note-taking app and not a cloud memory service.  
+> `codex-auto-memory` is not a generic note-taking app and not a cloud memory service.
 > Its job is to recreate the observable Claude Code auto memory contract for today's Codex runtime with local Markdown files, compact startup injection, topic-file lookup on demand, and a clean migration seam toward future native memory features.
+
+---
+
+**Three things to know up front:**
+
+1. **What it does** — After each Codex session, it automatically extracts useful knowledge from the session log and writes it into local Markdown files. Those files are injected at next startup so Codex "remembers" your project.
+2. **How it stores** — Everything is plain Markdown under `~/.codex-auto-memory/`. You can read, edit, and include it in code review at any time.
+3. **Relation to Claude** — This is a companion CLI. It replicates the Claude Code auto memory workflow on top of Codex. It is not an Anthropic product and has no cloud component.
+
+---
 
 ## Contents
 
@@ -107,47 +117,48 @@ Not a good fit:
 
 ## Quick start
 
-### 1. Install dependencies
+### 1. Clone and install
 
 ```bash
+git clone https://github.com/Boulea7/Codex-Auto-Memory.git
+cd Codex-Auto-Memory
 pnpm install
 ```
 
-### 2. Build the CLI
+### 2. Build and link the global command
 
 ```bash
 pnpm build
+pnpm link --global
 ```
 
-### 3. Initialize the current project
+> After this, the `cam` command works in any directory.
+
+### 3. Initialize inside your project
 
 ```bash
-pnpm exec tsx src/cli.ts init
+cd /your/project
+cam init
 ```
 
-This creates the tracked project config `codex-auto-memory.json` and documents how `.codex-auto-memory.local.json` overrides work.
+This creates `codex-auto-memory.json` in your project root (committed to Git) and `.codex-auto-memory.local.json` locally (gitignored by default).
 
-### 4. Launch Codex through the wrapper
-
-```bash
-pnpm exec tsx src/cli.ts run
-```
-
-If you already linked the CLI globally, you can also use:
+### 4. Launch Codex through the wrapper (memory starts working)
 
 ```bash
 cam run
 ```
 
-### 5. Inspect memory and continuity
+After each session ends, `cam` automatically extracts knowledge from the Codex rollout log and writes it into the memory files.
+
+### 5. Inspect your memory
 
 ```bash
-cam memory
-cam session status
-cam session load --print-startup
-cam remember "Always use pnpm instead of npm"
-cam forget "old debug note"
-cam audit
+cam memory          # show active memory files and startup budget
+cam session status  # show session continuity state
+cam remember "Always use pnpm instead of npm"   # manually record a preference
+cam forget "old debug note"                     # remove a stale entry
+cam audit           # check the repository for unexpected sensitive content
 ```
 
 ## Common commands

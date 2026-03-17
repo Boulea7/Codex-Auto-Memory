@@ -2,6 +2,7 @@ import { DEFAULT_MEMORY_TOPICS } from "../constants.js";
 import type { MemoryEntry, MemoryOperation, RolloutEvidence } from "../types.js";
 import type { MemoryExtractorAdapter } from "../runtime/contracts.js";
 import { slugify } from "../util/text.js";
+import { commandSucceeded, extractCommand, isCommandToolCall } from "./command-utils.js";
 
 interface ExplicitCorrection {
   scope: MemoryOperation["scope"];
@@ -44,28 +45,6 @@ function inferTopic(message: string): string {
   }
 
   return "workflow";
-}
-
-function extractCommand(toolCall: RolloutEvidence["toolCalls"][number]): string | null {
-  try {
-    const parsed = JSON.parse(toolCall.arguments) as { cmd?: string; command?: string };
-    return parsed.cmd ?? parsed.command ?? null;
-  } catch {
-    const match =
-      toolCall.arguments.match(/"cmd":"([^"]+)"/) ??
-      toolCall.arguments.match(/"command":"([^"]+)"/);
-    return match?.[1] ?? null;
-  }
-}
-
-function commandSucceeded(toolCall: RolloutEvidence["toolCalls"][number]): boolean {
-  if (!toolCall.output) {
-    return false;
-  }
-
-  return /(exit code 0|Process exited with code 0|done in |completed successfully)/iu.test(
-    toolCall.output
-  );
 }
 
 function extractCommandFromSummary(summary: string): string | null {
@@ -224,10 +203,6 @@ function collectExplicitCorrectionDeletes(
 
   return directCandidates
     .filter((entry) => {
-      if (contextTokens.length === 0) {
-        return false;
-      }
-
       const haystack = normalizeForComparison(`${entry.summary}\n${entry.details.join("\n")}`);
       const contextMatches = contextTokens.filter((token) => haystack.includes(token)).length;
       return contextMatches >= Math.min(2, contextTokens.length);
@@ -450,9 +425,7 @@ export class HeuristicExtractor implements MemoryExtractorAdapter {
       }
     }
 
-    const commandCalls = evidence.toolCalls.filter((toolCall) =>
-      toolCall.name.includes("exec_command") || toolCall.name.toLowerCase().includes("bash")
-    );
+    const commandCalls = evidence.toolCalls.filter(isCommandToolCall);
 
     const seenCommands = new Set<string>();
     for (const toolCall of commandCalls) {
