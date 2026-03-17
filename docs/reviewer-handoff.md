@@ -32,7 +32,7 @@ The repository currently has:
 - review-oriented docs and changelog tracking
 - a repository privacy audit command: `cam audit`
 - a reviewer-oriented durable sync audit log at `projects/<project-id>/audit/sync-log.jsonl` keyed by structured rollout identity
-- a reviewer-oriented `cam memory` surface that shows startup-loaded files, topic refs, edit paths, recent durable sync audit events, and configured-vs-actual extractor truth when fallback occurs
+- a reviewer-oriented `cam memory` surface that shows startup-loaded index files, on-demand topic refs, edit paths, recent durable sync audit events, and configured-vs-actual extractor truth when fallback occurs
 - a reviewer-oriented continuity audit log that records preferred vs actual generation path, fallback reasons, evidence counts, and written continuity paths
 - a reviewer-oriented `cam session` surface that shows the latest continuity diagnostics, the latest evidence/written-path drill-down, and a compact recent generation preview
 - conservative contradiction handling that now has extra negative-fixture coverage so unsupported topics do not auto-delete stale memory
@@ -42,7 +42,7 @@ The repository currently has:
 
 - `cam audit`: repository-level privacy and secret-hygiene audit
 - `cam memory --recent [count]`: durable sync audit for recent `applied` / `no-op` / `skipped` sync events
-- `cam session save|load|status`: continuity audit surface for the latest diagnostics and compact recent history
+- `cam session save|load|status`: continuity audit surface for the latest diagnostics; `load` / `status` text output adds compact recent history, and all three `--json` variants return recent audit entries
 
 Manual `cam remember` / `cam forget` updates remain outside the durable sync audit stream by design.
 

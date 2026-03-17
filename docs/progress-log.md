@@ -6,7 +6,7 @@ This document tracks implementation progress in a format that is easy to consume
 
 - Approximate overall progress toward a strong Claude-style alpha: `99%`
 - Approximate progress toward a working local MVP: `99%`
-- Current phase: `Phase 19 - sync identity hardening and extractor audit truth`
+- Current phase: `Phase 20 - reviewer truth tightening and markdown hardening`
 
 ## Completed milestones
 
@@ -206,6 +206,14 @@ This document tracks implementation progress in a format that is easy to consume
 - Added regression coverage for rewritten same-path rollouts, legacy processed-state compatibility, and Codex-configured fallback-to-heuristic audit truth.
 - Added explicit timeout headroom for the slower `audit` and `project-context` tests so reviewer validation is more stable on typical local machines.
 
+### Milestone 20: Reviewer truth tightening and markdown hardening
+
+- Startup compilation now records only actually quoted `MEMORY.md` index files in `sourceFiles` / `loadedFiles`; topic refs remain exposed separately through the on-demand topic-file surface.
+- `cam memory` docs and reviewer wording now describe startup-loaded index files and on-demand topic refs explicitly instead of blurring them together.
+- `MemoryStore` now skips topic-entry metadata that parses as JSON but does not match the expected shape, making user-edited Markdown more robust.
+- Continuity evidence now treats in-progress command output as unknown rather than failed, reducing reviewer noise in `cam session` diagnostics and audit entries.
+- Added regression coverage for manual `remember` / `forget` staying outside durable sync audit, for invalid-shaped topic-entry metadata, for in-progress command output, and for `cam audit --json` severity summaries.
+
 ## Reviewer checkpoints
 
 If you are reviewing the repository now, start here:
@@ -237,13 +245,12 @@ If you are reviewing the repository now, start here:
 
 ## Next planned milestones
 
-### Milestone 20: Keep reviewer gates explicit and migration posture conservative
+### Milestone 21: Failure-path contracts and compact state follow-through
 
-- Keep the structured processed-rollout identity stable and compact without reintroducing path-only skip semantics.
-- Keep actual-vs-configured extractor audit visible without turning `cam memory` into a history browser.
-- Keep the latest continuity drill-down stable and compact without turning it into a browser, filter UI, or export flow.
-- Keep Chinese / English public docs synchronized as a routine release discipline rather than a one-off cleanup.
-- Keep official Codex migration guidance conservative until public docs and local readiness both move.
+- Clarify the reviewer contract when durable sync or continuity writes succeed partially but audit or processed-state sidecars fail.
+- Consider a compacting strategy for `processedRolloutEntries` that preserves structured skip semantics without turning `state.json` into an ever-growing history list.
+- Keep `cam memory` and `cam session` surfaces compact after the Milestone 20 wording/semantics correction; do not reopen broader command-surface expansion.
+- Keep bilingual public docs and reviewer docs aligned as a release habit rather than a cleanup task.
 
 ## Review-ready habits
 

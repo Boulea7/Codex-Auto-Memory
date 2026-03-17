@@ -19,7 +19,7 @@ A useful review should ask:
 
 - `cam audit`: repository privacy and secret-hygiene audit
 - `cam memory --recent [count]`: durable sync audit for recent `applied` / `no-op` / `skipped` sync events
-- `cam session save|load|status`: continuity audit surface for the latest diagnostics and compact recent history
+- `cam session save|load|status`: continuity audit surface for the latest diagnostics; `load` / `status` text output adds compact recent history, and all three `--json` variants return recent audit entries
 
 Manual `cam remember` / `cam forget` updates remain outside the durable sync audit stream by design.
 

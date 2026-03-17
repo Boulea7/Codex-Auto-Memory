@@ -8,13 +8,40 @@ The format is intentionally simple and reviewer-friendly: each entry maps to a c
 
 ### Added
 
-- Added helper-level regression coverage for `command-utils` and the shared platform command builder behind `openPath()`.
-- Added command-level regression coverage for `cam session save --scope project` and for invalid-shaped continuity audit entries.
+- Added helper-level regression coverage for `command-utils`, `cam audit --json`, manual `remember` / `forget` audit separation, and in-progress continuity command output.
 
 ### Fixed
 
-- `cam session save --scope project` no longer updates local `.git/info/exclude` when only shared continuity is being written.
-- Continuity audit history now skips JSONL entries that parse successfully but do not match the expected `SessionContinuityAuditEntry` shape, preventing malformed audit data from leaking into `cam session load/status`.
+- `cam memory` now keeps startup-loaded index files separate from on-demand topic refs in both startup compilation and reviewer-facing output.
+- `MemoryStore` now skips topic-entry metadata blocks that are valid JSON but do not match the expected shape, hardening user-editable Markdown parsing.
+- Continuity evidence no longer treats in-progress command output as a failed command when building reviewer diagnostics.
+
+## 0.1.0-alpha.20 - 2026-03-18
+
+### Added
+
+- Added regression coverage so `cam memory --recent` stays durable-sync-only even after manual `remember` / `forget` edits.
+- Added regression coverage for valid-JSON-but-invalid-shape topic entry metadata and for `cam audit --json` severity summaries.
+- Added continuity regression coverage that treats in-progress command output as unknown instead of failed.
+
+### Changed
+
+- Startup compilation now records only actually quoted `MEMORY.md` index files in `sourceFiles` / `loadedFiles`, while topic refs remain exposed only through the on-demand topic-file surface.
+- Public and reviewer docs now describe `cam memory` as a split surface: startup-loaded index files plus on-demand topic refs.
+- Public and reviewer docs now describe `cam session save|load|status` more precisely: all three `--json` variants return recent audit entries, while compact recent previews in text output remain specific to `load` / `status`.
+- Root `.gitignore` now covers common secret-file patterns such as `.env`, key material, and generic secret filenames as part of the repository safety checklist.
+
+### Fixed
+
+- `cam memory` no longer implies that topic files were eagerly loaded at startup just because their refs were included in the compiled payload.
+- User-edited topic files with malformed-but-valid JSON entry metadata no longer leak bad shape into index rebuilds or reviewer output.
+- Continuity audit evidence no longer misclassifies still-running command output as a failed command.
+
+### Review focus
+
+- Confirm that `cam memory` now cleanly separates startup-loaded index files from on-demand topic refs without expanding the reviewer surface.
+- Confirm that Markdown entry parsing remains permissive for corrupted blocks while skipping invalid-shaped metadata safely.
+- Confirm that continuity reviewer diagnostics now stay quieter when command output is still in progress rather than complete.
 
 ## 0.1.0-alpha.19 - 2026-03-18
 

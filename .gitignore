@@ -3,6 +3,17 @@ dist/
 coverage/
 .tmp/
 
+# Sensitive files
+.env
+.env.*
+**/api_key*
+**/secret*
+credentials*
+*.pem
+*.key
+*.p12
+*.pfx
+
 # Local tool state
 .codex-auto-memory.local.json
 .codex-auto-memory/

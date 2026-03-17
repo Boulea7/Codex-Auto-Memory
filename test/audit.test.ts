@@ -117,4 +117,40 @@ describe("audit scan", () => {
     expect(output).toContain("History scan: disabled");
     expect(output).toContain("generic-local-path");
   });
+
+  it("returns stable severity counts from the json command surface", async () => {
+    const repoDir = await tempDir("cam-audit-json-");
+    await initRepo(repoDir);
+    await fs.writeFile(
+      path.join(repoDir, "README.md"),
+      "Storage lives under ~/.codex-auto-memory/.\n",
+      "utf8"
+    );
+
+    const output = JSON.parse(
+      await runAudit({
+        cwd: repoDir,
+        json: true,
+        noHistory: true
+      })
+    ) as {
+      findings: Array<{ severity: string; classification: string; location: string }>;
+      summary: {
+        bySeverity: {
+          high: number;
+          medium: number;
+          low: number;
+          info: number;
+        };
+      };
+    };
+
+    expect(output.summary.bySeverity.high).toBe(0);
+    expect(output.summary.bySeverity.medium).toBe(0);
+    const localPathFinding = output.findings.find(
+      (finding) => finding.severity === "info" && finding.classification === "generic-local-path"
+    );
+    expect(localPathFinding).toBeDefined();
+    expect(localPathFinding?.location.length).toBeGreaterThan(0);
+  });
 });

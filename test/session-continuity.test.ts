@@ -254,6 +254,30 @@ describe("session continuity domain", () => {
     expect(summary.project.triedAndFailed).toHaveLength(0);
   });
 
+  it("heuristic summarizer ignores in-progress command output instead of classifying it as failed", async () => {
+    const evidence: RolloutEvidence = {
+      sessionId: "session-in-progress-command",
+      createdAt: "2026-03-15T00:00:00.000Z",
+      cwd: "/tmp/project",
+      userMessages: ["Keep checking the command output"],
+      agentMessages: [],
+      toolCalls: [
+        {
+          name: "exec_command",
+          arguments: JSON.stringify({ cmd: "pnpm test" }),
+          output: "Process running with session ID 12345"
+        }
+      ],
+      rolloutPath: "/tmp/rollout.jsonl"
+    };
+
+    const summarizer = new SessionContinuitySummarizer(baseConfig("/tmp/memory-root"));
+    const summary = await summarizer.summarize(evidence);
+
+    expect(summary.project.confirmedWorking).toEqual([]);
+    expect(summary.project.triedAndFailed).toEqual([]);
+  });
+
   it("heuristic summarizer preserves existing shared notYetTried", async () => {
     const existing = {
       project: {

@@ -82,7 +82,7 @@ export async function compileStartupMemory(
       "Each line below is structured data. Read a topic file only when its topic is relevant to the current task."
     ]);
     for (const topicFile of scopeTopicRefs) {
-      const appended = appendBlock([formatTopicRef(topicFile)], topicFile.path);
+      const appended = appendBlock([formatTopicRef(topicFile)]);
       if (!appended) {
         break;
       }

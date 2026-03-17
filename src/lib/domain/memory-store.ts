@@ -22,6 +22,14 @@ interface SyncState {
   processedRolloutEntries?: ProcessedRolloutRecord[];
 }
 
+interface EntryMetadata {
+  id: string;
+  scope: MemoryScope;
+  updatedAt: string;
+  sources?: string[];
+  reason?: string;
+}
+
 const topicNamePattern = /^[a-z0-9]+(?:-[a-z0-9]+)*$/u;
 
 function topicTitle(topic: string): string {
@@ -83,21 +91,13 @@ function parseEntryBlocks(contents: string): MemoryEntry[] {
       continue;
     }
 
-    let metadata: {
-      id: string;
-      scope: MemoryScope;
-      updatedAt: string;
-      sources?: string[];
-      reason?: string;
-    };
+    let metadata: EntryMetadata;
     try {
-      metadata = JSON.parse(metadataRaw) as {
-        id: string;
-        scope: MemoryScope;
-        updatedAt: string;
-        sources?: string[];
-        reason?: string;
-      };
+      const parsed = JSON.parse(metadataRaw) as unknown;
+      if (!isEntryMetadata(parsed)) {
+        continue;
+      }
+      metadata = parsed;
     } catch {
       continue;
     }
@@ -167,6 +167,30 @@ function isStringRecord(value: unknown): value is Record<string, string> {
     typeof value === "object" &&
     !Array.isArray(value) &&
     Object.values(value as Record<string, unknown>).every((item) => typeof item === "string")
+  );
+}
+
+function isMemoryScope(value: unknown): value is MemoryScope {
+  return value === "global" || value === "project" || value === "project-local";
+}
+
+function isStringArray(value: unknown): value is string[] {
+  return Array.isArray(value) && value.every((item) => typeof item === "string");
+}
+
+function isEntryMetadata(value: unknown): value is EntryMetadata {
+  if (!value || typeof value !== "object") {
+    return false;
+  }
+
+  const metadata = value as Record<string, unknown>;
+  return (
+    typeof metadata.id === "string" &&
+    metadata.id.trim().length > 0 &&
+    isMemoryScope(metadata.scope) &&
+    typeof metadata.updatedAt === "string" &&
+    (metadata.sources === undefined || isStringArray(metadata.sources)) &&
+    (metadata.reason === undefined || typeof metadata.reason === "string")
   );
 }
 

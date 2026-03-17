@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  commandFailed,
   commandSucceeded,
   extractCommand,
   isCommandToolCall
@@ -69,6 +70,25 @@ describe("command-utils", () => {
         output: "Process exited with code 1"
       })
     ).toBe(false);
+
+    expect(
+      commandFailed({
+        name: "exec_command",
+        arguments: JSON.stringify({ cmd: "pnpm test" }),
+        output: "Process exited with code 1"
+      })
+    ).toBe(true);
+  });
+
+  it("treats in-progress command output as unknown instead of failed", () => {
+    const toolCall = {
+      name: "exec_command",
+      arguments: JSON.stringify({ cmd: "pnpm test" }),
+      output: "Process running with session ID 12345"
+    };
+
+    expect(commandSucceeded(toolCall)).toBe(false);
+    expect(commandFailed(toolCall)).toBe(false);
   });
 
   it("matches command tool calls consistently", () => {

@@ -1,15 +1,16 @@
 # Next Phase Brief
 
-This brief prepares the next implementation window after `0.1.0-alpha.19`.
+This brief prepares the next implementation window after `0.1.0-alpha.20`.
 
-## Milestone 20 focus
+## Milestone 21 focus
 
 The next phase should continue to stay compact and reviewer-oriented:
 
-- keep the structured processed-rollout identity stable; only widen it again if a concrete false-skip or duplicate-sync case remains
+- clarify failure-path reviewer truth when durable memory or continuity files are written but sidecar audit / processed-state persistence fails
+- consider whether `processedRolloutEntries` needs bounded compaction now that structured identity is stable
 - keep actual-vs-configured extractor audit visibility compact and reviewer-friendly
 - keep manual `remember` / `forget` history separate from durable sync audit unless a clearly safer reviewer contract emerges
-- keep the latest continuity drill-down stable and compact; only adjust it again if a concrete reviewer ambiguity remains
+- keep the latest continuity drill-down stable and compact after the in-progress-command noise reduction
 - keep bilingual public docs synchronized as a release discipline rather than a one-off cleanup
 - keep reviewer packet and release-checklist refresh discipline routine in the same loop
 - keep monitoring native Codex memory and hooks, but remain companion-first until public docs and local readiness both improve
@@ -18,12 +19,13 @@ Do **not** reopen startup injection, session continuity storage layout, or broad
 
 ## Goals
 
-1. Preserve the structured durable sync identity contract without turning it into a migration-heavy state machine.
-2. Preserve actual-vs-configured extractor audit visibility without expanding `cam memory` into a history browser.
-3. Preserve the latest-generation continuity drill-down without letting it expand into a browser.
-4. Keep docs, changelog, handoff packets, and release checklist aligned as part of the normal milestone closeout.
-5. Keep Chinese and English public docs semantically aligned without forcing full-repo double maintenance.
-6. Continue external research on official Codex memory and hook readiness without treating local observations as stable product contract.
+1. Make reviewer-visible failure behavior explicit when sidecar writes fail after primary files change.
+2. Keep structured processed-rollout identity compact without reintroducing path-only skip semantics.
+3. Preserve actual-vs-configured extractor audit visibility without expanding `cam memory` into a history browser.
+4. Preserve the latest-generation continuity drill-down without letting it expand into a browser.
+5. Keep docs, changelog, handoff packets, and release checklist aligned as part of the normal milestone closeout.
+6. Keep Chinese and English public docs semantically aligned without forcing full-repo double maintenance.
+7. Continue external research on official Codex memory and hook readiness without treating local observations as stable product contract.
 
 ## In scope
 
