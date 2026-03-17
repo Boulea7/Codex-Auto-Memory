@@ -154,6 +154,23 @@ export function buildSyncRecoveryRecord(
   };
 }
 
+export function matchesSyncRecoveryRecord(
+  record: SyncRecoveryRecord,
+  identity: {
+    projectId: string;
+    worktreeId: string;
+    rolloutPath: string;
+    sessionId?: string;
+  }
+): boolean {
+  return (
+    record.projectId === identity.projectId &&
+    record.worktreeId === identity.worktreeId &&
+    record.rolloutPath === identity.rolloutPath &&
+    record.sessionId === identity.sessionId
+  );
+}
+
 interface BuildContinuityRecoveryRecordOptions {
   projectId: string;
   worktreeId: string;
@@ -183,4 +200,23 @@ export function buildContinuityRecoveryRecord(
     failedStage: options.failedStage,
     failureMessage: options.failureMessage
   };
+}
+
+export function matchesContinuityRecoveryRecord(
+  record: ContinuityRecoveryRecord,
+  identity: {
+    projectId: string;
+    worktreeId: string;
+    rolloutPath: string;
+    sourceSessionId: string;
+    scope: SessionContinuityScope | "both";
+  }
+): boolean {
+  return (
+    record.projectId === identity.projectId &&
+    record.worktreeId === identity.worktreeId &&
+    record.rolloutPath === identity.rolloutPath &&
+    record.sourceSessionId === identity.sourceSessionId &&
+    record.scope === identity.scope
+  );
 }

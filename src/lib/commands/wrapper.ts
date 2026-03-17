@@ -3,7 +3,10 @@ import {
   buildSessionContinuityAuditEntry,
   formatSessionContinuityDiagnostics
 } from "../domain/session-continuity-diagnostics.js";
-import { buildContinuityRecoveryRecord } from "../domain/recovery-records.js";
+import {
+  buildContinuityRecoveryRecord,
+  matchesContinuityRecoveryRecord
+} from "../domain/recovery-records.js";
 import { listRolloutFiles, parseRolloutEvidence } from "../domain/rollout.js";
 import { compileSessionContinuity } from "../domain/session-continuity.js";
 import { readCodexBaseInstructions } from "../runtime/codex-config.js";
@@ -135,7 +138,19 @@ async function saveSessionContinuity(
     throw error;
   }
   try {
-    await runtime.sessionContinuityStore.clearRecoveryRecord();
+    const record = await runtime.sessionContinuityStore.readRecoveryRecord();
+    if (
+      record &&
+      matchesContinuityRecoveryRecord(record, {
+        projectId: runtime.project.projectId,
+        worktreeId: runtime.project.worktreeId,
+        rolloutPath: generation.diagnostics.rolloutPath,
+        sourceSessionId: generation.diagnostics.sourceSessionId,
+        scope: "both"
+      })
+    ) {
+      await runtime.sessionContinuityStore.clearRecoveryRecord();
+    }
   } catch {
     // Best-effort cleanup should not fail an otherwise successful auto-save.
   }
@@ -173,14 +188,40 @@ export async function runWrappedCodex(
   );
   const endedAtMs = Date.now();
 
-  const synced = await syncRecentRollouts(cwd, before, startedAtMs, endedAtMs);
-  const continuity = await saveSessionContinuity(cwd, before, startedAtMs, endedAtMs);
-  const messages = [
-    ...synced,
-    ...(continuity ? [continuity] : [])
-  ];
+  const messages: string[] = [];
+  let syncError: unknown = null;
+  let continuityError: unknown = null;
+
+  try {
+    messages.push(...await syncRecentRollouts(cwd, before, startedAtMs, endedAtMs));
+  } catch (error) {
+    syncError = error;
+  }
+
+  try {
+    const continuity = await saveSessionContinuity(cwd, before, startedAtMs, endedAtMs);
+    if (continuity) {
+      messages.push(continuity);
+    }
+  } catch (error) {
+    continuityError = error;
+  }
+
   if (messages.length > 0) {
     process.stderr.write(`\n${messages.join("\n")}\n`);
+  }
+
+  if (syncError && continuityError) {
+    throw new AggregateError(
+      [syncError, continuityError],
+      `Post-run persistence failed: durable sync: ${errorMessage(syncError)}; continuity: ${errorMessage(continuityError)}`
+    );
+  }
+  if (syncError) {
+    throw syncError;
+  }
+  if (continuityError) {
+    throw continuityError;
   }
 
   return exitCode;

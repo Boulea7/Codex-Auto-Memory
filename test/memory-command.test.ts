@@ -278,6 +278,51 @@ describe("runMemory", () => {
     expect(output.recentAudit).toEqual(output.recentSyncAudit);
   });
 
+  it("does not report startup-loaded files when the startup budget only fits headers", async () => {
+    const homeDir = await tempDir("cam-memory-header-only-home-");
+    const projectDir = await tempDir("cam-memory-header-only-project-");
+    const memoryRoot = await tempDir("cam-memory-header-only-root-");
+    process.env.HOME = homeDir;
+
+    const projectConfig: AppConfig = {
+      autoMemoryEnabled: true,
+      extractorMode: "heuristic",
+      defaultScope: "project",
+      maxStartupLines: 8,
+      sessionContinuityAutoLoad: false,
+      sessionContinuityAutoSave: false,
+      sessionContinuityLocalPathStyle: "codex",
+      maxSessionContinuityLines: 60,
+      codexBinary: "codex"
+    };
+    await fs.writeFile(
+      path.join(projectDir, "codex-auto-memory.json"),
+      JSON.stringify(projectConfig),
+      "utf8"
+    );
+    await fs.writeFile(
+      path.join(projectDir, ".codex-auto-memory.local.json"),
+      JSON.stringify({
+        autoMemoryDirectory: memoryRoot
+      }),
+      "utf8"
+    );
+
+    const output = JSON.parse(
+      await runMemory({
+        cwd: projectDir,
+        json: true
+      })
+    ) as MemoryCommandOutput;
+
+    expect(output.loadedFiles).toEqual([]);
+    expect(output.startupFilesByScope.global).toEqual([]);
+    expect(output.startupFilesByScope.project).toEqual([]);
+    expect(output.startupFilesByScope.projectLocal).toEqual([]);
+    expect(output.startup.text).toContain("## Project Local");
+    expect(output.startup.text).not.toContain("| # Project Local Memory");
+  });
+
   it("keeps manual remember and forget outside the recent durable sync audit surface", async () => {
     const homeDir = await tempDir("cam-memory-manual-home-");
     const projectDir = await tempDir("cam-memory-manual-project-");

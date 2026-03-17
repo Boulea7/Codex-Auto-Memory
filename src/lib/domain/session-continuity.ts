@@ -61,6 +61,21 @@ function sanitizeList(items: string[], maxItems: number, maxLength: number): str
   return [...deduped];
 }
 
+function isInProgressFailureNoise(item: string): boolean {
+  return (
+    /^Command failed:/u.test(item.trim()) &&
+    /Process running with session ID/iu.test(item)
+  );
+}
+
+function sanitizeFailureList(items: string[]): string[] {
+  return sanitizeList(
+    items.filter((item) => !isInProgressFailureNoise(item)),
+    8,
+    240
+  );
+}
+
 function placeholder(items: string[], text: string): string[] {
   return items.length > 0 ? items.map((item) => `- ${item}`) : [`- ${text}`];
 }
@@ -201,7 +216,9 @@ export function parseSessionContinuity(
         : "active",
     goal: parseGoal(sections.goal),
     confirmedWorking: parseItems(sections.confirmedWorking, sectionPlaceholders.confirmedWorking),
-    triedAndFailed: parseItems(sections.triedAndFailed, sectionPlaceholders.triedAndFailed),
+    triedAndFailed: sanitizeFailureList(
+      parseItems(sections.triedAndFailed, sectionPlaceholders.triedAndFailed)
+    ),
     notYetTried: parseItems(sections.notYetTried, sectionPlaceholders.notYetTried),
     incompleteNext: parseItems(sections.incompleteNext, sectionPlaceholders.incompleteNext),
     filesDecisionsEnvironment: parseItems(
@@ -217,7 +234,7 @@ export function sanitizeSessionContinuityLayerSummary(
   return {
     goal: sanitizeText(summary.goal, 400),
     confirmedWorking: sanitizeList(summary.confirmedWorking, 8, 240),
-    triedAndFailed: sanitizeList(summary.triedAndFailed, 8, 240),
+    triedAndFailed: sanitizeFailureList(summary.triedAndFailed),
     notYetTried: sanitizeList(summary.notYetTried, 8, 240),
     incompleteNext: sanitizeList(summary.incompleteNext, 8, 240),
     filesDecisionsEnvironment: sanitizeList(summary.filesDecisionsEnvironment, 8, 240)
@@ -252,11 +269,10 @@ export function mergeSessionContinuityStates(
       8,
       240
     ),
-    triedAndFailed: sanitizeList(
-      [...primary.triedAndFailed, ...secondary.triedAndFailed],
-      8,
-      240
-    ),
+    triedAndFailed: sanitizeFailureList([
+      ...primary.triedAndFailed,
+      ...secondary.triedAndFailed
+    ]),
     notYetTried: sanitizeList([...primary.notYetTried, ...secondary.notYetTried], 8, 240),
     incompleteNext: sanitizeList(
       [...primary.incompleteNext, ...secondary.incompleteNext],

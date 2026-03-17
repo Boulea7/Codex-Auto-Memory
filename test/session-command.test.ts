@@ -6,6 +6,7 @@ import { runSession } from "../src/lib/commands/session.js";
 import { runWrappedCodex } from "../src/lib/commands/wrapper.js";
 import { detectProjectContext } from "../src/lib/domain/project-context.js";
 import { SessionContinuityStore } from "../src/lib/domain/session-continuity-store.js";
+import { SyncService } from "../src/lib/domain/sync-service.js";
 import { runCommandCapture } from "../src/lib/util/process.js";
 import type { AppConfig, SessionContinuityAuditEntry } from "../src/lib/types.js";
 
@@ -577,6 +578,72 @@ describe("runSession", () => {
     expect(await store.readRecoveryRecord()).toBeNull();
   }, 15_000);
 
+  it("does not clear an unrelated continuity recovery marker after a successful save", async () => {
+    const repoDir = await tempDir("cam-session-stale-recovery-repo-");
+    const memoryRoot = await tempDir("cam-session-stale-recovery-memory-");
+    await initRepo(repoDir);
+
+    await writeProjectConfig(
+      repoDir,
+      configJson(),
+      { autoMemoryDirectory: memoryRoot }
+    );
+
+    const rolloutPath = path.join(repoDir, "rollout.jsonl");
+    await fs.writeFile(
+      rolloutPath,
+      rolloutFixture(repoDir, "Save continuity while preserving an unrelated marker."),
+      "utf8"
+    );
+
+    const project = detectProjectContext(repoDir);
+    const store = new SessionContinuityStore(project, {
+      ...configJson(),
+      autoMemoryDirectory: memoryRoot
+    });
+    await store.writeRecoveryRecord({
+      recordedAt: "2026-03-18T00:00:00.000Z",
+      projectId: project.projectId,
+      worktreeId: project.worktreeId,
+      rolloutPath: "/tmp/stale-rollout.jsonl",
+      sourceSessionId: "stale-session",
+      scope: "both",
+      writtenPaths: ["/tmp/stale-continuity.md"],
+      preferredPath: "heuristic",
+      actualPath: "heuristic",
+      fallbackReason: "configured-heuristic",
+      evidenceCounts: {
+        successfulCommands: 1,
+        failedCommands: 0,
+        fileWrites: 0,
+        nextSteps: 1,
+        untried: 0
+      },
+      failedStage: "audit-write",
+      failureMessage: "stale marker"
+    });
+
+    const saveJson = JSON.parse(
+      await runSession("save", {
+        cwd: repoDir,
+        rollout: rolloutPath,
+        scope: "both",
+        json: true
+      })
+    ) as {
+      pendingContinuityRecovery: { rolloutPath: string; sourceSessionId: string } | null;
+    };
+
+    expect(saveJson.pendingContinuityRecovery).toMatchObject({
+      rolloutPath: "/tmp/stale-rollout.jsonl",
+      sourceSessionId: "stale-session"
+    });
+    expect(await store.readRecoveryRecord()).toMatchObject({
+      rolloutPath: "/tmp/stale-rollout.jsonl",
+      sourceSessionId: "stale-session"
+    });
+  }, 15_000);
+
   it("ignores a corrupted continuity recovery marker instead of crashing load or status", async () => {
     const repoDir = await tempDir("cam-session-bad-recovery-repo-");
     const memoryRoot = await tempDir("cam-session-bad-recovery-memory-");
@@ -775,5 +842,69 @@ fs.writeFileSync(rolloutPath, [
       failureMessage: "wrapper continuity audit write failed",
       scope: "both"
     });
+  }, 15_000);
+
+  it("still saves continuity when wrapper durable sync fails", async () => {
+    const repoDir = await tempDir("cam-wrapper-sync-fail-repo-");
+    const memoryRoot = await tempDir("cam-wrapper-sync-fail-memory-");
+    const sessionsDir = await tempDir("cam-wrapper-sync-fail-rollouts-");
+    await initRepo(repoDir);
+    process.env.CAM_CODEX_SESSIONS_DIR = sessionsDir;
+
+    const mockCodexPath = path.join(repoDir, "mock-codex");
+    const todayDir = path.join(sessionsDir, "2026", "03", "15");
+    await fs.mkdir(todayDir, { recursive: true });
+    await fs.writeFile(
+      mockCodexPath,
+      `#!/usr/bin/env node
+const fs = require("node:fs");
+const path = require("node:path");
+const cwd = process.cwd();
+const sessionsDir = process.env.CAM_CODEX_SESSIONS_DIR;
+const rolloutDir = path.join(sessionsDir, "2026", "03", "15");
+fs.mkdirSync(rolloutDir, { recursive: true });
+const rolloutPath = path.join(rolloutDir, "rollout-2026-03-15T00-00-00-000Z-session.jsonl");
+fs.writeFileSync(rolloutPath, [
+  JSON.stringify({ type: "session_meta", payload: { id: "session-wrapper-sync-fail", timestamp: "2026-03-15T00:00:00.000Z", cwd } }),
+  JSON.stringify({ type: "event_msg", payload: { type: "user_message", message: "Continue after durable sync sidecar failure." } }),
+  JSON.stringify({ type: "response_item", payload: { type: "function_call", name: "exec_command", call_id: "call-1", arguments: "{\\"cmd\\":\\"pnpm test\\"}" } }),
+  JSON.stringify({ type: "response_item", payload: { type: "function_call_output", call_id: "call-1", output: "Process exited with code 0" } })
+].join("\\n"));
+`,
+      "utf8"
+    );
+    await fs.chmod(mockCodexPath, 0o755);
+
+    await writeProjectConfig(
+      repoDir,
+      configJson({
+        codexBinary: mockCodexPath
+      }),
+      {
+        autoMemoryDirectory: memoryRoot,
+        sessionContinuityAutoSave: true
+      }
+    );
+
+    const syncSpy = vi
+      .spyOn(SyncService.prototype, "syncRollout")
+      .mockRejectedValueOnce(new Error("sync audit write failed"));
+
+    await expect(runWrappedCodex(repoDir, "exec", ["continue"])).rejects.toThrow(
+      "sync audit write failed"
+    );
+    syncSpy.mockRestore();
+
+    const store = new SessionContinuityStore(detectProjectContext(repoDir), {
+      ...configJson({
+        codexBinary: mockCodexPath,
+        sessionContinuityAutoSave: true
+      }),
+      autoMemoryDirectory: memoryRoot
+    });
+    const latestAudit = await store.readLatestAuditEntry();
+    expect(latestAudit?.rolloutPath).toContain("rollout-2026-03-15T00-00-00-000Z-session.jsonl");
+    expect(latestAudit?.writtenPaths.length).toBeGreaterThan(0);
+    expect((await store.readMergedState())?.confirmedWorking.join("\n")).toContain("pnpm test");
   }, 15_000);
 });
