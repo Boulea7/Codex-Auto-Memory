@@ -313,6 +313,51 @@ describe("runSession", () => {
     expect(payload.recentContinuityAuditEntries[0]?.rolloutPath).toBe(rolloutPath);
   }, 15_000);
 
+  it("does not update local ignore when saving shared continuity only", async () => {
+    const repoDir = await tempDir("cam-session-project-scope-repo-");
+    const memoryRoot = await tempDir("cam-session-project-scope-memory-");
+    await initRepo(repoDir);
+
+    await writeProjectConfig(
+      repoDir,
+      configJson(),
+      { autoMemoryDirectory: memoryRoot }
+    );
+
+    const rolloutPath = path.join(repoDir, "rollout.jsonl");
+    await fs.writeFile(
+      rolloutPath,
+      rolloutFixture(repoDir, "Save shared continuity only."),
+      "utf8"
+    );
+
+    const saveOutput = await runSession("save", {
+      cwd: repoDir,
+      rollout: rolloutPath,
+      scope: "project"
+    });
+    expect(saveOutput).not.toContain("Local exclude updated:");
+
+    const saveJson = JSON.parse(
+      await runSession("save", {
+        cwd: repoDir,
+        rollout: rolloutPath,
+        scope: "project",
+        json: true
+      })
+    ) as {
+      excludePath: string | null;
+      written: string[];
+    };
+    expect(saveJson.excludePath).toBeNull();
+    expect(saveJson.written).toHaveLength(1);
+
+    const excludePath = path.join(repoDir, ".git", "info", "exclude");
+    const excludeContents = await fs.readFile(excludePath, "utf8");
+    expect(excludeContents).not.toContain(".codex-auto-memory/");
+    expect(excludeContents).not.toContain(".claude/sessions/");
+  }, 15_000);
+
   it("keeps recent continuity history readable when the audit log contains a bad line", async () => {
     const repoDir = await tempDir("cam-session-bad-audit-repo-");
     const memoryRoot = await tempDir("cam-session-bad-audit-memory-");
@@ -383,6 +428,68 @@ describe("runSession", () => {
     expect(statusOutput).toContain("/tmp/continuity.md");
     expect(statusOutput).toContain("Recent generations:");
     expect(statusOutput).toContain("/tmp/rollout-good.jsonl");
+  }, 15_000);
+
+  it("skips invalid-shaped continuity audit entries", async () => {
+    const repoDir = await tempDir("cam-session-invalid-shape-repo-");
+    const memoryRoot = await tempDir("cam-session-invalid-shape-memory-");
+    await initRepo(repoDir);
+
+    await writeProjectConfig(
+      repoDir,
+      configJson(),
+      { autoMemoryDirectory: memoryRoot }
+    );
+
+    const store = new SessionContinuityStore(detectProjectContext(repoDir), {
+      ...configJson(),
+      autoMemoryDirectory: memoryRoot
+    });
+    await store.appendAuditLog({
+      generatedAt: "2026-03-17T00:00:00.000Z",
+      projectId: detectProjectContext(repoDir).projectId,
+      worktreeId: detectProjectContext(repoDir).worktreeId,
+      configuredExtractorMode: "heuristic",
+      scope: "both",
+      rolloutPath: "/tmp/rollout-good.jsonl",
+      sourceSessionId: "session-good",
+      preferredPath: "heuristic",
+      actualPath: "heuristic",
+      fallbackReason: "configured-heuristic",
+      evidenceCounts: {
+        successfulCommands: 1,
+        failedCommands: 0,
+        fileWrites: 0,
+        nextSteps: 1,
+        untried: 0
+      },
+      writtenPaths: ["/tmp/continuity.md"]
+    } satisfies SessionContinuityAuditEntry);
+    await fs.appendFile(
+      store.paths.auditFile,
+      `${JSON.stringify({
+        generatedAt: "2026-03-17T01:00:00.000Z",
+        rolloutPath: "/tmp/rollout-invalid.jsonl",
+        actualPath: "heuristic"
+      })}\n`,
+      "utf8"
+    );
+
+    const loadJson = JSON.parse(
+      await runSession("load", { cwd: repoDir, json: true })
+    ) as {
+      latestContinuityAuditEntry: { rolloutPath: string } | null;
+      latestContinuityDiagnostics: { rolloutPath: string; actualPath: string } | null;
+      recentContinuityAuditEntries: Array<{ rolloutPath: string }>;
+    };
+    expect(loadJson.latestContinuityAuditEntry?.rolloutPath).toBe("/tmp/rollout-good.jsonl");
+    expect(loadJson.latestContinuityDiagnostics?.rolloutPath).toBe("/tmp/rollout-good.jsonl");
+    expect(loadJson.latestContinuityDiagnostics?.actualPath).toBe("heuristic");
+    expect(loadJson.recentContinuityAuditEntries).toHaveLength(1);
+
+    const statusOutput = await runSession("status", { cwd: repoDir });
+    expect(statusOutput).toContain("/tmp/rollout-good.jsonl");
+    expect(statusOutput).not.toContain("/tmp/rollout-invalid.jsonl");
   }, 15_000);
 });
 
