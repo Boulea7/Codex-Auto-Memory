@@ -4,6 +4,18 @@ All notable changes to `codex-auto-memory` will be documented in this file.
 
 The format is intentionally simple and reviewer-friendly: each entry maps to a concrete implementation milestone and, when possible, a single Git commit.
 
+## Unreleased
+
+### Added
+
+- Added helper-level regression coverage for `command-utils` and the shared platform command builder behind `openPath()`.
+- Added command-level regression coverage for `cam session save --scope project` and for invalid-shaped continuity audit entries.
+
+### Fixed
+
+- `cam session save --scope project` no longer updates local `.git/info/exclude` when only shared continuity is being written.
+- Continuity audit history now skips JSONL entries that parse successfully but do not match the expected `SessionContinuityAuditEntry` shape, preventing malformed audit data from leaking into `cam session load/status`.
+
 ## 0.1.0-alpha.17 - 2026-03-17
 
 ### Added

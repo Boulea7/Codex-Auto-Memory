@@ -46,6 +46,7 @@ pnpm build
 pnpm exec tsx src/cli.ts audit --json
 pnpm exec tsx src/cli.ts doctor --json
 pnpm exec tsx src/cli.ts session load --json
+pnpm exec tsx src/cli.ts session status --json
 pnpm exec tsx src/cli.ts memory --json
 ```
 
