@@ -113,7 +113,9 @@ Not a good fit:
 | Inspect / audit memory | `/memory` | No equivalent | `cam memory` |
 | Native hooks / memory integration | Built in | Experimental / under development | Planned compatibility seam |
 
-`cam memory` is intentionally an inspection and audit surface. It exposes active files, startup budget, topic refs, and edit paths. Explicit updates still happen through `cam remember`, `cam forget`, or direct Markdown edits rather than a `/memory`-style in-command editor.
+`cam memory` is intentionally an inspection and audit surface. It exposes active files, startup budget, topic refs, edit paths, and recent durable sync audit events behind `--recent [count]`.
+Those recent sync events come from `~/.codex-auto-memory/projects/<project-id>/audit/sync-log.jsonl` and only cover sync-flow `applied`, `no-op`, and `skipped` events. Manual `cam remember` / `cam forget` updates stay outside that audit stream by design.
+Explicit updates still happen through `cam remember`, `cam forget`, or direct Markdown edits rather than a `/memory`-style in-command editor.
 
 ## Quick start
 
@@ -167,11 +169,17 @@ cam audit           # check the repository for unexpected sensitive content
 | :-- | :-- |
 | `cam run` / `cam exec` / `cam resume` | compile startup memory and launch Codex through the wrapper |
 | `cam sync` | manually sync the latest rollout into durable memory |
-| `cam memory` | inspect startup-loaded files, topic refs, startup budget, and edit paths |
+| `cam memory` | inspect startup-loaded files, topic refs, startup budget, edit paths, and durable sync audit events via `--recent [count]` |
 | `cam remember` / `cam forget` | explicitly add or remove durable memory |
 | `cam session save` / `load` / `status` / `clear` | manage the separate session continuity layer |
 | `cam audit` | run privacy and secret-hygiene checks against the repository |
 | `cam doctor` | inspect local companion wiring and native-readiness posture |
+
+## Audit Surface Map
+
+- `cam audit`: repository-level privacy and secret-hygiene audit.
+- `cam memory --recent [count]`: durable sync audit for recent `applied`, `no-op`, and `skipped` sync events, without mixing in manual `remember` / `forget`.
+- `cam session save|load|status`: continuity audit surface for the latest diagnostics, latest audit drill-down, and a compact recent preview.
 
 ## How it works
 

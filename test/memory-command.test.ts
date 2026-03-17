@@ -6,7 +6,7 @@ import { runMemory } from "../src/lib/commands/memory.js";
 import { configPaths } from "../src/lib/config/load-config.js";
 import { detectProjectContext } from "../src/lib/domain/project-context.js";
 import { MemoryStore } from "../src/lib/domain/memory-store.js";
-import type { AppConfig } from "../src/lib/types.js";
+import type { AppConfig, MemoryCommandOutput } from "../src/lib/types.js";
 
 const tempDirs: string[] = [];
 const originalHome = process.env.HOME;
@@ -53,7 +53,8 @@ describe("runMemory", () => {
       "utf8"
     );
 
-    const store = new MemoryStore(detectProjectContext(projectDir), {
+    const project = detectProjectContext(projectDir);
+    const store = new MemoryStore(project, {
       ...projectConfig,
       autoMemoryDirectory: memoryRoot
     });
@@ -66,12 +67,61 @@ describe("runMemory", () => {
       ["Use pnpm instead of npm in this repository."],
       "Manual note."
     );
-    await store.appendAuditLog({
+    await store.appendSyncAuditEntry({
       appliedAt: "2026-03-14T12:00:00.000Z",
+      projectId: project.projectId,
+      worktreeId: project.worktreeId,
+      rolloutPath: "/tmp/rollout-1.jsonl",
       sessionId: "session-1",
       extractorMode: "heuristic",
+      extractorName: "heuristic",
+      sessionSource: "rollout-jsonl",
+      status: "applied",
+      appliedCount: 1,
+      scopesTouched: ["project"],
       resultSummary: "1 operation(s) applied",
-      rolloutPath: "/tmp/rollout-1.jsonl"
+      operations: [
+        {
+          action: "upsert",
+          scope: "project",
+          topic: "workflow",
+          id: "prefer-pnpm",
+          summary: "Prefer pnpm in this repository.",
+          details: ["Use pnpm instead of npm in this repository."],
+          reason: "Manual note.",
+          sources: ["manual"]
+        }
+      ]
+    });
+    await store.appendSyncAuditEntry({
+      appliedAt: "2026-03-14T12:05:00.000Z",
+      projectId: project.projectId,
+      worktreeId: project.worktreeId,
+      rolloutPath: "/tmp/rollout-2.jsonl",
+      sessionId: "session-2",
+      extractorMode: "heuristic",
+      extractorName: "heuristic",
+      sessionSource: "rollout-jsonl",
+      status: "no-op",
+      appliedCount: 0,
+      scopesTouched: [],
+      resultSummary: "0 operations applied",
+      operations: []
+    });
+    await store.appendSyncAuditEntry({
+      appliedAt: "2026-03-14T12:10:00.000Z",
+      projectId: project.projectId,
+      worktreeId: project.worktreeId,
+      rolloutPath: "/tmp/rollout-3.jsonl",
+      extractorMode: "heuristic",
+      extractorName: "heuristic",
+      sessionSource: "rollout-jsonl",
+      status: "skipped",
+      skipReason: "already-processed",
+      appliedCount: 0,
+      scopesTouched: [],
+      resultSummary: "Skipped rollout; it was already processed",
+      operations: []
     });
 
     const output = await runMemory({
@@ -93,9 +143,12 @@ describe("runMemory", () => {
     expect(output).toContain(store.getTopicFile("project", "workflow"));
     expect(output).toContain("Recent sync events");
     expect(output).toContain("1 operation(s) applied");
+    expect(output).toContain("[skipped] Skipped rollout; it was already processed");
+    expect(output).toContain("Skip reason: already-processed");
+    expect(output).toContain("Applied: 0 | Scopes: none");
   });
 
-  it("adds startupFilesByScope and topicFilesByScope in json output", async () => {
+  it("adds startupFilesByScope, recentSyncAudit, and syncAuditPath in json output", async () => {
     const homeDir = await tempDir("cam-memory-json-home-");
     const projectDir = await tempDir("cam-memory-json-project-");
     const memoryRoot = await tempDir("cam-memory-json-root-");
@@ -125,7 +178,8 @@ describe("runMemory", () => {
       "utf8"
     );
 
-    const store = new MemoryStore(detectProjectContext(projectDir), {
+    const project = detectProjectContext(projectDir);
+    const store = new MemoryStore(project, {
       ...projectConfig,
       autoMemoryDirectory: memoryRoot
     });
@@ -138,33 +192,40 @@ describe("runMemory", () => {
       ["Use pnpm instead of npm in this repository."],
       "Manual note."
     );
+    await store.appendSyncAuditEntry({
+      appliedAt: "2026-03-14T12:00:00.000Z",
+      projectId: project.projectId,
+      worktreeId: project.worktreeId,
+      rolloutPath: "/tmp/rollout-1.jsonl",
+      sessionId: "session-1",
+      extractorMode: "heuristic",
+      extractorName: "heuristic",
+      sessionSource: "rollout-jsonl",
+      status: "applied",
+      appliedCount: 1,
+      scopesTouched: ["project"],
+      resultSummary: "1 operation(s) applied",
+      operations: [
+        {
+          action: "upsert",
+          scope: "project",
+          topic: "workflow",
+          id: "prefer-pnpm",
+          summary: "Prefer pnpm in this repository.",
+          details: ["Use pnpm instead of npm in this repository."],
+          reason: "Manual note.",
+          sources: ["manual"]
+        }
+      ]
+    });
 
     const output = JSON.parse(
       await runMemory({
         cwd: projectDir,
-        json: true
+        json: true,
+        recent: "3"
       })
-    ) as {
-      startupFilesByScope: {
-        global: string[];
-        project: string[];
-        projectLocal: string[];
-      };
-      topicFilesByScope: {
-        global: Array<{ topic: string; path: string }>;
-        project: Array<{ topic: string; path: string }>;
-        projectLocal: Array<{ topic: string; path: string }>;
-      };
-      startupBudget: {
-        usedLines: number;
-        maxLines: number;
-      };
-      refCountsByScope: {
-        global: { startupFiles: number; topicFiles: number };
-        project: { startupFiles: number; topicFiles: number };
-        projectLocal: { startupFiles: number; topicFiles: number };
-      };
-    };
+    ) as MemoryCommandOutput;
 
     expect(output.startupBudget.usedLines).toBeGreaterThan(0);
     expect(output.startupBudget.maxLines).toBe(200);
@@ -182,6 +243,14 @@ describe("runMemory", () => {
       })
     ]);
     expect(output.topicFilesByScope.projectLocal).toEqual([]);
+    expect(output.syncAuditPath).toBe(store.getSyncAuditPath());
+    expect(output.recentSyncAudit).toHaveLength(1);
+    expect(output.recentSyncAudit[0]).toMatchObject({
+      rolloutPath: "/tmp/rollout-1.jsonl",
+      status: "applied",
+      appliedCount: 1
+    });
+    expect(output.recentAudit).toEqual(output.recentSyncAudit);
   });
 
   it("updates local config when enabling or disabling auto memory", async () => {

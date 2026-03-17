@@ -1,8 +1,9 @@
 import path from "node:path";
 import { patchConfigFile } from "../config/write-config.js";
+import { formatMemorySyncAuditEntry } from "../domain/memory-sync-audit.js";
 import { openPath } from "../util/open.js";
 import { compileStartupMemory } from "../domain/startup-memory.js";
-import type { ConfigScope, MemoryScope } from "../types.js";
+import type { ConfigScope, MemoryCommandOutput, MemoryScope } from "../types.js";
 import { buildRuntimeContext } from "./common.js";
 
 interface MemoryOptions {
@@ -52,8 +53,8 @@ export async function runMemory(options: MemoryOptions = {}): Promise<string> {
       topics: await runtime.syncService.memoryStore.listTopics(scope)
     }))
   );
-  const recentAudit = options.recent
-    ? await runtime.syncService.memoryStore.readRecentAuditEntries(recentCount)
+  const recentSyncAudit = options.recent
+    ? await runtime.syncService.memoryStore.readRecentSyncAuditEntries(recentCount)
     : [];
   const startupFilesByScope = {
     global: startup.sourceFiles.filter(
@@ -101,22 +102,25 @@ export async function runMemory(options: MemoryOptions = {}): Promise<string> {
   }
 
   if (options.json) {
+    const output: MemoryCommandOutput = {
+      configUpdateMessage,
+      configFiles: runtime.loadedConfig.files,
+      warnings: runtime.loadedConfig.warnings,
+      startup,
+      loadedFiles: startup.sourceFiles,
+      topicFiles: startup.topicFiles,
+      startupFilesByScope,
+      topicFilesByScope,
+      startupBudget,
+      refCountsByScope,
+      scopes,
+      editTargets,
+      recentSyncAudit,
+      recentAudit: recentSyncAudit,
+      syncAuditPath: runtime.syncService.memoryStore.getSyncAuditPath()
+    };
     return JSON.stringify(
-      {
-        configUpdateMessage,
-        configFiles: runtime.loadedConfig.files,
-        warnings: runtime.loadedConfig.warnings,
-        startup,
-        loadedFiles: startup.sourceFiles,
-        topicFiles: startup.topicFiles,
-        startupFilesByScope,
-        topicFilesByScope,
-        startupBudget,
-        refCountsByScope,
-        scopes,
-        editTargets,
-        recentAudit
-      },
+      output,
       null,
       2
     );
@@ -174,14 +178,10 @@ export async function runMemory(options: MemoryOptions = {}): Promise<string> {
     }
   }
 
-  if (recentAudit.length > 0) {
-    lines.push("", `Recent sync events (${recentAudit.length}):`);
-    for (const item of recentAudit) {
-      lines.push(
-        `- ${String(item.appliedAt ?? "unknown time")}: ${String(item.resultSummary ?? "no summary")}`
-      );
-      lines.push(`  Session: ${String(item.sessionId ?? "unknown")} | Extractor: ${String(item.extractorMode ?? "unknown")}`);
-      lines.push(`  Rollout: ${String(item.rolloutPath ?? "unknown")}`);
+  if (recentSyncAudit.length > 0) {
+    lines.push("", `Recent sync events (${recentSyncAudit.length}):`);
+    for (const item of recentSyncAudit) {
+      lines.push(...formatMemorySyncAuditEntry(item));
     }
   }
 

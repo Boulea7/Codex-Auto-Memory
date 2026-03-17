@@ -6,11 +6,13 @@ import type {
   MemoryEntry,
   MemoryOperation,
   MemoryScope,
+  MemorySyncAuditEntry,
   ProjectContext,
   ScopePaths,
   TopicFileRef
 } from "../types.js";
 import { appendJsonl, ensureDir, fileExists, readJsonFile, readTextFile, writeJsonFile, writeTextFile } from "../util/fs.js";
+import { isMemorySyncAuditEntry } from "./memory-sync-audit.js";
 import { getDefaultMemoryDirectory } from "./project-context.js";
 
 interface SyncState {
@@ -203,6 +205,10 @@ export class MemoryStore {
 
   public getTopicFile(scope: MemoryScope, topic: string): string {
     return path.join(this.getScopeDir(scope), `${normalizeTopicName(topic)}.md`);
+  }
+
+  public getSyncAuditPath(): string {
+    return path.join(this.paths.auditDir, "sync-log.jsonl");
   }
 
   public async ensureLayout(): Promise<void> {
@@ -449,12 +455,13 @@ export class MemoryStore {
     return rolloutPath in state.processedRollouts;
   }
 
-  public async appendAuditLog(payload: Record<string, unknown>): Promise<void> {
-    await appendJsonl(path.join(this.paths.auditDir, "sync-log.jsonl"), payload);
+  public async appendSyncAuditEntry(entry: MemorySyncAuditEntry): Promise<void> {
+    await ensureDir(this.paths.auditDir);
+    await appendJsonl(this.getSyncAuditPath(), entry);
   }
 
-  public async readRecentAuditEntries(limit = 5): Promise<Record<string, unknown>[]> {
-    const auditPath = path.join(this.paths.auditDir, "sync-log.jsonl");
+  public async readRecentSyncAuditEntries(limit = 5): Promise<MemorySyncAuditEntry[]> {
+    const auditPath = this.getSyncAuditPath();
     if (!(await fileExists(auditPath))) {
       return [];
     }
@@ -466,7 +473,8 @@ export class MemoryStore {
       .filter(Boolean)
       .flatMap((line) => {
         try {
-          return [JSON.parse(line) as Record<string, unknown>];
+          const parsed = JSON.parse(line) as unknown;
+          return isMemorySyncAuditEntry(parsed) ? [parsed] : [];
         } catch {
           return [];
         }
