@@ -60,11 +60,13 @@ export async function compileStartupMemory(
   for (const scope of scopes) {
     const filePath = store.getMemoryFile(scope);
     const contents = await store.readMemoryFile(scope);
+    appendBlock([
+      `## ${heading(scope)}`,
+      `Memory file: ${JSON.stringify(filePath)}`,
+      "Quoted file contents:"
+    ]);
     appendBlock(
       [
-        `## ${heading(scope)}`,
-        `Memory file: ${JSON.stringify(filePath)}`,
-        "Quoted file contents:",
         ...quoteMemoryFileLines(contents),
         ""
       ],

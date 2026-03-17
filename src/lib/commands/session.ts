@@ -6,7 +6,10 @@ import {
   formatSessionContinuityDiagnostics,
   toSessionContinuityDiagnostics
 } from "../domain/session-continuity-diagnostics.js";
-import { buildContinuityRecoveryRecord } from "../domain/recovery-records.js";
+import {
+  buildContinuityRecoveryRecord,
+  matchesContinuityRecoveryRecord
+} from "../domain/recovery-records.js";
 import {
   compileSessionContinuity,
   createEmptySessionContinuityState
@@ -126,7 +129,11 @@ export async function runSession(
       );
       throw error;
     }
-    await clearContinuityRecoveryRecordBestEffort(runtime);
+    await clearContinuityRecoveryRecordBestEffort(
+      runtime,
+      generation.diagnostics,
+      scope
+    );
     const excludePath =
       scope === "project" ? null : runtime.sessionContinuityStore.getLocalIgnorePath();
     const recentContinuityAuditEntries = await runtime.sessionContinuityStore.readRecentAuditEntries(
@@ -413,9 +420,26 @@ async function writeContinuityRecoveryRecordBestEffort(
 }
 
 async function clearContinuityRecoveryRecordBestEffort(
-  runtime: Awaited<ReturnType<typeof buildRuntimeContext>>
+  runtime: Awaited<ReturnType<typeof buildRuntimeContext>>,
+  diagnostics: Parameters<typeof buildContinuityRecoveryRecord>[0]["diagnostics"],
+  scope: SessionContinuityScope | "both"
 ): Promise<void> {
   try {
+    const record = await runtime.sessionContinuityStore.readRecoveryRecord();
+    if (!record) {
+      return;
+    }
+    if (
+      !matchesContinuityRecoveryRecord(record, {
+        projectId: runtime.project.projectId,
+        worktreeId: runtime.project.worktreeId,
+        rolloutPath: diagnostics.rolloutPath,
+        sourceSessionId: diagnostics.sourceSessionId,
+        scope
+      })
+    ) {
+      return;
+    }
     await runtime.sessionContinuityStore.clearRecoveryRecord();
   } catch {
     // Best-effort cleanup should not fail an otherwise successful save.

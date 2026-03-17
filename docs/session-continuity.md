@@ -237,7 +237,7 @@ Current Codex reality:
 
 - rollout JSONL is available
 - wrapper injection is available
-- official public Codex surfaces now include `AGENTS.md` layering, project-level `.codex/config.toml` overrides, multi-agent workflows, and handoff-oriented transcript context improvements
+- official public Codex docs clearly cover `AGENTS.md` layering, project-level `.codex/config.toml` overrides, and multi-agent workflows; local runtime observations additionally show handoff-oriented transcript context improvements
 - local `cam doctor --json` on 2026-03-17 still reports `memories` and `codex_hooks` as `under development` and disabled, so native memory remains outside the current trusted path
 
 Therefore the current implementation is:

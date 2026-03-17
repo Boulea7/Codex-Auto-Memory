@@ -112,9 +112,9 @@ Not a good fit:
 | Inspect / audit memory | `/memory` | No equivalent | `cam memory` |
 | Native hooks / memory integration | Built in | Experimental / under development | Planned compatibility seam |
 
-`cam memory` is intentionally an inspection and audit surface. It exposes the startup-loaded index files, startup budget, on-demand topic refs, edit paths, and recent durable sync audit events behind `--recent [count]`.
+`cam memory` is intentionally an inspection and audit surface. It exposes the quoted index files that actually made it into the startup payload, the startup budget, on-demand topic refs, edit paths, and recent durable sync audit events behind `--recent [count]`.
 Those recent sync events come from `~/.codex-auto-memory/projects/<project-id>/audit/sync-log.jsonl` and only cover sync-flow `applied`, `no-op`, and `skipped` events. Manual `cam remember` / `cam forget` updates stay outside that audit stream by design.
-When primary memory files were written but the reviewer sidecar did not complete, `cam memory` also exposes a pending sync recovery marker so reviewers can see that partial-success state explicitly.
+When primary memory files were written but the reviewer sidecar did not complete, `cam memory` will try to expose a pending sync recovery marker so reviewers can see that partial-success state explicitly; that marker is only cleared when the same rollout/session later completes successfully, not by an unrelated successful sync.
 Explicit updates still happen through `cam remember`, `cam forget`, or direct Markdown edits rather than a `/memory`-style in-command editor.
 
 ## Quick start

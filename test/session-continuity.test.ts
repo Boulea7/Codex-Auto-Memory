@@ -312,6 +312,32 @@ describe("session continuity domain", () => {
     expect(summary.project.notYetTried).toContain("Try Redis cache");
   });
 
+  it("heuristic summarizer drops historical in-progress pseudo-failures from existing state", async () => {
+    const existing = {
+      project: {
+        ...createEmptySessionContinuityState("project", "p1", "w1"),
+        triedAndFailed: [
+          "Command failed: `pnpm test` — Process running with session ID 12345"
+        ]
+      },
+      projectLocal: createEmptySessionContinuityState("project-local", "p1", "w1")
+    };
+    const evidence: RolloutEvidence = {
+      sessionId: "session-clean-old-failure",
+      createdAt: "2026-03-15T00:00:00.000Z",
+      cwd: "/tmp/project",
+      userMessages: ["Continue"],
+      agentMessages: [],
+      toolCalls: [],
+      rolloutPath: "/tmp/rollout.jsonl"
+    };
+
+    const summarizer = new SessionContinuitySummarizer(baseConfig("/tmp/memory-root"));
+    const summary = await summarizer.summarize(evidence, existing);
+
+    expect(summary.project.triedAndFailed).toEqual([]);
+  });
+
   it("heuristic summarizer splits shared and local continuity heuristically", async () => {
     const evidence: RolloutEvidence = {
       sessionId: "session-layered",

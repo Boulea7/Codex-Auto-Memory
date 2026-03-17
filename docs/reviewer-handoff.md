@@ -32,9 +32,9 @@ The repository currently has:
 - review-oriented docs and changelog tracking
 - a repository privacy audit command: `cam audit`
 - a reviewer-oriented durable sync audit log at `projects/<project-id>/audit/sync-log.jsonl` keyed by structured rollout identity
-- a reviewer-oriented `cam memory` surface that shows startup-loaded index files, on-demand topic refs, edit paths, recent durable sync audit events, configured-vs-actual extractor truth when fallback occurs, and a pending sync recovery marker when primary memory writes succeeded but sidecar persistence did not
+- a reviewer-oriented `cam memory` surface that shows the quoted index files that actually entered startup, on-demand topic refs, edit paths, recent durable sync audit events, configured-vs-actual extractor truth when fallback occurs, and a best-effort pending sync recovery marker when primary memory writes succeeded but sidecar persistence did not
 - a reviewer-oriented continuity audit log that records preferred vs actual generation path, fallback reasons, evidence counts, and written continuity paths
-- a reviewer-oriented `cam session` surface that shows the latest continuity diagnostics, the latest evidence/written-path drill-down, a compact recent generation preview, and a pending continuity recovery marker when continuity Markdown writes succeeded but audit append did not
+- a reviewer-oriented `cam session` surface that shows the latest continuity diagnostics, the latest evidence/written-path drill-down, a compact recent generation preview, and a best-effort pending continuity recovery marker when continuity Markdown writes succeeded but audit append did not
 - conservative contradiction handling that now has extra negative-fixture coverage so unsupported topics do not auto-delete stale memory
 - a release checklist that now explicitly calls out paired bilingual public-doc consistency checks
 
@@ -43,7 +43,7 @@ The repository currently has:
 - `cam audit`: repository-level privacy and secret-hygiene audit
 - `cam memory --recent [count]`: durable sync audit for recent `applied` / `no-op` / `skipped` sync events
 - `cam session save|load|status`: continuity audit surface for the latest diagnostics; `load` / `status` text output adds compact recent history, and all three `--json` variants return recent audit entries
-- pending recovery markers: additive reviewer surface for partial-success durable sync / continuity saves; these markers stay separate from the JSONL audit streams
+- pending recovery markers: additive reviewer surface for partial-success durable sync / continuity saves; these markers stay separate from the JSONL audit streams and are only cleared by a later success for the same rollout/session identity
 
 Manual `cam remember` / `cam forget` updates remain outside the durable sync audit stream by design.
 
@@ -78,7 +78,7 @@ The project intentionally chose a **forward-only cleanup** strategy. Earlier com
 - `cam memory` is still shallower than Claude Code’s `/memory`, especially around edit/toggle ergonomics
 - durable sync audit is now explicitly typed, keyed by structured rollout identity, and reviewer-visible, but it still intentionally stays separate from manual `remember` / `forget` edit history
 - durable sync writes still are not fully transactional across memory files, audit append, and processed-state persistence
-- partial-success writes now have explicit recovery markers, but they still are not transactional rollbacks
+- partial-success writes now have explicit best-effort recovery markers, but they still are not transactional rollbacks
 - bilingual public docs now exist, but they require disciplined co-maintenance to avoid Chinese / English drift
 - continuity diagnostics now expose the latest generation, the latest evidence/written-path drill-down, and a short recent preview, but the CLI still does not provide a dedicated history browser beyond the audit JSONL
 - `processedRolloutEntries` bounded compaction remains deferred by design because dropping older identities would allow manual replay of old rollouts to sync again

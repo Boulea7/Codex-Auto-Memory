@@ -17,7 +17,7 @@ import { filterMemoryOperations } from "../extractor/safety.js";
 import type { MemoryExtractorAdapter } from "../runtime/contracts.js";
 import { RolloutSessionSource } from "../runtime/rollout-session-source.js";
 import { buildMemorySyncAuditEntry } from "./memory-sync-audit.js";
-import { buildSyncRecoveryRecord } from "./recovery-records.js";
+import { buildSyncRecoveryRecord, matchesSyncRecoveryRecord } from "./recovery-records.js";
 
 interface ExtractionResult {
   operations: MemoryOperation[];
@@ -155,7 +155,10 @@ export class SyncService {
       throw error;
     }
 
-    await this.clearSyncRecoveryRecordBestEffort();
+    await this.clearSyncRecoveryRecordBestEffort({
+      rolloutPath,
+      sessionId: evidence.sessionId
+    });
 
     return {
       applied,
@@ -255,8 +258,25 @@ export class SyncService {
     }
   }
 
-  private async clearSyncRecoveryRecordBestEffort(): Promise<void> {
+  private async clearSyncRecoveryRecordBestEffort(identity: {
+    rolloutPath: string;
+    sessionId?: string;
+  }): Promise<void> {
     try {
+      const record = await this.store.readSyncRecoveryRecord();
+      if (!record) {
+        return;
+      }
+      if (
+        !matchesSyncRecoveryRecord(record, {
+          projectId: this.project.projectId,
+          worktreeId: this.project.worktreeId,
+          rolloutPath: identity.rolloutPath,
+          sessionId: identity.sessionId
+        })
+      ) {
+        return;
+      }
       await this.store.clearSyncRecoveryRecord();
     } catch {
       // Best-effort cleanup should not fail an otherwise successful sync.

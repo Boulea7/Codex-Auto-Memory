@@ -69,6 +69,7 @@ If any step is skipped, explain why in the final handoff.
 - Milestone 19 is complete: durable sync processed state now uses structured rollout identity instead of path-only skip semantics, and durable sync audit now records configured vs actual extractor truth.
 - Milestone 20 is complete: startup-loaded `MEMORY.md` index files now stay separate from on-demand topic refs in the reviewer surface, topic-entry metadata parsing skips invalid shapes safely, and continuity evidence no longer treats in-progress command output as a failed command.
 - Milestone 21 is complete: partial-success durable sync and continuity saves now write explicit recovery markers, reviewer JSON/text surfaces expose pending recovery state additively, and `processedRolloutEntries` bounded compaction remains intentionally deferred.
+- Post-alpha.21 review fixes are complete: wrapper post-run persistence now attempts continuity auto-save even if durable sync sidecars fail, recovery markers are cleared only for the same rollout/session identity, startup-loaded index files only count truly quoted startup content, and continuity parsing drops the known `Process running with session ID ...` pseudo-failure pattern from persisted reviewer state.
 - `cam memory --json` now also exposes `startupBudget` and `refCountsByScope` for reviewer tooling.
 - Native Codex `memories` and `codex_hooks` still remain outside the trusted implementation path until `cam doctor --json` and public docs both show stable support.
 

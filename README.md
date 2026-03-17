@@ -112,9 +112,9 @@ Claude Code 已经公开了一套相对清晰的 auto memory 产品契约：
 | inspect / audit memory | `/memory` | 无等价命令 | `cam memory` |
 | native hooks / memory | Built in | Experimental / under development | 当前只保留迁移 seam |
 
-`cam memory` 当前是 inspection / audit surface：它会暴露 startup 实际加载的 index files、startup budget、按需 topic refs、edit paths，以及 `--recent [count]` 下的 recent durable sync audit。
+`cam memory` 当前是 inspection / audit surface：它会暴露真正进入 startup payload 的 quoted index files、startup budget、按需 topic refs、edit paths，以及 `--recent [count]` 下的 recent durable sync audit。
 这些 recent sync events 来自 `~/.codex-auto-memory/projects/<project-id>/audit/sync-log.jsonl`，只覆盖 sync flow 的 `applied` / `no-op` / `skipped` 事件，不包含 manual `cam remember` / `cam forget`。
-如果主 memory 文件已经写入，但 reviewer sidecar（audit / processed-state）没有完整落盘，`cam memory` 还会额外暴露一个 pending sync recovery marker，帮助 reviewer 识别 partial-success 状态。
+如果主 memory 文件已经写入，但 reviewer sidecar（audit / processed-state）没有完整落盘，`cam memory` 会尽力暴露一个 pending sync recovery marker，帮助 reviewer 识别 partial-success 状态；该 marker 只会在同一 rollout/session 后续成功补齐时清理，不会被不相关的成功 sync 顺手抹掉。
 显式更新仍通过 `cam remember`、`cam forget` 或直接编辑 Markdown 文件完成，而不是提供 `/memory` 风格的命令内编辑器。
 
 ## 快速开始

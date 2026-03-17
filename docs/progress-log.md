@@ -222,6 +222,14 @@ This document tracks implementation progress in a format that is easy to consume
 - Default `cam memory`, `cam session load`, and `cam session status` text output now surface pending recovery markers without mixing them into the existing JSONL audit streams.
 - Bounded compaction for `processedRolloutEntries` was reviewed and explicitly deferred; the project does not currently accept the semantic change where an evicted old rollout could sync again if replayed manually.
 
+### Post-alpha.21 review fixes
+
+- Wrapper post-run persistence now treats durable sync and continuity auto-save as separate follow-up steps, so a durable sync sidecar failure does not skip continuity persistence.
+- Recovery markers are now cleared only after a later success for the same rollout/session identity; unrelated successes no longer erase reviewer-visible partial-success evidence.
+- Startup reviewer surfaces now count only `MEMORY.md` files that actually contributed quoted startup lines, avoiding header-only false positives under very small startup budgets.
+- Continuity parsing and summarization now drop the known `Process running with session ID ...` pseudo-failure pattern from persisted `triedAndFailed` state, so reviewer surfaces do not keep replaying old false failures forever.
+- The full Vitest suite now runs under an explicit serial + higher-timeout configuration to restore `pnpm test` as a stable baseline gate.
+
 ## Reviewer checkpoints
 
 If you are reviewing the repository now, start here:
