@@ -1,126 +1,121 @@
-# Native Migration Strategy
+# Native Migration 策略
 
-`codex-auto-memory` is built to work today without depending on unfinished Codex memory APIs, while still preparing for a future native transition.
+[简体中文](./native-migration.md) | [English](./native-migration.en.md)
 
-## Current reality
+> `codex-auto-memory` 的目标不是永远停留在 wrapper 方案，而是在官方 native memory / hooks 真正稳定前，坚持 companion-first，并为未来迁移保留 clean seam。
 
-Codex already exposes useful foundations:
+## 一页结论
 
-- persistent session artifacts in `~/.codex/sessions/`
-- resume and fork flows
-- public `AGENTS.md` layering rules
-- public project-level `.codex/config.toml` overrides
-- public multi-agent workflows and handoff-oriented transcript context improvements
-- experimental `memories` and `codex_hooks` feature flags
-- official public Codex materials now also mention experimental memory and hook work, but still do not document a stable end-user contract for memory layout, scope semantics, or hook event behavior
+当前最重要的判断只有三条：
 
-### Codex native memory status (as of 2026-03-17)
+- native Codex memory / hooks 还不能作为 trusted primary path
+- companion mode 不是临时凑合方案，而是当前主线实现
+- 迁移应在“公开文档 + 本地稳定性 + CI 可验证性”同时成立后再发生
 
-Codex CLI ships with a native two-phase memory system (extraction + consolidation) implemented in Rust. The following details were observed from source and local runtime behavior. They are **not** backed by a stable official public API contract and may change without notice.
+## 当前现实
 
-Observed layout at `~/.codex/memories/`:
+Codex 已经公开了一些对本项目有价值的基础能力：
 
-- `MEMORY.md`: primary memory index
-- `memory_summary.md`: consolidated summary
-- `skills/`: skills extracted from sessions
+- rollout JSONL
+- resume / fork
+- `AGENTS.md`
+- project-level `.codex/config.toml`
+- multi-agent workflows
+- experimental `memories`
+- experimental `codex_hooks`
 
-Configuration is via the `[memories]` section in `config.toml`. The feature is gated behind the `memory_tool` / `MemoryTool` feature flag.
+但这些还不足以支撑“现在就把 companion path 废掉”。
 
-Hook events are currently limited to 2 experimental events: `SessionStart` and `Stop`. Hook configuration lives in `.codex/hooks.json`. This is substantially more limited than Claude Code's 22+ lifecycle events across 4 hook types.
+## 公开事实与本地观察要分开写
 
-Sessions are stored as JSONL rollout files at `~/.codex/sessions/YYYY/MM/DD/rollout-<timestamp>-<UUID>.jsonl`.
+### 公开可引用的事实
 
-Local readiness remains unchanged as of 2026-03-17:
+从官方公开资料可以安全说的是：
 
-- `cam doctor --json` still reports `memories` as `under development` and disabled
-- `cam doctor --json` still reports `codex_hooks` as `under development` and disabled
-- this project should therefore continue to treat companion mode as the primary implementation path, not as a temporary fallback to a nearly-ready native path
+- Codex CLI 已公开发布
+- feature maturity 页面把部分能力放在 experimental / under-development 语境里
+- 当前公开面没有给出完整、稳定、等价于 Claude Code 的 memory 产品契约
 
-**Important**: the above is based on source inspection and local observations, not official OpenAI documentation. Treat it as a useful migration signal, not a stable API guarantee. In particular, the directory layout, config keys, and hook semantics may change in future Codex releases without notice.
+### 本地观察只能作为 migration signal
 
-## Migration objective
+本地 source inspection 或 runtime observation 可能会显示：
 
-When official Codex memory and hooks stabilize, this project should migrate from a companion wrapper to a thinner native adapter with minimal user disruption.
+- 某些目录布局
+- 某些 feature flags
+- 某些配置项
 
-## Non-negotiable compatibility seams
+这些信息可以帮助我们做迁移预判，但不能在公开文档里写成稳定 API 保证。
 
-The implementation should keep these interfaces explicit:
+## 为什么当前不能直接切到 native
 
-- `SessionSource`: where session evidence comes from
-- `MemoryExtractor`: how rollout evidence becomes memory operations
-- `MemoryStore`: how Markdown memory is persisted
-- `RuntimeInjector`: how startup memory reaches Codex
+| 问题 | 当前回答 |
+| :-- | :-- |
+| native memories 已稳定公开吗 | 还没有 |
+| native hooks 已足够支撑 Claude-style lifecycle 吗 | 还没有 |
+| 能在 CI 中可靠验证 native behavior 吗 | 还不够 |
+| 能保证与当前 Markdown contract 等价吗 | 还不能 |
 
-These seams allow us to replace only the native integration layer later.
+因此当前默认结论仍然是：
 
-Current code alignment:
+- companion-first
+- native migration only when ready
 
-- rollout-backed session sourcing is now isolated behind a named companion session source
-- wrapper-based startup injection is now isolated behind a named runtime injector
-- startup injection now compiles quoted `MEMORY.md` indexes plus structured topic-file references for on-demand reads
-- optional session continuity injection now rides the same wrapper path but remains a distinct temporary layer
-- extractor implementations expose explicit adapter identities
-- `cam doctor` now reports native-readiness against these seams
+## 迁移时必须保持稳定的东西
 
-## Planned migration phases
+无论未来底层是否切到 native，用户心智模型尽量不要变：
 
-### Phase 1: Companion-first
+- Markdown-first memory
+- `MEMORY.md` 作为紧凑入口
+- topic files 作为细节层
+- project / project-local scope 边界
+- session continuity 与 durable memory 分离
+- inspect / audit / explicit correction 的基本使用方式
 
-- Use rollout JSONL as the session source
-- Use wrapper commands to inject compact quoted startup memory plus topic-file references
-- Use explicit command surfaces and optional wrapper automation for temporary session continuity
-- Use local Markdown as the stable store
+## 当前必须保留的替换 seam
 
-### Phase 2: Hybrid
+为了保证未来可以迁移，当前实现必须继续显式保留：
 
-- Detect stable Codex hook support with `cam doctor`
-- Allow optional native event hookups while keeping wrapper fallback
-- Continue using the same Markdown store and scope rules
-- **Note**: local observations suggest that Codex native memory support may be emerging, but before adopting it, verify content quality parity, format compatibility with our Markdown contract, and scope model equivalence (global vs. project vs. project-local) against official docs or reproducible runtime behavior.
+- `SessionSource`
+- `MemoryExtractor`
+- `MemoryStore`
+- `RuntimeInjector`
 
-### Phase 3: Native-first
+只要这些边界仍然真实存在，未来就可以替换 integration layer，而不是推翻产品模型。
 
-- Adopt official native memory or hook events for session boundaries
-- Keep Markdown parity where possible
-- Provide a migration command for any metadata or path adjustments
+## 推荐迁移阶段
 
-## What should stay stable across migration
+### Phase 1：Companion-first
 
-- directory layout semantics
-- scope semantics
-- the 200-line startup contract
-- topic file model
-- user-facing commands for inspect / remember / forget
+- 继续使用 rollout JSONL
+- 继续使用 wrapper startup injection
+- 继续把 Markdown 作为主存储表面
+- 继续把 session continuity 当作独立 companion layer
 
-The goal is to preserve user trust. Native migration should change implementation plumbing, not the mental model of how memory works.
+### Phase 2：Hybrid
 
-## Risks to monitor
+- 只有在 `cam doctor` 与官方 docs 同时改善时，才考虑可选 native bridge
+- 保留 wrapper fallback
+- 保留 Markdown contract 与 scope model
 
-- official Codex memory may choose a different startup loading model
-- hook event shapes may differ from current assumptions
-- native memory may not use Markdown as its primary surface
-- locally observed directory or config details may change without notice because they are not yet backed by a public contract
+### Phase 3：Native-first
 
-If native behavior diverges from Claude parity, this project should support both:
+- 只有在 native 能稳定、公开、可测试地满足核心契约后才进入
+- 如果 native 不能完整保留 Markdown-first 与 topic-file model，仍需保留严格兼容模式
 
-- a strict Claude-compatible mode
-- a native-optimized mode
+## 决策规则
 
-## Public reference points
+不要因为“看到了某个 native flag”就迁移。  
+只有当以下条件同时成立时，迁移才是合理的：
+
+- 官方公开文档足够明确
+- 多个版本之间行为稳定
+- 可以通过 CI 或可重复本地自动化验证
+- 能保持当前核心用户契约
+- 不会把 Markdown-first 和 companion auditability 直接丢掉
+
+## 官方参考
 
 - Codex CLI overview: <https://developers.openai.com/codex/cli>
-- Codex configuration basics: <https://developers.openai.com/codex/config>
-- Codex `AGENTS.md` guide: <https://developers.openai.com/codex/guides/agents-md>
-- Codex multi-agent guide: <https://developers.openai.com/codex/multi-agent>
+- Codex feature maturity: <https://developers.openai.com/codex/feature-maturity>
 - Codex changelog: <https://developers.openai.com/codex/changelog>
-
-## Decision rule
-
-Do not migrate purely because a native flag exists. Migrate when native Codex support is:
-
-- publicly documented
-- stable across releases
-- testable in CI or deterministic local automation
-- capable of preserving the core user contract this project promises
-- verified for content quality parity: extraction quality, scope isolation, and the 200-line startup contract must all hold under the native system
-- verified for format compatibility: if native memory does not use Markdown or does not support user-editable topic files, a strict Claude-compatible mode must remain available
+- Codex config docs: <https://developers.openai.com/codex/config>

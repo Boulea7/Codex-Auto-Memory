@@ -1,55 +1,106 @@
-# Architecture
+# 架构设计
 
-This document describes the intended runtime architecture for `codex-auto-memory`.
+[简体中文](./architecture.md) | [English](./architecture.en.md)
 
-## Design principles
+> 本文解释 `codex-auto-memory` 如何在保持 local-first、Markdown-first、companion-first 的前提下，把 durable memory、startup injection 和 session continuity 组合起来。
 
-- Local-first and auditable
-- Minimal assumptions about unstable Codex internals
-- Clean migration seam toward future native Codex memory
-- Markdown files are part of the product surface, not an implementation detail
+## 一页概览
 
-## High-level flow
+`codex-auto-memory` 主要由 3 条运行路径组成：
 
-### Startup path
+1. startup path：编译并注入紧凑 memory
+2. post-session sync path：从 rollout JSONL 提取 durable memory
+3. optional continuity path：单独处理临时 working state
 
-1. `cam run`, `cam exec`, or `cam resume` resolves configuration.
-2. The tool identifies the current project and worktree.
-3. It reads `MEMORY.md` from three scopes:
+它们的共同目标是：让 memory 保持可审计、可编辑、可迁移，而不是把复杂状态藏进 opaque cache。
+
+## 设计原则
+
+- local-first and auditable
+- Markdown files are the product surface
+- startup index must stay concise
+- topic files are the detail layer
+- session continuity must remain separate from durable memory
+- companion-first is the mainline; native migration is a seam
+
+## 系统总览
+
+```mermaid
+flowchart TD
+    A[cam run / exec / resume] --> B[编译 startup memory]
+    B --> C[注入 quoted MEMORY.md 与 topic refs]
+    C --> D[运行 Codex]
+    D --> E[会话结束后读取 rollout JSONL]
+    E --> F[提取 durable memory operations]
+    E --> G[可选 continuity summary]
+    F --> H[更新 MEMORY.md 与 topic files]
+    G --> I[更新 shared / local continuity files]
+```
+
+## 1. Startup path
+
+启动阶段会做以下事情：
+
+1. 解析配置
+2. 识别当前 project 与 worktree
+3. 读取三个 scope 的 `MEMORY.md`
    - global
    - project
    - project-local
-4. It compiles a bounded startup payload, preserving a 200-line total budget.
-5. It launches Codex with the compiled memory injected as editable context.
+4. 编译受 line budget 约束的 startup payload
+5. 通过 wrapper 把它注入到 Codex
 
-Current implementation note:
+当前实现中，startup injection 的特征是：
 
-- startup injection quotes each active scope's `MEMORY.md` as local editable data rather than raw executable instructions
-- startup injection also appends a structured `### Topic files` manifest with `{ scope, topic, path }` records for each available topic file
-- full topic file content is not auto-injected; topic files remain the detail layer and are intended to be read on demand through normal file-read tools
-- startup compilation does not parse topic entry bodies, which keeps the startup path compact and avoids eager full-topic loading
+- 各 scope 的 `MEMORY.md` 以 quoted local data 注入
+- 额外附带结构化 topic file refs
+- 不 eager 读取 topic entry bodies
+- 允许 session continuity 作为单独 block 注入
 
-### Post-session sync path
+## 2. Post-session sync path
 
-1. The wrapper watches for new rollout files in `~/.codex/sessions/`.
-2. After the session, it parses the relevant rollout JSONL.
-3. A memory extractor proposes structured memory operations.
-4. The Markdown store applies upserts and deletes to topic files.
-5. `MEMORY.md` is rebuilt as a concise index for each scope.
+sync path 的职责是把“值得长期保存的信息”写回 durable memory：
 
-### Optional session continuity path
+1. 读取相关 rollout JSONL
+2. 解析 user messages、tool calls、tool outputs
+3. 由 extractor 生成 memory operations
+4. 将 upsert / delete 应用到 Markdown store
+5. 重建对应 scope 的 `MEMORY.md`
 
-1. `cam session save` or wrapper auto-save selects the latest relevant rollout.
-2. A continuity summarizer extracts temporary working-state sections into two layers:
-   - shared project continuity
-   - project-local continuity
-3. Shared continuity is written to the companion store.
-4. Project-local continuity is written to a hidden local path and added to local git excludes.
-5. If auto-load is enabled later, the wrapper injects a bounded temporary continuity block separately from durable memory.
+当前 extractor 的设计目标是：
 
-## Storage model
+- 保存稳定、未来有用的信息
+- 避免保存原始会话回放
+- 对显式 correction 做保守替换
+- 避免把临时 next step / local edit noise 写进 durable memory
 
-Default layout:
+## 3. Optional session continuity path
+
+session continuity 是独立 companion layer，不属于 durable memory 契约：
+
+- shared continuity：跨 worktree 共享的项目级 working state
+- project-local continuity：当前 worktree 的本地 working state
+
+它的存在是为了帮助会话恢复，而不是替代 memory。
+
+### 为什么要分层
+
+shared continuity 适合放：
+
+- 当前主目标
+- 已验证可行的做法
+- 已尝试且失败的路径
+- 对整个仓库都成立的前提
+
+project-local continuity 适合放：
+
+- 当前 worktree 的精确 next step
+- 本地实验记录
+- local-only files / decisions / environment notes
+
+## 4. 存储模型
+
+### Durable memory
 
 ```text
 ~/.codex-auto-memory/
@@ -61,120 +112,71 @@ Default layout:
     │   ├── MEMORY.md
     │   ├── commands.md
     │   └── architecture.md
-    ├── locals/<worktree-id>/
-    │   ├── MEMORY.md
-    │   └── workflow.md
-    └── audit/
-        └── sync-log.jsonl
+    └── locals/<worktree-id>/
+        ├── MEMORY.md
+        └── workflow.md
 ```
 
-## Memory scopes
+### Session continuity
 
-### Global
+```text
+~/.codex-auto-memory/projects/<project-id>/continuity/project/active.md
+<project-root>/.codex-auto-memory/sessions/active.md
+```
 
-Stores cross-project personal preferences and habits.
+## 5. Scope 边界
 
-Examples:
+| Scope | 作用 | 示例 |
+| :-- | :-- | :-- |
+| global | 跨项目个人偏好 | 常用包管理器、个人审查习惯 |
+| project | 仓库级 durable knowledge | build/test commands、架构约束 |
+| project-local | 当前 worktree 或本地环境知识 | 本地 workflow、worktree-specific note |
 
-- preferred package manager
-- preferred testing cadence
-- personal review or communication style
+这条边界必须保持清楚，否则：
 
-### Project
+- project memory 会被本地噪音污染
+- continuity 会混进 durable memory
+- worktree 共享语义会变得不可预测
 
-Stores repository-level durable knowledge shared across worktrees.
+## 6. Markdown contract
 
-Examples:
+本项目的产品表面是 Markdown，而不是内部数据库：
 
-- canonical build and test commands
-- architectural constraints
-- recurring debugging insights
+- `MEMORY.md`：紧凑启动索引
+- topic files：细节层
+- continuity files：临时恢复层
 
-### Project local
+允许存在轻量 bookkeeping，但不能让 Markdown 退化成次要表示。
 
-Stores more local, personal, or worktree-specific notes.
+## 7. Injection strategy
 
-Examples:
+当前 Codex 公开面还没有提供与 Claude Code 等价的 native auto memory surface，因此 startup path 必须继续满足：
 
-- a local branch workflow
-- a temporary but reusable local environment quirk
-- machine-specific instructions that should not leak into shared project memory
+- 不改动用户仓库里的 tracked files 来完成注入
+- 由 companion runtime 在外部编译 memory
+- 把 memory 作为 quoted data 注入，而不是隐式 prompt policy
+- continuity block 与 durable memory block 明确分开
 
-## Markdown contract
+## 8. Native migration seam
 
-The product surface is Markdown-first:
+当前架构保留了几个关键替换点：
 
-- `MEMORY.md` is the startup index
-- topic files hold detailed entries
-- users may inspect and edit files directly
+- `SessionSource`
+- `MemoryExtractor`
+- `MemoryStore`
+- `RuntimeInjector`
 
-The implementation may keep lightweight state for deduplication or sync bookkeeping, but it must not make the Markdown unreadable or secondary.
+这样未来迁移时可以替换 integration layer，而不是推翻用户心智模型。
 
-## Session continuity layer
+## 9. 验证重点
 
-`codex-auto-memory` now distinguishes between two companion layers:
-
-- durable auto memory: long-lived Markdown memory scoped as `global`, `project`, and `project-local`
-- session continuity: temporary working-state Markdown used to resume work across conversations
-
-Session continuity is intentionally **not** part of the durable memory contract:
-
-- it captures incomplete work, tried-and-failed approaches, and next steps
-- it should not rewrite or pollute `MEMORY.md`
-- it can be enabled, loaded, or cleared independently of durable memory
-- it keeps cross-worktree continuity separate from worktree-local resume notes
-
-Current storage model:
-
-- shared project continuity: `~/.codex-auto-memory/projects/<project-id>/continuity/project/active.md`
-- Codex-first local continuity: `<project-root>/.codex-auto-memory/sessions/active.md`
-- Claude-compatible local continuity (optional path style): `<project-root>/.claude/sessions/<date>-<short-id>-session.tmp`
-- reviewer-oriented continuity diagnostics audit: `~/.codex-auto-memory/projects/<project-id>/audit/session-continuity-log.jsonl`
-
-This split preserves cross-worktree sharing through the companion store while still supporting project-local hidden files for worktree-specific state.
-
-Current continuity assignment rule:
-
-- shared continuity carries repository-wide goal, confirmed working evidence, failed approaches, and project-wide prerequisites
-- project-local continuity carries the exact next step, local file-edit notes, and worktree-specific experiments
-- `cam session load` renders shared, local, and merged views separately so reviewers can see what is canonical versus local
-
-## Injection strategy
-
-Current Codex releases do not expose a complete native auto memory surface comparable to Claude Code. Until that changes, the startup injector should:
-
-- avoid modifying tracked repository files
-- compile memory externally
-- inject it through the wrapper launch path
-- quote injected memory as data so editable Markdown does not silently become policy or tool instructions
-
-This is a compatibility-first design, not a permanent commitment to wrapper-only injection.
-
-Session continuity follows the same companion-first approach:
-
-- default mode is manual and explicit
-- auto-load and auto-save are local behavior toggles, disabled by default
-- project-shared config cannot force local session continuity behavior
-
-## Extractor strategy
-
-The preferred extractor path uses Codex itself in an ephemeral, schema-constrained mode to propose memory operations. A heuristic fallback exists for degraded environments.
-
-The extractor should keep Claude-aligned selection rules:
-
-- save stable future-useful facts
-- do not save raw task transcripts
-- do not save incomplete speculative guesses
-- remove or revise stale memory when contradicted
-
-## Testing targets
-
-Minimum validation should cover:
+这套架构至少应持续验证：
 
 - config precedence
-- project and worktree identity
+- project / worktree identity
 - Markdown read/write behavior
-- `MEMORY.md` 200-line constraints
+- `MEMORY.md` startup budget
 - rollout parsing
 - startup payload compilation
-- CLI wrapper behavior
+- session continuity layering
+- CLI command surfaces
