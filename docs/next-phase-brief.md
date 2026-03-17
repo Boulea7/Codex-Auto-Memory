@@ -1,16 +1,16 @@
 # Next Phase Brief
 
-This brief prepares the next implementation window after `0.1.0-alpha.20`.
+This brief prepares the next implementation window after `0.1.0-alpha.21`.
 
-## Milestone 21 focus
+## Milestone 22 focus
 
 The next phase should continue to stay compact and reviewer-oriented:
 
-- clarify failure-path reviewer truth when durable memory or continuity files are written but sidecar audit / processed-state persistence fails
-- consider whether `processedRolloutEntries` needs bounded compaction now that structured identity is stable
+- keep recovery markers compact and additive instead of turning them into a history browser
+- keep `processedRolloutEntries` compaction deferred unless the repository explicitly accepts replay-triggered re-sync of evicted old rollouts
 - keep actual-vs-configured extractor audit visibility compact and reviewer-friendly
 - keep manual `remember` / `forget` history separate from durable sync audit unless a clearly safer reviewer contract emerges
-- keep the latest continuity drill-down stable and compact after the in-progress-command noise reduction
+- keep the latest continuity drill-down stable and compact after the new recovery-marker surfaces land
 - keep bilingual public docs synchronized as a release discipline rather than a one-off cleanup
 - keep reviewer packet and release-checklist refresh discipline routine in the same loop
 - keep monitoring native Codex memory and hooks, but remain companion-first until public docs and local readiness both improve
@@ -19,8 +19,8 @@ Do **not** reopen startup injection, session continuity storage layout, or broad
 
 ## Goals
 
-1. Make reviewer-visible failure behavior explicit when sidecar writes fail after primary files change.
-2. Keep structured processed-rollout identity compact without reintroducing path-only skip semantics.
+1. Keep recovery markers explicit and reviewer-friendly without making them a second audit-history surface.
+2. Preserve structured processed-rollout identity semantics while deferring bounded compaction intentionally.
 3. Preserve actual-vs-configured extractor audit visibility without expanding `cam memory` into a history browser.
 4. Preserve the latest-generation continuity drill-down without letting it expand into a browser.
 5. Keep docs, changelog, handoff packets, and release checklist aligned as part of the normal milestone closeout.

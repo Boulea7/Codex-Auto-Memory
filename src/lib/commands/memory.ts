@@ -3,7 +3,7 @@ import { patchConfigFile } from "../config/write-config.js";
 import { formatMemorySyncAuditEntry } from "../domain/memory-sync-audit.js";
 import { openPath } from "../util/open.js";
 import { compileStartupMemory } from "../domain/startup-memory.js";
-import type { ConfigScope, MemoryCommandOutput, MemoryScope } from "../types.js";
+import type { ConfigScope, MemoryCommandOutput, MemoryScope, SyncRecoveryRecord } from "../types.js";
 import { buildRuntimeContext } from "./common.js";
 
 interface MemoryOptions {
@@ -16,6 +16,19 @@ interface MemoryOptions {
   enable?: boolean;
   disable?: boolean;
   configScope?: ConfigScope;
+}
+
+function formatPendingSyncRecovery(record: SyncRecoveryRecord, recoveryPath: string): string[] {
+  return [
+    "Pending sync recovery:",
+    `- Recovery file: ${recoveryPath}`,
+    `- Failed stage: ${record.failedStage}`,
+    `- Rollout: ${record.rolloutPath}`,
+    `- Session: ${record.sessionId ?? "unknown"}`,
+    `- Status: ${record.status} (${record.appliedCount} operation${record.appliedCount === 1 ? "" : "s"})`,
+    `- Audit entry written: ${record.auditEntryWritten}`,
+    `- Failure: ${record.failureMessage}`
+  ];
 }
 
 export async function runMemory(options: MemoryOptions = {}): Promise<string> {
@@ -56,6 +69,7 @@ export async function runMemory(options: MemoryOptions = {}): Promise<string> {
   const recentSyncAudit = options.recent
     ? await runtime.syncService.memoryStore.readRecentSyncAuditEntries(recentCount)
     : [];
+  const pendingSyncRecovery = await runtime.syncService.memoryStore.readSyncRecoveryRecord();
   const startupFilesByScope = {
     global: startup.sourceFiles.filter(
       (filePath) => filePath === runtime.syncService.memoryStore.getMemoryFile("global")
@@ -117,7 +131,9 @@ export async function runMemory(options: MemoryOptions = {}): Promise<string> {
       editTargets,
       recentSyncAudit,
       recentAudit: recentSyncAudit,
-      syncAuditPath: runtime.syncService.memoryStore.getSyncAuditPath()
+      syncAuditPath: runtime.syncService.memoryStore.getSyncAuditPath(),
+      pendingSyncRecovery,
+      syncRecoveryPath: runtime.syncService.memoryStore.getSyncRecoveryPath()
     };
     return JSON.stringify(
       output,
@@ -183,6 +199,13 @@ export async function runMemory(options: MemoryOptions = {}): Promise<string> {
     for (const item of recentSyncAudit) {
       lines.push(...formatMemorySyncAuditEntry(item));
     }
+  }
+
+  if (pendingSyncRecovery) {
+    lines.push("", ...formatPendingSyncRecovery(
+      pendingSyncRecovery,
+      runtime.syncService.memoryStore.getSyncRecoveryPath()
+    ));
   }
 
   if (options.printStartup) {

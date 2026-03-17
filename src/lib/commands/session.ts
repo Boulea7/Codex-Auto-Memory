@@ -6,11 +6,16 @@ import {
   formatSessionContinuityDiagnostics,
   toSessionContinuityDiagnostics
 } from "../domain/session-continuity-diagnostics.js";
+import { buildContinuityRecoveryRecord } from "../domain/recovery-records.js";
 import {
   compileSessionContinuity,
   createEmptySessionContinuityState
 } from "../domain/session-continuity.js";
-import type { SessionContinuityAuditEntry, SessionContinuityScope } from "../types.js";
+import type {
+  ContinuityRecoveryRecord,
+  SessionContinuityAuditEntry,
+  SessionContinuityScope
+} from "../types.js";
 import { SessionContinuitySummarizer } from "../extractor/session-continuity-summarizer.js";
 import { buildRuntimeContext } from "./common.js";
 
@@ -26,6 +31,10 @@ interface SessionOptions {
 
 const recentContinuityAuditLimit = 5;
 const recentContinuityPreviewLimit = 3;
+
+function errorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
+}
 
 function selectedScope(scope?: SessionContinuityScope | "both"): SessionContinuityScope | "both" {
   if (!scope) {
@@ -47,6 +56,27 @@ function formatRecentGenerationLines(entries: SessionContinuityAuditEntry[]): st
     `- ${entry.generatedAt}: ${formatSessionContinuityDiagnostics(entry)}`,
     `  Rollout: ${entry.rolloutPath}`
   ]);
+}
+
+function formatPendingContinuityRecovery(
+  record: ContinuityRecoveryRecord,
+  recoveryPath: string
+): string[] {
+  const lines = [
+    "Pending continuity recovery:",
+    `- Recovery file: ${recoveryPath}`,
+    `- Failed stage: ${record.failedStage}`,
+    `- Rollout: ${record.rolloutPath}`,
+    `- Scope: ${record.scope}`,
+    `- Generation: ${record.actualPath} | preferred ${record.preferredPath}`,
+    `- Failure: ${record.failureMessage}`
+  ];
+
+  if (record.writtenPaths.length > 0) {
+    lines.push(...record.writtenPaths.map((filePath) => `- Written: ${filePath}`));
+  }
+
+  return lines;
 }
 
 export async function runSession(
@@ -77,21 +107,33 @@ export async function runSession(
     const summarizer = new SessionContinuitySummarizer(runtime.loadedConfig.config);
     const generation = await summarizer.summarizeWithDiagnostics(parsedEvidence, existing);
     const written = await runtime.sessionContinuityStore.saveSummary(generation.summary, scope);
-    await runtime.sessionContinuityStore.appendAuditLog(
-      buildSessionContinuityAuditEntry(
-        runtime.project,
-        runtime.loadedConfig.config,
-        generation.diagnostics,
-        written,
-        scope
-      )
+    const auditEntry = buildSessionContinuityAuditEntry(
+      runtime.project,
+      runtime.loadedConfig.config,
+      generation.diagnostics,
+      written,
+      scope
     );
+    try {
+      await runtime.sessionContinuityStore.appendAuditLog(auditEntry);
+    } catch (error) {
+      await writeContinuityRecoveryRecordBestEffort(
+        runtime,
+        generation.diagnostics,
+        scope,
+        written,
+        errorMessage(error)
+      );
+      throw error;
+    }
+    await clearContinuityRecoveryRecordBestEffort(runtime);
     const excludePath =
-      scope === "project" ? null : await runtime.sessionContinuityStore.ensureLocalIgnore();
+      scope === "project" ? null : runtime.sessionContinuityStore.getLocalIgnorePath();
     const recentContinuityAuditEntries = await runtime.sessionContinuityStore.readRecentAuditEntries(
       recentContinuityAuditLimit
     );
     const latestContinuityAuditEntry = recentContinuityAuditEntries[0] ?? null;
+    const pendingContinuityRecovery = await runtime.sessionContinuityStore.readRecoveryRecord();
 
     if (options.json) {
       return JSON.stringify(
@@ -103,7 +145,9 @@ export async function runSession(
           diagnostics: generation.diagnostics,
           latestContinuityAuditEntry,
           recentContinuityAuditEntries,
-          continuityAuditPath: runtime.sessionContinuityStore.paths.auditFile
+          continuityAuditPath: runtime.sessionContinuityStore.paths.auditFile,
+          pendingContinuityRecovery,
+          continuityRecoveryPath: runtime.sessionContinuityStore.getRecoveryPath()
         },
         null,
         2
@@ -150,6 +194,7 @@ export async function runSession(
     recentContinuityAuditLimit
   );
   const latestContinuityAuditEntry = recentContinuityAuditEntries[0] ?? null;
+  const pendingContinuityRecovery = await runtime.sessionContinuityStore.readRecoveryRecord();
   const latestContinuityDiagnostics = latestContinuityAuditEntry
     ? toSessionContinuityDiagnostics(latestContinuityAuditEntry)
     : null;
@@ -179,7 +224,9 @@ export async function runSession(
           latestContinuityAuditEntry,
           latestContinuityDiagnostics,
           recentContinuityAuditEntries,
-          continuityAuditPath: runtime.sessionContinuityStore.paths.auditFile
+          continuityAuditPath: runtime.sessionContinuityStore.paths.auditFile,
+          pendingContinuityRecovery,
+          continuityRecoveryPath: runtime.sessionContinuityStore.getRecoveryPath()
         },
         null,
         2
@@ -194,6 +241,12 @@ export async function runSession(
       `Continuity audit: ${runtime.sessionContinuityStore.paths.auditFile}`,
       ...(latestContinuityAuditEntry
         ? formatSessionContinuityAuditDrillDown(latestContinuityAuditEntry)
+        : []),
+      ...(pendingContinuityRecovery
+        ? formatPendingContinuityRecovery(
+            pendingContinuityRecovery,
+            runtime.sessionContinuityStore.getRecoveryPath()
+          )
         : []),
       "Recent generations:",
       ...formatRecentGenerationLines(recentContinuityAuditEntries),
@@ -298,7 +351,9 @@ export async function runSession(
         latestContinuityAuditEntry,
         latestContinuityDiagnostics,
         recentContinuityAuditEntries,
-        continuityAuditPath: runtime.sessionContinuityStore.paths.auditFile
+        continuityAuditPath: runtime.sessionContinuityStore.paths.auditFile,
+        pendingContinuityRecovery,
+        continuityRecoveryPath: runtime.sessionContinuityStore.getRecoveryPath()
       },
       null,
       2
@@ -317,6 +372,12 @@ export async function runSession(
     ...(latestContinuityAuditEntry
       ? formatSessionContinuityAuditDrillDown(latestContinuityAuditEntry)
       : []),
+    ...(pendingContinuityRecovery
+      ? formatPendingContinuityRecovery(
+          pendingContinuityRecovery,
+          runtime.sessionContinuityStore.getRecoveryPath()
+        )
+      : []),
     "Recent generations:",
     ...formatRecentGenerationLines(recentContinuityAuditEntries),
     "",
@@ -325,4 +386,38 @@ export async function runSession(
     `Merged continuity layers: ${[projectState, localState].filter(Boolean).length}`,
     `Startup continuity line budget: ${runtime.loadedConfig.config.maxSessionContinuityLines}`
   ].join("\n");
+}
+
+async function writeContinuityRecoveryRecordBestEffort(
+  runtime: Awaited<ReturnType<typeof buildRuntimeContext>>,
+  diagnostics: Parameters<typeof buildContinuityRecoveryRecord>[0]["diagnostics"],
+  scope: SessionContinuityScope | "both",
+  writtenPaths: string[],
+  failureMessage: string
+): Promise<void> {
+  try {
+    await runtime.sessionContinuityStore.writeRecoveryRecord(
+      buildContinuityRecoveryRecord({
+        projectId: runtime.project.projectId,
+        worktreeId: runtime.project.worktreeId,
+        diagnostics,
+        scope,
+        writtenPaths,
+        failedStage: "audit-write",
+        failureMessage
+      })
+    );
+  } catch {
+    // Best-effort marker persistence should not overwrite the original failure.
+  }
+}
+
+async function clearContinuityRecoveryRecordBestEffort(
+  runtime: Awaited<ReturnType<typeof buildRuntimeContext>>
+): Promise<void> {
+  try {
+    await runtime.sessionContinuityStore.clearRecoveryRecord();
+  } catch {
+    // Best-effort cleanup should not fail an otherwise successful save.
+  }
 }

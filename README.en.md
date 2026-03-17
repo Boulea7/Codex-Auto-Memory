@@ -63,13 +63,12 @@ Claude Code already exposes a fairly clear public auto memory contract:
 - worktrees in the same repository share project memory
 - `/memory` provides audit and edit controls
 
-Codex already has strong primitives, but not the same complete public memory surface:
+Codex already has useful primitives, but not the same complete public memory surface:
 
 - `AGENTS.md`
-- persistent sessions and rollout logs
 - multi-agent workflows
-- experimental `memories`
-- experimental `codex_hooks`
+- local persistent sessions and rollout logs
+- local `cam doctor` / feature-output signals for `memories` and `codex_hooks`
 
 `codex-auto-memory` fills that gap with a companion-first design instead of pretending native Codex memory is already ready for daily use.
 
@@ -115,6 +114,7 @@ Not a good fit:
 
 `cam memory` is intentionally an inspection and audit surface. It exposes the startup-loaded index files, startup budget, on-demand topic refs, edit paths, and recent durable sync audit events behind `--recent [count]`.
 Those recent sync events come from `~/.codex-auto-memory/projects/<project-id>/audit/sync-log.jsonl` and only cover sync-flow `applied`, `no-op`, and `skipped` events. Manual `cam remember` / `cam forget` updates stay outside that audit stream by design.
+When primary memory files were written but the reviewer sidecar did not complete, `cam memory` also exposes a pending sync recovery marker so reviewers can see that partial-success state explicitly.
 Explicit updates still happen through `cam remember`, `cam forget`, or direct Markdown edits rather than a `/memory`-style in-command editor.
 
 ## Quick start
@@ -171,7 +171,7 @@ cam audit           # check the repository for unexpected sensitive content
 | `cam sync` | manually sync the latest rollout into durable memory |
 | `cam memory` | inspect startup-loaded index files, on-demand topic refs, startup budget, edit paths, and durable sync audit events via `--recent [count]` |
 | `cam remember` / `cam forget` | explicitly add or remove durable memory |
-| `cam session save` / `load` / `status` / `clear` | manage the separate session continuity layer |
+| `cam session save` / `load` / `status` / `clear` | manage the separate session continuity layer and expose a pending continuity recovery marker when needed |
 | `cam audit` | run privacy and secret-hygiene checks against the repository |
 | `cam doctor` | inspect local companion wiring and native-readiness posture |
 
@@ -179,7 +179,7 @@ cam audit           # check the repository for unexpected sensitive content
 
 - `cam audit`: repository-level privacy and secret-hygiene audit.
 - `cam memory --recent [count]`: durable sync audit for recent `applied`, `no-op`, and `skipped` sync events, without mixing in manual `remember` / `forget`.
-- `cam session save|load|status`: continuity audit surface for the latest diagnostics and latest audit drill-down; `load` / `status` text output additionally shows a compact recent preview, and all three `--json` variants return recent audit entries.
+- `cam session save|load|status`: continuity audit surface for the latest diagnostics and latest audit drill-down; `load` / `status` text output additionally shows a compact recent preview, all three `--json` variants return recent audit entries, and a pending continuity recovery marker appears when continuity Markdown was written but audit persistence failed.
 
 ## How it works
 
@@ -206,7 +206,7 @@ flowchart TD
 
 ### Why the project does not switch to native memory yet
 
-- public Codex docs still place `memories` and `codex_hooks` in an experimental / under-development posture
+- public Codex docs still do not define a full, stable native memory contract equivalent to Claude Code, and local `cam doctor --json` continues to treat `memories` / `codex_hooks` only as migration signals rather than a trusted primary path
 - local source inspection is useful for migration planning, but not a stable product contract
 - the repository therefore stays companion-first until public docs, runtime behavior, and CI-verifiable stability all improve together
 

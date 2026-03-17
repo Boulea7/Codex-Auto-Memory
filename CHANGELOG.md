@@ -6,15 +6,31 @@ The format is intentionally simple and reviewer-friendly: each entry maps to a c
 
 ## Unreleased
 
+No unreleased changes yet.
+
+## 0.1.0-alpha.21 - 2026-03-18
+
 ### Added
 
-- Added helper-level regression coverage for `command-utils`, `cam audit --json`, manual `remember` / `forget` audit separation, and in-progress continuity command output.
+- Added explicit recovery markers for partial-success durable sync and session continuity saves.
+- Added additive reviewer JSON fields for pending sync recovery and pending continuity recovery.
+- Added regression coverage for sync audit-write failure, processed-state-write failure, continuity audit-write failure, and wrapper auto-save continuity audit failure.
+
+### Changed
+
+- `cam memory`, `cam session load`, and `cam session status` now surface pending recovery markers as compact reviewer warnings while keeping the existing JSONL audit streams unchanged.
+- `processedRolloutEntries` bounded compaction was reviewed and explicitly deferred to avoid reintroducing possible replay-driven re-sync of evicted old rollouts.
 
 ### Fixed
 
-- `cam memory` now keeps startup-loaded index files separate from on-demand topic refs in both startup compilation and reviewer-facing output.
-- `MemoryStore` now skips topic-entry metadata blocks that are valid JSON but do not match the expected shape, hardening user-editable Markdown parsing.
-- Continuity evidence no longer treats in-progress command output as a failed command when building reviewer diagnostics.
+- Partial-success durable sync and continuity saves no longer fail silently from the reviewer perspective when primary files were written but sidecar persistence did not complete.
+- Successful retry paths now clear stale recovery markers after the full save chain completes.
+
+### Review focus
+
+- Confirm that recovery markers stay additive and do not blur into the normal durable sync or continuity audit streams.
+- Confirm that partial-success failure paths are now explicit without introducing rollback-heavy complexity.
+- Confirm that processed-state compaction remains intentionally deferred and documented rather than silently changed.
 
 ## 0.1.0-alpha.20 - 2026-03-18
 

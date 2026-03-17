@@ -6,7 +6,7 @@ This document tracks implementation progress in a format that is easy to consume
 
 - Approximate overall progress toward a strong Claude-style alpha: `99%`
 - Approximate progress toward a working local MVP: `99%`
-- Current phase: `Phase 20 - reviewer truth tightening and markdown hardening`
+- Current phase: `Phase 21 - failure-path reviewer contract`
 
 ## Completed milestones
 
@@ -214,6 +214,14 @@ This document tracks implementation progress in a format that is easy to consume
 - Continuity evidence now treats in-progress command output as unknown rather than failed, reducing reviewer noise in `cam session` diagnostics and audit entries.
 - Added regression coverage for manual `remember` / `forget` staying outside durable sync audit, for invalid-shaped topic-entry metadata, for in-progress command output, and for `cam audit --json` severity summaries.
 
+### Milestone 21: Failure-path reviewer contract
+
+- Durable sync now writes an explicit `sync-recovery.json` marker when primary memory writes succeed but sync audit append or processed-state persistence fails.
+- Session continuity now writes an explicit `session-continuity-recovery.json` marker when continuity Markdown writes succeed but audit append fails.
+- `cam memory --json` now exposes `pendingSyncRecovery` and `syncRecoveryPath`, while `cam session save|load|status --json` now expose `pendingContinuityRecovery` and `continuityRecoveryPath`.
+- Default `cam memory`, `cam session load`, and `cam session status` text output now surface pending recovery markers without mixing them into the existing JSONL audit streams.
+- Bounded compaction for `processedRolloutEntries` was reviewed and explicitly deferred; the project does not currently accept the semantic change where an evicted old rollout could sync again if replayed manually.
+
 ## Reviewer checkpoints
 
 If you are reviewing the repository now, start here:
@@ -234,7 +242,7 @@ If you are reviewing the repository now, start here:
 - Extractor quality is stronger, and unsupported-topic auto-delete is now guarded more conservatively, but contradiction handling is still intentionally limited outside explicit commands, preferences, and workflow corrections.
 - `cam memory` now exposes grouped startup/topic refs more directly, but it still remains below Claude Code's `/memory` interaction depth for edit / toggle ergonomics.
 - durable sync audit is now more explicit and reviewer-friendly, but it still intentionally does not try to become a full edit-history browser or a manual memory journal.
-- structured processed-rollout identity is now more correct than the earlier path-only state, but the sync path still is not transactional across memory writes, audit append, and processed-state persistence.
+- structured processed-rollout identity is now more correct than the earlier path-only state, but the sync path still is not transactional across memory writes, audit append, and processed-state persistence; the repository now uses explicit recovery markers rather than silent partial success.
 - Native Codex memory and hook support is still companion-first; local `cam doctor --json` on 2026-03-17 still reports `memories` and `codex_hooks` as `under development` and disabled.
 - Topic files are now surfaced for on-demand reads, but the companion runtime still relies on generic file-read tools rather than a native lazy topic loader.
 - bilingual public docs now exist, but they introduce a new maintenance burden: Chinese and English copies need active synchronization
@@ -245,12 +253,12 @@ If you are reviewing the repository now, start here:
 
 ## Next planned milestones
 
-### Milestone 21: Failure-path contracts and compact state follow-through
+### Milestone 22: Recovery follow-through and official-doc review discipline
 
-- Clarify the reviewer contract when durable sync or continuity writes succeed partially but audit or processed-state sidecars fail.
-- Consider a compacting strategy for `processedRolloutEntries` that preserves structured skip semantics without turning `state.json` into an ever-growing history list.
-- Keep `cam memory` and `cam session` surfaces compact after the Milestone 20 wording/semantics correction; do not reopen broader command-surface expansion.
-- Keep bilingual public docs and reviewer docs aligned as a release habit rather than a cleanup task.
+- Keep recovery markers compact and additive; do not let them evolve into a history browser or manual journal.
+- Revisit `processedRolloutEntries` compaction only if the repository explicitly accepts the possibility that evicted old rollouts may sync again when replayed manually.
+- Keep bilingual public docs and reviewer docs aligned after the new recovery-marker surfaces land.
+- Continue reviewing companion-first wording against official Codex and Claude docs before widening any product claims.
 
 ## Review-ready habits
 

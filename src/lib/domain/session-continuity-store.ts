@@ -3,6 +3,7 @@ import path from "node:path";
 import { APP_ID } from "../constants.js";
 import type {
   AppConfig,
+  ContinuityRecoveryRecord,
   ProjectContext,
   SessionContinuityAuditEntry,
   SessionContinuityLocation,
@@ -11,9 +12,10 @@ import type {
   SessionContinuityState,
   SessionContinuitySummary
 } from "../types.js";
-import { appendJsonl, fileExists, readTextFile, writeTextFile } from "../util/fs.js";
+import { appendJsonl, fileExists, readJsonFile, readTextFile, writeJsonFile, writeTextFile } from "../util/fs.js";
 import { getDefaultMemoryDirectory } from "./project-context.js";
 import { isSessionContinuityAuditEntry } from "./session-continuity-diagnostics.js";
+import { isContinuityRecoveryRecord } from "./recovery-records.js";
 import {
   applySessionContinuityLayerSummary,
   createEmptySessionContinuityState,
@@ -52,7 +54,8 @@ export class SessionContinuityStore {
       claudeSessionDir,
       codexSessionDir,
       auditDir,
-      auditFile: path.join(auditDir, "session-continuity-log.jsonl")
+      auditFile: path.join(auditDir, "session-continuity-log.jsonl"),
+      recoveryFile: path.join(auditDir, "session-continuity-recovery.json")
     };
   }
 
@@ -205,9 +208,34 @@ export class SessionContinuityStore {
     return cleared;
   }
 
+  public getRecoveryPath(): string {
+    return this.paths.recoveryFile;
+  }
+
   public async appendAuditLog(payload: SessionContinuityAuditEntry): Promise<void> {
     await this.ensureAuditLayout();
     await appendJsonl(this.paths.auditFile, payload);
+  }
+
+  public async writeRecoveryRecord(record: ContinuityRecoveryRecord): Promise<void> {
+    await writeJsonFile(this.getRecoveryPath(), record);
+  }
+
+  public async readRecoveryRecord(): Promise<ContinuityRecoveryRecord | null> {
+    try {
+      const record = await readJsonFile<unknown>(this.getRecoveryPath());
+      return isContinuityRecoveryRecord(record) ? record : null;
+    } catch {
+      return null;
+    }
+  }
+
+  public async clearRecoveryRecord(): Promise<void> {
+    await fs.rm(this.getRecoveryPath(), { force: true });
+  }
+
+  public getLocalIgnorePath(): string | null {
+    return this.project.gitDir ? path.join(this.project.gitDir, "info", "exclude") : null;
   }
 
   public async readRecentAuditEntries(limit = 5): Promise<SessionContinuityAuditEntry[]> {

@@ -68,6 +68,7 @@ If any step is skipped, explain why in the final handoff.
 - Milestone 18 is complete: durable sync audit now uses an explicit reviewer contract, `cam memory --recent` now covers `applied` / `no-op` / `skipped` sync events, and `cam memory --json` now exposes `recentSyncAudit` plus `syncAuditPath` while keeping `recentAudit` as a compatibility alias.
 - Milestone 19 is complete: durable sync processed state now uses structured rollout identity instead of path-only skip semantics, and durable sync audit now records configured vs actual extractor truth.
 - Milestone 20 is complete: startup-loaded `MEMORY.md` index files now stay separate from on-demand topic refs in the reviewer surface, topic-entry metadata parsing skips invalid shapes safely, and continuity evidence no longer treats in-progress command output as a failed command.
+- Milestone 21 is complete: partial-success durable sync and continuity saves now write explicit recovery markers, reviewer JSON/text surfaces expose pending recovery state additively, and `processedRolloutEntries` bounded compaction remains intentionally deferred.
 - `cam memory --json` now also exposes `startupBudget` and `refCountsByScope` for reviewer tooling.
 - Native Codex `memories` and `codex_hooks` still remain outside the trusted implementation path until `cam doctor --json` and public docs both show stable support.
 
@@ -80,8 +81,10 @@ Short-term priorities:
 - keep contradiction deletes conservative outside the supported command / explicit `preferences` / explicit `workflow` paths
 - keep `cam memory` useful as a grouped startup/topic-file audit surface with compact reviewer summaries
 - keep startup-loaded index files and on-demand topic refs semantically separate in both implementation and docs
+- keep recovery markers separate from both durable sync audit history and continuity audit history
 - keep durable sync audit explicit and typed without turning it into a manual-edit history browser
 - keep structured processed-rollout identity and actual-vs-configured extractor audit stable without adding migration-heavy state machinery
+- keep bounded `processedRolloutEntries` compaction deferred unless the repository explicitly accepts replay-triggered re-sync of evicted old rollouts
 - keep in-progress command output out of continuity failure buckets unless the rollout later records an explicit failure
 - keep public wording precise whenever `cam memory` exposes edit paths rather than richer in-command editing
 - keep Chinese and English public docs aligned without turning the entire maintainer surface into full bilingual duplication

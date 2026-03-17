@@ -14,15 +14,18 @@ Three conclusions matter most right now:
 
 ## Current reality
 
-Codex already exposes useful building blocks:
+Official Codex public materials already confirm some useful building blocks:
 
-- rollout JSONL
-- resume and fork flows
 - `AGENTS.md`
 - project-level `.codex/config.toml`
 - multi-agent workflows
-- experimental `memories`
-- experimental `codex_hooks`
+- resume and fork flows
+
+Local runtime behavior and `cam doctor --json` also expose migration-related signals:
+
+- rollout JSONL
+- `memories`
+- `codex_hooks`
 
 But those signals are still not enough to retire the companion path.
 
@@ -51,7 +54,7 @@ Those can guide migration planning, but they should not be presented as stable p
 | Question | Current answer |
 | :-- | :-- |
 | Are native memories publicly stable? | Not yet |
-| Are native hooks rich enough for the Claude-style lifecycle? | Not yet |
+| Are the local native-hook signals rich enough for the Claude-style lifecycle? | Not yet |
 | Can native behavior be validated reliably in CI? | Not yet |
 | Can it preserve the current Markdown contract? | Not yet |
 
