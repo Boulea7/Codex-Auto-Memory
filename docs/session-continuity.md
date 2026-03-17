@@ -158,9 +158,10 @@ cam session clear
 - project-local continuity
 - the effective merged resume brief
 - the latest continuity generation path and fallback status
+- a small latest-generation drill-down for evidence counts and written continuity paths
 - a compact recent generation preview sourced from the continuity audit log
 
-`cam session status` now renders the latest generation path, the audit-log location, and the same compact recent generation preview without printing the full shared/local continuity bodies.
+`cam session status` now renders the latest generation path, the audit-log location, the same latest-generation drill-down, and the same compact recent generation preview without printing the full shared/local continuity bodies.
 
 Automatic injection and automatic saving are disabled by default.
 
@@ -188,8 +189,10 @@ Reason:
 
 - the continuity files should stay compact and human-editable
 - reviewer/debug data belongs in an audit surface, not in the working-state note itself
-- the latest audit entry remains exposed through `cam session save --json`, `cam session load --json`, and `cam session status --json`
+- the latest audit entry now remains exposed explicitly as `latestContinuityAuditEntry` through `cam session save --json`, `cam session load --json`, and `cam session status --json`
+- the compatibility summary field `latestContinuityDiagnostics` still exposes the latest path/fallback view for existing consumers
 - the same commands now also expose recent audit entries so reviewers can verify short history without opening the JSONL directly
+- the default text surfaces now show the latest evidence counts and written paths without becoming a dedicated history browser
 
 ## Startup behavior
 

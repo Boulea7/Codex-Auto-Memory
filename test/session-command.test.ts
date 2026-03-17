@@ -146,6 +146,8 @@ describe("runSession", () => {
     });
     expect(saveOutput).toContain("Saved session continuity");
     expect(saveOutput).toContain("Generation: heuristic");
+    expect(saveOutput).toContain("Evidence: successful");
+    expect(saveOutput).toContain("Written paths:");
 
     const saveJson = JSON.parse(
       await runSession("save", {
@@ -160,6 +162,18 @@ describe("runSession", () => {
         actualPath: string;
         fallbackReason?: string;
       };
+      latestContinuityAuditEntry: {
+        rolloutPath: string;
+        fallbackReason?: string;
+        evidenceCounts: {
+          successfulCommands: number;
+          failedCommands: number;
+          fileWrites: number;
+          nextSteps: number;
+          untried: number;
+        };
+        writtenPaths: string[];
+      } | null;
       recentContinuityAuditEntries: Array<{
         rolloutPath: string;
         actualPath: string;
@@ -169,6 +183,10 @@ describe("runSession", () => {
     expect(saveJson.diagnostics.preferredPath).toBe("heuristic");
     expect(saveJson.diagnostics.actualPath).toBe("heuristic");
     expect(saveJson.diagnostics.fallbackReason).toBe("configured-heuristic");
+    expect(saveJson.latestContinuityAuditEntry?.rolloutPath).toBe(secondRolloutPath);
+    expect(saveJson.latestContinuityAuditEntry?.fallbackReason).toBe("configured-heuristic");
+    expect(saveJson.latestContinuityAuditEntry?.evidenceCounts.successfulCommands).toBeGreaterThan(0);
+    expect(saveJson.latestContinuityAuditEntry?.writtenPaths.length).toBeGreaterThan(0);
     expect(saveJson.recentContinuityAuditEntries).toHaveLength(2);
     expect(saveJson.recentContinuityAuditEntries[0]?.rolloutPath).toBe(secondRolloutPath);
     expect(saveJson.recentContinuityAuditEntries[1]?.rolloutPath).toBe(rolloutPath);
@@ -185,6 +203,17 @@ describe("runSession", () => {
       localState: { incompleteNext: string[]; filesDecisionsEnvironment: string[] } | null;
       mergedState: { goal: string; confirmedWorking: string[]; incompleteNext: string[] };
       startup: { text: string };
+      latestContinuityAuditEntry: {
+        rolloutPath: string;
+        writtenPaths: string[];
+        evidenceCounts: {
+          successfulCommands: number;
+          failedCommands: number;
+          fileWrites: number;
+          nextSteps: number;
+          untried: number;
+        };
+      } | null;
       latestContinuityDiagnostics: {
         actualPath: string;
         fallbackReason?: string;
@@ -199,6 +228,9 @@ describe("runSession", () => {
     expect(loadJson.mergedState.confirmedWorking.join("\n")).toContain("pnpm test");
     expect(loadJson.localState?.incompleteNext.length).toBeGreaterThan(0);
     expect(loadJson.startup.text).toContain("# Session Continuity");
+    expect(loadJson.latestContinuityAuditEntry?.rolloutPath).toBe(secondRolloutPath);
+    expect(loadJson.latestContinuityAuditEntry?.writtenPaths.length).toBeGreaterThan(0);
+    expect(loadJson.latestContinuityAuditEntry?.evidenceCounts.successfulCommands).toBeGreaterThan(0);
     expect(loadJson.latestContinuityDiagnostics?.actualPath).toBe("heuristic");
     expect(loadJson.latestContinuityDiagnostics?.fallbackReason).toBe("configured-heuristic");
     expect(loadJson.recentContinuityAuditEntries).toHaveLength(2);
@@ -206,6 +238,8 @@ describe("runSession", () => {
     expect(loadJson.continuityAuditPath).toContain("session-continuity-log.jsonl");
 
     const loadOutput = await runSession("load", { cwd: repoDir });
+    expect(loadOutput).toContain("Evidence: successful");
+    expect(loadOutput).toContain("Written paths:");
     expect(loadOutput).toContain("Recent generations:");
     expect(loadOutput).toContain(secondRolloutPath);
 
@@ -213,17 +247,25 @@ describe("runSession", () => {
       await runSession("status", { cwd: repoDir, json: true })
     ) as {
       localPathStyle: string;
+      latestContinuityAuditEntry: {
+        rolloutPath: string;
+        writtenPaths: string[];
+      } | null;
       latestContinuityDiagnostics: { actualPath: string } | null;
       recentContinuityAuditEntries: Array<{ rolloutPath: string }>;
       continuityAuditPath: string;
     };
     expect(statusJson.localPathStyle).toBe("codex");
+    expect(statusJson.latestContinuityAuditEntry?.rolloutPath).toBe(secondRolloutPath);
+    expect(statusJson.latestContinuityAuditEntry?.writtenPaths.length).toBeGreaterThan(0);
     expect(statusJson.latestContinuityDiagnostics?.actualPath).toBe("heuristic");
     expect(statusJson.recentContinuityAuditEntries).toHaveLength(2);
     expect(statusJson.recentContinuityAuditEntries[0]?.rolloutPath).toBe(secondRolloutPath);
     expect(statusJson.continuityAuditPath).toContain("session-continuity-log.jsonl");
 
     const statusOutput = await runSession("status", { cwd: repoDir });
+    expect(statusOutput).toContain("Evidence: successful");
+    expect(statusOutput).toContain("Written paths:");
     expect(statusOutput).toContain("Recent generations:");
     expect(statusOutput).toContain(secondRolloutPath);
 
@@ -263,9 +305,11 @@ describe("runSession", () => {
     expect(result.exitCode).toBe(0);
     const payload = JSON.parse(result.stdout) as {
       diagnostics: { actualPath: string };
+      latestContinuityAuditEntry: { rolloutPath: string } | null;
       recentContinuityAuditEntries: Array<{ rolloutPath: string }>;
     };
     expect(payload.diagnostics.actualPath).toBe("heuristic");
+    expect(payload.latestContinuityAuditEntry?.rolloutPath).toBe(rolloutPath);
     expect(payload.recentContinuityAuditEntries[0]?.rolloutPath).toBe(rolloutPath);
   }, 15_000);
 
@@ -309,24 +353,34 @@ describe("runSession", () => {
     const loadJson = JSON.parse(
       await runSession("load", { cwd: repoDir, json: true })
     ) as {
+      latestContinuityAuditEntry: { rolloutPath: string; writtenPaths: string[] } | null;
       recentContinuityAuditEntries: Array<{ rolloutPath: string }>;
     };
+    expect(loadJson.latestContinuityAuditEntry?.rolloutPath).toBe("/tmp/rollout-good.jsonl");
+    expect(loadJson.latestContinuityAuditEntry?.writtenPaths).toEqual(["/tmp/continuity.md"]);
     expect(loadJson.recentContinuityAuditEntries).toHaveLength(1);
     expect(loadJson.recentContinuityAuditEntries[0]?.rolloutPath).toBe("/tmp/rollout-good.jsonl");
 
     const statusJson = JSON.parse(
       await runSession("status", { cwd: repoDir, json: true })
     ) as {
+      latestContinuityAuditEntry: { rolloutPath: string; writtenPaths: string[] } | null;
       recentContinuityAuditEntries: Array<{ rolloutPath: string }>;
     };
+    expect(statusJson.latestContinuityAuditEntry?.rolloutPath).toBe("/tmp/rollout-good.jsonl");
+    expect(statusJson.latestContinuityAuditEntry?.writtenPaths).toEqual(["/tmp/continuity.md"]);
     expect(statusJson.recentContinuityAuditEntries).toHaveLength(1);
     expect(statusJson.recentContinuityAuditEntries[0]?.rolloutPath).toBe("/tmp/rollout-good.jsonl");
 
     const loadOutput = await runSession("load", { cwd: repoDir });
+    expect(loadOutput).toContain("Evidence: successful 1 | failed 0 | file writes 0 | next steps 1 | untried 0");
+    expect(loadOutput).toContain("/tmp/continuity.md");
     expect(loadOutput).toContain("Recent generations:");
     expect(loadOutput).toContain("/tmp/rollout-good.jsonl");
 
     const statusOutput = await runSession("status", { cwd: repoDir });
+    expect(statusOutput).toContain("Evidence: successful 1 | failed 0 | file writes 0 | next steps 1 | untried 0");
+    expect(statusOutput).toContain("/tmp/continuity.md");
     expect(statusOutput).toContain("Recent generations:");
     expect(statusOutput).toContain("/tmp/rollout-good.jsonl");
   }, 15_000);

@@ -2,6 +2,7 @@ import { spawn } from "node:child_process";
 import { findLatestProjectRollout } from "../domain/rollout.js";
 import {
   buildSessionContinuityAuditEntry,
+  formatSessionContinuityAuditDrillDown,
   formatSessionContinuityDiagnostics
 } from "../domain/session-continuity-diagnostics.js";
 import {
@@ -109,6 +110,7 @@ export async function runSession(
     const recentContinuityAuditEntries = await runtime.sessionContinuityStore.readRecentAuditEntries(
       recentContinuityAuditLimit
     );
+    const latestContinuityAuditEntry = recentContinuityAuditEntries[0] ?? null;
 
     if (options.json) {
       return JSON.stringify(
@@ -118,6 +120,7 @@ export async function runSession(
           excludePath,
           summary: generation.summary,
           diagnostics: generation.diagnostics,
+          latestContinuityAuditEntry,
           recentContinuityAuditEntries,
           continuityAuditPath: runtime.sessionContinuityStore.paths.auditFile
         },
@@ -129,7 +132,9 @@ export async function runSession(
     return [
       `Saved session continuity from ${rolloutPath}`,
       formatSessionContinuityDiagnostics(generation.diagnostics),
-      ...written.map((filePath) => `- ${filePath}`),
+      ...(latestContinuityAuditEntry
+        ? formatSessionContinuityAuditDrillDown(latestContinuityAuditEntry)
+        : []),
       ...(excludePath ? [`Local exclude updated: ${excludePath}`] : [])
     ].join("\n");
   }
@@ -163,7 +168,8 @@ export async function runSession(
   const recentContinuityAuditEntries = await runtime.sessionContinuityStore.readRecentAuditEntries(
     recentContinuityAuditLimit
   );
-  const latestContinuityDiagnostics = recentContinuityAuditEntries[0] ?? null;
+  const latestContinuityAuditEntry = recentContinuityAuditEntries[0] ?? null;
+  const latestContinuityDiagnostics = latestContinuityAuditEntry;
   const mergedState =
     (await runtime.sessionContinuityStore.readMergedState()) ??
     createEmptySessionContinuityState(
@@ -187,6 +193,7 @@ export async function runSession(
           localState,
           mergedState,
           startup,
+          latestContinuityAuditEntry,
           latestContinuityDiagnostics,
           recentContinuityAuditEntries,
           continuityAuditPath: runtime.sessionContinuityStore.paths.auditFile
@@ -202,6 +209,9 @@ export async function runSession(
       `Project-local continuity: ${localLocation.exists ? "active" : "missing"} (${localLocation.path})`,
       `Latest generation: ${latestContinuityDiagnostics ? formatSessionContinuityDiagnostics(latestContinuityDiagnostics) : "none recorded yet"}`,
       `Continuity audit: ${runtime.sessionContinuityStore.paths.auditFile}`,
+      ...(latestContinuityAuditEntry
+        ? formatSessionContinuityAuditDrillDown(latestContinuityAuditEntry)
+        : []),
       "Recent generations:",
       ...formatRecentGenerationLines(recentContinuityAuditEntries),
       "",
@@ -302,6 +312,7 @@ export async function runSession(
         projectState,
         localState,
         mergedState,
+        latestContinuityAuditEntry,
         latestContinuityDiagnostics,
         recentContinuityAuditEntries,
         continuityAuditPath: runtime.sessionContinuityStore.paths.auditFile
@@ -320,6 +331,9 @@ export async function runSession(
     `Project-local continuity: ${localLocation.exists ? "active" : "missing"} (${localLocation.path})`,
     `Latest generation: ${latestContinuityDiagnostics ? formatSessionContinuityDiagnostics(latestContinuityDiagnostics) : "none recorded yet"}`,
     `Continuity audit: ${runtime.sessionContinuityStore.paths.auditFile}`,
+    ...(latestContinuityAuditEntry
+      ? formatSessionContinuityAuditDrillDown(latestContinuityAuditEntry)
+      : []),
     "Recent generations:",
     ...formatRecentGenerationLines(recentContinuityAuditEntries),
     "",
