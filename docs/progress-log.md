@@ -6,7 +6,7 @@ This document tracks implementation progress in a format that is easy to consume
 
 - Approximate overall progress toward a strong Claude-style alpha: `98%`
 - Approximate progress toward a working local MVP: `99%`
-- Current phase: `Phase 16 - bilingual docs portal and README redesign`
+- Current phase: `Phase 17 - continuity drill-down and bilingual docs discipline`
 
 ## Completed milestones
 
@@ -183,6 +183,13 @@ This document tracks implementation progress in a format that is easy to consume
 - Reworked the public docs around summary-first reading, stronger open-source landing-page structure, and clearer reading paths for users, maintainers, and reviewers.
 - Added contributor and release guidance for bilingual docs maintenance so the two public language tracks do not drift silently.
 
+### Milestone 17: Continuity drill-down and bilingual docs discipline
+
+- `cam session save --json`, `cam session load --json`, and `cam session status --json` now expose `latestContinuityAuditEntry` in addition to the existing compatibility fields and recent audit list.
+- Default `cam session save`, `cam session load`, and `cam session status` output now include the latest evidence counts and written continuity paths from the newest audit entry.
+- Reviewer docs, handoff notes, and release checks now explicitly verify paired bilingual public-doc consistency and the compact latest-audit continuity surface.
+- Official Codex and Claude public docs were re-checked before refreshing migration/reviewer wording; the project still remains companion-first because native memory/hooks posture is not yet stable enough for the trusted primary path.
+
 ## Reviewer checkpoints
 
 If you are reviewing the repository now, start here:
@@ -204,16 +211,16 @@ If you are reviewing the repository now, start here:
 - Native Codex memory and hook support is still companion-first; local `cam doctor --json` on 2026-03-17 still reports `memories` and `codex_hooks` as `under development` and disabled.
 - Topic files are now surfaced for on-demand reads, but the companion runtime still relies on generic file-read tools rather than a native lazy topic loader.
 - bilingual public docs now exist, but they introduce a new maintenance burden: Chinese and English copies need active synchronization
-- Session continuity diagnostics now expose the latest fallback plus a short recent preview, but the CLI still lacks a dedicated history browser, filtering, or export flow beyond the audit JSONL.
+- Session continuity diagnostics now expose the latest fallback, the latest evidence/written-path drill-down, and a short recent preview, but the CLI still lacks a dedicated history browser, filtering, or export flow beyond the audit JSONL.
 - Release hygiene is stronger now, but still needs a per-release reviewer packet refresh discipline.
 - `cam audit` is rule-based and conservative; it reduces obvious risk but is not a substitute for human review.
 - Earlier commits still contain a small number of synthetic secret-like fixtures because the repository intentionally avoided git history rewrite.
 
 ## Next planned milestones
 
-### Milestone 17: Continuity drill-down and bilingual docs discipline
+### Milestone 18: Keep reviewer surfaces compact and migration posture conservative
 
-- Consider one more compact continuity drill-down step only if it materially reduces audit friction without becoming a browser.
+- Keep the latest continuity drill-down stable and compact without turning it into a browser, filter UI, or export flow.
 - Keep Chinese / English public docs synchronized as a routine release discipline rather than a one-off cleanup.
 - Keep official Codex migration guidance conservative until public docs and local readiness both move.
 

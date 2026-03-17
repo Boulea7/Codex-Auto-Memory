@@ -1,12 +1,12 @@
 # Next Phase Brief
 
-This brief prepares the next implementation window after `0.1.0-alpha.16`.
+This brief prepares the next implementation window after `0.1.0-alpha.17`.
 
-## Milestone 17 focus
+## Milestone 18 focus
 
 The next phase should continue to stay compact and reviewer-oriented:
 
-- consider one more lightweight continuity drill-down step only if it removes reviewer ambiguity without creating a dedicated history browser
+- keep the latest continuity drill-down stable and compact; only adjust it again if a concrete reviewer ambiguity remains
 - keep bilingual public docs synchronized as a release discipline rather than a one-off cleanup
 - keep reviewer packet and release-checklist refresh discipline routine in the same loop
 - keep monitoring native Codex memory and hooks, but remain companion-first until public docs and local readiness both improve
@@ -15,7 +15,7 @@ Do **not** reopen startup injection, session continuity storage layout, or broad
 
 ## Goals
 
-1. Tighten reviewer continuity inspection only where it directly reduces audit friction.
+1. Preserve the new latest-generation continuity drill-down without letting it expand into a browser.
 2. Keep docs, changelog, handoff packets, and release checklist aligned as part of the normal milestone closeout.
 3. Keep Chinese and English public docs semantically aligned without forcing full-repo double maintenance.
 4. Continue external research on official Codex memory and hook readiness without treating local observations as stable product contract.
@@ -23,7 +23,7 @@ Do **not** reopen startup injection, session continuity storage layout, or broad
 ## In scope
 
 - Refresh reviewer-facing docs whenever implementation windows close.
-- Add only small reviewer-oriented continuity drill-down if it clearly removes ambiguity.
+- Fix only concrete ambiguity or drift in the latest continuity reviewer surface.
 - Keep bilingual public-doc wording precise whenever the CLI intentionally exposes inspect paths rather than richer in-command editing.
 - Re-check official Codex public docs and local `doctor` output before changing migration guidance.
 

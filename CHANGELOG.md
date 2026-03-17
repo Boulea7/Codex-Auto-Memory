@@ -4,6 +4,25 @@ All notable changes to `codex-auto-memory` will be documented in this file.
 
 The format is intentionally simple and reviewer-friendly: each entry maps to a concrete implementation milestone and, when possible, a single Git commit.
 
+## 0.1.0-alpha.17 - 2026-03-17
+
+### Added
+
+- Added `latestContinuityAuditEntry` to `cam session save --json`, `cam session load --json`, and `cam session status --json` as an explicit latest-audit reviewer surface.
+- Added a compact latest-generation drill-down to the default `cam session save`, `cam session load`, and `cam session status` output that shows evidence counts and written continuity paths.
+
+### Changed
+
+- Continuity reviewer surfaces now keep the compatibility summary field `latestContinuityDiagnostics` while also exposing the full latest audit entry so downstream reviewers do not need to infer it from `recentContinuityAuditEntries[0]`.
+- Reviewer docs, handoff notes, and the release checklist now explicitly require paired bilingual public-doc consistency checks and a compact continuity-audit cross-check.
+- Migration-facing docs were refreshed after another pass over the current public Codex and Claude materials; the project remains companion-first and does not promote native memory or hooks to the trusted primary path.
+
+### Review focus
+
+- Confirm that the new latest-audit JSON field is purely additive and stays aligned with the top entry in `recentContinuityAuditEntries`.
+- Confirm that the default `cam session` text output is more inspectable without turning into a history browser or exposing diagnostics inside Markdown continuity files.
+- Confirm that bilingual public-doc checks are now part of normal release hygiene rather than a one-off cleanup task.
+
 ## 0.1.0-alpha.16 - 2026-03-17
 
 ### Added

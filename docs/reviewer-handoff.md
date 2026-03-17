@@ -32,13 +32,14 @@ The repository currently has:
 - review-oriented docs and changelog tracking
 - a repository privacy audit command: `cam audit`
 - a reviewer-oriented `cam memory` surface that shows startup-loaded files, topic refs, and edit paths
-- a reviewer-oriented continuity audit log that records preferred vs actual generation path and fallback reasons
-- a reviewer-oriented `cam session` surface that shows the latest continuity diagnostics plus a compact recent generation preview
+- a reviewer-oriented continuity audit log that records preferred vs actual generation path, fallback reasons, evidence counts, and written continuity paths
+- a reviewer-oriented `cam session` surface that shows the latest continuity diagnostics, the latest evidence/written-path drill-down, and a compact recent generation preview
 - conservative contradiction handling that now has extra negative-fixture coverage so unsupported topics do not auto-delete stale memory
+- a release checklist that now explicitly calls out paired bilingual public-doc consistency checks
 
 ## Most recent milestone commits
 
-- current implementation window: alpha.16 bilingual docs portal and README redesign
+- current implementation window: alpha.17 continuity drill-down and bilingual docs discipline
 - `34934fc` `feat(alpha.15): harden contradiction boundaries and review wording`
 - `7cb6337` `fix(ci): rely on packageManager for pnpm version`
 - `7bacf9f` `feat(alpha.14): refresh reviewer packet and session history preview`
@@ -64,8 +65,8 @@ The project intentionally chose a **forward-only cleanup** strategy. Earlier com
 - extractor quality still needs broader contradiction handling beyond explicit commands, preferences, and workflow corrections, even though unsupported-topic auto-delete is now guarded more conservatively
 - `cam memory` is still shallower than Claude Code’s `/memory`, especially around edit/toggle ergonomics
 - bilingual public docs now exist, but they require disciplined co-maintenance to avoid Chinese / English drift
-- continuity diagnostics now expose the latest generation plus a short recent preview, but the CLI still does not provide a dedicated history browser beyond the audit JSONL
-- `docs/next-phase-brief.md` now captures the recommended post-alpha.16 execution brief
+- continuity diagnostics now expose the latest generation, the latest evidence/written-path drill-down, and a short recent preview, but the CLI still does not provide a dedicated history browser beyond the audit JSONL
+- `docs/next-phase-brief.md` now captures the recommended post-alpha.17 execution brief
 
 ## Recommended review sequence
 
@@ -92,6 +93,7 @@ pnpm test
 pnpm build
 node dist/cli.js audit --json
 node dist/cli.js doctor --json
+node dist/cli.js session status --json
 node dist/cli.js session load --json
 node dist/cli.js memory --json
 ```
