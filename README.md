@@ -1,120 +1,200 @@
-# Codex Auto Memory
+<div align="center">
+  <h1>Codex Auto Memory</h1>
+  <p><strong>为 Codex 复现 Claude-style auto memory 工作流的 local-first companion CLI</strong></p>
+  <p>
+    <a href="./README.md">简体中文</a> |
+    <a href="./README.en.md">English</a>
+  </p>
+  <p>
+    <a href="https://github.com/Boulea7/Codex-Auto-Memory/actions/workflows/ci.yml">
+      <img alt="CI" src="https://github.com/Boulea7/Codex-Auto-Memory/actions/workflows/ci.yml/badge.svg" />
+    </a>
+    <a href="./LICENSE">
+      <img alt="License" src="https://img.shields.io/badge/license-Apache%202.0-blue.svg" />
+    </a>
+    <img alt="Node" src="https://img.shields.io/badge/node-%3E%3D20-339933?logo=node.js&logoColor=white" />
+    <img alt="pnpm" src="https://img.shields.io/badge/pnpm-10.11.0-F69220?logo=pnpm&logoColor=white" />
+    <a href="https://github.com/Boulea7/Codex-Auto-Memory/stargazers">
+      <img alt="GitHub stars" src="https://img.shields.io/github/stars/Boulea7/Codex-Auto-Memory?style=social" />
+    </a>
+    <a href="https://github.com/Boulea7/Codex-Auto-Memory/issues">
+      <img alt="GitHub issues" src="https://img.shields.io/github/issues/Boulea7/Codex-Auto-Memory" />
+    </a>
+  </p>
+</div>
 
-Claude-style auto memory for Codex, implemented as a local companion CLI.
+> `codex-auto-memory` 不是通用笔记软件，也不是云端记忆服务。  
+> 它的目标是：在今天的 Codex CLI 上，用本地 Markdown、紧凑 startup injection、按需 topic file 读取与 companion runtime，尽可能复现 Claude Code auto memory 的可观察产品契约。
 
-`codex-auto-memory` aims to reproduce the product contract of Claude Code auto memory as closely as possible for today's Codex runtime: local Markdown memory files, automatic post-session note taking, compact startup injection, topic-file lookup on demand, optional cross-session continuity state, worktree-aware project sharing, and a clear migration path toward future native Codex memory features.
+## 目录
 
-## Why this project exists
+- [为什么这个项目存在](#为什么这个项目存在)
+- [这个项目适合谁](#这个项目适合谁)
+- [核心能力](#核心能力)
+- [能力对照](#能力对照)
+- [快速开始](#快速开始)
+- [常用命令](#常用命令)
+- [工作方式](#工作方式)
+- [存储布局](#存储布局)
+- [文档导航](#文档导航)
+- [当前状态](#当前状态)
+- [路线图](#路线图)
+- [贡献与许可](#贡献与许可)
 
-Claude Code already ships a complete auto memory system with a clear user contract:
+## 为什么这个项目存在
 
-- Claude writes memory notes automatically
-- memory is stored as local Markdown
-- `MEMORY.md` acts as the compact entrypoint
-- only the first 200 lines are injected at startup
-- detailed topic files are loaded on demand
-- worktrees in the same repository share project memory
-- `/memory` provides audit and editing controls
+Claude Code 已经公开了一套相对清晰的 auto memory 产品契约：
 
-Codex already exposes strong building blocks such as `AGENTS.md`, skills, persistent sessions, rollout logs, and experimental `memories` / `codex_hooks` feature flags, but it does not yet expose the same complete auto memory product surface. This repository fills that gap.
+- AI 会自动写 memory
+- memory 以本地 Markdown 保存
+- `MEMORY.md` 是启动入口
+- 启动时只读取前 200 行
+- 细节写入 topic files，按需读取
+- 同一仓库的不同 worktree 共享 project memory
+- `/memory` 用来审查和编辑 memory
 
-## Goals
+而今天的 Codex CLI 已经有很多强基础能力，但还没有公开同等完整的 memory product surface：
 
-- Recreate Claude-style auto memory behavior for Codex with local, auditable Markdown files
-- Keep project memory shared across git worktrees while preserving project-local notes
-- Avoid modifying tracked files in user repositories just to inject startup context
-- Stay compatible with future native Codex memory and hook capabilities
+- `AGENTS.md`
+- persistent sessions / rollout logs
+- multi-agent workflows
+- experimental `memories`
+- experimental `codex_hooks`
 
-## Feature Matrix
+`codex-auto-memory` 的价值，就是在官方 native memory 还没有稳定公开之前，先提供一条干净、可审计、可迁移的 companion-first 路线。
 
-| Capability | Claude Code | Codex today | Codex Auto Memory |
+## 这个项目适合谁
+
+适合：
+
+- 想在 Codex 中获得更接近 Claude-style auto memory 工作流的用户
+- 希望 memory 完全本地、完全可编辑、可以直接放进 Git 审查语境里的团队
+- 需要在多个 worktree 之间共享 project memory，同时保留 worktree-local continuity 的工程流
+- 希望未来迁移到官方 native memory 时，不需要重建用户心智模型的维护者
+
+不适合：
+
+- 想把它当通用知识库、笔记软件或云端同步服务的人
+- 期待现阶段直接替代 Claude `/memory` 全部交互能力的人
+- 需要账号级个性化记忆或跨设备云端记忆的人
+
+## 核心能力
+
+| 能力 | 说明 |
+| :-- | :-- |
+| 自动 memory 同步 | 会话结束后从 Codex rollout JSONL 中提取稳定、未来有用的信息并写回 Markdown memory |
+| Markdown-first | `MEMORY.md` 与 topic files 就是产品表面，而不是内部缓存 |
+| 紧凑启动注入 | 启动时只注入紧凑的 `MEMORY.md` 索引和 topic refs，不做 eager topic loading |
+| worktree-aware | project memory 在同一 git 仓库的 worktree 间共享，project-local 仍保持隔离 |
+| session continuity | 临时 working state 与 durable memory 分层存储、分层加载 |
+| reviewer surface | `cam memory` / `cam session` / `cam audit` 为维护者和 reviewer 提供可核查的审查入口 |
+
+## 能力对照
+
+| 能力 | Claude Code | Codex today | Codex Auto Memory |
 | :-- | :-- | :-- | :-- |
-| Automatic memory writing | Built in | Not publicly complete | Yes, via companion sync flow |
-| Local Markdown memory | Built in | No complete public contract | Yes |
-| `MEMORY.md` startup entrypoint | Built in | No | Yes |
-| 200-line startup budget | Built in | No | Yes |
-| Topic files on demand | Built in | No | Partial: startup injects structured topic file references and reads topic details on demand through normal file tools |
-| Session continuity state | Community patterns only | No complete public contract | Yes, as an optional companion layer kept separate from durable memory |
-| Worktree-shared project memory | Built in | No public contract | Yes |
-| Inspect / audit memory | `/memory` | No equivalent | `cam memory` |
-| Native hooks / memory integration | Built in | Experimental / under development | Planned compatibility layer |
+| 自动写 memory | Built in | 没有完整公开契约 | 通过 companion sync flow 提供 |
+| 本地 Markdown memory | Built in | 没有完整公开契约 | 支持 |
+| `MEMORY.md` 启动入口 | Built in | 没有 | 支持 |
+| 200 行启动预算 | Built in | 没有 | 支持 |
+| topic files 按需读取 | Built in | 没有 | 部分支持，启动时注入路径引用并按需读取 |
+| 跨会话 continuity | 社区方案较多 | 没有完整公开契约 | 作为独立 companion layer 支持 |
+| worktree 共享 project memory | Built in | 没有公开契约 | 支持 |
+| inspect / audit memory | `/memory` | 无等价命令 | `cam memory` |
+| native hooks / memory | Built in | Experimental / under development | 当前只保留迁移 seam |
 
-Editing remains Markdown-first: `cam memory` exposes the active files and edit paths, while explicit updates still happen through `cam remember`, `cam forget`, or direct file edits rather than a `/memory`-style in-command editor.
+`cam memory` 当前是 inspection / audit surface：它会暴露 active files、startup budget、topic refs 与 edit paths。  
+显式更新仍通过 `cam remember`、`cam forget` 或直接编辑 Markdown 文件完成，而不是提供 `/memory` 风格的命令内编辑器。
 
-## Quick Start
+## 快速开始
 
-### 1. Install dependencies
+### 1. 安装依赖
 
 ```bash
 pnpm install
 ```
 
-### 2. Build the CLI
+### 2. 构建 CLI
 
 ```bash
 pnpm build
 ```
 
-### 3. Initialize a project
+### 3. 在项目中初始化
 
 ```bash
-cam init
+pnpm exec tsx src/cli.ts init
 ```
 
-This creates a tracked project config (`codex-auto-memory.json`) and documents how local overrides work with `.codex-auto-memory.local.json`.
+这会创建跟踪到仓库的 `codex-auto-memory.json`，并说明本地覆盖配置 `.codex-auto-memory.local.json` 的使用方式。
 
-### 4. Start Codex through the wrapper
+### 4. 通过 wrapper 启动 Codex
+
+```bash
+pnpm exec tsx src/cli.ts run
+```
+
+如果你已经把 CLI 链接到全局环境，也可以直接使用：
 
 ```bash
 cam run
 ```
 
-This launches Codex with compiled startup memory and schedules a post-session memory sync when the session finishes.
-
-When session continuity is enabled in local or user config, the wrapper can also inject and refresh a temporary working-state block that stays separate from durable memory.
-
-### 5. Inspect memory
+### 5. 检查 memory 与 continuity
 
 ```bash
 cam memory
 cam session status
-cam session save
 cam session load --print-startup
 cam remember "Always use pnpm instead of npm"
 cam forget "old debug note"
 cam audit
 ```
 
-Current reviewer-oriented behavior:
+## 常用命令
 
-- `cam memory` shows the active startup-loaded memory files, grouped topic refs for on-demand reads, startup budget usage, and the exact Markdown paths to edit per scope.
-- `cam session load` and `cam session status` show shared continuity state, the latest continuity generation path, and a compact recent generation preview sourced from the audit log.
+| 命令 | 作用 |
+| :-- | :-- |
+| `cam run` / `cam exec` / `cam resume` | 编译 startup memory 并通过 wrapper 启动 Codex |
+| `cam sync` | 手动把最近 rollout 同步进 durable memory |
+| `cam memory` | 查看 startup loaded files、topic refs、startup budget、edit paths |
+| `cam remember` / `cam forget` | 显式新增或删除 memory |
+| `cam session save` / `load` / `status` / `clear` | 管理独立的 session continuity layer |
+| `cam audit` | 做仓库级隐私 / secret hygiene 审查 |
+| `cam doctor` | 检查当前 companion wiring 与 native readiness posture |
 
-## Architecture Overview
+## 工作方式
 
-```text
-Codex session
-   |
-   v
-cam run / cam exec / cam resume
-   |
-   +--> compile startup memory from:
-   |      global + project + project-local MEMORY.md
-   |      + structured topic file references
-   |      + optional temporary session continuity block
-   |
-   +--> launch codex with injected memory context
-   |
-   v
-session ends
-   |
-   +--> parse rollout JSONL from ~/.codex/sessions/
-   +--> extract stable future-useful knowledge
-   +--> write Markdown topic files
-   +--> rebuild MEMORY.md index
+### 设计原则
+
+- `local-first and auditable`
+- `Markdown files are the product surface`
+- `companion-first today, native migration seam tomorrow`
+- `session continuity` 与 `durable memory` 明确分离
+
+### 运行流
+
+```mermaid
+flowchart TD
+    A[启动 Codex 会话] --> B[编译 startup memory]
+    B --> C[注入 quoted MEMORY.md 与 topic refs]
+    C --> D[运行 Codex]
+    D --> E[读取 rollout JSONL]
+    E --> F[提取 durable memory 操作]
+    E --> G[可选 continuity 总结]
+    F --> H[更新 MEMORY.md 与 topic files]
+    G --> I[更新 shared / local continuity]
 ```
 
-Primary storage layout:
+### 为什么不是直接上 native memory
+
+- 官方公开面仍把 `memories` / `codex_hooks` 放在 experimental / under-development 语境里
+- 本地观察与 source inspection 可以作为 migration signal，但不能直接升级成稳定产品契约
+- 因此项目默认仍然坚持 companion-first，直到官方文档、运行时稳定性和 CI 可验证性都足够强
+
+## 存储布局
+
+Durable memory：
 
 ```text
 ~/.codex-auto-memory/
@@ -129,69 +209,80 @@ Primary storage layout:
         └── workflow.md
 ```
 
-See [docs/architecture.md](docs/architecture.md) for the full breakdown.
+Session continuity：
 
-## Privacy and Safety
+```text
+~/.codex-auto-memory/projects/<project-id>/continuity/project/active.md
+<project-root>/.codex-auto-memory/sessions/active.md
+```
 
-- Memory is local-first and machine-local by default.
-- Markdown files are the primary truth, so users can audit or edit memory directly.
-- Project config cannot redirect `autoMemoryDirectory`; only managed, user, or local config may do that.
-- The extractor should store stable, future-useful knowledge rather than raw transcripts or temporary task state.
-- This project aims to closely mimic Claude Code behavior, but it does **not** claim Anthropic or OpenAI native parity.
+更完整的结构与边界说明，请看架构文档。
 
-## Roadmap
+## 文档导航
 
-### v0.1
+### 入口
 
-- Companion CLI with `cam run`, `cam exec`, `cam resume`, `cam sync`, `cam memory`
-- Markdown memory store with `MEMORY.md` index and topic files
-- 200-line startup compiler
-- Worktree-aware project identity
-- Initial docs, CI, and open-source templates
+- [文档首页（中文）](docs/README.md)
+- [Documentation Hub (English)](docs/README.en.md)
 
-### v0.2
+### 核心设计文档
 
-- Broader extractor fixtures and contradiction handling
-- Richer `cam memory` and `cam session` inspection output
-- Continuity generation diagnostics and reviewer audit surfaces
-- Hook bridge helpers for emerging Codex hook support
+- [Claude Code 参考契约（中文）](docs/claude-reference.md) | [English](docs/claude-reference.en.md)
+- [架构设计（中文）](docs/architecture.md) | [English](docs/architecture.en.md)
+- [Native migration 策略（中文）](docs/native-migration.md) | [English](docs/native-migration.en.md)
 
-### v0.3+
+### 维护与审查文档
 
-- Native Codex memory adapter once official APIs stabilize
-- Optional GUI or TUI memory browser
-- Cross-session diagnostics and confidence scoring
-
-## Documentation
-
-- [Changelog](CHANGELOG.md)
-- [Claude reference contract](docs/claude-reference.md)
-- [Architecture](docs/architecture.md)
-- [Session continuity design](docs/session-continuity.md)
-- [Native migration strategy](docs/native-migration.md)
+- [Session continuity 设计](docs/session-continuity.md)
 - [Progress log](docs/progress-log.md)
 - [Review guide](docs/review-guide.md)
 - [Reviewer handoff](docs/reviewer-handoff.md)
-- [Next phase brief](docs/next-phase-brief.md)
-- [ClaudeCode patch audit](docs/claudecode-patch-audit.md)
 - [Release checklist](docs/release-checklist.md)
 - [Contributing](CONTRIBUTING.md)
-- [Repository agent guide](AGENTS.md)
 
-## Status
+## 当前状态
 
-This project is intentionally opinionated: it favors the observable Claude Code auto memory contract over speculative abstractions. Where Codex native features are still incomplete, `codex-auto-memory` uses stable companion mechanisms first and leaves a clean adapter seam for future migration.
+当前公开可依赖的项目状态：
 
-Current review-oriented status:
+- durable memory companion path：可用
+- topic-aware startup lookup：可用
+- session continuity companion layer：可用
+- reviewer audit surfaces：可用
+- native memory / native hooks primary path：未启用，仍非 trusted implementation path
 
-- baseline alpha bootstrap complete
-- sync reliability hardening complete
-- extractor quality hardening complete
-- topic-aware startup lookup complete
-- session continuity companion layer complete
-- memory inspection UX hardening complete
-- continuity diagnostics and reviewer audit surfaces complete
-- native compatibility seams complete
-- ClaudeCode patch batch audited and retained with documentation corrections
-- repository privacy audit command added
-- reviewer handoff packet available
+## 路线图
+
+### v0.1
+
+- companion CLI
+- Markdown memory store
+- 200-line startup compiler
+- worktree-aware project identity
+- 初始 reviewer / maintainer 文档体系
+
+### v0.2
+
+- 更稳的 contradiction handling
+- 更好的 `cam memory` / `cam session` 审查体验
+- continuity diagnostics 与 reviewer packet 继续打磨
+- 为未来 hook bridge 保留 seam
+
+### v0.3+
+
+- 在官方 native memory / hooks 足够稳定后提供 native adapter
+- 可选 GUI / TUI browser
+- 更强的跨会话 diagnostics 与 confidence surfaces
+
+## 贡献与许可
+
+- 贡献指南：[CONTRIBUTING.md](./CONTRIBUTING.md)
+- Changelog：[CHANGELOG.md](./CHANGELOG.md)
+- License：[Apache-2.0](./LICENSE)
+
+如果你在 README、官方文档和本地运行时观察之间发现冲突，请优先相信：
+
+1. 官方产品文档
+2. 可复现的本地行为
+3. 对不确定性的明确说明
+
+而不是更自信但证据不足的表述。

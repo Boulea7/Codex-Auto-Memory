@@ -5,6 +5,7 @@ Use this checklist before cutting any alpha or beta release of `codex-auto-memor
 ## Product contract checks
 
 - Confirm the README still matches current CLI behavior.
+- Confirm the Chinese and English README variants still describe the same product boundary and command surface.
 - Confirm `docs/claude-reference.md` still reflects the Claude-style contract the code is trying to mimic.
 - Confirm `docs/native-migration.md` still matches the current compatibility seams in code.
 
@@ -30,6 +31,7 @@ Use this checklist before cutting any alpha or beta release of `codex-auto-memor
 - Update `docs/progress-log.md` to reflect the current phase and remaining gaps.
 - Update `docs/review-guide.md` if a new high-risk area or review order is introduced.
 - Update `docs/reviewer-handoff.md` so external review tools can pick up the current state quickly.
+- Update the bilingual docs entry pages (`docs/README.md` and `docs/README.en.md`) if the public reading path changed.
 - Refresh the local ignored AI handoff file `AI_REVIEW.local.md` with current review/test instructions before handing off to another agent.
 - Ensure the latest milestone commit is focused enough to review independently.
 

@@ -51,6 +51,14 @@ If your change affects one of these areas, update the matching file:
 - future native compatibility: `docs/native-migration.md`
 - onboarding and positioning: `README.md`
 
+The repository now uses a bilingual public-doc setup:
+
+- `README.md` is the default Chinese landing page
+- `README.en.md` is the English landing page
+- `docs/claude-reference.*`, `docs/architecture.*`, and `docs/native-migration.*` are maintained in both Chinese and English
+
+If you change shared meaning in one of those files, update the sibling language version in the same task or explicitly note the follow-up gap in your handoff.
+
 ## Reporting Issues
 
 When opening a bug, include:
