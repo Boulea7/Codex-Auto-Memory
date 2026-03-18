@@ -430,6 +430,110 @@ describe("session continuity domain", () => {
     expect(localNext).toContain("add middleware");
   });
 
+  it("heuristic summarizer clears stale local goals so the merged goal can fall back to the shared layer", async () => {
+    const evidence: RolloutEvidence = {
+      sessionId: "session-clear-stale-local-goal",
+      createdAt: "2026-03-15T00:00:00.000Z",
+      cwd: "/tmp/project",
+      userMessages: ["Finish the shared auth rollout and document the fallback."],
+      agentMessages: [],
+      toolCalls: [],
+      rolloutPath: "/tmp/rollout.jsonl"
+    };
+
+    const existingProject = {
+      ...createEmptySessionContinuityState("project", "project-1", "worktree-1"),
+      goal: "Old shared goal"
+    };
+    const existingLocal = {
+      ...createEmptySessionContinuityState("project-local", "project-1", "worktree-1"),
+      goal: "STALE LOCAL GOAL"
+    };
+
+    const summarizer = new SessionContinuitySummarizer(baseConfig("/tmp/memory-root"));
+    const summary = await summarizer.summarize(evidence, {
+      project: existingProject,
+      projectLocal: existingLocal
+    });
+    const nextProject = applySessionContinuityLayerSummary(
+      existingProject,
+      summary.project,
+      evidence.sessionId
+    );
+    const nextLocal = applySessionContinuityLayerSummary(
+      existingLocal,
+      summary.projectLocal,
+      evidence.sessionId
+    );
+    const merged = mergeSessionContinuityStates(nextLocal, nextProject);
+
+    expect(summary.project.goal).toContain("shared auth rollout");
+    expect(summary.projectLocal.goal).toBe("");
+    expect(merged.goal).toContain("shared auth rollout");
+  });
+
+  it("heuristic summarizer ignores generic prefer-only chat when collecting project notes", async () => {
+    const evidence: RolloutEvidence = {
+      sessionId: "session-prefer-chat",
+      createdAt: "2026-03-15T00:00:00.000Z",
+      cwd: "/tmp/project",
+      userMessages: ["I prefer to debug this later once the flaky test settles."],
+      agentMessages: [],
+      toolCalls: [],
+      rolloutPath: "/tmp/rollout.jsonl"
+    };
+
+    const summarizer = new SessionContinuitySummarizer(baseConfig("/tmp/memory-root"));
+    const summary = await summarizer.summarize(evidence);
+
+    expect(summary.project.filesDecisionsEnvironment).toEqual([]);
+    expect(summary.projectLocal.filesDecisionsEnvironment).toEqual([]);
+  });
+
+  it('evidence extraction skips Chinese narrative connectors and short captures', () => {
+    const makeEvidence = (agentMessages: string[], userMessages: string[]): RolloutEvidence => ({
+      sessionId: "session-chinese-guard",
+      createdAt: "2026-03-15T00:00:00.000Z",
+      cwd: "/tmp/project",
+      agentMessages,
+      userMessages,
+      toolCalls: [],
+      rolloutPath: "/tmp/rollout.jsonl"
+    });
+
+    // These should NOT be captured as next steps — AI narrative fragments
+    const negativeBuckets = collectSessionContinuityEvidenceBuckets(
+      makeEvidence(
+        [
+          '继续,但是这个问题需要更多研究才能解决',
+          '下一步而是要确认这个方案的可行性',
+          '还需要因为依赖关系比较复杂',
+        ],
+        [
+          '接下来 x', // too short
+        ]
+      )
+    );
+
+    // These SHOULD be captured — genuine actionable items
+    const positiveBuckets = collectSessionContinuityEvidenceBuckets(
+      makeEvidence(
+        [],
+        [
+          '下一步：修复 session-continuity-evidence.ts 中的正则匹配问题',
+          '接下来需要更新测试文件以覆盖新的守卫逻辑',
+        ]
+      )
+    );
+
+    // Negative: none of these fragments should appear in next steps or untried
+    expect(negativeBuckets.explicitNextSteps).toHaveLength(0);
+    expect(negativeBuckets.explicitUntried).toHaveLength(0);
+
+    // Positive: genuine items should be captured
+    expect(positiveBuckets.explicitNextSteps.length).toBeGreaterThan(0);
+  });
+
   it("prompt includes evidence buckets for commands, file writes, and next steps", () => {
     const evidence: RolloutEvidence = {
       sessionId: "session-prompt-buckets",
@@ -815,6 +919,31 @@ describe("session continuity domain", () => {
     expect(sanitized.project.confirmedWorking.join("\n")).not.toContain("12345678901234567890");
   });
 
+  it("applySessionContinuityLayerSummary clears stale goals when the next layer leaves goal empty", () => {
+    const base = {
+      ...createEmptySessionContinuityState("project-local", "project-1", "worktree-1"),
+      goal: "Stale local goal",
+      incompleteNext: ["Carry over the old next step"]
+    };
+
+    const merged = applySessionContinuityLayerSummary(
+      base,
+      {
+        goal: "",
+        confirmedWorking: [],
+        triedAndFailed: [],
+        notYetTried: [],
+        incompleteNext: ["Fresh next step"],
+        filesDecisionsEnvironment: []
+      },
+      "session-clear-goal"
+    );
+
+    expect(merged.goal).toBe("");
+    expect(merged.incompleteNext).toContain("Fresh next step");
+    expect(merged.incompleteNext).toContain("Carry over the old next step");
+  });
+
   it("compiled startup block includes filesDecisionsEnvironment section", () => {
     const state = {
       ...createEmptySessionContinuityState("project-local", "project-1", "worktree-1"),
@@ -845,6 +974,15 @@ describe("session continuity domain", () => {
     expect(compiled.lineCount).toBeLessThanOrEqual(12);
     expect(compiled.text).toContain("# Session Continuity");
     expect(compiled.text).toContain("Source");
+  });
+
+  it("caps the continuity startup preamble when the budget is smaller than the static intro", () => {
+    const state = createEmptySessionContinuityState("project-local", "project-1", "worktree-1");
+
+    const compiled = compileSessionContinuity(state, ["/tmp/project/local.md"], 3);
+
+    expect(compiled.lineCount).toBeLessThanOrEqual(3);
+    expect(compiled.text).not.toContain("## Goal");
   });
 });
 

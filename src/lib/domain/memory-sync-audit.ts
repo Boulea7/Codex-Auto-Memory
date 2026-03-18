@@ -112,6 +112,7 @@ export function parseMemorySyncAuditEntry(value: unknown): MemorySyncAuditEntry 
     sessionSource: entry.sessionSource,
     status: entry.status,
     skipReason: entry.status === "skipped" ? entry.skipReason : undefined,
+    ...(entry.isRecovery === true ? { isRecovery: true } : {}),
     appliedCount: entry.appliedCount,
     scopesTouched: entry.scopesTouched,
     resultSummary: entry.resultSummary,
@@ -135,6 +136,7 @@ interface BuildMemorySyncAuditEntryOptions {
   appliedAt?: string;
   sessionId?: string;
   skipReason?: MemorySyncAuditSkipReason;
+  isRecovery?: boolean;
   operations?: MemoryOperation[];
 }
 
@@ -160,6 +162,7 @@ export function buildMemorySyncAuditEntry(
     sessionSource: options.sessionSource,
     status: options.status,
     skipReason: options.status === "skipped" ? options.skipReason : undefined,
+    ...(options.isRecovery ? { isRecovery: true } : {}),
     appliedCount,
     scopesTouched,
     resultSummary: summaryForStatus(options.status, appliedCount, options.skipReason),
@@ -169,7 +172,7 @@ export function buildMemorySyncAuditEntry(
 
 export function formatMemorySyncAuditEntry(entry: MemorySyncAuditEntry): string[] {
   const lines = [
-    `- ${entry.appliedAt}: [${entry.status}] ${entry.resultSummary}`,
+    `- ${entry.appliedAt}: [${entry.status}]${entry.isRecovery ? ' [recovery]' : ''} ${entry.resultSummary}`,
     `  Session: ${entry.sessionId ?? "unknown"} | Extractor: ${entry.actualExtractorName || entry.actualExtractorMode}`,
     `  Applied: ${entry.appliedCount} | Scopes: ${entry.scopesTouched.length ? entry.scopesTouched.join(", ") : "none"}`
   ];

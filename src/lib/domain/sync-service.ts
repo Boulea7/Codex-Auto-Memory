@@ -73,7 +73,23 @@ export class SyncService {
     }
 
     const processedIdentity = await this.getProcessedRolloutIdentity(rolloutPath, evidence);
+    const existingRecoveryRecord = await this.store.readSyncRecoveryRecord();
+    const isRecovery =
+      existingRecoveryRecord !== null &&
+      matchesSyncRecoveryRecord(existingRecoveryRecord, {
+        projectId: this.project.projectId,
+        worktreeId: this.project.worktreeId,
+        rolloutPath,
+        sessionId: evidence.sessionId
+      });
+
     if (!force && (await this.store.hasProcessedRollout(processedIdentity))) {
+      if (isRecovery) {
+        await this.clearSyncRecoveryRecordBestEffort({
+          rolloutPath,
+          sessionId: evidence.sessionId
+        });
+      }
       await this.store.appendSyncAuditEntry(
         buildMemorySyncAuditEntry({
           project: this.project,
@@ -85,7 +101,8 @@ export class SyncService {
           actualExtractorName: this.configuredExtractorName,
           sessionSource: this.sessionSource.name,
           status: "skipped",
-          skipReason: "already-processed"
+          skipReason: "already-processed",
+          ...(isRecovery ? { isRecovery: true } : {})
         })
       );
       return {
@@ -116,7 +133,8 @@ export class SyncService {
       actualExtractorName: extraction.actualExtractorName,
       sessionSource: this.sessionSource.name,
       status,
-      operations: applied
+      operations: applied,
+      ...(isRecovery ? { isRecovery: true } : {})
     });
 
     try {

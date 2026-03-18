@@ -29,8 +29,8 @@ import {
 import type { SessionContinuityEvidenceBuckets } from "./session-continuity-evidence.js";
 import { buildSessionContinuityPrompt } from "./session-continuity-prompt.js";
 const PROJECT_NOTE_PATTERNS = [
-  /\b(requires|must|must run|need to run|before running|use pnpm|use bun|use npm|prefer|service|redis|postgres|docker|environment|env var|setup)\b/iu,
-  /(需要|必须|先启动|运行前|使用 pnpm|使用 bun|使用 npm|环境变量|服务|数据库|Redis|Docker)/u
+  /\b(requires|must|must run|need to run|before running|use pnpm|use bun|use npm|redis|postgres|docker|environment|env var|database)\b/iu,
+  /(需要|必须|先启动|运行前|使用 pnpm|使用 bun|使用 npm|环境变量|数据库|Redis|Docker)/u
 ];
 
 function extractProjectNotes(messages: string[]): { project: string[]; projectLocal: string[] } {
@@ -65,8 +65,9 @@ function buildLayerSummary(
   const sanitizedExisting = existing
     ? sanitizeSessionContinuityLayerSummary(existing)
     : undefined;
+  const goalProvided = Object.prototype.hasOwnProperty.call(next, "goal");
   return {
-    goal: next.goal || sanitizedExisting?.goal || "",
+    goal: goalProvided ? next.goal ?? "" : sanitizedExisting?.goal || "",
     confirmedWorking: mergeItems(next.confirmedWorking, sanitizedExisting?.confirmedWorking),
     triedAndFailed: mergeItems(next.triedAndFailed, sanitizedExisting?.triedAndFailed),
     notYetTried: mergeItems(next.notYetTried, sanitizedExisting?.notYetTried),
@@ -175,7 +176,7 @@ function heuristicSummary(
       filesDecisionsEnvironment: notes.project
     }),
     projectLocal: buildLayerSummary(existingLocal, {
-      goal: existingLocal?.goal ?? "",
+      goal: "",
       notYetTried: localUntried,
       incompleteNext: fallbackNext,
       filesDecisionsEnvironment: [

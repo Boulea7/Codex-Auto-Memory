@@ -16,6 +16,7 @@ credentials*
 
 # Local tool state
 .codex-auto-memory.local.json
+*.local.*
 .codex-auto-memory/
 .claude/
 

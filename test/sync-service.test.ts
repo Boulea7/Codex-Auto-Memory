@@ -304,6 +304,27 @@ describe("SyncService", () => {
     );
   });
 
+  it("ignores a corrupted processed state file and still syncs successfully", async () => {
+    const projectDir = await tempDir("cam-sync-corrupt-state-project-");
+    const memoryRoot = await tempDir("cam-sync-corrupt-state-memory-");
+    const rolloutPath = path.join(projectDir, "rollout.jsonl");
+    await fs.writeFile(rolloutPath, rolloutFixture(projectDir, "session-corrupt-state"), "utf8");
+
+    const service = new SyncService(
+      detectProjectContext(projectDir),
+      baseConfig(memoryRoot),
+      path.resolve("schemas/memory-operations.schema.json")
+    );
+    await service.memoryStore.ensureLayout();
+    await fs.writeFile(service.memoryStore.paths.stateFile, "{\"broken\":\n", "utf8");
+
+    const result = await service.syncRollout(rolloutPath, false);
+    const identity = await processedIdentity(service, rolloutPath, "session-corrupt-state");
+
+    expect(result.skipped).toBe(false);
+    expect(await service.memoryStore.hasProcessedRollout(identity)).toBe(true);
+  });
+
   it("records actual heuristic execution when codex mode falls back during durable sync extraction", async () => {
     const projectDir = await tempDir("cam-sync-codex-fallback-project-");
     const memoryRoot = await tempDir("cam-sync-codex-fallback-memory-");
@@ -535,9 +556,101 @@ describe("SyncService", () => {
       auditEntryWritten: false
     });
 
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    await fs.appendFile(
+      rolloutPath,
+      `\n${JSON.stringify({
+        type: "event_msg",
+        payload: {
+          type: "agent_message",
+          message: "Rewritten rollout to change size and mtime without changing logical identity."
+        }
+      })}`,
+      "utf8"
+    );
+
     const result = await service.syncRollout(rolloutPath, true);
 
     expect(result.skipped).toBe(false);
     expect(await service.memoryStore.readSyncRecoveryRecord()).toBeNull();
+  });
+
+  it("clears a matching recovery marker when an already-processed rollout is retried", async () => {
+    const projectDir = await tempDir("cam-sync-skip-recovery-project-");
+    const memoryRoot = await tempDir("cam-sync-skip-recovery-memory-");
+    const rolloutPath = path.join(projectDir, "rollout.jsonl");
+    await fs.writeFile(rolloutPath, rolloutFixture(projectDir, "session-skip-recovery"), "utf8");
+
+    const service = new SyncService(
+      detectProjectContext(projectDir),
+      baseConfig(memoryRoot),
+      path.resolve("schemas/memory-operations.schema.json")
+    );
+    await service.syncRollout(rolloutPath, false);
+    await service.memoryStore.writeSyncRecoveryRecord({
+      recordedAt: "2026-03-18T00:00:00.000Z",
+      projectId: detectProjectContext(projectDir).projectId,
+      worktreeId: detectProjectContext(projectDir).worktreeId,
+      rolloutPath,
+      sessionId: "session-skip-recovery",
+      configuredExtractorMode: "heuristic",
+      configuredExtractorName: "heuristic",
+      actualExtractorMode: "heuristic",
+      actualExtractorName: "heuristic",
+      status: "applied",
+      appliedCount: 1,
+      scopesTouched: ["project"],
+      failedStage: "audit-write",
+      failureMessage: "matching marker left behind",
+      auditEntryWritten: false
+    });
+
+    const result = await service.syncRollout(rolloutPath, false);
+    const auditEntries = await service.memoryStore.readRecentSyncAuditEntries(5);
+
+    expect(result.skipped).toBe(true);
+    expect(await service.memoryStore.readSyncRecoveryRecord()).toBeNull();
+    expect(auditEntries[0]).toMatchObject({
+      rolloutPath,
+      status: "skipped",
+      skipReason: "already-processed",
+      isRecovery: true
+    });
+  });
+
+  it("marks audit entry as recovery when a matching recovery marker existed before sync", async () => {
+    const projectDir = await tempDir("cam-sync-recovery-flag-project-");
+    const memoryRoot = await tempDir("cam-sync-recovery-flag-memory-");
+    const rolloutPath = path.join(projectDir, "rollout.jsonl");
+    await fs.writeFile(rolloutPath, rolloutFixture(projectDir, "session-recovery-flag"), "utf8");
+
+    const service = new SyncService(
+      detectProjectContext(projectDir),
+      baseConfig(memoryRoot),
+      path.resolve("schemas/memory-operations.schema.json")
+    );
+    await service.memoryStore.writeSyncRecoveryRecord({
+      recordedAt: "2026-03-18T00:00:00.000Z",
+      projectId: detectProjectContext(projectDir).projectId,
+      worktreeId: detectProjectContext(projectDir).worktreeId,
+      rolloutPath,
+      sessionId: "session-recovery-flag",
+      configuredExtractorMode: "heuristic",
+      configuredExtractorName: "heuristic",
+      actualExtractorMode: "heuristic",
+      actualExtractorName: "heuristic",
+      status: "applied",
+      appliedCount: 1,
+      scopesTouched: ["project"],
+      failedStage: "audit-write",
+      failureMessage: "matching recovery marker",
+      auditEntryWritten: false
+    });
+
+    const result = await service.syncRollout(rolloutPath, true);
+    const auditEntries = await service.memoryStore.readRecentSyncAuditEntries(5);
+
+    expect(result.skipped).toBe(false);
+    expect(auditEntries[0]?.isRecovery).toBe(true);
   });
 });

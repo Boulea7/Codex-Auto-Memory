@@ -278,7 +278,7 @@ describe("runMemory", () => {
     expect(output.recentAudit).toEqual(output.recentSyncAudit);
   });
 
-  it("does not report startup-loaded files when the startup budget only fits headers", async () => {
+  it("does not report startup-loaded files when the startup budget cannot fit quoted lines", async () => {
     const homeDir = await tempDir("cam-memory-header-only-home-");
     const projectDir = await tempDir("cam-memory-header-only-project-");
     const memoryRoot = await tempDir("cam-memory-header-only-root-");
@@ -319,7 +319,7 @@ describe("runMemory", () => {
     expect(output.startupFilesByScope.global).toEqual([]);
     expect(output.startupFilesByScope.project).toEqual([]);
     expect(output.startupFilesByScope.projectLocal).toEqual([]);
-    expect(output.startup.text).toContain("## Project Local");
+    expect(output.startup.text).not.toContain("## Project Local");
     expect(output.startup.text).not.toContain("| # Project Local Memory");
   });
 
@@ -455,8 +455,17 @@ describe("runMemory", () => {
     expect(jsonOutput.recentSyncAudit).toEqual([]);
     expect(jsonOutput.pendingSyncRecovery).toMatchObject({
       rolloutPath: "/tmp/rollout-sync-fail.jsonl",
+      sessionId: "session-recovery",
+      configuredExtractorMode: "heuristic",
+      configuredExtractorName: "heuristic",
+      actualExtractorMode: "heuristic",
+      actualExtractorName: "heuristic",
+      status: "applied",
+      appliedCount: 1,
+      scopesTouched: ["project"],
       failedStage: "audit-write",
-      failureMessage: "audit write failed"
+      failureMessage: "audit write failed",
+      auditEntryWritten: false
     });
     expect(jsonOutput.syncRecoveryPath).toBe(store.getSyncRecoveryPath());
     expect(textOutput).toContain("Pending sync recovery:");
