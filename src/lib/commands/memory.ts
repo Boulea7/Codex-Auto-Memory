@@ -1,9 +1,16 @@
 import path from "node:path";
 import { patchConfigFile } from "../config/write-config.js";
 import { formatMemorySyncAuditEntry } from "../domain/memory-sync-audit.js";
+import { buildCompactHistoryPreview } from "../domain/reviewer-history.js";
 import { openPath } from "../util/open.js";
 import { compileStartupMemory } from "../domain/startup-memory.js";
-import type { ConfigScope, MemoryCommandOutput, MemoryScope, SyncRecoveryRecord } from "../types.js";
+import type {
+  ConfigScope,
+  MemoryCommandOutput,
+  MemoryScope,
+  MemorySyncAuditEntry,
+  SyncRecoveryRecord
+} from "../types.js";
 import { buildRuntimeContext } from "./common.js";
 
 interface MemoryOptions {
@@ -29,6 +36,47 @@ function formatPendingSyncRecovery(record: SyncRecoveryRecord, recoveryPath: str
     `- Audit entry written: ${record.auditEntryWritten}`,
     `- Failure: ${record.failureMessage}`
   ];
+}
+
+function syncAuditSignature(entry: MemorySyncAuditEntry): string {
+  return JSON.stringify({
+    rolloutPath: entry.rolloutPath,
+    sessionId: entry.sessionId ?? null,
+    status: entry.status,
+    skipReason: entry.skipReason ?? null,
+    isRecovery: entry.isRecovery === true,
+    configuredExtractorMode: entry.configuredExtractorMode,
+    configuredExtractorName: entry.configuredExtractorName,
+    actualExtractorMode: entry.actualExtractorMode,
+    actualExtractorName: entry.actualExtractorName,
+    appliedCount: entry.appliedCount,
+    scopesTouched: entry.scopesTouched,
+    resultSummary: entry.resultSummary
+  });
+}
+
+function formatRecentSyncAuditLines(entries: MemorySyncAuditEntry[], maxGroups: number): {
+  lines: string[];
+  groupCount: number;
+} {
+  const preview = buildCompactHistoryPreview(entries, {
+    maxGroups,
+    getSignature: syncAuditSignature
+  });
+
+  const lines = preview.groups.flatMap((group) => [
+    ...formatMemorySyncAuditEntry(group.latest),
+    ...(group.rawCount > 1 ? [`  Repeated similar sync events hidden: ${group.rawCount - 1}`] : [])
+  ]);
+
+  if (preview.omittedRawCount > 0) {
+    lines.push(`- older sync events omitted: ${preview.omittedRawCount}`);
+  }
+
+  return {
+    lines,
+    groupCount: preview.groups.length
+  };
 }
 
 export async function runMemory(options: MemoryOptions = {}): Promise<string> {
@@ -66,9 +114,10 @@ export async function runMemory(options: MemoryOptions = {}): Promise<string> {
       topics: await runtime.syncService.memoryStore.listTopics(scope)
     }))
   );
-  const recentSyncAudit = options.recent
-    ? await runtime.syncService.memoryStore.readRecentSyncAuditEntries(recentCount)
+  const recentSyncAuditPreviewEntries = options.recent
+    ? await runtime.syncService.memoryStore.readRecentSyncAuditEntries(recentCount * 2)
     : [];
+  const recentSyncAudit = recentSyncAuditPreviewEntries.slice(0, recentCount);
   const pendingSyncRecovery = await runtime.syncService.memoryStore.readSyncRecoveryRecord();
   const startupFilesByScope = {
     global: startup.sourceFiles.filter(
@@ -194,11 +243,13 @@ export async function runMemory(options: MemoryOptions = {}): Promise<string> {
     }
   }
 
-  if (recentSyncAudit.length > 0) {
-    lines.push("", `Recent sync events (${recentSyncAudit.length}):`);
-    for (const item of recentSyncAudit) {
-      lines.push(...formatMemorySyncAuditEntry(item));
-    }
+  if (recentSyncAuditPreviewEntries.length > 0) {
+    const compactRecentSyncAudit = formatRecentSyncAuditLines(
+      recentSyncAuditPreviewEntries,
+      recentCount
+    );
+    lines.push("", `Recent sync events (${compactRecentSyncAudit.groupCount} grouped):`);
+    lines.push(...compactRecentSyncAudit.lines);
   }
 
   if (pendingSyncRecovery) {

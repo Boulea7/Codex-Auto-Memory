@@ -18,15 +18,14 @@
 
 1. [Architecture](./architecture.en.md)
 2. [Session continuity design](./session-continuity.md)
-3. [Progress log](./progress-log.md)
-4. [Next phase brief](./next-phase-brief.md)
+3. [Release checklist](./release-checklist.md)
+4. [ClaudeCode patch audit](./claudecode-patch-audit.md)
 
 ### Reviewers and external tools
 
-1. [Review guide](./review-guide.md)
-2. [Reviewer handoff](./reviewer-handoff.md)
-3. [Release checklist](./release-checklist.md)
-4. [ClaudeCode patch audit](./claudecode-patch-audit.md)
+1. [Session continuity design](./session-continuity.md)
+2. [Release checklist](./release-checklist.md)
+3. [ClaudeCode patch audit](./claudecode-patch-audit.md)
 
 ## Core design docs
 
@@ -41,18 +40,15 @@
 | Document | Purpose | Current language |
 | :-- | :-- | :-- |
 | [Session continuity design](./session-continuity.md) | continuity boundaries, paths, and reviewer surfaces | English |
-| [Progress log](./progress-log.md) | milestone history, current state, and known gaps | English |
-| [Review guide](./review-guide.md) | what reviewers should read first and which risks matter most | English |
-| [Reviewer handoff](./reviewer-handoff.md) | shortest complete handoff packet for AI tools and external review | English |
 | [Release checklist](./release-checklist.md) | release-time product, runtime, and docs checks | English |
-| [Next phase brief](./next-phase-brief.md) | recommended next implementation window | English |
+| [ClaudeCode patch audit](./claudecode-patch-audit.md) | historical patch-migration and comparison notes | English |
 
 ## Language policy
 
 - the default public landing page is the Chinese `README.md`
 - English readers can switch through [README.en.md](../README.en.md) or this page
 - the three core design docs are maintained in both Chinese and English
-- reviewer and maintainer docs currently stay English-first to avoid internal drift
+- supplementary maintainer docs currently stay English-first to avoid internal drift
 
 ## Documentation principles
 
