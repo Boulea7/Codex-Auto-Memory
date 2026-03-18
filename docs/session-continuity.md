@@ -158,10 +158,11 @@ cam session clear
 - project-local continuity
 - the effective merged resume brief
 - the latest continuity generation path and fallback status
+- the latest rollout path
 - a small latest-generation drill-down for evidence counts and written continuity paths
-- a compact recent generation preview sourced from the continuity audit log
+- a compact prior-generation preview sourced from the continuity audit log that excludes the latest entry and coalesces consecutive repeats
 
-`cam session status` now renders the latest generation path, the audit-log location, the same latest-generation drill-down, and the same compact recent generation preview without printing the full shared/local continuity bodies.
+`cam session status` now renders the latest generation path, the latest rollout path, the audit-log location, the same latest-generation drill-down, and the same compact prior-generation preview without printing the full shared/local continuity bodies.
 
 Automatic injection and automatic saving are disabled by default.
 
@@ -191,8 +192,8 @@ Reason:
 - reviewer/debug data belongs in an audit surface, not in the working-state note itself
 - the latest audit entry now remains exposed explicitly as `latestContinuityAuditEntry` through `cam session save --json`, `cam session load --json`, and `cam session status --json`
 - the compatibility summary field `latestContinuityDiagnostics` still exposes the latest path/fallback view for existing consumers
-- the same commands now also expose recent audit entries so reviewers can verify short history without opening the JSONL directly
-- the default text surfaces now show the latest evidence counts and written paths without becoming a dedicated history browser
+- the same commands now also expose raw recent audit entries so reviewers can verify short history without opening the JSONL directly
+- the default `load` / `status` text surfaces now show the latest rollout, the latest evidence counts and written paths, plus a compact prior preview without becoming a dedicated history browser
 
 ## Startup behavior
 

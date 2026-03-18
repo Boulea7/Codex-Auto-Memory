@@ -276,6 +276,159 @@ describe("runMemory", () => {
       actualExtractorMode: "heuristic"
     });
     expect(output.recentAudit).toEqual(output.recentSyncAudit);
+
+    const textOutput = await runMemory({
+      cwd: projectDir,
+      recent: "3"
+    });
+    expect(textOutput).toContain("Recent sync events (1 grouped):");
+  });
+
+  it("keeps json recent sync audit raw while compacting repeated sync events in text output", async () => {
+    const homeDir = await tempDir("cam-memory-compact-home-");
+    const projectDir = await tempDir("cam-memory-compact-project-");
+    const memoryRoot = await tempDir("cam-memory-compact-root-");
+    process.env.HOME = homeDir;
+
+    const projectConfig: AppConfig = {
+      autoMemoryEnabled: true,
+      extractorMode: "heuristic",
+      defaultScope: "project",
+      maxStartupLines: 200,
+      sessionContinuityAutoLoad: false,
+      sessionContinuityAutoSave: false,
+      sessionContinuityLocalPathStyle: "codex",
+      maxSessionContinuityLines: 60,
+      codexBinary: "codex"
+    };
+    await fs.writeFile(
+      path.join(projectDir, "codex-auto-memory.json"),
+      JSON.stringify(projectConfig),
+      "utf8"
+    );
+    await fs.writeFile(
+      path.join(projectDir, ".codex-auto-memory.local.json"),
+      JSON.stringify({
+        autoMemoryDirectory: memoryRoot
+      }),
+      "utf8"
+    );
+
+    const project = detectProjectContext(projectDir);
+    const store = new MemoryStore(project, {
+      ...projectConfig,
+      autoMemoryDirectory: memoryRoot
+    });
+    await store.ensureLayout();
+    await store.appendSyncAuditEntry({
+      appliedAt: "2026-03-14T12:00:00.000Z",
+      projectId: project.projectId,
+      worktreeId: project.worktreeId,
+      rolloutPath: "/tmp/rollout-oldest.jsonl",
+      sessionId: "session-oldest",
+      configuredExtractorMode: "heuristic",
+      configuredExtractorName: "heuristic",
+      actualExtractorMode: "heuristic",
+      actualExtractorName: "heuristic",
+      extractorMode: "heuristic",
+      extractorName: "heuristic",
+      sessionSource: "rollout-jsonl",
+      status: "no-op",
+      appliedCount: 0,
+      scopesTouched: [],
+      resultSummary: "0 operations applied",
+      operations: []
+    });
+    await store.appendSyncAuditEntry({
+      appliedAt: "2026-03-14T12:01:00.000Z",
+      projectId: project.projectId,
+      worktreeId: project.worktreeId,
+      rolloutPath: "/tmp/rollout-repeat.jsonl",
+      sessionId: "session-repeat",
+      configuredExtractorMode: "heuristic",
+      configuredExtractorName: "heuristic",
+      actualExtractorMode: "heuristic",
+      actualExtractorName: "heuristic",
+      extractorMode: "heuristic",
+      extractorName: "heuristic",
+      sessionSource: "rollout-jsonl",
+      status: "skipped",
+      skipReason: "already-processed",
+      appliedCount: 0,
+      scopesTouched: [],
+      resultSummary: "Skipped rollout; it was already processed",
+      operations: []
+    });
+    await store.appendSyncAuditEntry({
+      appliedAt: "2026-03-14T12:02:00.000Z",
+      projectId: project.projectId,
+      worktreeId: project.worktreeId,
+      rolloutPath: "/tmp/rollout-repeat.jsonl",
+      sessionId: "session-repeat",
+      configuredExtractorMode: "heuristic",
+      configuredExtractorName: "heuristic",
+      actualExtractorMode: "heuristic",
+      actualExtractorName: "heuristic",
+      extractorMode: "heuristic",
+      extractorName: "heuristic",
+      sessionSource: "rollout-jsonl",
+      status: "skipped",
+      skipReason: "already-processed",
+      appliedCount: 0,
+      scopesTouched: [],
+      resultSummary: "Skipped rollout; it was already processed",
+      operations: []
+    });
+    await store.appendSyncAuditEntry({
+      appliedAt: "2026-03-14T12:03:00.000Z",
+      projectId: project.projectId,
+      worktreeId: project.worktreeId,
+      rolloutPath: "/tmp/rollout-latest.jsonl",
+      sessionId: "session-latest",
+      configuredExtractorMode: "heuristic",
+      configuredExtractorName: "heuristic",
+      actualExtractorMode: "heuristic",
+      actualExtractorName: "heuristic",
+      extractorMode: "heuristic",
+      extractorName: "heuristic",
+      sessionSource: "rollout-jsonl",
+      status: "applied",
+      appliedCount: 1,
+      scopesTouched: ["project"],
+      resultSummary: "1 operation(s) applied",
+      operations: [
+        {
+          action: "upsert",
+          scope: "project",
+          topic: "workflow",
+          id: "latest",
+          summary: "Prefer pnpm in this repository.",
+          details: ["Use pnpm instead of npm in this repository."],
+          reason: "Manual note.",
+          sources: ["manual"]
+        }
+      ]
+    });
+
+    const jsonOutput = JSON.parse(
+      await runMemory({
+        cwd: projectDir,
+        json: true,
+        recent: "2"
+      })
+    ) as MemoryCommandOutput;
+    const textOutput = await runMemory({
+      cwd: projectDir,
+      recent: "2"
+    });
+
+    expect(jsonOutput.recentSyncAudit).toHaveLength(2);
+    expect(jsonOutput.recentSyncAudit[0]?.rolloutPath).toBe("/tmp/rollout-latest.jsonl");
+    expect(jsonOutput.recentSyncAudit[1]?.rolloutPath).toBe("/tmp/rollout-repeat.jsonl");
+    expect(textOutput).toContain("Recent sync events (2 grouped):");
+    expect(textOutput).toContain("Repeated similar sync events hidden: 1");
+    expect(textOutput).toContain("- older sync events omitted: 1");
+    expect(textOutput.match(/\/tmp\/rollout-repeat\.jsonl/g) ?? []).toHaveLength(1);
   });
 
   it("does not report startup-loaded files when the startup budget cannot fit quoted lines", async () => {
