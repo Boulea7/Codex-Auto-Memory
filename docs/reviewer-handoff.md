@@ -49,7 +49,7 @@ Manual `cam remember` / `cam forget` updates remain outside the durable sync aud
 
 ## Most recent milestone commits
 
-- current implementation window: alpha.21 failure-path reviewer contract and recovery markers
+- current implementation window: alpha.22 recovery follow-through and official-doc review discipline, plus post-alpha.22 review hardening
 - `91336e8` `feat(alpha.18): tighten durable sync audit contract`
 - `d8e88f9` `feat(alpha.17): add continuity drill-down and docs discipline`
 - `0f40277` `docs(alpha.16): redesign bilingual readme and docs portal`

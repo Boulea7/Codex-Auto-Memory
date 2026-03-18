@@ -6,7 +6,7 @@ This document tracks implementation progress in a format that is easy to consume
 
 - Approximate overall progress toward a strong Claude-style alpha: `99%`
 - Approximate progress toward a working local MVP: `99%`
-- Current phase: `Phase 21 - failure-path reviewer contract`
+- Current phase: `Phase 22 - recovery follow-through and review hardening`
 
 ## Completed milestones
 
@@ -204,7 +204,7 @@ This document tracks implementation progress in a format that is easy to consume
 - Legacy path-only processed state remains readable, but it is no longer treated as authoritative for skip decisions; the new logic accepts a conservative one-time re-sync to avoid false skips.
 - Durable sync audit now records both configured and actual extractor metadata, while the compatibility `extractorMode` / `extractorName` fields now reflect the actual extractor that produced the saved updates.
 - Added regression coverage for rewritten same-path rollouts, legacy processed-state compatibility, and Codex-configured fallback-to-heuristic audit truth.
-- Added explicit timeout headroom for the slower `audit` and `project-context` tests so reviewer validation is more stable on typical local machines.
+- Set explicit 30-second per-test timeouts for the slower `audit`, `project-context`, and reviewer-heavy session command tests so CI keeps useful headroom without diverging from the suite default.
 
 ### Milestone 20: Reviewer truth tightening and markdown hardening
 
@@ -229,6 +229,20 @@ This document tracks implementation progress in a format that is easy to consume
 - Startup reviewer surfaces now count only `MEMORY.md` files that actually contributed quoted startup lines, avoiding header-only false positives under very small startup budgets.
 - Continuity parsing and summarization now drop the known `Process running with session ID ...` pseudo-failure pattern from persisted `triedAndFailed` state, so reviewer surfaces do not keep replaying old false failures forever.
 - The full Vitest suite now runs under an explicit serial + higher-timeout configuration to restore `pnpm test` as a stable baseline gate.
+
+### Milestone 22: Recovery follow-through and official-doc review discipline
+
+- Added explicit `isRecovery` provenance to durable sync audit entries so reviewer surfaces no longer need to infer recovery follow-through indirectly.
+- Chinese next-step extraction now skips very short captures plus several narrative-connector fragments before they can land in continuity evidence.
+- Official Codex and Claude public docs were re-checked again before refreshing migration and reviewer wording, keeping the repository companion-first and supportable.
+
+### Post-alpha.22 review hardening
+
+- Mixed command output that contains both `PASS` and `FAIL` markers now classifies as failure instead of silently landing in the success bucket.
+- Corrupted durable-sync processed state now degrades to an empty state instead of blocking future sync attempts.
+- Startup and continuity compilers now respect tiny line budgets without emitting partial scope or section blocks.
+- Heuristic continuity now clears stale local goals when the latest goal belongs to the shared project layer, preventing the merged resume brief from getting stuck on old local intent.
+- Added broader regression coverage for corrupted state recovery, already-processed recovery cleanup, richer recovery JSON surfaces, session guardrail errors, and tiny-budget startup behavior.
 
 ## Reviewer checkpoints
 
@@ -261,11 +275,11 @@ If you are reviewing the repository now, start here:
 
 ## Next planned milestones
 
-### Milestone 22: Recovery follow-through and official-doc review discipline
+### Milestone 23: Reviewer contract polish and history-discipline follow-through
 
 - Keep recovery markers compact and additive; do not let them evolve into a history browser or manual journal.
 - Revisit `processedRolloutEntries` compaction only if the repository explicitly accepts the possibility that evicted old rollouts may sync again when replayed manually.
-- Keep bilingual public docs and reviewer docs aligned after the new recovery-marker surfaces land.
+- Keep bilingual public docs, reviewer handoff docs, and local AI handoff notes aligned after the alpha.22 review hardening pass.
 - Continue reviewing companion-first wording against official Codex and Claude docs before widening any product claims.
 
 ## Review-ready habits

@@ -1,8 +1,8 @@
 # Next Phase Brief
 
-This brief prepares the next implementation window after `0.1.0-alpha.21`.
+This brief prepares the next implementation window after `0.1.0-alpha.22`.
 
-## Milestone 22 focus
+## Milestone 23 focus
 
 The next phase should continue to stay compact and reviewer-oriented:
 

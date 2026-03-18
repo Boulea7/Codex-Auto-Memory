@@ -6,7 +6,46 @@ The format is intentionally simple and reviewer-friendly: each entry maps to a c
 
 ## Unreleased
 
-No unreleased changes yet.
+### Added
+
+- Added regression coverage for mixed `PASS`/`FAIL` command output, corrupted durable-sync processed state, tiny startup/continuity line budgets, stale local-goal clearing, and richer recovery-marker JSON assertions.
+- Added guardrail coverage for `runSession` invalid-scope, missing-rollout, malformed-rollout, and `clear --json` command paths.
+
+### Changed
+
+- Durable startup and continuity compilation now honor very small line budgets without emitting partial scope or section headers.
+- Heuristic continuity no longer carries a stale local goal forward when the latest goal belongs to the shared project layer.
+- Slower audit, project-context, and session-command integration tests now use 30-second per-test timeouts instead of tighter 15-second caps.
+
+### Fixed
+
+- Mixed command output that contains both success and failure markers now classifies as failure instead of success.
+- Corrupted durable-sync `state.json` no longer blocks future sync attempts; the sync path now degrades to an empty processed-state view and rebuilds forward.
+- Matching sync recovery markers can now self-clear even when the rollout is already marked processed, preserving reviewer recovery semantics after transient cleanup failures.
+
+## 0.1.0-alpha.22 - 2026-03-18
+
+### Added
+
+- Added `isRecovery` provenance to durable sync audit entries so reviewer surfaces can distinguish normal sync events from recovery follow-through.
+- Added extra Chinese next-step guards that skip very short captures and common narrative connector fragments before they become continuity evidence.
+- Added official-doc review notes to the Claude and native migration docs so broken public links are easier to re-verify during future review passes.
+
+### Changed
+
+- Recovery follow-through stayed additive: sync and continuity recovery markers still remain separate from the JSONL audit streams and clear only on matching logical identity.
+- Companion-first migration wording was re-checked against the current official Codex and Claude public docs before widening any product claims.
+
+### Fixed
+
+- Reviewer surfaces now preserve recovery provenance more explicitly instead of requiring inference from surrounding audit state.
+- Chinese next-step extraction avoids several false-positive narrative fragments that previously looked like actionable follow-up items.
+
+### Review focus
+
+- Confirm that recovery provenance stays additive in reviewer JSON and text surfaces.
+- Confirm that Chinese next-step extraction remains conservative without dropping genuine actionable items.
+- Confirm that public Codex and Claude doc references remain companion-first and supportable.
 
 ## 0.1.0-alpha.21 - 2026-03-18
 

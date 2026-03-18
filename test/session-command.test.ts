@@ -312,7 +312,104 @@ describe("runSession", () => {
     expect(payload.diagnostics.actualPath).toBe("heuristic");
     expect(payload.latestContinuityAuditEntry?.rolloutPath).toBe(rolloutPath);
     expect(payload.recentContinuityAuditEntries[0]?.rolloutPath).toBe(rolloutPath);
-  }, 15_000);
+  }, 30_000);
+
+  it("rejects invalid scope values", async () => {
+    const repoDir = await tempDir("cam-session-invalid-scope-repo-");
+    const memoryRoot = await tempDir("cam-session-invalid-scope-memory-");
+    await initRepo(repoDir);
+
+    await writeProjectConfig(
+      repoDir,
+      configJson(),
+      { autoMemoryDirectory: memoryRoot }
+    );
+
+    await expect(
+      runSession("status", {
+        cwd: repoDir,
+        scope: "invalid" as never
+      })
+    ).rejects.toThrow("Scope must be one of: project, project-local, both.");
+  });
+
+  it("rejects save when no relevant rollout exists for the project", async () => {
+    const repoDir = await tempDir("cam-session-missing-rollout-repo-");
+    const memoryRoot = await tempDir("cam-session-missing-rollout-memory-");
+    await initRepo(repoDir);
+
+    await writeProjectConfig(
+      repoDir,
+      configJson(),
+      { autoMemoryDirectory: memoryRoot }
+    );
+
+    await expect(
+      runSession("save", {
+        cwd: repoDir,
+        scope: "both"
+      })
+    ).rejects.toThrow("No relevant rollout found for this project.");
+  });
+
+  it("rejects save when the selected rollout cannot be parsed", async () => {
+    const repoDir = await tempDir("cam-session-bad-rollout-repo-");
+    const memoryRoot = await tempDir("cam-session-bad-rollout-memory-");
+    await initRepo(repoDir);
+
+    await writeProjectConfig(
+      repoDir,
+      configJson(),
+      { autoMemoryDirectory: memoryRoot }
+    );
+
+    const rolloutPath = path.join(repoDir, "broken-rollout.jsonl");
+    await fs.writeFile(rolloutPath, "{\"type\":\"event_msg\"}\n", "utf8");
+
+    await expect(
+      runSession("save", {
+        cwd: repoDir,
+        rollout: rolloutPath,
+        scope: "both"
+      })
+    ).rejects.toThrow(`Could not parse rollout evidence from ${rolloutPath}.`);
+  });
+
+  it("supports clear --json from the command surface", async () => {
+    const repoDir = await tempDir("cam-session-clear-json-repo-");
+    const memoryRoot = await tempDir("cam-session-clear-json-memory-");
+    await initRepo(repoDir);
+
+    await writeProjectConfig(
+      repoDir,
+      configJson(),
+      { autoMemoryDirectory: memoryRoot }
+    );
+
+    const rolloutPath = path.join(repoDir, "rollout.jsonl");
+    await fs.writeFile(
+      rolloutPath,
+      rolloutFixture(repoDir, "Write continuity before clearing it."),
+      "utf8"
+    );
+    await runSession("save", {
+      cwd: repoDir,
+      rollout: rolloutPath,
+      scope: "both"
+    });
+
+    const payload = JSON.parse(
+      await runSession("clear", {
+        cwd: repoDir,
+        scope: "both",
+        json: true
+      })
+    ) as {
+      cleared: string[];
+    };
+
+    expect(payload.cleared.length).toBeGreaterThan(0);
+  });
 
   it("does not update local ignore when saving shared continuity only", async () => {
     const repoDir = await tempDir("cam-session-project-scope-repo-");
@@ -357,7 +454,7 @@ describe("runSession", () => {
     const excludeContents = await fs.readFile(excludePath, "utf8");
     expect(excludeContents).not.toContain(".codex-auto-memory/");
     expect(excludeContents).not.toContain(".claude/sessions/");
-  }, 15_000);
+  }, 30_000);
 
   it("keeps recent continuity history readable when the audit log contains a bad line", async () => {
     const repoDir = await tempDir("cam-session-bad-audit-repo-");
@@ -429,7 +526,7 @@ describe("runSession", () => {
     expect(statusOutput).toContain("/tmp/continuity.md");
     expect(statusOutput).toContain("Recent generations:");
     expect(statusOutput).toContain("/tmp/rollout-good.jsonl");
-  }, 15_000);
+  }, 30_000);
 
   it("skips invalid-shaped continuity audit entries", async () => {
     const repoDir = await tempDir("cam-session-invalid-shape-repo-");
@@ -491,7 +588,7 @@ describe("runSession", () => {
     const statusOutput = await runSession("status", { cwd: repoDir });
     expect(statusOutput).toContain("/tmp/rollout-good.jsonl");
     expect(statusOutput).not.toContain("/tmp/rollout-invalid.jsonl");
-  }, 15_000);
+  }, 30_000);
 
   it("writes and surfaces a continuity recovery marker when audit persistence fails", async () => {
     const repoDir = await tempDir("cam-session-recovery-repo-");
@@ -538,25 +635,55 @@ describe("runSession", () => {
     const loadJson = JSON.parse(
       await runSession("load", { cwd: repoDir, json: true })
     ) as {
-      pendingContinuityRecovery: { rolloutPath: string; failedStage: string; failureMessage: string } | null;
+      pendingContinuityRecovery: {
+        rolloutPath: string;
+        sourceSessionId: string;
+        scope: string;
+        writtenPaths: string[];
+        preferredPath: string;
+        actualPath: string;
+        evidenceCounts: {
+          successfulCommands: number;
+          failedCommands: number;
+          fileWrites: number;
+          nextSteps: number;
+          untried: number;
+        };
+        failedStage: string;
+        failureMessage: string;
+      } | null;
       continuityRecoveryPath: string;
       recentContinuityAuditEntries: Array<{ rolloutPath: string }>;
     };
     expect(loadJson.pendingContinuityRecovery).toMatchObject({
       rolloutPath,
+      sourceSessionId: "session-1",
+      scope: "both",
+      preferredPath: "heuristic",
+      actualPath: "heuristic",
       failedStage: "audit-write",
       failureMessage: "continuity audit write failed"
     });
+    expect(loadJson.pendingContinuityRecovery?.writtenPaths).toHaveLength(2);
+    expect(loadJson.pendingContinuityRecovery?.evidenceCounts.successfulCommands).toBeGreaterThan(0);
     expect(loadJson.continuityRecoveryPath).toContain("session-continuity-recovery.json");
     expect(loadJson.recentContinuityAuditEntries).toEqual([]);
 
     const statusJson = JSON.parse(
       await runSession("status", { cwd: repoDir, json: true })
     ) as {
-      pendingContinuityRecovery: { rolloutPath: string } | null;
+      pendingContinuityRecovery: {
+        rolloutPath: string;
+        sourceSessionId: string;
+        writtenPaths: string[];
+      } | null;
       continuityRecoveryPath: string;
     };
-    expect(statusJson.pendingContinuityRecovery?.rolloutPath).toBe(rolloutPath);
+    expect(statusJson.pendingContinuityRecovery).toMatchObject({
+      rolloutPath,
+      sourceSessionId: "session-1"
+    });
+    expect(statusJson.pendingContinuityRecovery?.writtenPaths).toHaveLength(2);
     expect(statusJson.continuityRecoveryPath).toContain("session-continuity-recovery.json");
 
     const loadOutput = await runSession("load", { cwd: repoDir });
@@ -576,7 +703,7 @@ describe("runSession", () => {
     };
     expect(saveJson.pendingContinuityRecovery).toBeNull();
     expect(await store.readRecoveryRecord()).toBeNull();
-  }, 15_000);
+  }, 30_000);
 
   it("does not clear an unrelated continuity recovery marker after a successful save", async () => {
     const repoDir = await tempDir("cam-session-stale-recovery-repo-");
@@ -642,7 +769,7 @@ describe("runSession", () => {
       rolloutPath: "/tmp/stale-rollout.jsonl",
       sourceSessionId: "stale-session"
     });
-  }, 15_000);
+  }, 30_000);
 
   it("ignores a corrupted continuity recovery marker instead of crashing load or status", async () => {
     const repoDir = await tempDir("cam-session-bad-recovery-repo-");
@@ -681,7 +808,7 @@ describe("runSession", () => {
 
     const statusOutput = await runSession("status", { cwd: repoDir });
     expect(statusOutput).not.toContain("Pending continuity recovery:");
-  }, 15_000);
+  }, 30_000);
 });
 
 describe("runWrappedCodex with session continuity", () => {
@@ -776,7 +903,7 @@ fs.writeFileSync(rolloutPath, [
     expect(latestAudit?.actualPath).toBe("heuristic");
     expect(latestAudit?.fallbackReason).toBe("configured-heuristic");
     expect(latestAudit?.writtenPaths.length).toBeGreaterThan(0);
-  }, 15_000);
+  }, 30_000);
 
   it("writes a continuity recovery marker when wrapper auto-save cannot append audit", async () => {
     const repoDir = await tempDir("cam-wrapper-recovery-repo-");
@@ -842,7 +969,7 @@ fs.writeFileSync(rolloutPath, [
       failureMessage: "wrapper continuity audit write failed",
       scope: "both"
     });
-  }, 15_000);
+  }, 30_000);
 
   it("still saves continuity when wrapper durable sync fails", async () => {
     const repoDir = await tempDir("cam-wrapper-sync-fail-repo-");
@@ -906,5 +1033,5 @@ fs.writeFileSync(rolloutPath, [
     expect(latestAudit?.rolloutPath).toContain("rollout-2026-03-15T00-00-00-000Z-session.jsonl");
     expect(latestAudit?.writtenPaths.length).toBeGreaterThan(0);
     expect((await store.readMergedState())?.confirmedWorking.join("\n")).toContain("pnpm test");
-  }, 15_000);
+  }, 30_000);
 });

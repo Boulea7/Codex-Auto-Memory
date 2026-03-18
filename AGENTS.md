@@ -70,6 +70,8 @@ If any step is skipped, explain why in the final handoff.
 - Milestone 20 is complete: startup-loaded `MEMORY.md` index files now stay separate from on-demand topic refs in the reviewer surface, topic-entry metadata parsing skips invalid shapes safely, and continuity evidence no longer treats in-progress command output as a failed command.
 - Milestone 21 is complete: partial-success durable sync and continuity saves now write explicit recovery markers, reviewer JSON/text surfaces expose pending recovery state additively, and `processedRolloutEntries` bounded compaction remains intentionally deferred.
 - Post-alpha.21 review fixes are complete: wrapper post-run persistence now attempts continuity auto-save even if durable sync sidecars fail, recovery markers are cleared only for the same rollout/session identity, startup-loaded index files only count truly quoted startup content, and continuity parsing drops the known `Process running with session ID ...` pseudo-failure pattern from persisted reviewer state.
+- Milestone 22 is complete: durable sync audit entries now expose explicit `isRecovery` provenance, Chinese next-step extraction has extra short-capture and connector guards, and official Codex/Claude doc references were re-checked before widening companion-first wording.
+- Post-alpha.22 review hardening is complete: mixed `PASS`/`FAIL` command output now classifies as failure, corrupted durable-sync processed state falls back to an empty state instead of blocking sync, tiny startup/continuity budgets no longer emit partial blocks, stale local continuity goals no longer override fresh shared goals, and recovery/guardrail coverage is broader.
 - `cam memory --json` now also exposes `startupBudget` and `refCountsByScope` for reviewer tooling.
 - Native Codex `memories` and `codex_hooks` still remain outside the trusted implementation path until `cam doctor --json` and public docs both show stable support.
 
@@ -85,6 +87,7 @@ Short-term priorities:
 - keep recovery markers separate from both durable sync audit history and continuity audit history
 - keep durable sync audit explicit and typed without turning it into a manual-edit history browser
 - keep structured processed-rollout identity and actual-vs-configured extractor audit stable without adding migration-heavy state machinery
+- keep corrupted processed-state files and tiny line-budget edge cases on the resilient path instead of letting them block normal reviewer workflows
 - keep bounded `processedRolloutEntries` compaction deferred unless the repository explicitly accepts replay-triggered re-sync of evicted old rollouts
 - keep in-progress command output out of continuity failure buckets unless the rollout later records an explicit failure
 - keep public wording precise whenever `cam memory` exposes edit paths rather than richer in-command editing
