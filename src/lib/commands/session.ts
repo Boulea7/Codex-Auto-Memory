@@ -10,6 +10,7 @@ import {
   buildContinuityRecoveryRecord,
   matchesContinuityRecoveryRecord
 } from "../domain/recovery-records.js";
+import { buildCompactHistoryPreview } from "../domain/reviewer-history.js";
 import {
   compileSessionContinuity,
   createEmptySessionContinuityState
@@ -33,7 +34,8 @@ interface SessionOptions {
 }
 
 const recentContinuityAuditLimit = 5;
-const recentContinuityPreviewLimit = 3;
+const recentContinuityPreviewReadLimit = 10;
+const recentContinuityPreviewGroupLimit = 3;
 
 function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
@@ -55,10 +57,46 @@ function formatRecentGenerationLines(entries: SessionContinuityAuditEntry[]): st
     return ["- none recorded yet"];
   }
 
-  return entries.slice(0, recentContinuityPreviewLimit).flatMap((entry) => [
-    `- ${entry.generatedAt}: ${formatSessionContinuityDiagnostics(entry)}`,
-    `  Rollout: ${entry.rolloutPath}`
+  const preview = buildCompactHistoryPreview(entries, {
+    excludeLeadingCount: 1,
+    maxGroups: recentContinuityPreviewGroupLimit,
+    getSignature: (entry) =>
+      JSON.stringify({
+        rolloutPath: entry.rolloutPath,
+        sourceSessionId: entry.sourceSessionId,
+        scope: entry.scope,
+        preferredPath: entry.preferredPath,
+        actualPath: entry.actualPath,
+        fallbackReason: entry.fallbackReason ?? null,
+        codexExitCode: entry.codexExitCode ?? null,
+        evidenceCounts: {
+          successfulCommands: entry.evidenceCounts.successfulCommands,
+          failedCommands: entry.evidenceCounts.failedCommands,
+          fileWrites: entry.evidenceCounts.fileWrites,
+          nextSteps: entry.evidenceCounts.nextSteps,
+          untried: entry.evidenceCounts.untried
+        },
+        writtenPaths: entry.writtenPaths
+      })
+  });
+
+  if (preview.totalRawCount === 0) {
+    return ["- none beyond latest"];
+  }
+
+  const lines = preview.groups.flatMap((group) => [
+    `- ${group.latest.generatedAt}: ${formatSessionContinuityDiagnostics(group.latest)}`,
+    `  Rollout: ${group.latest.rolloutPath}`,
+    ...(group.rawCount > 1
+      ? [`  Repeated similar generations hidden: ${group.rawCount - 1}`]
+      : [])
   ]);
+
+  if (preview.omittedRawCount > 0) {
+    lines.push(`- older generations omitted: ${preview.omittedRawCount}`);
+  }
+
+  return lines.length > 0 ? lines : ["- none beyond latest"];
 }
 
 function formatPendingContinuityRecovery(
@@ -136,10 +174,15 @@ export async function runSession(
     );
     const excludePath =
       scope === "project" ? null : runtime.sessionContinuityStore.getLocalIgnorePath();
-    const recentContinuityAuditEntries = await runtime.sessionContinuityStore.readRecentAuditEntries(
+    const recentContinuityAuditPreviewEntries =
+      await runtime.sessionContinuityStore.readRecentAuditEntries(
+        recentContinuityPreviewReadLimit
+      );
+    const recentContinuityAuditEntries = recentContinuityAuditPreviewEntries.slice(
+      0,
       recentContinuityAuditLimit
     );
-    const latestContinuityAuditEntry = recentContinuityAuditEntries[0] ?? null;
+    const latestContinuityAuditEntry = recentContinuityAuditPreviewEntries[0] ?? null;
     const pendingContinuityRecovery = await runtime.sessionContinuityStore.readRecoveryRecord();
 
     if (options.json) {
@@ -197,10 +240,13 @@ export async function runSession(
   const localLocation = await runtime.sessionContinuityStore.getLocation("project-local");
   const projectState = await runtime.sessionContinuityStore.readState("project");
   const localState = await runtime.sessionContinuityStore.readState("project-local");
-  const recentContinuityAuditEntries = await runtime.sessionContinuityStore.readRecentAuditEntries(
+  const recentContinuityAuditPreviewEntries =
+    await runtime.sessionContinuityStore.readRecentAuditEntries(recentContinuityPreviewReadLimit);
+  const recentContinuityAuditEntries = recentContinuityAuditPreviewEntries.slice(
+    0,
     recentContinuityAuditLimit
   );
-  const latestContinuityAuditEntry = recentContinuityAuditEntries[0] ?? null;
+  const latestContinuityAuditEntry = recentContinuityAuditPreviewEntries[0] ?? null;
   const pendingContinuityRecovery = await runtime.sessionContinuityStore.readRecoveryRecord();
   const latestContinuityDiagnostics = latestContinuityAuditEntry
     ? toSessionContinuityDiagnostics(latestContinuityAuditEntry)
@@ -245,6 +291,7 @@ export async function runSession(
       `Project continuity: ${projectLocation.exists ? "active" : "missing"} (${projectLocation.path})`,
       `Project-local continuity: ${localLocation.exists ? "active" : "missing"} (${localLocation.path})`,
       `Latest generation: ${latestContinuityDiagnostics ? formatSessionContinuityDiagnostics(latestContinuityDiagnostics) : "none recorded yet"}`,
+      ...(latestContinuityAuditEntry ? [`Latest rollout: ${latestContinuityAuditEntry.rolloutPath}`] : []),
       `Continuity audit: ${runtime.sessionContinuityStore.paths.auditFile}`,
       ...(latestContinuityAuditEntry
         ? formatSessionContinuityAuditDrillDown(latestContinuityAuditEntry)
@@ -255,8 +302,8 @@ export async function runSession(
             runtime.sessionContinuityStore.getRecoveryPath()
           )
         : []),
-      "Recent generations:",
-      ...formatRecentGenerationLines(recentContinuityAuditEntries),
+      "Recent prior generations:",
+      ...formatRecentGenerationLines(recentContinuityAuditPreviewEntries),
       "",
       "Shared project continuity:",
       `Goal: ${projectState?.goal || "No active goal recorded."}`,
@@ -375,6 +422,7 @@ export async function runSession(
     `Shared continuity: ${projectLocation.exists ? "active" : "missing"} (${projectLocation.path})`,
     `Project-local continuity: ${localLocation.exists ? "active" : "missing"} (${localLocation.path})`,
     `Latest generation: ${latestContinuityDiagnostics ? formatSessionContinuityDiagnostics(latestContinuityDiagnostics) : "none recorded yet"}`,
+    ...(latestContinuityAuditEntry ? [`Latest rollout: ${latestContinuityAuditEntry.rolloutPath}`] : []),
     `Continuity audit: ${runtime.sessionContinuityStore.paths.auditFile}`,
     ...(latestContinuityAuditEntry
       ? formatSessionContinuityAuditDrillDown(latestContinuityAuditEntry)
@@ -385,8 +433,8 @@ export async function runSession(
           runtime.sessionContinuityStore.getRecoveryPath()
         )
       : []),
-    "Recent generations:",
-    ...formatRecentGenerationLines(recentContinuityAuditEntries),
+    "Recent prior generations:",
+    ...formatRecentGenerationLines(recentContinuityAuditPreviewEntries),
     "",
     `Shared updated at: ${projectState?.updatedAt ?? "n/a"}`,
     `Project-local updated at: ${localState?.updatedAt ?? "n/a"}`,

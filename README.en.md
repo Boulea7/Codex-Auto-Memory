@@ -179,7 +179,7 @@ cam audit           # check the repository for unexpected sensitive content
 
 - `cam audit`: repository-level privacy and secret-hygiene audit.
 - `cam memory --recent [count]`: durable sync audit for recent `applied`, `no-op`, and `skipped` sync events, without mixing in manual `remember` / `forget`.
-- `cam session save|load|status`: continuity audit surface for the latest diagnostics and latest audit drill-down; `load` / `status` text output additionally shows a compact recent preview, all three `--json` variants return recent audit entries, and a pending continuity recovery marker appears when continuity Markdown was written but audit persistence failed.
+- `cam session save|load|status`: continuity audit surface for the latest diagnostics, latest rollout, and latest audit drill-down; `load` / `status` text output additionally shows a compact prior preview that excludes the latest entry and coalesces consecutive repeats, all three `--json` variants continue to return raw recent audit entries, and a pending continuity recovery marker appears when continuity Markdown was written but audit persistence failed.
 
 ## How it works
 
@@ -252,9 +252,6 @@ See the architecture docs for the full storage and boundary breakdown.
 ### Maintainer and reviewer docs
 
 - [Session continuity design](docs/session-continuity.md)
-- [Progress log](docs/progress-log.md)
-- [Review guide](docs/review-guide.md)
-- [Reviewer handoff](docs/reviewer-handoff.md)
 - [Release checklist](docs/release-checklist.md)
 - [Contributing](CONTRIBUTING.md)
 
@@ -294,7 +291,6 @@ Current public-ready status:
 ## Contributing and license
 
 - Contribution guide: [CONTRIBUTING.md](./CONTRIBUTING.md)
-- Changelog: [CHANGELOG.md](./CHANGELOG.md)
 - License: [Apache-2.0](./LICENSE)
 
 If you ever find a mismatch between the README, official docs, and local runtime observations, prefer:

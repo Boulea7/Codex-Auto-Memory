@@ -1030,7 +1030,7 @@ describe("SessionContinuityStore", () => {
     expect((await store.readState("project-local"))?.incompleteNext).toContain("Add middleware.");
   });
 
-  it("supports claude-style local files and clears all active local session tmp files", async () => {
+  it("supports claude-style local files, reads the newest mtime file, and clears all active session tmp files", async () => {
     const repoDir = await tempDir("cam-continuity-claude-repo-");
     const memoryRoot = await tempDir("cam-continuity-claude-memory-");
     await initRepo(repoDir);
@@ -1062,13 +1062,21 @@ describe("SessionContinuityStore", () => {
     );
     await store.ensureLocalLayout();
     const olderFile = path.join(store.paths.localDir, "2026-03-01-old-session.tmp");
+    const newerFile = path.join(store.paths.localDir, "2026-03-02-new-session.tmp");
     await fs.writeFile(olderFile, "stale\n", "utf8");
+    await fs.writeFile(newerFile, "fresh\n", "utf8");
+    const olderTimestamp = new Date("2026-03-01T00:00:00.000Z");
+    const newerTimestamp = new Date("2026-03-03T00:00:00.000Z");
+    await fs.utimes(olderFile, olderTimestamp, olderTimestamp);
+    await fs.utimes(store.paths.localFile, olderTimestamp, olderTimestamp);
+    await fs.utimes(newerFile, newerTimestamp, newerTimestamp);
 
     const location = await store.getLocation("project-local");
-    expect(location.path.endsWith("-session.tmp")).toBe(true);
+    expect(location.path).toBe(newerFile);
 
     const cleared = await store.clear("project-local");
     expect(cleared).toContain(olderFile);
+    expect(cleared).toContain(newerFile);
     expect((await fs.readdir(store.paths.localDir)).filter((name) => name.endsWith("-session.tmp"))).toHaveLength(0);
   });
 });

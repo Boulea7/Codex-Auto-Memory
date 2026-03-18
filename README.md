@@ -179,7 +179,7 @@ cam audit           # 检查仓库有没有意外的敏感内容
 
 - `cam audit`: 仓库级的 privacy / secret hygiene 审计。
 - `cam memory --recent [count]`: durable sync audit，查看 recent `applied` / `no-op` / `skipped` sync 事件，不混入 manual `remember` / `forget`。
-- `cam session save|load|status`: continuity audit surface，查看最新 continuity diagnostics 与 latest audit drill-down；其中 `load` / `status` 的文本输出会额外显示 compact recent preview，三个命令的 `--json` 都会返回 recent audit entries；当 continuity Markdown 已写入但 audit 失败时，还会暴露 pending continuity recovery marker。
+- `cam session save|load|status`: continuity audit surface，查看最新 continuity diagnostics、latest rollout 与 latest audit drill-down；其中 `load` / `status` 的文本输出会额外显示 compact prior preview（排除 latest，并收敛连续重复项），三个命令的 `--json` 都会继续返回 raw recent audit entries；当 continuity Markdown 已写入但 audit 失败时，还会暴露 pending continuity recovery marker。
 
 ## 工作方式
 
@@ -252,9 +252,6 @@ Session continuity：
 ### 维护与审查文档
 
 - [Session continuity 设计](docs/session-continuity.md)
-- [Progress log](docs/progress-log.md)
-- [Review guide](docs/review-guide.md)
-- [Reviewer handoff](docs/reviewer-handoff.md)
 - [Release checklist](docs/release-checklist.md)
 - [Contributing](CONTRIBUTING.md)
 
@@ -294,7 +291,6 @@ Session continuity：
 ## 贡献与许可
 
 - 贡献指南：[CONTRIBUTING.md](./CONTRIBUTING.md)
-- Changelog：[CHANGELOG.md](./CHANGELOG.md)
 - License：[Apache-2.0](./LICENSE)
 
 如果你在 README、官方文档和本地运行时观察之间发现冲突，请优先相信：

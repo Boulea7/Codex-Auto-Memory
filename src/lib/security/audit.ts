@@ -9,7 +9,7 @@ import type {
 } from "../types.js";
 import { runCommandCapture } from "../util/process.js";
 import { trimText } from "../util/text.js";
-import { buildAuditRules, classifyAuditMatch } from "./patterns.js";
+import { buildAuditRules, classifyAuditMatch, type AuditRule } from "./patterns.js";
 
 const auditRules = buildAuditRules();
 
@@ -25,6 +25,7 @@ const classificationOrder: AuditClassification[] = [
   "synthetic-test-fixture",
   "generic-local-path"
 ];
+const historyRevisionBatchSize = 200;
 
 function createEmptySeveritySummary(): Record<AuditSeverity, number> {
   return {
@@ -149,6 +150,50 @@ async function scanWorkingTree(cwd: string): Promise<AuditFinding[]> {
 
 async function scanHistory(cwd: string): Promise<AuditFinding[]> {
   const commits = await listCommits(cwd);
+  if (commits.length === 0) {
+    return [];
+  }
+
+  const grepFindings = scanHistoryWithGitGrep(cwd, commits);
+  if (grepFindings) {
+    return grepFindings;
+  }
+
+  return scanHistoryLegacy(cwd);
+}
+
+function scanHistoryWithGitGrep(cwd: string, commits: string[]): AuditFinding[] | null {
+  const findings: AuditFinding[] = [];
+
+  for (const revisions of chunkArray(commits, historyRevisionBatchSize)) {
+    for (const rule of auditRules) {
+      const result = runCommandCapture("git", buildHistoryGrepArgs(rule, revisions), cwd);
+      if (result.exitCode === 1) {
+        continue;
+      }
+      if (result.exitCode !== 0) {
+        return null;
+      }
+
+      for (const rawLine of result.stdout.split("\n")) {
+        const line = rawLine.trimEnd();
+        if (!line) {
+          continue;
+        }
+
+        const parsed = parseHistoryGrepLine(line, rule);
+        if (parsed) {
+          findings.push(parsed);
+        }
+      }
+    }
+  }
+
+  return findings;
+}
+
+async function scanHistoryLegacy(cwd: string): Promise<AuditFinding[]> {
+  const commits = await listCommits(cwd);
   const findings: AuditFinding[] = [];
   for (const revision of commits) {
     const files = await listFilesAtRevision(cwd, revision);
@@ -166,6 +211,57 @@ async function scanHistory(cwd: string): Promise<AuditFinding[]> {
     }
   }
   return findings;
+}
+
+function buildHistoryGrepArgs(rule: AuditRule, revisions: string[]): string[] {
+  return [
+    "grep",
+    "-nI",
+    "-z",
+    "-P",
+    ...(rule.regex.flags.includes("i") ? ["-i"] : []),
+    rule.regex.source,
+    ...revisions,
+    "--"
+  ];
+}
+
+function parseHistoryGrepLine(line: string, rule: AuditRule): AuditFinding | null {
+  const [filePath, lineNumberRaw, ...textParts] = line.split("\u0000");
+  if (!filePath || !lineNumberRaw || textParts.length === 0) {
+    return null;
+  }
+
+  const lineNumber = Number.parseInt(lineNumberRaw, 10);
+  if (!Number.isFinite(lineNumber)) {
+    return null;
+  }
+
+  const lineText = textParts.join("\u0000");
+  if (!filePath.includes(":")) {
+    return null;
+  }
+
+  const classified = classifyAuditMatch(filePath, lineText, rule);
+  return makeFinding(
+    filePath,
+    lineNumber,
+    lineText,
+    rule.id,
+    rule.summary,
+    "git-history",
+    classified.classification,
+    classified.severity,
+    classified.recommendation
+  );
+}
+
+function chunkArray<T>(items: T[], size: number): T[][] {
+  const chunks: T[][] = [];
+  for (let index = 0; index < items.length; index += size) {
+    chunks.push(items.slice(index, index + size));
+  }
+  return chunks;
 }
 
 function dedupeFindings(findings: AuditFinding[]): AuditFinding[] {
