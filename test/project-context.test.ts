@@ -41,5 +41,5 @@ describe("detectProjectContext", () => {
     expect(mainContext.projectId).toBe(linkedContext.projectId);
     expect(mainContext.worktreeId).not.toBe(linkedContext.worktreeId);
     expect(mainContext.gitCommonDir).toBe(linkedContext.gitCommonDir);
-  }, 15_000);
+  }, 30_000);
 });

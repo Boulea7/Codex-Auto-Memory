@@ -80,6 +80,28 @@ describe("command-utils", () => {
     ).toBe(true);
   });
 
+  it("prefers failure when output contains both pass and fail markers", () => {
+    const toolCall = {
+      name: "exec_command",
+      arguments: JSON.stringify({ cmd: "pnpm test" }),
+      output: ["PASS src/a.test.ts", "FAIL src/b.test.ts", "Process exited with code 1"].join("\n")
+    };
+
+    expect(commandSucceeded(toolCall)).toBe(false);
+    expect(commandFailed(toolCall)).toBe(true);
+  });
+
+  it("prefers explicit success exit codes over incidental fail words in stdout", () => {
+    const toolCall = {
+      name: "exec_command",
+      arguments: JSON.stringify({ cmd: "pnpm docs:lint" }),
+      output: ["Process exited with code 0", "Output:", "Use PASS/FAIL reporting in docs."].join("\n")
+    };
+
+    expect(commandSucceeded(toolCall)).toBe(true);
+    expect(commandFailed(toolCall)).toBe(false);
+  });
+
   it("treats in-progress command output as unknown instead of failed", () => {
     const toolCall = {
       name: "exec_command",

@@ -120,7 +120,7 @@ describe("MemoryStore", () => {
     });
   });
 
-  it("does not report a memory file as startup-loaded when only header lines fit", async () => {
+  it("skips partial scope blocks when the startup budget cannot fit quoted lines", async () => {
     const projectDir = await tempDir("cam-store-startup-header-only-");
     const memoryRoot = await tempDir("cam-store-startup-header-only-mem-");
     const config: AppConfig = {
@@ -140,9 +140,34 @@ describe("MemoryStore", () => {
 
     const startup = await compileStartupMemory(store, 8);
 
-    expect(startup.lineCount).toBe(8);
-    expect(startup.text).toContain("## Project Local");
+    expect(startup.lineCount).toBeLessThanOrEqual(8);
+    expect(startup.text).not.toContain("## Project Local");
     expect(startup.text).not.toContain("| # Project Local Memory");
+    expect(startup.sourceFiles).toEqual([]);
+  });
+
+  it("caps the startup preamble when the budget is smaller than the static intro", async () => {
+    const projectDir = await tempDir("cam-store-startup-preamble-");
+    const memoryRoot = await tempDir("cam-store-startup-preamble-mem-");
+    const config: AppConfig = {
+      autoMemoryEnabled: true,
+      autoMemoryDirectory: memoryRoot,
+      extractorMode: "heuristic",
+      defaultScope: "project",
+      maxStartupLines: 200,
+      sessionContinuityAutoLoad: false,
+      sessionContinuityAutoSave: false,
+      sessionContinuityLocalPathStyle: "codex",
+      maxSessionContinuityLines: 60,
+      codexBinary: "codex"
+    };
+    const store = new MemoryStore(detectProjectContext(projectDir), config);
+    await store.ensureLayout();
+
+    const startup = await compileStartupMemory(store, 3);
+
+    expect(startup.lineCount).toBeLessThanOrEqual(3);
+    expect(startup.text).not.toContain("## Project Local");
     expect(startup.sourceFiles).toEqual([]);
   });
 

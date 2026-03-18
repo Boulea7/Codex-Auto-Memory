@@ -66,7 +66,10 @@ export function extractPatternMatches(
       if (!match?.[1]) {
         continue;
       }
-      matches.push(normalizeMessage(match[1]));
+      const captured = normalizeMessage(match[1]);
+      if (captured.length < 10) continue;
+      if (/^(?:而是|但是|因为|所以|不过|然后|其实|就是|也就是说)/u.test(captured)) continue;
+      matches.push(captured);
       break;
     }
     if (matches.length >= maxItems) {

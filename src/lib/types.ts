@@ -231,6 +231,7 @@ export interface MemorySyncAuditEntry {
   sessionSource: string;
   status: MemorySyncAuditStatus;
   skipReason?: MemorySyncAuditSkipReason;
+  isRecovery?: boolean;
   appliedCount: number;
   scopesTouched: MemoryScope[];
   resultSummary: string;

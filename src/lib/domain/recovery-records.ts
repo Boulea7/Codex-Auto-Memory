@@ -154,6 +154,10 @@ export function buildSyncRecoveryRecord(
   };
 }
 
+// Recovery identity uses 4 fields (projectId, worktreeId, rolloutPath, sessionId) rather than
+// the 6-field processed-rollout identity (which also includes sizeBytes and mtimeMs).
+// This intentional difference ensures that a modified rollout file (changed size/mtime)
+// can still clear its recovery marker, since the logical identity is the same rollout.
 export function matchesSyncRecoveryRecord(
   record: SyncRecoveryRecord,
   identity: {

@@ -527,7 +527,11 @@ export class MemoryStore {
   }
 
   public async getSyncState(): Promise<Required<SyncState>> {
-    return normalizeSyncState(await readJsonFile<SyncState>(this.paths.stateFile));
+    try {
+      return normalizeSyncState(await readJsonFile<SyncState>(this.paths.stateFile));
+    } catch {
+      return normalizeSyncState(null);
+    }
   }
 
   public async markRolloutProcessed(identity: ProcessedRolloutIdentity): Promise<void> {
