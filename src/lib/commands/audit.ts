@@ -8,6 +8,18 @@ interface AuditCommandOptions {
   noHistory?: boolean;
 }
 
+function resolveIncludeHistory(options: AuditCommandOptions): boolean {
+  if (typeof options.history === "boolean") {
+    return options.history;
+  }
+
+  if (options.noHistory === true) {
+    return false;
+  }
+
+  return true;
+}
+
 function formatFinding(finding: AuditFinding): string[] {
   return [
     `- [${finding.severity}] ${finding.classification} ${finding.location}`,
@@ -28,10 +40,10 @@ function formatSummary(report: AuditReport): string[] {
 }
 
 export async function runAudit(options: AuditCommandOptions = {}): Promise<string> {
-  const includeHistory = options.noHistory ? false : true;
+  const includeHistory = resolveIncludeHistory(options);
   const report = await runAuditScan({
     cwd: options.cwd ?? process.cwd(),
-    includeHistory: options.history ? true : includeHistory
+    includeHistory
   });
 
   if (options.json) {
@@ -42,7 +54,7 @@ export async function runAudit(options: AuditCommandOptions = {}): Promise<strin
     "Codex Auto Memory Audit",
     `Generated at: ${report.generatedAt}`,
     `Repository: ${report.cwd}`,
-    `History scan: ${options.noHistory ? "disabled" : "enabled"}`,
+    `History scan: ${includeHistory ? "enabled" : "disabled"}`,
     "",
     ...formatSummary(report)
   ];

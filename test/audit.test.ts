@@ -1,12 +1,17 @@
 import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { runAuditScan } from "../src/lib/security/audit.js";
 import { runAudit } from "../src/lib/commands/audit.js";
 import { runCommandCapture } from "../src/lib/util/process.js";
+import * as processUtils from "../src/lib/util/process.js";
 
 const tempDirs: string[] = [];
+const sourceCliPath = path.resolve("src/cli.ts");
+const tsxBinaryPath = path.resolve(
+  process.platform === "win32" ? "node_modules/.bin/tsx.cmd" : "node_modules/.bin/tsx"
+);
 
 async function tempDir(prefix: string): Promise<string> {
   const dir = await fs.mkdtemp(path.join(os.tmpdir(), prefix));
@@ -26,6 +31,10 @@ async function initRepo(repoDir: string): Promise<void> {
   await fs.writeFile(path.join(repoDir, ".gitignore"), ".claude/\n", "utf8");
   runCommandCapture("git", ["add", ".gitignore"], repoDir, gitEnv);
   runCommandCapture("git", ["commit", "-m", "init"], repoDir, gitEnv);
+}
+
+function runCli(repoDir: string, args: string[]) {
+  return runCommandCapture(tsxBinaryPath, [sourceCliPath, ...args], repoDir);
 }
 
 afterEach(async () => {
@@ -86,7 +95,7 @@ describe("audit scan", () => {
     expect(report.findings.some((finding) => finding.ruleId === "absolute-user-path")).toBe(false);
   }, 30_000);
 
-  it("supports no-history mode from the command surface", async () => {
+  it("supports no-history mode from the direct command helper", async () => {
     const repoDir = await tempDir("cam-audit-no-history-");
     await initRepo(repoDir);
     await fs.writeFile(
@@ -113,9 +122,175 @@ describe("audit scan", () => {
       cwd: repoDir,
       noHistory: true
     });
+    const explicitHistoryFalseOutput = await runAudit({
+      cwd: repoDir,
+      history: false
+    });
 
     expect(output).toContain("History scan: disabled");
     expect(output).toContain("generic-local-path");
+    expect(explicitHistoryFalseOutput).toContain("History scan: disabled");
+  });
+
+  it("respects --no-history on the real CLI surface and still supports --history", async () => {
+    const repoDir = await tempDir("cam-audit-cli-history-");
+    await initRepo(repoDir);
+    const gitEnv = {
+      ...process.env,
+      GIT_AUTHOR_NAME: "Codex Auto Memory",
+      GIT_AUTHOR_EMAIL: "cam@example.com",
+      GIT_COMMITTER_NAME: "Codex Auto Memory",
+      GIT_COMMITTER_EMAIL: "cam@example.com"
+    };
+
+    const historicalLocalPath = ["/Users", "alice/project/"].join("/");
+    await fs.writeFile(
+      path.join(repoDir, "README.md"),
+      `Historical local path: ${historicalLocalPath}.\n`,
+      "utf8"
+    );
+    runCommandCapture("git", ["add", "README.md"], repoDir, gitEnv);
+    runCommandCapture("git", ["commit", "-m", "history-only-path"], repoDir, gitEnv);
+
+    await fs.writeFile(path.join(repoDir, "README.md"), "Safe current contents.\n", "utf8");
+    runCommandCapture("git", ["add", "README.md"], repoDir, gitEnv);
+    runCommandCapture("git", ["commit", "-m", "cleanup"], repoDir, gitEnv);
+
+    const noHistoryResult = runCli(repoDir, ["audit", "--json", "--no-history"]);
+    const historyResult = runCli(repoDir, ["audit", "--json", "--history"]);
+    const defaultResult = runCli(repoDir, ["audit", "--json"]);
+
+    expect(noHistoryResult.exitCode).toBe(0);
+    expect(historyResult.exitCode).toBe(0);
+    expect(defaultResult.exitCode).toBe(0);
+
+    const noHistoryJson = JSON.parse(noHistoryResult.stdout) as {
+      findings: Array<{ sourceType: string; location: string }>;
+      summary: { bySeverity: { medium: number } };
+    };
+    const historyJson = JSON.parse(historyResult.stdout) as {
+      findings: Array<{ sourceType: string; location: string; classification: string; severity: string }>;
+      summary: { bySeverity: { medium: number } };
+    };
+    const defaultJson = JSON.parse(defaultResult.stdout) as {
+      findings: Array<{ sourceType: string; location: string }>;
+      summary: { bySeverity: { medium: number } };
+    };
+
+    expect(noHistoryJson.findings.some((finding) => finding.sourceType === "git-history")).toBe(false);
+    expect(noHistoryJson.summary.bySeverity.medium).toBe(0);
+    expect(historyJson.findings.some((finding) => finding.sourceType === "git-history")).toBe(true);
+    expect(
+      historyJson.findings.some(
+        (finding) =>
+          finding.sourceType === "git-history" &&
+          finding.classification === "manual-review-needed" &&
+          finding.severity === "medium" &&
+          finding.location.includes("README.md")
+      )
+    ).toBe(true);
+    expect(historyJson.summary.bySeverity.medium).toBeGreaterThan(0);
+    expect(defaultJson.findings.some((finding) => finding.sourceType === "git-history")).toBe(true);
+    expect(defaultJson.summary.bySeverity.medium).toBeGreaterThan(0);
+  });
+
+  it("keeps the correct history line number when matched text contains colon-digit-colon", async () => {
+    const repoDir = await tempDir("cam-audit-history-parse-");
+    await initRepo(repoDir);
+    const gitEnv = {
+      ...process.env,
+      GIT_AUTHOR_NAME: "Codex Auto Memory",
+      GIT_AUTHOR_EMAIL: "cam@example.com",
+      GIT_COMMITTER_NAME: "Codex Auto Memory",
+      GIT_COMMITTER_EMAIL: "cam@example.com"
+    };
+
+    const historicalLocalPath = ["/Users", "alice/project/"].join("/");
+    const historicalLine = [
+      "Historical local path: ",
+      historicalLocalPath,
+      " with port:3000: note."
+    ].join("");
+    await fs.writeFile(path.join(repoDir, "README.md"), `${historicalLine}\n`, "utf8");
+    runCommandCapture("git", ["add", "README.md"], repoDir, gitEnv);
+    runCommandCapture("git", ["commit", "-m", "history-parse"], repoDir, gitEnv);
+
+    await fs.writeFile(path.join(repoDir, "README.md"), "Safe current contents.\n", "utf8");
+    runCommandCapture("git", ["add", "README.md"], repoDir, gitEnv);
+    runCommandCapture("git", ["commit", "-m", "cleanup"], repoDir, gitEnv);
+
+    const report = await runAuditScan({
+      cwd: repoDir,
+      includeHistory: true
+    });
+    const historyPathFinding = report.findings.find(
+      (finding) =>
+        finding.sourceType === "git-history" &&
+        finding.ruleId === "absolute-user-path" &&
+        finding.location.endsWith("README.md:1")
+    );
+
+    expect(historyPathFinding).toBeDefined();
+    expect(historyPathFinding?.snippet).toContain("port:3000: note.");
+  });
+
+  it("falls back to the legacy history walk when git grep fails", async () => {
+    const repoDir = await tempDir("cam-audit-history-fallback-");
+    await initRepo(repoDir);
+    const gitEnv = {
+      ...process.env,
+      GIT_AUTHOR_NAME: "Codex Auto Memory",
+      GIT_AUTHOR_EMAIL: "cam@example.com",
+      GIT_COMMITTER_NAME: "Codex Auto Memory",
+      GIT_COMMITTER_EMAIL: "cam@example.com"
+    };
+
+    const historicalLocalPath = ["/Users", "alice/project/"].join("/");
+    await fs.writeFile(
+      path.join(repoDir, "README.md"),
+      `Historical local path: ${historicalLocalPath}.\n`,
+      "utf8"
+    );
+    runCommandCapture("git", ["add", "README.md"], repoDir, gitEnv);
+    runCommandCapture("git", ["commit", "-m", "history-only-path"], repoDir, gitEnv);
+
+    await fs.writeFile(path.join(repoDir, "README.md"), "Safe current contents.\n", "utf8");
+    runCommandCapture("git", ["add", "README.md"], repoDir, gitEnv);
+    runCommandCapture("git", ["commit", "-m", "cleanup"], repoDir, gitEnv);
+
+    const originalRunCommandCapture = processUtils.runCommandCapture;
+    const grepSpy = vi
+      .spyOn(processUtils, "runCommandCapture")
+      .mockImplementation((command, args, cwd, env, input) => {
+        if (command === "git" && args[0] === "grep") {
+          return {
+            stdout: "",
+            stderr: "simulated git grep failure",
+            exitCode: 2
+          };
+        }
+
+        return originalRunCommandCapture(command, args, cwd, env, input);
+      });
+
+    try {
+      const report = await runAuditScan({
+        cwd: repoDir,
+        includeHistory: true
+      });
+
+      expect(report.findings.some((finding) => finding.sourceType === "git-history")).toBe(true);
+      expect(
+        report.findings.some(
+          (finding) =>
+            finding.sourceType === "git-history" &&
+            finding.ruleId === "absolute-user-path" &&
+            finding.location.endsWith("README.md:1")
+        )
+      ).toBe(true);
+    } finally {
+      grepSpy.mockRestore();
+    }
   });
 
   it("returns stable severity counts from the json command surface", async () => {

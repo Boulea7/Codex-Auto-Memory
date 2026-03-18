@@ -18,15 +18,14 @@
 
 1. [架构设计](./architecture.md)
 2. [Session continuity 设计](./session-continuity.md)
-3. [Progress log](./progress-log.md)
-4. [Next phase brief](./next-phase-brief.md)
+3. [Release checklist](./release-checklist.md)
+4. [ClaudeCode patch audit](./claudecode-patch-audit.md)
 
 ### Reviewer / 外部审查工具
 
-1. [Review guide](./review-guide.md)
-2. [Reviewer handoff](./reviewer-handoff.md)
-3. [Release checklist](./release-checklist.md)
-4. [ClaudeCode patch audit](./claudecode-patch-audit.md)
+1. [Session continuity 设计](./session-continuity.md)
+2. [Release checklist](./release-checklist.md)
+3. [ClaudeCode patch audit](./claudecode-patch-audit.md)
 
 ## 核心设计文档
 
@@ -41,18 +40,15 @@
 | 文档 | 作用 | 当前语言 |
 | :-- | :-- | :-- |
 | [Session continuity 设计](./session-continuity.md) | 临时 continuity layer 的边界、路径和 reviewer surface | English |
-| [Progress log](./progress-log.md) | 阶段进度、里程碑与已知缺口 | English |
-| [Review guide](./review-guide.md) | reviewer 应该从哪里开始看、看什么、关注什么风险 | English |
-| [Reviewer handoff](./reviewer-handoff.md) | 外部工具或 AI 接手时的最短完整 handoff packet | English |
 | [Release checklist](./release-checklist.md) | 发布前的产品、运行时和文档核查清单 | English |
-| [Next phase brief](./next-phase-brief.md) | 下一阶段推荐执行简报 | English |
+| [ClaudeCode patch audit](./claudecode-patch-audit.md) | 历史 patch 迁移与对照记录 | English |
 
 ## 语言策略
 
 - 默认公开首页使用中文 `README.md`
 - 英文访客可从 [README.en.md](../README.en.md) 或 [docs/README.en.md](./README.en.md) 进入英文入口
 - 3 篇核心设计文档提供中英双版本
-- reviewer / maintainer 文档当前仍以英文为主，以减少内部维护漂移
+- 维护类补充文档当前仍以英文为主，以减少内部维护漂移
 
 ## 文档设计原则
 

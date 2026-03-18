@@ -110,12 +110,74 @@ function rolloutFixture(projectDir: string, message: string): string {
   ].join("\n");
 }
 
+async function writeWrapperMockCodex(
+  repoDir: string,
+  sessionsDir: string,
+  options: {
+    sessionId: string;
+    message: string;
+    callOutput?: string;
+  }
+): Promise<{ capturedArgsPath: string; mockCodexPath: string }> {
+  const capturedArgsPath = path.join(repoDir, "captured-args.json");
+  const mockCodexPath = path.join(repoDir, "mock-codex");
+  const todayDir = path.join(sessionsDir, "2026", "03", "15");
+  await fs.mkdir(todayDir, { recursive: true });
+  await fs.writeFile(
+    mockCodexPath,
+    `#!/usr/bin/env node
+const fs = require("node:fs");
+const path = require("node:path");
+const cwd = process.cwd();
+const sessionsDir = process.env.CAM_CODEX_SESSIONS_DIR;
+fs.writeFileSync(path.join(cwd, "captured-args.json"), JSON.stringify(process.argv.slice(2), null, 2));
+const rolloutDir = path.join(sessionsDir, "2026", "03", "15");
+fs.mkdirSync(rolloutDir, { recursive: true });
+const rolloutPath = path.join(rolloutDir, "rollout-2026-03-15T00-00-00-000Z-session.jsonl");
+fs.writeFileSync(rolloutPath, [
+  JSON.stringify({ type: "session_meta", payload: { id: ${JSON.stringify(options.sessionId)}, timestamp: "2026-03-15T00:00:00.000Z", cwd } }),
+  JSON.stringify({ type: "event_msg", payload: { type: "user_message", message: ${JSON.stringify(options.message)} } }),
+  JSON.stringify({ type: "response_item", payload: { type: "function_call", name: "exec_command", call_id: "call-1", arguments: "{\\"cmd\\":\\"pnpm test\\"}" } }),
+  JSON.stringify({ type: "response_item", payload: { type: "function_call_output", call_id: "call-1", output: ${JSON.stringify(options.callOutput ?? "Process exited with code 0")} } })
+].join("\\n"));
+`,
+    "utf8"
+  );
+  await fs.chmod(mockCodexPath, 0o755);
+
+  return {
+    capturedArgsPath,
+    mockCodexPath
+  };
+}
+
 afterEach(async () => {
   process.env.CAM_CODEX_SESSIONS_DIR = originalSessionsDir;
   await Promise.all(tempDirs.splice(0).map((dir) => fs.rm(dir, { recursive: true, force: true })));
 });
 
 describe("runSession", () => {
+  it("shows an empty compact prior preview when no continuity audit history exists", async () => {
+    const repoDir = await tempDir("cam-session-empty-history-repo-");
+    const memoryRoot = await tempDir("cam-session-empty-history-memory-");
+    await initRepo(repoDir);
+    await writeProjectConfig(
+      repoDir,
+      configJson(),
+      { autoMemoryDirectory: memoryRoot }
+    );
+
+    const loadOutput = await runSession("load", { cwd: repoDir });
+    expect(loadOutput).toContain("Latest generation: none recorded yet");
+    expect(loadOutput).toContain("Recent prior generations:");
+    expect(loadOutput).toContain("- none recorded yet");
+
+    const statusOutput = await runSession("status", { cwd: repoDir });
+    expect(statusOutput).toContain("Latest generation: none recorded yet");
+    expect(statusOutput).toContain("Recent prior generations:");
+    expect(statusOutput).toContain("- none recorded yet");
+  });
+
   it("saves, loads, reports, and clears continuity state", async () => {
     const repoDir = await tempDir("cam-session-cmd-repo-");
     const memoryRoot = await tempDir("cam-session-cmd-memory-");
@@ -241,8 +303,11 @@ describe("runSession", () => {
     const loadOutput = await runSession("load", { cwd: repoDir });
     expect(loadOutput).toContain("Evidence: successful");
     expect(loadOutput).toContain("Written paths:");
-    expect(loadOutput).toContain("Recent generations:");
-    expect(loadOutput).toContain(secondRolloutPath);
+    expect(loadOutput).toContain("Recent prior generations:");
+    expect(loadOutput).toContain(rolloutPath);
+    expect(
+      loadOutput.match(new RegExp(secondRolloutPath.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "g")) ?? []
+    ).toHaveLength(1);
 
     const statusJson = JSON.parse(
       await runSession("status", { cwd: repoDir, json: true })
@@ -267,8 +332,11 @@ describe("runSession", () => {
     const statusOutput = await runSession("status", { cwd: repoDir });
     expect(statusOutput).toContain("Evidence: successful");
     expect(statusOutput).toContain("Written paths:");
-    expect(statusOutput).toContain("Recent generations:");
-    expect(statusOutput).toContain(secondRolloutPath);
+    expect(statusOutput).toContain("Recent prior generations:");
+    expect(statusOutput).toContain(rolloutPath);
+    expect(
+      statusOutput.match(new RegExp(secondRolloutPath.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "g")) ?? []
+    ).toHaveLength(1);
 
     const clearOutput = await runSession("clear", { cwd: repoDir, scope: "both" });
     expect(clearOutput).toContain("Cleared session continuity files");
@@ -518,15 +586,165 @@ describe("runSession", () => {
     const loadOutput = await runSession("load", { cwd: repoDir });
     expect(loadOutput).toContain("Evidence: successful 1 | failed 0 | file writes 0 | next steps 1 | untried 0");
     expect(loadOutput).toContain("/tmp/continuity.md");
-    expect(loadOutput).toContain("Recent generations:");
-    expect(loadOutput).toContain("/tmp/rollout-good.jsonl");
+    expect(loadOutput).toContain("Recent prior generations:");
+    expect(loadOutput).toContain("- none beyond latest");
 
     const statusOutput = await runSession("status", { cwd: repoDir });
     expect(statusOutput).toContain("Evidence: successful 1 | failed 0 | file writes 0 | next steps 1 | untried 0");
     expect(statusOutput).toContain("/tmp/continuity.md");
-    expect(statusOutput).toContain("Recent generations:");
-    expect(statusOutput).toContain("/tmp/rollout-good.jsonl");
+    expect(statusOutput).toContain("Recent prior generations:");
+    expect(statusOutput).toContain("- none beyond latest");
   }, 30_000);
+
+  it("keeps latest continuity audit separate from compact prior history and coalesces repeated prior entries", async () => {
+    const repoDir = await tempDir("cam-session-compact-history-repo-");
+    const memoryRoot = await tempDir("cam-session-compact-history-memory-");
+    await initRepo(repoDir);
+    await writeProjectConfig(
+      repoDir,
+      configJson(),
+      { autoMemoryDirectory: memoryRoot }
+    );
+
+    const store = new SessionContinuityStore(detectProjectContext(repoDir), {
+      ...configJson(),
+      autoMemoryDirectory: memoryRoot
+    });
+    await store.ensureAuditLayout();
+    await fs.writeFile(
+      store.paths.auditFile,
+      [
+        JSON.stringify({
+          generatedAt: "2026-03-15T00:00:00.000Z",
+          projectId: detectProjectContext(repoDir).projectId,
+          worktreeId: detectProjectContext(repoDir).worktreeId,
+          configuredExtractorMode: "heuristic",
+          scope: "both",
+          rolloutPath: "/tmp/rollout-oldest.jsonl",
+          sourceSessionId: "session-oldest",
+          preferredPath: "heuristic",
+          actualPath: "heuristic",
+          fallbackReason: "configured-heuristic",
+          evidenceCounts: {
+            successfulCommands: 1,
+            failedCommands: 0,
+            fileWrites: 0,
+            nextSteps: 1,
+            untried: 0
+          },
+          writtenPaths: ["/tmp/continuity-oldest.md"]
+        } satisfies SessionContinuityAuditEntry),
+        JSON.stringify({
+          generatedAt: "2026-03-15T00:01:00.000Z",
+          projectId: detectProjectContext(repoDir).projectId,
+          worktreeId: detectProjectContext(repoDir).worktreeId,
+          configuredExtractorMode: "heuristic",
+          scope: "both",
+          rolloutPath: "/tmp/rollout-repeat.jsonl",
+          sourceSessionId: "session-repeat",
+          preferredPath: "heuristic",
+          actualPath: "heuristic",
+          fallbackReason: "configured-heuristic",
+          evidenceCounts: {
+            successfulCommands: 1,
+            failedCommands: 0,
+            fileWrites: 0,
+            nextSteps: 1,
+            untried: 0
+          },
+          writtenPaths: ["/tmp/continuity-repeat.md"]
+        } satisfies SessionContinuityAuditEntry),
+        JSON.stringify({
+          generatedAt: "2026-03-15T00:02:00.000Z",
+          projectId: detectProjectContext(repoDir).projectId,
+          worktreeId: detectProjectContext(repoDir).worktreeId,
+          configuredExtractorMode: "heuristic",
+          scope: "both",
+          rolloutPath: "/tmp/rollout-repeat.jsonl",
+          sourceSessionId: "session-repeat",
+          preferredPath: "heuristic",
+          actualPath: "heuristic",
+          fallbackReason: "configured-heuristic",
+          evidenceCounts: {
+            successfulCommands: 1,
+            failedCommands: 0,
+            fileWrites: 0,
+            nextSteps: 1,
+            untried: 0
+          },
+          writtenPaths: ["/tmp/continuity-repeat.md"]
+        } satisfies SessionContinuityAuditEntry),
+        JSON.stringify({
+          generatedAt: "2026-03-15T00:03:00.000Z",
+          projectId: detectProjectContext(repoDir).projectId,
+          worktreeId: detectProjectContext(repoDir).worktreeId,
+          configuredExtractorMode: "heuristic",
+          scope: "both",
+          rolloutPath: "/tmp/rollout-prior-b.jsonl",
+          sourceSessionId: "session-prior-b",
+          preferredPath: "heuristic",
+          actualPath: "heuristic",
+          fallbackReason: "configured-heuristic",
+          evidenceCounts: {
+            successfulCommands: 2,
+            failedCommands: 0,
+            fileWrites: 0,
+            nextSteps: 1,
+            untried: 0
+          },
+          writtenPaths: ["/tmp/continuity-prior-b.md"]
+        } satisfies SessionContinuityAuditEntry),
+        JSON.stringify({
+          generatedAt: "2026-03-15T00:04:00.000Z",
+          projectId: detectProjectContext(repoDir).projectId,
+          worktreeId: detectProjectContext(repoDir).worktreeId,
+          configuredExtractorMode: "heuristic",
+          scope: "both",
+          rolloutPath: "/tmp/rollout-prior-c.jsonl",
+          sourceSessionId: "session-prior-c",
+          preferredPath: "heuristic",
+          actualPath: "heuristic",
+          fallbackReason: "configured-heuristic",
+          evidenceCounts: {
+            successfulCommands: 3,
+            failedCommands: 0,
+            fileWrites: 0,
+            nextSteps: 1,
+            untried: 0
+          },
+          writtenPaths: ["/tmp/continuity-prior-c.md"]
+        } satisfies SessionContinuityAuditEntry),
+        JSON.stringify({
+          generatedAt: "2026-03-15T00:05:00.000Z",
+          projectId: detectProjectContext(repoDir).projectId,
+          worktreeId: detectProjectContext(repoDir).worktreeId,
+          configuredExtractorMode: "heuristic",
+          scope: "both",
+          rolloutPath: "/tmp/rollout-latest.jsonl",
+          sourceSessionId: "session-latest",
+          preferredPath: "heuristic",
+          actualPath: "heuristic",
+          fallbackReason: "configured-heuristic",
+          evidenceCounts: {
+            successfulCommands: 4,
+            failedCommands: 0,
+            fileWrites: 0,
+            nextSteps: 1,
+            untried: 0
+          },
+          writtenPaths: ["/tmp/continuity-latest.md"]
+        } satisfies SessionContinuityAuditEntry)
+      ].join("\n"),
+      "utf8"
+    );
+
+    const loadOutput = await runSession("load", { cwd: repoDir });
+    expect(loadOutput).toContain("Recent prior generations:");
+    expect(loadOutput).toContain("/tmp/rollout-repeat.jsonl");
+    expect(loadOutput).toContain("Repeated similar generations hidden: 1");
+    expect(loadOutput).toContain("- older generations omitted: 1");
+    expect(loadOutput.match(/\/tmp\/rollout-latest\.jsonl/g) ?? []).toHaveLength(1);
+  });
 
   it("skips invalid-shaped continuity audit entries", async () => {
     const repoDir = await tempDir("cam-session-invalid-shape-repo-");
@@ -812,6 +1030,173 @@ describe("runSession", () => {
 });
 
 describe("runWrappedCodex with session continuity", () => {
+  it("does not inject or auto-save continuity when both wrapper flags are disabled", async () => {
+    const repoDir = await tempDir("cam-wrapper-no-continuity-repo-");
+    const memoryRoot = await tempDir("cam-wrapper-no-continuity-memory-");
+    const sessionsDir = await tempDir("cam-wrapper-no-continuity-rollouts-");
+    await initRepo(repoDir);
+    process.env.CAM_CODEX_SESSIONS_DIR = sessionsDir;
+
+    const { capturedArgsPath, mockCodexPath } = await writeWrapperMockCodex(repoDir, sessionsDir, {
+      sessionId: "session-wrapper-no-continuity",
+      message: "Continue without continuity automation."
+    });
+
+    await writeProjectConfig(
+      repoDir,
+      configJson({
+        codexBinary: mockCodexPath,
+        sessionContinuityAutoLoad: false,
+        sessionContinuityAutoSave: false
+      }),
+      {
+        autoMemoryDirectory: memoryRoot,
+        sessionContinuityAutoLoad: false,
+        sessionContinuityAutoSave: false
+      }
+    );
+
+    const exitCode = await runWrappedCodex(repoDir, "exec", ["continue"]);
+    expect(exitCode).toBe(0);
+
+    const capturedArgs = JSON.parse(await fs.readFile(capturedArgsPath, "utf8")) as string[];
+    const baseInstructionsArg = capturedArgs.find((arg) => arg.startsWith("base_instructions="));
+    expect(baseInstructionsArg).toContain("# Codex Auto Memory");
+    expect(baseInstructionsArg).not.toContain("# Session Continuity");
+
+    const store = new SessionContinuityStore(detectProjectContext(repoDir), {
+      ...configJson({
+        codexBinary: mockCodexPath,
+        sessionContinuityAutoLoad: false,
+        sessionContinuityAutoSave: false
+      }),
+      autoMemoryDirectory: memoryRoot
+    });
+    expect(await store.readLatestAuditEntry()).toBeNull();
+    expect(await store.readMergedState()).toBeNull();
+    expect(await store.readRecoveryRecord()).toBeNull();
+  }, 30_000);
+
+  it("injects continuity without auto-saving when autoLoad is enabled and autoSave is disabled", async () => {
+    const repoDir = await tempDir("cam-wrapper-load-only-repo-");
+    const memoryRoot = await tempDir("cam-wrapper-load-only-memory-");
+    const sessionsDir = await tempDir("cam-wrapper-load-only-rollouts-");
+    await initRepo(repoDir);
+    process.env.CAM_CODEX_SESSIONS_DIR = sessionsDir;
+
+    const { capturedArgsPath, mockCodexPath } = await writeWrapperMockCodex(repoDir, sessionsDir, {
+      sessionId: "session-wrapper-load-only",
+      message: "Continue but do not auto-save continuity."
+    });
+
+    await writeProjectConfig(
+      repoDir,
+      configJson({
+        codexBinary: mockCodexPath,
+        sessionContinuityAutoLoad: true,
+        sessionContinuityAutoSave: false
+      }),
+      {
+        autoMemoryDirectory: memoryRoot,
+        sessionContinuityAutoLoad: true,
+        sessionContinuityAutoSave: false
+      }
+    );
+
+    const continuityStore = new SessionContinuityStore(detectProjectContext(repoDir), {
+      ...configJson({
+        codexBinary: mockCodexPath,
+        sessionContinuityAutoLoad: true,
+        sessionContinuityAutoSave: false
+      }),
+      autoMemoryDirectory: memoryRoot
+    });
+    await continuityStore.saveSummary(
+      {
+        project: {
+          goal: "Seeded continuity goal.",
+          confirmedWorking: ["Seeded continuity still exists."],
+          triedAndFailed: [],
+          notYetTried: [],
+          incompleteNext: [],
+          filesDecisionsEnvironment: []
+        },
+        projectLocal: {
+          goal: "",
+          confirmedWorking: [],
+          triedAndFailed: [],
+          notYetTried: [],
+          incompleteNext: ["Seeded local next step."],
+          filesDecisionsEnvironment: []
+        }
+      },
+      "both"
+    );
+
+    const exitCode = await runWrappedCodex(repoDir, "exec", ["continue"]);
+    expect(exitCode).toBe(0);
+
+    const capturedArgs = JSON.parse(await fs.readFile(capturedArgsPath, "utf8")) as string[];
+    const baseInstructionsArg = capturedArgs.find((arg) => arg.startsWith("base_instructions="));
+    expect(baseInstructionsArg).toContain("# Session Continuity");
+    expect(baseInstructionsArg).toContain("Seeded continuity goal.");
+
+    const merged = await continuityStore.readMergedState();
+    expect(merged?.goal).toBe("Seeded continuity goal.");
+    expect(merged?.goal).not.toContain("do not auto-save continuity");
+    expect(await continuityStore.readLatestAuditEntry()).toBeNull();
+    expect(await continuityStore.readRecoveryRecord()).toBeNull();
+  }, 30_000);
+
+  it("auto-saves continuity without injecting it when autoLoad is disabled and autoSave is enabled", async () => {
+    const repoDir = await tempDir("cam-wrapper-save-only-repo-");
+    const memoryRoot = await tempDir("cam-wrapper-save-only-memory-");
+    const sessionsDir = await tempDir("cam-wrapper-save-only-rollouts-");
+    await initRepo(repoDir);
+    process.env.CAM_CODEX_SESSIONS_DIR = sessionsDir;
+
+    const { capturedArgsPath, mockCodexPath } = await writeWrapperMockCodex(repoDir, sessionsDir, {
+      sessionId: "session-wrapper-save-only",
+      message: "Continue with save-only continuity handling."
+    });
+
+    await writeProjectConfig(
+      repoDir,
+      configJson({
+        codexBinary: mockCodexPath,
+        sessionContinuityAutoLoad: false,
+        sessionContinuityAutoSave: true
+      }),
+      {
+        autoMemoryDirectory: memoryRoot,
+        sessionContinuityAutoLoad: false,
+        sessionContinuityAutoSave: true
+      }
+    );
+
+    const continuityStore = new SessionContinuityStore(detectProjectContext(repoDir), {
+      ...configJson({
+        codexBinary: mockCodexPath,
+        sessionContinuityAutoLoad: false,
+        sessionContinuityAutoSave: true
+      }),
+      autoMemoryDirectory: memoryRoot
+    });
+
+    const exitCode = await runWrappedCodex(repoDir, "exec", ["continue"]);
+    expect(exitCode).toBe(0);
+
+    const capturedArgs = JSON.parse(await fs.readFile(capturedArgsPath, "utf8")) as string[];
+    const baseInstructionsArg = capturedArgs.find((arg) => arg.startsWith("base_instructions="));
+    expect(baseInstructionsArg).toContain("# Codex Auto Memory");
+    expect(baseInstructionsArg).not.toContain("# Session Continuity");
+
+    const latestAudit = await continuityStore.readLatestAuditEntry();
+    expect(latestAudit?.rolloutPath).toContain("rollout-2026-03-15T00-00-00-000Z-session.jsonl");
+    const merged = await continuityStore.readMergedState();
+    expect(merged?.goal).toContain("Continue with save-only continuity handling");
+  }, 30_000);
+
   it("injects continuity on startup and auto-saves it after the run", async () => {
     const repoDir = await tempDir("cam-wrapper-session-repo-");
     const memoryRoot = await tempDir("cam-wrapper-session-memory-");
