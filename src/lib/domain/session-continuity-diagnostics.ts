@@ -2,9 +2,11 @@ import type {
   AppConfig,
   ProjectContext,
   SessionContinuityAuditEntry,
+  SessionContinuityAuditTrigger,
   SessionContinuityDiagnostics,
   SessionContinuityFallbackReason,
-  SessionContinuityScope
+  SessionContinuityScope,
+  SessionContinuityWriteMode
 } from "../types.js";
 
 function describeFallbackReason(reason?: SessionContinuityDiagnostics["fallbackReason"]): string {
@@ -26,6 +28,19 @@ function describeFallbackReason(reason?: SessionContinuityDiagnostics["fallbackR
 
 function isExtractorPath(value: unknown): value is "codex" | "heuristic" {
   return value === "codex" || value === "heuristic";
+}
+
+function isAuditTrigger(value: unknown): value is SessionContinuityAuditTrigger {
+  return (
+    value === undefined ||
+    value === "manual-save" ||
+    value === "manual-refresh" ||
+    value === "wrapper-auto-save"
+  );
+}
+
+function isWriteMode(value: unknown): value is SessionContinuityWriteMode {
+  return value === undefined || value === "merge" || value === "replace";
 }
 
 function isFallbackReason(value: unknown): value is SessionContinuityFallbackReason {
@@ -67,6 +82,8 @@ export function isSessionContinuityAuditEntry(value: unknown): value is SessionC
     typeof entry.projectId === "string" &&
     typeof entry.worktreeId === "string" &&
     isExtractorPath(entry.configuredExtractorMode) &&
+    isAuditTrigger(entry.trigger) &&
+    isWriteMode(entry.writeMode) &&
     (entry.scope === "project" || entry.scope === "project-local" || entry.scope === "both") &&
     typeof entry.rolloutPath === "string" &&
     typeof entry.sourceSessionId === "string" &&
@@ -136,18 +153,38 @@ export function toSessionContinuityDiagnostics(
   };
 }
 
+export function normalizeSessionContinuityAuditTrigger(
+  trigger?: SessionContinuityAuditTrigger
+): SessionContinuityAuditTrigger | "legacy" {
+  return trigger ?? "legacy";
+}
+
+export function normalizeSessionContinuityWriteMode(
+  writeMode?: SessionContinuityWriteMode
+): SessionContinuityWriteMode {
+  return writeMode === "replace" ? "replace" : "merge";
+}
+
+interface BuildSessionContinuityAuditEntryOptions {
+  trigger?: SessionContinuityAuditTrigger;
+  writeMode?: SessionContinuityWriteMode;
+}
+
 export function buildSessionContinuityAuditEntry(
   project: ProjectContext,
   config: AppConfig,
   diagnostics: SessionContinuityDiagnostics,
   writtenPaths: string[],
-  scope: SessionContinuityScope | "both"
+  scope: SessionContinuityScope | "both",
+  options: BuildSessionContinuityAuditEntryOptions = {}
 ): SessionContinuityAuditEntry {
   return {
     generatedAt: diagnostics.generatedAt,
     projectId: project.projectId,
     worktreeId: project.worktreeId,
     configuredExtractorMode: config.extractorMode,
+    trigger: options.trigger ?? "manual-save",
+    writeMode: options.writeMode ?? "merge",
     scope,
     rolloutPath: diagnostics.rolloutPath,
     sourceSessionId: diagnostics.sourceSessionId,

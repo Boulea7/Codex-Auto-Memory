@@ -10,7 +10,8 @@ import type {
   SessionContinuityPaths,
   SessionContinuityScope,
   SessionContinuityState,
-  SessionContinuitySummary
+  SessionContinuitySummary,
+  SessionContinuityWriteMode
 } from "../types.js";
 import { appendJsonl, fileExists, readJsonFile, readTextFile, writeJsonFile, writeTextFile } from "../util/fs.js";
 import { getDefaultMemoryDirectory } from "./project-context.js";
@@ -21,6 +22,7 @@ import {
   createEmptySessionContinuityState,
   mergeSessionContinuityStates,
   parseSessionContinuity,
+  replaceSessionContinuityLayerSummary,
   renderSessionContinuity
 } from "./session-continuity.js";
 
@@ -141,35 +143,14 @@ export class SessionContinuityStore {
     summary: SessionContinuitySummary,
     scope: SessionContinuityScope | "both"
   ): Promise<string[]> {
-    const written: string[] = [];
-    const targets =
-      scope === "both" ? (["project", "project-local"] satisfies SessionContinuityScope[]) : [scope];
+    return this.writeSummary(summary, scope, "merge");
+  }
 
-    for (const target of targets) {
-      if (target === "project") {
-        await this.ensureSharedLayout();
-      } else {
-        await this.ensureLocalLayout();
-        await this.ensureLocalIgnore();
-      }
-
-      const existing = await this.readState(target);
-      const base =
-        existing ?? createEmptySessionContinuityState(target, this.project.projectId, this.project.worktreeId);
-      const nextLayerSummary =
-        target === "project" ? summary.project : summary.projectLocal;
-      const nextState = applySessionContinuityLayerSummary(
-        base,
-        nextLayerSummary,
-        summary.sourceSessionId
-      );
-      const filePath =
-        target === "project" ? this.paths.sharedFile : await this.resolveLocalWritePath();
-      await writeTextFile(filePath, renderSessionContinuity(nextState));
-      written.push(filePath);
-    }
-
-    return written;
+  public async replaceSummary(
+    summary: SessionContinuitySummary,
+    scope: SessionContinuityScope | "both"
+  ): Promise<string[]> {
+    return this.writeSummary(summary, scope, "replace");
   }
 
   public async clear(scope: SessionContinuityScope | "both"): Promise<string[]> {
@@ -239,29 +220,63 @@ export class SessionContinuityStore {
   }
 
   public async readRecentAuditEntries(limit = 5): Promise<SessionContinuityAuditEntry[]> {
-    if (!(await fileExists(this.paths.auditFile))) {
-      return [];
-    }
-
-    const raw = await readTextFile(this.paths.auditFile);
-    return raw
-      .split("\n")
-      .map((line) => line.trim())
-      .filter(Boolean)
-      .flatMap((line) => {
-        try {
-          const parsed = JSON.parse(line) as unknown;
-          return isSessionContinuityAuditEntry(parsed) ? [parsed] : [];
-        } catch {
-          return [];
-        }
-      })
-      .slice(-limit)
-      .reverse();
+    const entries = await this.readAuditEntries();
+    return entries.slice(-limit).reverse();
   }
 
   public async readLatestAuditEntry(): Promise<SessionContinuityAuditEntry | null> {
     return (await this.readRecentAuditEntries(1))[0] ?? null;
+  }
+
+  public async readLatestAuditEntryMatchingScope(
+    scope: SessionContinuityScope | "both"
+  ): Promise<SessionContinuityAuditEntry | null> {
+    const entries = await this.readAuditEntries();
+    for (let index = entries.length - 1; index >= 0; index -= 1) {
+      const entry = entries[index];
+      if (entry?.scope === scope) {
+        return entry;
+      }
+    }
+
+    return null;
+  }
+
+  private async writeSummary(
+    summary: SessionContinuitySummary,
+    scope: SessionContinuityScope | "both",
+    writeMode: SessionContinuityWriteMode
+  ): Promise<string[]> {
+    const written: string[] = [];
+    const targets =
+      scope === "both" ? (["project", "project-local"] satisfies SessionContinuityScope[]) : [scope];
+
+    for (const target of targets) {
+      if (target === "project") {
+        await this.ensureSharedLayout();
+      } else {
+        await this.ensureLocalLayout();
+        await this.ensureLocalIgnore();
+      }
+
+      const existing = await this.readState(target);
+      const base =
+        existing ?? createEmptySessionContinuityState(target, this.project.projectId, this.project.worktreeId);
+      const nextLayerSummary =
+        target === "project" ? summary.project : summary.projectLocal;
+      const nextState =
+        writeMode === "replace"
+          ? replaceSessionContinuityLayerSummary(base, nextLayerSummary, summary.sourceSessionId)
+          : applySessionContinuityLayerSummary(base, nextLayerSummary, summary.sourceSessionId);
+      const filePath =
+        target === "project"
+          ? this.paths.sharedFile
+          : await this.resolveLocalWritePath(writeMode);
+      await writeTextFile(filePath, renderSessionContinuity(nextState));
+      written.push(filePath);
+    }
+
+    return written;
   }
 
   private async resolveLocalReadPath(): Promise<string | null> {
@@ -289,12 +304,38 @@ export class SessionContinuityStore {
     return entries[0]?.candidate ?? null;
   }
 
-  private async resolveLocalWritePath(): Promise<string> {
+  private async readAuditEntries(): Promise<SessionContinuityAuditEntry[]> {
+    if (!(await fileExists(this.paths.auditFile))) {
+      return [];
+    }
+
+    const raw = await readTextFile(this.paths.auditFile);
+    return raw
+      .split("\n")
+      .map((line) => line.trim())
+      .filter(Boolean)
+      .flatMap((line) => {
+        try {
+          const parsed = JSON.parse(line) as unknown;
+          return isSessionContinuityAuditEntry(parsed) ? [parsed] : [];
+        } catch {
+          return [];
+        }
+      });
+  }
+
+  private async resolveLocalWritePath(
+    writeMode: SessionContinuityWriteMode = "merge"
+  ): Promise<string> {
     if (this.config.sessionContinuityLocalPathStyle !== "claude") {
       return this.paths.localFile;
     }
 
     await this.ensureLocalLayout();
+    if (writeMode === "replace") {
+      return (await this.resolveLocalReadPath()) ?? this.paths.localFile;
+    }
+
     return this.paths.localFile;
   }
 }

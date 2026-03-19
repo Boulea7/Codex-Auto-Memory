@@ -5,6 +5,7 @@ import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { detectProjectContext } from "../src/lib/domain/project-context.js";
 import {
+  findLatestProjectRollout,
   findRelevantRollouts,
   matchesProjectContext,
   parseRolloutEvidence,
@@ -131,6 +132,105 @@ describe("rollout helpers", () => {
     expect(evidence?.toolCalls[1]?.output).toBe("test output");
   });
 
+  it("keeps the first valid session_meta as rollout identity even when later meta lines exist", async () => {
+    const projectDir = await tempDir("cam-rollout-subagent-project-");
+    const rolloutPath = path.join(projectDir, "rollout-subagent.jsonl");
+    await fs.writeFile(
+      rolloutPath,
+      [
+        JSON.stringify({
+          type: "session_meta",
+          payload: {
+            id: "session-subagent",
+            forked_from_id: "session-parent",
+            timestamp: "2026-03-14T00:00:02.000Z",
+            cwd: projectDir,
+            source: {
+              subagent: {
+                thread_spawn: {
+                  parent_thread_id: "session-parent"
+                }
+              }
+            }
+          }
+        }),
+        JSON.stringify({
+          type: "session_meta",
+          payload: {
+            id: "session-parent",
+            timestamp: "2026-03-14T00:00:01.000Z",
+            cwd: projectDir,
+            source: "cli"
+          }
+        }),
+        JSON.stringify({
+          type: "event_msg",
+          payload: {
+            type: "user_message",
+            message: "Reviewer prompt that should stay attached to the subagent rollout."
+          }
+        })
+      ].join("\n"),
+      "utf8"
+    );
+
+    const meta = await readRolloutMeta(rolloutPath);
+    const evidence = await parseRolloutEvidence(rolloutPath);
+
+    expect(meta?.sessionId).toBe("session-subagent");
+    expect(meta?.isSubagent).toBe(true);
+    expect(meta?.forkedFromSessionId).toBe("session-parent");
+    expect(evidence?.sessionId).toBe("session-subagent");
+    expect(evidence?.isSubagent).toBe(true);
+    expect(evidence?.forkedFromSessionId).toBe("session-parent");
+  });
+
+  it("skips invalid session_meta entries and still detects nested subagent meta", async () => {
+    const projectDir = await tempDir("cam-rollout-nested-subagent-project-");
+    const rolloutPath = path.join(projectDir, "rollout-nested-subagent.jsonl");
+    await fs.writeFile(
+      rolloutPath,
+      [
+        JSON.stringify({
+          type: "session_meta",
+          payload: {
+            id: "broken-meta",
+            timestamp: "2026-03-14T00:00:00.000Z"
+          }
+        }),
+        JSON.stringify({
+          type: "session_meta",
+          payload: {
+            meta: {
+              id: "session-nested-subagent",
+              forked_from_id: "session-parent",
+              timestamp: "2026-03-14T00:00:02.000Z",
+              cwd: projectDir,
+              source: {
+                subagent: {
+                  thread_spawn: {
+                    parent_thread_id: "session-parent"
+                  }
+                }
+              }
+            }
+          }
+        })
+      ].join("\n"),
+      "utf8"
+    );
+
+    const meta = await readRolloutMeta(rolloutPath);
+    const evidence = await parseRolloutEvidence(rolloutPath);
+
+    expect(meta?.sessionId).toBe("session-nested-subagent");
+    expect(meta?.isSubagent).toBe(true);
+    expect(meta?.forkedFromSessionId).toBe("session-parent");
+    expect(evidence?.sessionId).toBe("session-nested-subagent");
+    expect(evidence?.isSubagent).toBe(true);
+    expect(evidence?.forkedFromSessionId).toBe("session-parent");
+  });
+
   it("does not match sibling directory", () => {
     const ctx = { cwd: "/foo/bar", projectRoot: "/foo/bar", projectId: "p", worktreeId: "w" };
     expect(matchesProjectContext({ cwd: "/foo/bar-extra" }, ctx)).toBe(false);
@@ -176,6 +276,7 @@ describe("rollout helpers", () => {
 
     const beforeFile = path.join(dayDir, "rollout-before.jsonl");
     const addedFile = path.join(dayDir, "rollout-added.jsonl");
+    const subagentFile = path.join(dayDir, "rollout-subagent.jsonl");
     const staleFile = path.join(dayDir, "rollout-stale.jsonl");
 
     await fs.writeFile(
@@ -217,6 +318,26 @@ describe("rollout helpers", () => {
       }),
       "utf8"
     );
+    await fs.writeFile(
+      subagentFile,
+      JSON.stringify({
+        type: "session_meta",
+        payload: {
+          id: "subagent",
+          forked_from_id: "parent",
+          timestamp: "2026-03-14T00:00:04.000Z",
+          cwd: projectDir,
+          source: {
+            subagent: {
+              thread_spawn: {
+                parent_thread_id: "parent"
+              }
+            }
+          }
+        }
+      }),
+      "utf8"
+    );
 
     const project = detectProjectContext(projectDir);
     const relevantFromAdditions = await findRelevantRollouts(
@@ -225,11 +346,11 @@ describe("rollout helpers", () => {
       Date.parse("2026-03-14T00:00:00.000Z"),
       Date.parse("2026-03-14T00:00:05.000Z")
     );
-    expect(relevantFromAdditions).toEqual([addedFile]);
+    expect(relevantFromAdditions).toEqual([addedFile, subagentFile]);
 
     const relevantFromWindow = await findRelevantRollouts(
       project,
-      [beforeFile, staleFile, addedFile],
+      [beforeFile, staleFile, addedFile, subagentFile],
       Date.parse("2026-03-14T00:09:58.000Z"),
       Date.parse("2026-03-14T00:10:02.000Z")
     );
@@ -238,5 +359,52 @@ describe("rollout helpers", () => {
     const meta = await readRolloutMeta(addedFile);
     expect(meta?.sessionId).toBe("added");
     expect(meta?.cwd).toBe(realFs.realpathSync.native(projectDir));
+  });
+
+  it("skips subagent rollouts when auto-selecting the latest project rollout", async () => {
+    const sessionsDir = await tempDir("cam-sessions-latest-");
+    const dayDir = path.join(sessionsDir, "2026", "03", "14");
+    const projectDir = await tempDir("cam-rollout-latest-project-");
+    await fs.mkdir(dayDir, { recursive: true });
+    process.env.CAM_CODEX_SESSIONS_DIR = sessionsDir;
+
+    const primaryFile = path.join(dayDir, "rollout-primary.jsonl");
+    const subagentFile = path.join(dayDir, "rollout-subagent.jsonl");
+    await fs.writeFile(
+      primaryFile,
+      JSON.stringify({
+        type: "session_meta",
+        payload: {
+          id: "primary",
+          timestamp: "2026-03-14T00:00:01.000Z",
+          cwd: projectDir,
+          source: "cli"
+        }
+      }),
+      "utf8"
+    );
+    await fs.writeFile(
+      subagentFile,
+      JSON.stringify({
+        type: "session_meta",
+        payload: {
+          id: "subagent",
+          forked_from_id: "primary",
+          timestamp: "2026-03-14T00:00:02.000Z",
+          cwd: projectDir,
+          source: {
+            subagent: {
+              thread_spawn: {
+                parent_thread_id: "primary"
+              }
+            }
+          }
+        }
+      }),
+      "utf8"
+    );
+
+    const latest = await findLatestProjectRollout(detectProjectContext(projectDir));
+    expect(latest).toBe(primaryFile);
   });
 });

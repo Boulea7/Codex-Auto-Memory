@@ -8,7 +8,13 @@ import { detectProjectContext } from "../src/lib/domain/project-context.js";
 import { SessionContinuityStore } from "../src/lib/domain/session-continuity-store.js";
 import { SyncService } from "../src/lib/domain/sync-service.js";
 import { runCommandCapture } from "../src/lib/util/process.js";
-import type { AppConfig, SessionContinuityAuditEntry } from "../src/lib/types.js";
+import type { SessionContinuityAuditEntry } from "../src/lib/types.js";
+import {
+  initGitRepo,
+  makeAppConfig,
+  makeRolloutFixture,
+  writeCamConfig
+} from "./helpers/cam-test-fixtures.js";
 
 const tempDirs: string[] = [];
 const originalSessionsDir = process.env.CAM_CODEX_SESSIONS_DIR;
@@ -23,91 +29,24 @@ async function tempDir(prefix: string): Promise<string> {
   return dir;
 }
 
-async function initRepo(repoDir: string): Promise<void> {
-  const gitEnv = {
-    ...process.env,
-    GIT_AUTHOR_NAME: "Codex Auto Memory",
-    GIT_AUTHOR_EMAIL: "cam@example.com",
-    GIT_COMMITTER_NAME: "Codex Auto Memory",
-    GIT_COMMITTER_EMAIL: "cam@example.com"
-  };
-  runCommandCapture("git", ["init", "-b", "main"], repoDir, gitEnv);
-  await fs.writeFile(path.join(repoDir, "README.md"), "seed\n", "utf8");
-  runCommandCapture("git", ["add", "README.md"], repoDir, gitEnv);
-  runCommandCapture("git", ["commit", "-m", "init"], repoDir, gitEnv);
-}
-
-function configJson(overrides: Partial<AppConfig> = {}): AppConfig {
-  return {
-    autoMemoryEnabled: true,
-    extractorMode: "heuristic",
-    defaultScope: "project",
-    maxStartupLines: 200,
-    sessionContinuityAutoLoad: false,
-    sessionContinuityAutoSave: false,
-    sessionContinuityLocalPathStyle: "codex",
-    maxSessionContinuityLines: 60,
-    codexBinary: "codex",
-    ...overrides
-  };
-}
+const initRepo = initGitRepo;
+const configJson = makeAppConfig;
 
 function runCli(repoDir: string, args: string[]) {
   return runCommandCapture(tsxBinaryPath, [sourceCliPath, ...args], repoDir);
 }
 
-async function writeProjectConfig(
-  repoDir: string,
-  projectConfig: AppConfig,
-  localConfig: Record<string, unknown>
-): Promise<void> {
-  await fs.writeFile(
-    path.join(repoDir, "codex-auto-memory.json"),
-    JSON.stringify(projectConfig, null, 2),
-    "utf8"
-  );
-  await fs.writeFile(
-    path.join(repoDir, ".codex-auto-memory.local.json"),
-    JSON.stringify(localConfig, null, 2),
-    "utf8"
-  );
-}
+const writeProjectConfig = writeCamConfig;
+const rolloutFixture = makeRolloutFixture;
 
-function rolloutFixture(projectDir: string, message: string): string {
-  return [
-    JSON.stringify({
-      type: "session_meta",
-      payload: {
-        id: "session-1",
-        timestamp: "2026-03-15T00:00:00.000Z",
-        cwd: projectDir
-      }
-    }),
-    JSON.stringify({
-      type: "event_msg",
-      payload: {
-        type: "user_message",
-        message
-      }
-    }),
-    JSON.stringify({
-      type: "response_item",
-      payload: {
-        type: "function_call",
-        name: "exec_command",
-        call_id: "call-1",
-        arguments: "{\"cmd\":\"pnpm test\"}"
-      }
-    }),
-    JSON.stringify({
-      type: "response_item",
-      payload: {
-        type: "function_call_output",
-        call_id: "call-1",
-        output: "Process exited with code 0"
-      }
-    })
-  ].join("\n");
+function makeEvidenceCounts(successfulCommands = 1) {
+  return {
+    successfulCommands,
+    failedCommands: 0,
+    fileWrites: 0,
+    nextSteps: 1,
+    untried: 0
+  };
 }
 
 async function writeWrapperMockCodex(
@@ -303,6 +242,12 @@ describe("runSession", () => {
     const loadOutput = await runSession("load", { cwd: repoDir });
     expect(loadOutput).toContain("Evidence: successful");
     expect(loadOutput).toContain("Written paths:");
+    expect(loadOutput).toContain(
+      "Merged resume brief combines shared continuity with any project-local overrides."
+    );
+    expect(loadOutput).toContain(
+      "Recent prior generations below are compact audit previews, not startup-injected history."
+    );
     expect(loadOutput).toContain("Recent prior generations:");
     expect(loadOutput).toContain(rolloutPath);
     expect(
@@ -332,6 +277,12 @@ describe("runSession", () => {
     const statusOutput = await runSession("status", { cwd: repoDir });
     expect(statusOutput).toContain("Evidence: successful");
     expect(statusOutput).toContain("Written paths:");
+    expect(statusOutput).toContain(
+      "Merged resume brief combines shared continuity with any project-local overrides."
+    );
+    expect(statusOutput).toContain(
+      "Recent prior generations below are compact audit previews, not startup-injected history."
+    );
     expect(statusOutput).toContain("Recent prior generations:");
     expect(statusOutput).toContain(rolloutPath);
     expect(
@@ -380,6 +331,515 @@ describe("runSession", () => {
     expect(payload.diagnostics.actualPath).toBe("heuristic");
     expect(payload.latestContinuityAuditEntry?.rolloutPath).toBe(rolloutPath);
     expect(payload.recentContinuityAuditEntries[0]?.rolloutPath).toBe(rolloutPath);
+  }, 30_000);
+
+  it("supports session refresh --json from the CLI command surface and replaces polluted continuity", async () => {
+    const repoDir = await tempDir("cam-session-refresh-cli-repo-");
+    const memoryRoot = await tempDir("cam-session-refresh-cli-memory-");
+    await initRepo(repoDir);
+
+    await writeProjectConfig(
+      repoDir,
+      configJson(),
+      { autoMemoryDirectory: memoryRoot }
+    );
+
+    const store = new SessionContinuityStore(detectProjectContext(repoDir), {
+      ...configJson(),
+      autoMemoryDirectory: memoryRoot
+    });
+    await store.saveSummary(
+      {
+        project: {
+          goal: "Stale shared goal",
+          confirmedWorking: ["Stale shared success"],
+          triedAndFailed: ["Stale shared failure"],
+          notYetTried: ["Stale shared idea"],
+          incompleteNext: [],
+          filesDecisionsEnvironment: ["Stale shared note"]
+        },
+        projectLocal: {
+          goal: "",
+          confirmedWorking: [],
+          triedAndFailed: [],
+          notYetTried: [],
+          incompleteNext: ["Stale local next step"],
+          filesDecisionsEnvironment: ["Stale local file note"]
+        }
+      },
+      "both"
+    );
+
+    const rolloutPath = path.join(repoDir, "refresh-rollout.jsonl");
+    await fs.writeFile(
+      rolloutPath,
+      rolloutFixture(repoDir, "Refresh continuity through the CLI command surface."),
+      "utf8"
+    );
+
+    const result = runCli(repoDir, ["session", "refresh", "--json", "--rollout", rolloutPath]);
+
+    expect(result.exitCode).toBe(0);
+    const payload = JSON.parse(result.stdout) as {
+      action: string;
+      writeMode: string;
+      rolloutPath: string;
+      rolloutSelection: { kind: string; rolloutPath: string };
+      latestContinuityAuditEntry: {
+        rolloutPath: string;
+        trigger?: string;
+        writeMode?: string;
+      } | null;
+    };
+    expect(payload.action).toBe("refresh");
+    expect(payload.writeMode).toBe("replace");
+    expect(payload.rolloutPath).toBe(rolloutPath);
+    expect(payload.rolloutSelection).toEqual({
+      kind: "explicit-rollout",
+      rolloutPath
+    });
+    expect(payload.latestContinuityAuditEntry?.rolloutPath).toBe(rolloutPath);
+    expect(payload.latestContinuityAuditEntry?.trigger).toBe("manual-refresh");
+    expect(payload.latestContinuityAuditEntry?.writeMode).toBe("replace");
+
+    const merged = await store.readMergedState();
+    expect(merged?.goal).toContain("Refresh continuity through the CLI command surface.");
+    expect(merged?.goal).not.toContain("Stale shared goal");
+    expect(merged?.confirmedWorking.join("\n")).not.toContain("Stale shared success");
+    expect(merged?.incompleteNext.join("\n")).not.toContain("Stale local next step");
+    expect(merged?.filesDecisionsEnvironment.join("\n")).not.toContain("Stale local file note");
+  }, 30_000);
+
+  it("refresh replaces only the selected scope", async () => {
+    const repoDir = await tempDir("cam-session-refresh-scope-repo-");
+    const memoryRoot = await tempDir("cam-session-refresh-scope-memory-");
+    await initRepo(repoDir);
+
+    await writeProjectConfig(
+      repoDir,
+      configJson(),
+      { autoMemoryDirectory: memoryRoot }
+    );
+
+    const store = new SessionContinuityStore(detectProjectContext(repoDir), {
+      ...configJson(),
+      autoMemoryDirectory: memoryRoot
+    });
+    await store.saveSummary(
+      {
+        project: {
+          goal: "Shared stale goal",
+          confirmedWorking: ["Shared stale success"],
+          triedAndFailed: [],
+          notYetTried: [],
+          incompleteNext: [],
+          filesDecisionsEnvironment: ["Shared stale note"]
+        },
+        projectLocal: {
+          goal: "",
+          confirmedWorking: [],
+          triedAndFailed: [],
+          notYetTried: [],
+          incompleteNext: ["Local stale next"],
+          filesDecisionsEnvironment: ["Local stale file note"]
+        }
+      },
+      "both"
+    );
+
+    const projectRolloutPath = path.join(repoDir, "project-refresh.jsonl");
+    await fs.writeFile(
+      projectRolloutPath,
+      rolloutFixture(repoDir, "Refresh only the shared scope.", {
+        sessionId: "session-project-refresh"
+      }),
+      "utf8"
+    );
+    await runSession("refresh", {
+      cwd: repoDir,
+      rollout: projectRolloutPath,
+      scope: "project"
+    });
+
+    const projectAfterRefresh = await store.readState("project");
+    const localAfterProjectRefresh = await store.readState("project-local");
+    expect(projectAfterRefresh?.goal).toContain("Refresh only the shared scope.");
+    expect(projectAfterRefresh?.goal).not.toContain("Shared stale goal");
+    expect(localAfterProjectRefresh?.incompleteNext).toContain("Local stale next");
+
+    const localRolloutPath = path.join(repoDir, "local-refresh.jsonl");
+    await fs.writeFile(
+      localRolloutPath,
+      rolloutFixture(repoDir, "Refresh only the local scope.", {
+        sessionId: "session-local-refresh"
+      }),
+      "utf8"
+    );
+    await runSession("refresh", {
+      cwd: repoDir,
+      rollout: localRolloutPath,
+      scope: "project-local"
+    });
+
+    const projectAfterLocalRefresh = await store.readState("project");
+    const localAfterRefresh = await store.readState("project-local");
+    expect(projectAfterLocalRefresh?.goal).toContain("Refresh only the shared scope.");
+    expect(localAfterRefresh?.incompleteNext.join("\n")).not.toContain("Local stale next");
+    expect(localAfterRefresh?.filesDecisionsEnvironment.join("\n")).not.toContain(
+      "Local stale file note"
+    );
+  }, 30_000);
+
+  it("refresh prefers a matching recovery marker over audit and latest primary rollout", async () => {
+    const repoDir = await tempDir("cam-session-refresh-recovery-priority-repo-");
+    const memoryRoot = await tempDir("cam-session-refresh-recovery-priority-memory-");
+    const sessionsDir = await tempDir("cam-session-refresh-recovery-priority-sessions-");
+    const dayDir = path.join(sessionsDir, "2026", "03", "15");
+    process.env.CAM_CODEX_SESSIONS_DIR = sessionsDir;
+    await fs.mkdir(dayDir, { recursive: true });
+    await initRepo(repoDir);
+
+    await writeProjectConfig(
+      repoDir,
+      configJson(),
+      { autoMemoryDirectory: memoryRoot }
+    );
+
+    const recoveryRolloutPath = path.join(repoDir, "recovery-rollout.jsonl");
+    await fs.writeFile(
+      recoveryRolloutPath,
+      rolloutFixture(repoDir, "Use the recovery provenance for refresh.", {
+        sessionId: "session-recovery"
+      }),
+      "utf8"
+    );
+    const auditRolloutPath = path.join(repoDir, "audit-rollout.jsonl");
+    await fs.writeFile(
+      auditRolloutPath,
+      rolloutFixture(repoDir, "Use the audit provenance for refresh.", {
+        sessionId: "session-audit"
+      }),
+      "utf8"
+    );
+    const primaryRolloutPath = path.join(dayDir, "rollout-primary.jsonl");
+    await fs.writeFile(
+      primaryRolloutPath,
+      rolloutFixture(repoDir, "Use the latest primary rollout for refresh.", {
+        sessionId: "session-primary"
+      }),
+      "utf8"
+    );
+
+    const project = detectProjectContext(repoDir);
+    const store = new SessionContinuityStore(project, {
+      ...configJson(),
+      autoMemoryDirectory: memoryRoot
+    });
+    await store.writeRecoveryRecord({
+      recordedAt: "2026-03-18T00:00:00.000Z",
+      projectId: project.projectId,
+      worktreeId: project.worktreeId,
+      rolloutPath: recoveryRolloutPath,
+      sourceSessionId: "session-recovery",
+      trigger: "manual-save",
+      writeMode: "merge",
+      scope: "both",
+      writtenPaths: [store.paths.sharedFile, store.paths.localFile],
+      preferredPath: "heuristic",
+      actualPath: "heuristic",
+      fallbackReason: "configured-heuristic",
+      evidenceCounts: makeEvidenceCounts(),
+      failedStage: "audit-write",
+      failureMessage: "stale recovery marker"
+    });
+    await store.appendAuditLog({
+      generatedAt: "2026-03-18T00:01:00.000Z",
+      projectId: project.projectId,
+      worktreeId: project.worktreeId,
+      configuredExtractorMode: "heuristic",
+      trigger: "manual-save",
+      writeMode: "merge",
+      scope: "both",
+      rolloutPath: auditRolloutPath,
+      sourceSessionId: "session-audit",
+      preferredPath: "heuristic",
+      actualPath: "heuristic",
+      fallbackReason: "configured-heuristic",
+      evidenceCounts: makeEvidenceCounts(),
+      writtenPaths: ["/tmp/continuity-audit.md"]
+    });
+
+    const payload = JSON.parse(
+      await runSession("refresh", { cwd: repoDir, scope: "both", json: true })
+    ) as {
+      rolloutPath: string;
+      rolloutSelection: { kind: string; rolloutPath: string };
+      latestContinuityAuditEntry: { trigger?: string; writeMode?: string } | null;
+    };
+    expect(payload.rolloutSelection).toEqual({
+      kind: "pending-recovery-marker",
+      rolloutPath: recoveryRolloutPath
+    });
+    expect(payload.rolloutPath).toBe(recoveryRolloutPath);
+    expect(payload.latestContinuityAuditEntry?.trigger).toBe("manual-refresh");
+    expect(payload.latestContinuityAuditEntry?.writeMode).toBe("replace");
+
+    const merged = await store.readMergedState();
+    expect(merged?.goal).toContain("Use the recovery provenance for refresh.");
+    expect(await store.readRecoveryRecord()).toBeNull();
+  }, 30_000);
+
+  it("refresh falls back to the latest matching audit entry when recovery scope does not match", async () => {
+    const repoDir = await tempDir("cam-session-refresh-audit-priority-repo-");
+    const memoryRoot = await tempDir("cam-session-refresh-audit-priority-memory-");
+    const sessionsDir = await tempDir("cam-session-refresh-audit-priority-sessions-");
+    const dayDir = path.join(sessionsDir, "2026", "03", "15");
+    process.env.CAM_CODEX_SESSIONS_DIR = sessionsDir;
+    await fs.mkdir(dayDir, { recursive: true });
+    await initRepo(repoDir);
+
+    await writeProjectConfig(
+      repoDir,
+      configJson(),
+      { autoMemoryDirectory: memoryRoot }
+    );
+
+    const auditRolloutPath = path.join(repoDir, "matching-audit-rollout.jsonl");
+    await fs.writeFile(
+      auditRolloutPath,
+      rolloutFixture(repoDir, "Use the latest matching audit entry.", {
+        sessionId: "session-matching-audit"
+      }),
+      "utf8"
+    );
+    const primaryRolloutPath = path.join(dayDir, "rollout-primary.jsonl");
+    await fs.writeFile(
+      primaryRolloutPath,
+      rolloutFixture(repoDir, "Fallback primary rollout should not be used here.", {
+        sessionId: "session-primary-fallback"
+      }),
+      "utf8"
+    );
+
+    const project = detectProjectContext(repoDir);
+    const store = new SessionContinuityStore(project, {
+      ...configJson(),
+      autoMemoryDirectory: memoryRoot
+    });
+    await store.writeRecoveryRecord({
+      recordedAt: "2026-03-18T00:00:00.000Z",
+      projectId: project.projectId,
+      worktreeId: project.worktreeId,
+      rolloutPath: path.join(repoDir, "project-only-recovery.jsonl"),
+      sourceSessionId: "session-project-only",
+      scope: "project",
+      writtenPaths: [store.paths.sharedFile],
+      preferredPath: "heuristic",
+      actualPath: "heuristic",
+      evidenceCounts: makeEvidenceCounts(),
+      failedStage: "audit-write",
+      failureMessage: "project-only marker"
+    });
+    await store.appendAuditLog({
+      generatedAt: "2026-03-18T00:01:00.000Z",
+      projectId: project.projectId,
+      worktreeId: project.worktreeId,
+      configuredExtractorMode: "heuristic",
+      trigger: "manual-save",
+      writeMode: "merge",
+      scope: "both",
+      rolloutPath: auditRolloutPath,
+      sourceSessionId: "session-matching-audit",
+      preferredPath: "heuristic",
+      actualPath: "heuristic",
+      fallbackReason: "configured-heuristic",
+      evidenceCounts: makeEvidenceCounts(),
+      writtenPaths: ["/tmp/continuity-audit.md"]
+    });
+
+    const payload = JSON.parse(
+      await runSession("refresh", { cwd: repoDir, scope: "both", json: true })
+    ) as {
+      rolloutSelection: { kind: string; rolloutPath: string };
+    };
+    expect(payload.rolloutSelection).toEqual({
+      kind: "latest-audit-entry",
+      rolloutPath: auditRolloutPath
+    });
+
+    const merged = await store.readMergedState();
+    expect(merged?.goal).toContain("Use the latest matching audit entry.");
+    expect(await store.readRecoveryRecord()).toMatchObject({
+      scope: "project"
+    });
+  }, 30_000);
+
+  it("does not fall back to a lower-priority source when the selected refresh provenance cannot be read", async () => {
+    const repoDir = await tempDir("cam-session-refresh-missing-provenance-repo-");
+    const memoryRoot = await tempDir("cam-session-refresh-missing-provenance-memory-");
+    const sessionsDir = await tempDir("cam-session-refresh-missing-provenance-sessions-");
+    const dayDir = path.join(sessionsDir, "2026", "03", "15");
+    process.env.CAM_CODEX_SESSIONS_DIR = sessionsDir;
+    await fs.mkdir(dayDir, { recursive: true });
+    await initRepo(repoDir);
+
+    await writeProjectConfig(
+      repoDir,
+      configJson(),
+      { autoMemoryDirectory: memoryRoot }
+    );
+
+    const project = detectProjectContext(repoDir);
+    const store = new SessionContinuityStore(project, {
+      ...configJson(),
+      autoMemoryDirectory: memoryRoot
+    });
+    await store.appendAuditLog({
+      generatedAt: "2026-03-18T00:01:00.000Z",
+      projectId: project.projectId,
+      worktreeId: project.worktreeId,
+      configuredExtractorMode: "heuristic",
+      trigger: "manual-save",
+      writeMode: "merge",
+      scope: "both",
+      rolloutPath: path.join(repoDir, "missing-audit-rollout.jsonl"),
+      sourceSessionId: "session-missing-audit",
+      preferredPath: "heuristic",
+      actualPath: "heuristic",
+      fallbackReason: "configured-heuristic",
+      evidenceCounts: makeEvidenceCounts(),
+      writtenPaths: ["/tmp/continuity-missing.md"]
+    });
+    await fs.writeFile(
+      path.join(dayDir, "rollout-primary.jsonl"),
+      rolloutFixture(repoDir, "Fallback primary rollout should stay unused."),
+      "utf8"
+    );
+
+    await expect(
+      runSession("refresh", { cwd: repoDir, scope: "both" })
+    ).rejects.toThrow(/ENOENT|no such file/i);
+  }, 30_000);
+
+  it("auto-selects the latest primary rollout instead of a newer subagent rollout", async () => {
+    const repoDir = await tempDir("cam-session-latest-primary-repo-");
+    const memoryRoot = await tempDir("cam-session-latest-primary-memory-");
+    const sessionsDir = await tempDir("cam-session-latest-primary-sessions-");
+    const dayDir = path.join(sessionsDir, "2026", "03", "15");
+    process.env.CAM_CODEX_SESSIONS_DIR = sessionsDir;
+    await fs.mkdir(dayDir, { recursive: true });
+    await initRepo(repoDir);
+
+    await writeProjectConfig(
+      repoDir,
+      configJson(),
+      { autoMemoryDirectory: memoryRoot }
+    );
+
+    const primaryRolloutPath = path.join(dayDir, "rollout-primary.jsonl");
+    await fs.writeFile(
+      primaryRolloutPath,
+      [
+        JSON.stringify({
+          type: "session_meta",
+          payload: {
+            id: "session-main",
+            timestamp: "2026-03-15T00:00:01.000Z",
+            cwd: repoDir,
+            source: "cli"
+          }
+        }),
+        JSON.stringify({
+          type: "event_msg",
+          payload: {
+            type: "user_message",
+            message: "Continue the real primary continuity path."
+          }
+        }),
+        JSON.stringify({
+          type: "response_item",
+          payload: {
+            type: "function_call",
+            name: "exec_command",
+            call_id: "call-1",
+            arguments: "{\"cmd\":\"pnpm test\"}"
+          }
+        }),
+        JSON.stringify({
+          type: "response_item",
+          payload: {
+            type: "function_call_output",
+            call_id: "call-1",
+            output: "Process exited with code 0"
+          }
+        })
+      ].join("\n"),
+      "utf8"
+    );
+
+    const subagentRolloutPath = path.join(dayDir, "rollout-subagent.jsonl");
+    await fs.writeFile(
+      subagentRolloutPath,
+      [
+        JSON.stringify({
+          type: "session_meta",
+          payload: {
+            id: "session-subagent",
+            forked_from_id: "session-main",
+            timestamp: "2026-03-15T00:00:02.000Z",
+            cwd: repoDir,
+            source: {
+              subagent: {
+                thread_spawn: {
+                  parent_thread_id: "session-main"
+                }
+              }
+            }
+          }
+        }),
+        JSON.stringify({
+          type: "session_meta",
+          payload: {
+            id: "session-main",
+            timestamp: "2026-03-15T00:00:01.000Z",
+            cwd: repoDir,
+            source: "cli"
+          }
+        }),
+        JSON.stringify({
+          type: "event_msg",
+          payload: {
+            type: "user_message",
+            message: "You are reviewer sub-agent 4. Work read-only. Focus on docs and contract surfaces only."
+          }
+        })
+      ].join("\n"),
+      "utf8"
+    );
+
+    const payload = JSON.parse(
+      await runSession("save", {
+        cwd: repoDir,
+        scope: "both",
+        json: true
+      })
+    ) as {
+      rolloutPath: string;
+      diagnostics: { sourceSessionId: string };
+      summary: {
+        project: { goal: string };
+        projectLocal: { incompleteNext: string[] };
+      };
+      latestContinuityAuditEntry: { rolloutPath: string } | null;
+    };
+
+    expect(payload.rolloutPath).toBe(primaryRolloutPath);
+    expect(payload.diagnostics.sourceSessionId).toBe("session-main");
+    expect(payload.latestContinuityAuditEntry?.rolloutPath).toBe(primaryRolloutPath);
+    expect(payload.summary.project.goal).toContain("real primary continuity");
+    expect(payload.summary.projectLocal.incompleteNext.join("\n")).not.toContain(
+      "reviewer sub-agent"
+    );
   }, 30_000);
 
   it("rejects invalid scope values", async () => {
@@ -746,6 +1206,82 @@ describe("runSession", () => {
     expect(loadOutput.match(/\/tmp\/rollout-latest\.jsonl/g) ?? []).toHaveLength(1);
   });
 
+  it("does not coalesce save and refresh audit entries with the same rollout provenance", async () => {
+    const repoDir = await tempDir("cam-session-refresh-history-repo-");
+    const memoryRoot = await tempDir("cam-session-refresh-history-memory-");
+    await initRepo(repoDir);
+
+    await writeProjectConfig(
+      repoDir,
+      configJson(),
+      { autoMemoryDirectory: memoryRoot }
+    );
+
+    const project = detectProjectContext(repoDir);
+    const store = new SessionContinuityStore(project, {
+      ...configJson(),
+      autoMemoryDirectory: memoryRoot
+    });
+    await store.ensureAuditLayout();
+    await fs.writeFile(
+      store.paths.auditFile,
+      [
+        JSON.stringify({
+          generatedAt: "2026-03-15T00:00:00.000Z",
+          projectId: project.projectId,
+          worktreeId: project.worktreeId,
+          configuredExtractorMode: "heuristic",
+          trigger: "manual-save",
+          writeMode: "merge",
+          scope: "both",
+          rolloutPath: "/tmp/rollout-same.jsonl",
+          sourceSessionId: "session-same",
+          preferredPath: "heuristic",
+          actualPath: "heuristic",
+          fallbackReason: "configured-heuristic",
+          evidenceCounts: makeEvidenceCounts(),
+          writtenPaths: ["/tmp/continuity-save.md"]
+        } satisfies SessionContinuityAuditEntry),
+        JSON.stringify({
+          generatedAt: "2026-03-15T00:01:00.000Z",
+          projectId: project.projectId,
+          worktreeId: project.worktreeId,
+          configuredExtractorMode: "heuristic",
+          trigger: "manual-refresh",
+          writeMode: "replace",
+          scope: "both",
+          rolloutPath: "/tmp/rollout-same.jsonl",
+          sourceSessionId: "session-same",
+          preferredPath: "heuristic",
+          actualPath: "heuristic",
+          fallbackReason: "configured-heuristic",
+          evidenceCounts: makeEvidenceCounts(),
+          writtenPaths: ["/tmp/continuity-refresh.md"]
+        } satisfies SessionContinuityAuditEntry),
+        JSON.stringify({
+          generatedAt: "2026-03-15T00:02:00.000Z",
+          projectId: project.projectId,
+          worktreeId: project.worktreeId,
+          configuredExtractorMode: "heuristic",
+          trigger: "manual-save",
+          writeMode: "merge",
+          scope: "both",
+          rolloutPath: "/tmp/rollout-latest.jsonl",
+          sourceSessionId: "session-latest",
+          preferredPath: "heuristic",
+          actualPath: "heuristic",
+          fallbackReason: "configured-heuristic",
+          evidenceCounts: makeEvidenceCounts(2),
+          writtenPaths: ["/tmp/continuity-latest.md"]
+        } satisfies SessionContinuityAuditEntry)
+      ].join("\n"),
+      "utf8"
+    );
+
+    const loadOutput = await runSession("load", { cwd: repoDir });
+    expect(loadOutput.match(/\/tmp\/rollout-same\.jsonl/g) ?? []).toHaveLength(2);
+  });
+
   it("skips invalid-shaped continuity audit entries", async () => {
     const repoDir = await tempDir("cam-session-invalid-shape-repo-");
     const memoryRoot = await tempDir("cam-session-invalid-shape-memory-");
@@ -806,6 +1342,88 @@ describe("runSession", () => {
     const statusOutput = await runSession("status", { cwd: repoDir });
     expect(statusOutput).toContain("/tmp/rollout-good.jsonl");
     expect(statusOutput).not.toContain("/tmp/rollout-invalid.jsonl");
+  }, 30_000);
+
+  it("keeps reading legacy audit and recovery records that do not include trigger or writeMode", async () => {
+    const repoDir = await tempDir("cam-session-legacy-audit-repo-");
+    const memoryRoot = await tempDir("cam-session-legacy-audit-memory-");
+    await initRepo(repoDir);
+
+    await writeProjectConfig(
+      repoDir,
+      configJson(),
+      { autoMemoryDirectory: memoryRoot }
+    );
+
+    const project = detectProjectContext(repoDir);
+    const store = new SessionContinuityStore(project, {
+      ...configJson(),
+      autoMemoryDirectory: memoryRoot
+    });
+    await store.ensureAuditLayout();
+    await fs.writeFile(
+      store.paths.auditFile,
+      `${JSON.stringify({
+        generatedAt: "2026-03-17T00:00:00.000Z",
+        projectId: project.projectId,
+        worktreeId: project.worktreeId,
+        configuredExtractorMode: "heuristic",
+        scope: "both",
+        rolloutPath: "/tmp/rollout-legacy.jsonl",
+        sourceSessionId: "session-legacy",
+        preferredPath: "heuristic",
+        actualPath: "heuristic",
+        fallbackReason: "configured-heuristic",
+        evidenceCounts: makeEvidenceCounts(),
+        writtenPaths: ["/tmp/legacy-continuity.md"]
+      })}\n`,
+      "utf8"
+    );
+    await fs.writeFile(
+      store.getRecoveryPath(),
+      JSON.stringify({
+        recordedAt: "2026-03-17T00:01:00.000Z",
+        projectId: project.projectId,
+        worktreeId: project.worktreeId,
+        rolloutPath: "/tmp/rollout-legacy-recovery.jsonl",
+        sourceSessionId: "session-legacy-recovery",
+        scope: "both",
+        writtenPaths: ["/tmp/legacy-recovery.md"],
+        preferredPath: "heuristic",
+        actualPath: "heuristic",
+        evidenceCounts: makeEvidenceCounts(),
+        failedStage: "audit-write",
+        failureMessage: "legacy recovery marker"
+      }),
+      "utf8"
+    );
+
+    const loadJson = JSON.parse(
+      await runSession("load", { cwd: repoDir, json: true })
+    ) as {
+      latestContinuityAuditEntry: {
+        rolloutPath: string;
+        trigger?: string;
+        writeMode?: string;
+      } | null;
+      pendingContinuityRecovery: {
+        rolloutPath: string;
+        trigger?: string;
+        writeMode?: string;
+      } | null;
+    };
+    expect(loadJson.latestContinuityAuditEntry?.rolloutPath).toBe("/tmp/rollout-legacy.jsonl");
+    expect(loadJson.latestContinuityAuditEntry?.trigger).toBeUndefined();
+    expect(loadJson.latestContinuityAuditEntry?.writeMode).toBeUndefined();
+    expect(loadJson.pendingContinuityRecovery?.rolloutPath).toBe(
+      "/tmp/rollout-legacy-recovery.jsonl"
+    );
+    expect(loadJson.pendingContinuityRecovery?.trigger).toBeUndefined();
+    expect(loadJson.pendingContinuityRecovery?.writeMode).toBeUndefined();
+
+    const statusOutput = await runSession("status", { cwd: repoDir });
+    expect(statusOutput).toContain("/tmp/rollout-legacy.jsonl");
+    expect(statusOutput).toContain("/tmp/rollout-legacy-recovery.jsonl");
   }, 30_000);
 
   it("writes and surfaces a continuity recovery marker when audit persistence fails", async () => {
@@ -1195,6 +1813,79 @@ describe("runWrappedCodex with session continuity", () => {
     expect(latestAudit?.rolloutPath).toContain("rollout-2026-03-15T00-00-00-000Z-session.jsonl");
     const merged = await continuityStore.readMergedState();
     expect(merged?.goal).toContain("Continue with save-only continuity handling");
+  }, 30_000);
+
+  it("prefers the primary rollout over a newer subagent rollout during wrapper auto-save", async () => {
+    const repoDir = await tempDir("cam-wrapper-primary-rollout-repo-");
+    const memoryRoot = await tempDir("cam-wrapper-primary-rollout-memory-");
+    const sessionsDir = await tempDir("cam-wrapper-primary-rollout-sessions-");
+    await initRepo(repoDir);
+    process.env.CAM_CODEX_SESSIONS_DIR = sessionsDir;
+
+    const mockCodexPath = path.join(repoDir, "mock-codex");
+    const todayDir = path.join(sessionsDir, "2026", "03", "15");
+    await fs.mkdir(todayDir, { recursive: true });
+    await fs.writeFile(
+      mockCodexPath,
+      `#!/usr/bin/env node
+const fs = require("node:fs");
+const path = require("node:path");
+const cwd = process.cwd();
+const sessionsDir = process.env.CAM_CODEX_SESSIONS_DIR;
+const rolloutDir = path.join(sessionsDir, "2026", "03", "15");
+fs.mkdirSync(rolloutDir, { recursive: true });
+const primaryPath = path.join(rolloutDir, "rollout-2026-03-15T00-00-00-000Z-session.jsonl");
+const subagentPath = path.join(rolloutDir, "rollout-2026-03-15T00-00-01-000Z-subagent.jsonl");
+fs.writeFileSync(primaryPath, [
+  JSON.stringify({ type: "session_meta", payload: { id: "session-wrapper-primary", timestamp: "2026-03-15T00:00:00.000Z", cwd, source: "cli" } }),
+  JSON.stringify({ type: "event_msg", payload: { type: "user_message", message: "Continue the primary wrapper continuity path." } }),
+  JSON.stringify({ type: "response_item", payload: { type: "function_call", name: "exec_command", call_id: "call-1", arguments: "{\\"cmd\\":\\"pnpm test\\"}" } }),
+  JSON.stringify({ type: "response_item", payload: { type: "function_call_output", call_id: "call-1", output: "Process exited with code 0" } })
+].join("\\n"));
+fs.writeFileSync(subagentPath, [
+  JSON.stringify({ type: "session_meta", payload: { id: "session-wrapper-subagent", forked_from_id: "session-wrapper-primary", timestamp: "2026-03-15T00:00:01.000Z", cwd, source: { subagent: { thread_spawn: { parent_thread_id: "session-wrapper-primary" } } } } }),
+  JSON.stringify({ type: "session_meta", payload: { id: "session-wrapper-primary", timestamp: "2026-03-15T00:00:00.000Z", cwd, source: "cli" } }),
+  JSON.stringify({ type: "event_msg", payload: { type: "user_message", message: "You are reviewer sub-agent 4. Work read-only. Focus on docs and contract surfaces only." } })
+].join("\\n"));
+`,
+      "utf8"
+    );
+    await fs.chmod(mockCodexPath, 0o755);
+
+    await writeProjectConfig(
+      repoDir,
+      configJson({
+        codexBinary: mockCodexPath,
+        sessionContinuityAutoLoad: false,
+        sessionContinuityAutoSave: true
+      }),
+      {
+        autoMemoryDirectory: memoryRoot,
+        sessionContinuityAutoLoad: false,
+        sessionContinuityAutoSave: true
+      }
+    );
+
+    const continuityStore = new SessionContinuityStore(detectProjectContext(repoDir), {
+      ...configJson({
+        codexBinary: mockCodexPath,
+        sessionContinuityAutoLoad: false,
+        sessionContinuityAutoSave: true
+      }),
+      autoMemoryDirectory: memoryRoot
+    });
+
+    const exitCode = await runWrappedCodex(repoDir, "exec", ["continue"]);
+    expect(exitCode).toBe(0);
+
+    const latestAudit = await continuityStore.readLatestAuditEntry();
+    const merged = await continuityStore.readMergedState();
+
+    expect(latestAudit?.rolloutPath).toContain("rollout-2026-03-15T00-00-00-000Z-session.jsonl");
+    expect(latestAudit?.sourceSessionId).toBe("session-wrapper-primary");
+    expect(merged?.goal).toContain("primary wrapper continuity path");
+    expect(merged?.goal).not.toContain("reviewer sub-agent");
+    expect(merged?.incompleteNext.join("\n")).not.toContain("reviewer sub-agent");
   }, 30_000);
 
   it("injects continuity on startup and auto-saves it after the run", async () => {

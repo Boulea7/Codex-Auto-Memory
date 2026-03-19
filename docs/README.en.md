@@ -3,7 +3,7 @@
 [简体中文](./README.md) | [English](./README.en.md)
 
 > This is the documentation entry point for `codex-auto-memory`.  
-> If you are new to the repository, start with the main [README](../README.en.md). If you need design boundaries, migration posture, or reviewer guidance, use the routes below.
+> If you are new to the repository, start with the main [README](../README.en.md). If you need design boundaries, compatibility posture, or reviewer guidance, use the routes below.
 
 ## Reading paths
 
@@ -33,7 +33,7 @@
 | :-- | :-- | :-- |
 | [Claude reference contract](./claude-reference.en.md) | defines which public Claude Code memory behaviors this project intentionally mirrors | English / [中文](./claude-reference.md) |
 | [Architecture](./architecture.en.md) | explains startup injection, sync flow, continuity, and storage layout | English / [中文](./architecture.md) |
-| [Native migration strategy](./native-migration.en.md) | explains why the project remains companion-first and what would justify migration later | English / [中文](./native-migration.md) |
+| [Native migration strategy](./native-migration.en.md) | explains why the project remains companion-first and how the compatibility seam would be re-evaluated later | English / [中文](./native-migration.md) |
 
 ## Runtime and maintainer docs
 
