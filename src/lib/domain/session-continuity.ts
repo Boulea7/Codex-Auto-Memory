@@ -348,6 +348,26 @@ export function applySessionContinuityLayerSummary(
   };
 }
 
+export function replaceSessionContinuityLayerSummary(
+  base: SessionContinuityState,
+  summary: SessionContinuityLayerSummary,
+  sourceSessionId?: string
+): SessionContinuityState {
+  const sanitized = sanitizeSessionContinuityLayerSummary(summary);
+  return {
+    ...base,
+    updatedAt: new Date().toISOString(),
+    status: "active",
+    sourceSessionId: sourceSessionId ?? base.sourceSessionId,
+    goal: sanitized.goal,
+    confirmedWorking: sanitized.confirmedWorking,
+    triedAndFailed: sanitized.triedAndFailed,
+    notYetTried: sanitized.notYetTried,
+    incompleteNext: sanitized.incompleteNext,
+    filesDecisionsEnvironment: sanitized.filesDecisionsEnvironment
+  };
+}
+
 export function renderSessionContinuity(state: SessionContinuityState): string {
   const lines = [
     "---",

@@ -70,7 +70,7 @@ Codex already has useful primitives, but not the same complete public memory sur
 - local persistent sessions and rollout logs
 - local `cam doctor` / feature-output signals for `memories` and `codex_hooks`
 
-`codex-auto-memory` fills that gap with a companion-first design instead of pretending native Codex memory is already ready for daily use.
+`codex-auto-memory` fills that gap with a companion-first design and only a narrow compatibility seam instead of pretending native Codex memory is already ready for daily use. Near-term UX work stays focused on clearer `cam memory` / `cam session` reviewer flows.
 
 ## Who this is for
 
@@ -79,7 +79,7 @@ Good fit:
 - Codex users who want a Claude-style auto memory workflow today
 - teams that want fully local, auditable, editable Markdown memory
 - maintainers who need worktree-shared project memory with worktree-local continuity
-- projects that want a future native migration path without changing the user mental model
+- projects that want the user mental model to stay stable even if official Codex surfaces evolve later
 
 Not a good fit:
 
@@ -93,7 +93,7 @@ Not a good fit:
 | :-- | :-- |
 | Automatic post-session sync | extracts stable knowledge from Codex rollout JSONL and writes it back into Markdown memory |
 | Markdown-first memory | `MEMORY.md` and topic files are the product surface, not hidden cache |
-| Compact startup injection | injects quoted `MEMORY.md` indexes plus topic refs instead of eager topic loading |
+| Compact startup injection | injects only the quoted `MEMORY.md` startup files that actually enter the payload, plus on-demand topic refs, instead of eager topic loading |
 | Worktree-aware storage | shares project memory across worktrees while keeping local continuity isolated |
 | Optional session continuity | separates temporary working state from durable memory |
 | Reviewer surfaces | exposes `cam memory`, `cam session`, and `cam audit` for review and debugging |
@@ -106,13 +106,13 @@ Not a good fit:
 | Local Markdown memory | Built in | No complete public contract | Yes |
 | `MEMORY.md` startup entrypoint | Built in | No | Yes |
 | 200-line startup budget | Built in | No | Yes |
-| Topic files on demand | Built in | No | Partial: startup injects structured topic refs and reads details on demand |
+| Topic files on demand | Built in | No | Partial: startup exposes structured topic refs for later on-demand reads |
 | Session continuity | Community patterns | No complete public contract | Yes, as a separate companion layer |
 | Worktree-shared project memory | Built in | No public contract | Yes |
 | Inspect / audit memory | `/memory` | No equivalent | `cam memory` |
-| Native hooks / memory integration | Built in | Experimental / under development | Planned compatibility seam |
+| Native hooks / memory integration | Built in | Experimental / under development | Compatibility seam only |
 
-`cam memory` is intentionally an inspection and audit surface. It exposes the quoted index files that actually made it into the startup payload, the startup budget, on-demand topic refs, edit paths, and recent durable sync audit events behind `--recent [count]`.
+`cam memory` is intentionally an inspection and audit surface. It exposes the quoted startup files that actually made it into the startup payload, currently the scoped `MEMORY.md` / index content, plus the startup budget, on-demand topic refs, edit paths, and recent durable sync audit events behind `--recent [count]`. Those topic refs are lookup pointers, not proof that topic bodies were eagerly loaded at startup.
 Those recent sync events come from `~/.codex-auto-memory/projects/<project-id>/audit/sync-log.jsonl` and only cover sync-flow `applied`, `no-op`, and `skipped` events. Manual `cam remember` / `cam forget` updates stay outside that audit stream by design.
 When primary memory files were written but the reviewer sidecar did not complete, `cam memory` will try to expose a pending sync recovery marker so reviewers can see that partial-success state explicitly; that marker is only cleared when the same rollout/session later completes successfully, not by an unrelated successful sync.
 Explicit updates still happen through `cam remember`, `cam forget`, or direct Markdown edits rather than a `/memory`-style in-command editor.
@@ -158,6 +158,7 @@ After each session ends, `cam` automatically extracts knowledge from the Codex r
 ```bash
 cam memory          # show active memory files and startup budget
 cam session status  # show session continuity state
+cam session refresh # regenerate continuity from provenance and replace the selected scope
 cam remember "Always use pnpm instead of npm"   # manually record a preference
 cam forget "old debug note"                     # remove a stale entry
 cam audit           # check the repository for unexpected sensitive content
@@ -169,9 +170,12 @@ cam audit           # check the repository for unexpected sensitive content
 | :-- | :-- |
 | `cam run` / `cam exec` / `cam resume` | compile startup memory and launch Codex through the wrapper |
 | `cam sync` | manually sync the latest rollout into durable memory |
-| `cam memory` | inspect startup-loaded index files, on-demand topic refs, startup budget, edit paths, and durable sync audit events via `--recent [count]` |
+| `cam memory` | inspect the quoted startup files that actually entered the payload, on-demand topic refs, startup budget, edit paths, and durable sync audit events via `--recent [count]` |
 | `cam remember` / `cam forget` | explicitly add or remove durable memory |
-| `cam session save` / `load` / `status` / `clear` | manage the separate session continuity layer and expose a pending continuity recovery marker when needed |
+| `cam session save` | merge / incremental save; append rollout-derived continuity without cleaning stale state immediately |
+| `cam session refresh` | replace / clean regeneration; rebuild continuity from the selected provenance and replace the selected scope |
+| `cam session load` / `status` | continuity reviewer surface for the latest audit drill-down, compact prior preview, and any pending continuity recovery marker |
+| `cam session clear` / `open` | clear active continuity files or open the local continuity directory |
 | `cam audit` | run privacy and secret-hygiene checks against the repository |
 | `cam doctor` | inspect local companion wiring and native-readiness posture |
 
@@ -179,7 +183,10 @@ cam audit           # check the repository for unexpected sensitive content
 
 - `cam audit`: repository-level privacy and secret-hygiene audit.
 - `cam memory --recent [count]`: durable sync audit for recent `applied`, `no-op`, and `skipped` sync events, without mixing in manual `remember` / `forget`.
-- `cam session save|load|status`: continuity audit surface for the latest diagnostics, latest rollout, and latest audit drill-down; `load` / `status` text output additionally shows a compact prior preview that excludes the latest entry and coalesces consecutive repeats, all three `--json` variants continue to return raw recent audit entries, and a pending continuity recovery marker appears when continuity Markdown was written but audit persistence failed.
+- `cam session save`: the merge path for the continuity audit surface. It records the latest diagnostics, latest rollout, and latest audit drill-down, but it remains an incremental save and does not immediately clean polluted state.
+- `cam session refresh`: the replace path for the continuity audit surface. It regenerates continuity from selected provenance and replaces the selected scope; `--json` additionally exposes `action`, `writeMode`, and `rolloutSelection`.
+- `cam session load|status`: reviewer surface for the latest continuity diagnostics, latest rollout, latest audit drill-down, and a compact prior audit preview sourced from the continuity audit log that excludes the latest entry, coalesces consecutive repeats, and is not a full prior-history replay. Their `--json` output continues to expose raw recent audit entries.
+- `pending continuity recovery marker`: a visible warning that continuity Markdown was written but the audit sidecar failed. It is not a general repair mechanism and is not equivalent to `cam session refresh`.
 
 ## How it works
 
@@ -187,7 +194,7 @@ cam audit           # check the repository for unexpected sensitive content
 
 - `local-first and auditable`
 - `Markdown files are the product surface`
-- `companion-first today, native migration seam tomorrow`
+- `companion-first, with a narrow compatibility seam`
 - `session continuity` stays separate from durable memory
 
 ### Runtime flow
@@ -195,7 +202,7 @@ cam audit           # check the repository for unexpected sensitive content
 ```mermaid
 flowchart TD
     A[Start Codex session] --> B[Compile startup memory]
-    B --> C[Inject quoted MEMORY.md plus topic refs]
+    B --> C[Inject quoted MEMORY.md startup files plus on-demand topic refs]
     C --> D[Run Codex]
     D --> E[Read rollout JSONL]
     E --> F[Extract durable memory operations]
@@ -206,8 +213,8 @@ flowchart TD
 
 ### Why the project does not switch to native memory yet
 
-- public Codex docs still do not define a full, stable native memory contract equivalent to Claude Code, and local `cam doctor --json` continues to treat `memories` / `codex_hooks` only as migration signals rather than a trusted primary path
-- local source inspection is useful for migration planning, but not a stable product contract
+- public Codex docs still do not define a full, stable native memory contract equivalent to Claude Code, and local `cam doctor --json` continues to treat `memories` / `codex_hooks` only as readiness signals rather than a trusted primary path
+- local source inspection is useful when re-evaluating the compatibility seam, but not a stable product contract
 - the repository therefore stays companion-first until public docs, runtime behavior, and CI-verifiable stability all improve together
 
 ## Storage layout
@@ -278,13 +285,13 @@ Current public-ready status:
 ### v0.2
 
 - stronger contradiction handling
-- richer `cam memory` and `cam session` reviewer surfaces
-- better continuity diagnostics and reviewer packets
-- seam-preserving bridge work for future hook support
+- clearer `cam memory` and `cam session` reviewer UX
+- tighter continuity diagnostics and reviewer packets
+- keep a compatibility seam for future hook surfaces
 
 ### v0.3+
 
-- native adapter once official Codex memory and hooks stabilize
+- continue tracking official Codex memory and hook surfaces without implying a primary-path change
 - optional GUI or TUI browser
 - stronger cross-session diagnostics and confidence surfaces
 

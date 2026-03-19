@@ -21,14 +21,14 @@
 - startup index must stay concise
 - topic files are the detail layer
 - session continuity must remain separate from durable memory
-- companion-first is the mainline; native migration is a seam
+- companion-first is the mainline; a compatibility seam remains explicit
 
 ## 系统总览
 
 ```mermaid
 flowchart TD
     A[cam run / exec / resume] --> B[编译 startup memory]
-    B --> C[注入 quoted MEMORY.md 与 topic refs]
+    B --> C[注入 quoted MEMORY.md startup files 与按需 topic refs]
     C --> D[运行 Codex]
     D --> E[会话结束后读取 rollout JSONL]
     E --> F[提取 durable memory operations]
@@ -52,9 +52,9 @@ flowchart TD
 
 当前实现中，startup injection 的特征是：
 
-- 各 scope 的 `MEMORY.md` 以 quoted local data 注入
-- 额外附带结构化 topic file refs
-- 不 eager 读取 topic entry bodies
+- 各 scope 的 `MEMORY.md` 以 quoted startup files 注入
+- 额外附带结构化 topic file refs，作为按需定位信息
+- startup 不 eager 读取 topic entry bodies
 - 允许 session continuity 作为单独 block 注入
 
 ## 2. Post-session sync path
@@ -154,10 +154,10 @@ project-local continuity 适合放：
 
 - 不改动用户仓库里的 tracked files 来完成注入
 - 由 companion runtime 在外部编译 memory
-- 把 memory 作为 quoted data 注入，而不是隐式 prompt policy
+- 把 memory 作为 quoted startup files 注入，而不是隐式 prompt policy
 - continuity block 与 durable memory block 明确分开
 
-## 8. Native migration seam
+## 8. Compatibility seam
 
 当前架构保留了几个关键替换点：
 
@@ -166,7 +166,7 @@ project-local continuity 适合放：
 - `MemoryStore`
 - `RuntimeInjector`
 
-这样未来迁移时可以替换 integration layer，而不是推翻用户心智模型。
+这样未来若需要重评接入方式，可以替换 integration layer，而不是推翻用户心智模型。
 
 ## 9. 验证重点
 

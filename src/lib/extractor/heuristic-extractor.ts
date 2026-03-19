@@ -125,19 +125,54 @@ function stripRememberPrefix(message: string): string {
   return message.replace(/^remember that\s+/iu, "").replace(/^记住/u, "").trim();
 }
 
+function isHighConfidenceExplicitCorrection(message: string): boolean {
+  return !/(?:\bmaybe\b|\bperhaps\b|\bif possible\b|\bwhen possible\b|\bfor now\b|\bprobably\b|\busually\b|\bsometimes\b|\btry\b|\bconsider\b|\bmight\b|\bcould\b|尽量|如果可以|可能|暂时)/iu.test(
+    message
+  );
+}
+
 function extractExplicitCorrection(message: string): ExplicitCorrection | null {
   const trimmed = trimTrailingPunctuation(stripRememberPrefix(message));
+  if (!isHighConfidenceExplicitCorrection(trimmed)) {
+    return null;
+  }
+
   const patterns = [
-    /^(?:actually\s+)?we use\s+(.+?),\s*not\s+(.+)$/iu,
-    /^(?:actually\s+)?use\s+(.+?),\s*not\s+(.+)$/iu,
-    /^not\s+(.+?),\s*(?:actually\s+)?use\s+(.+)$/iu,
-    /^(?:actually\s+)?use\s+(.+?)\s+instead of\s+(.+)$/iu,
-    /^我们用\s*(.+?)\s*[,，]\s*不用\s*(.+)$/u,
-    /^别用\s*(.+?)\s*[,，]\s*用\s*(.+)$/u,
-    /^实际上用\s*(.+?)\s*[,，]\s*不要用\s*(.+)$/u
+    {
+      pattern: /^(?:actually\s+)?we use\s+(.+?),\s*not\s+(.+)$/iu,
+      staleIndex: 2
+    },
+    {
+      pattern: /^(?:actually\s+)?use\s+(.+?),\s*not\s+(.+)$/iu,
+      staleIndex: 2
+    },
+    {
+      pattern: /^not\s+(.+?),\s*(?:actually\s+)?use\s+(.+)$/iu,
+      staleIndex: 1
+    },
+    {
+      pattern: /^(?:actually\s+)?use\s+(.+?)\s+instead of\s+(.+)$/iu,
+      staleIndex: 2
+    },
+    {
+      pattern: /^(?:actually\s+)?prefer\s+(.+?)\s+over\s+(.+)$/iu,
+      staleIndex: 2
+    },
+    {
+      pattern: /^我们用\s*(.+?)\s*[,，]\s*不用\s*(.+)$/u,
+      staleIndex: 2
+    },
+    {
+      pattern: /^(?:先\s*)?别用\s*(.+?)\s*[,，]\s*用\s*(.+)$/u,
+      staleIndex: 1
+    },
+    {
+      pattern: /^实际上用\s*(.+?)\s*[,，]\s*不要用\s*(.+)$/u,
+      staleIndex: 2
+    }
   ] as const;
 
-  for (const pattern of patterns) {
+  for (const { pattern, staleIndex } of patterns) {
     const match = trimmed.match(pattern);
     if (!match?.[1] || !match?.[2]) {
       continue;
@@ -150,9 +185,10 @@ function extractExplicitCorrection(message: string): ExplicitCorrection | null {
       return null;
     }
 
-    const staleText = pattern === patterns[2] || pattern === patterns[5]
-      ? match[1]
-      : match[2];
+    const staleText = match[staleIndex];
+    if (!staleText) {
+      continue;
+    }
 
     return {
       scope: inferScope(trimmed),

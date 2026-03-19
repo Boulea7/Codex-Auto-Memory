@@ -2,7 +2,7 @@
 
 [简体中文](./native-migration.md) | [English](./native-migration.en.md)
 
-> `codex-auto-memory` is not designed to stay wrapper-only forever. The point is to remain companion-first until official native memory and hook surfaces are stable enough to trust, while preserving a clean migration seam for later.
+> This document records the compatibility seam and re-evaluation criteria that `codex-auto-memory` keeps while remaining companion-first. It does not imply a planned primary-path change.
 
 ## One-page conclusion
 
@@ -10,7 +10,7 @@ Three conclusions matter most right now:
 
 - native Codex memory and hooks are not ready to be the trusted primary path
 - companion mode is not a temporary hack; it is the current mainline implementation
-- migration should happen only when public docs, local stability, and CI-verifiable behavior all improve together
+- re-evaluation is only justified when public docs, local stability, and CI-verifiable behavior improve together
 
 ## Current reality
 
@@ -21,7 +21,7 @@ Official Codex public materials already confirm some useful building blocks:
 - multi-agent workflows
 - resume and fork flows
 
-Local runtime behavior and `cam doctor --json` also expose migration-related signals:
+Local runtime behavior and `cam doctor --json` also expose readiness signals:
 
 - rollout JSONL
 - `memories`
@@ -39,7 +39,7 @@ From official public materials, it is safe to say:
 - feature maturity docs still place some capabilities in experimental or under-development categories
 - the current public surface does not yet define a full, stable memory contract equivalent to Claude Code
 
-### Local observation is only a migration signal
+### Local observation is only a readiness signal
 
 Source inspection or local runtime behavior may reveal:
 
@@ -47,7 +47,7 @@ Source inspection or local runtime behavior may reveal:
 - feature flags
 - config shapes
 
-Those can guide migration planning, but they should not be presented as stable public guarantees.
+Those can guide integration re-evaluation, but they should not be presented as stable public guarantees.
 
 ## Why the project does not switch to native today
 
@@ -61,9 +61,9 @@ Those can guide migration planning, but they should not be presented as stable p
 That is why the default conclusion remains:
 
 - companion-first
-- native migration only when ready
+- keep only a compatibility seam while companion-first remains the default path
 
-## What must stay stable across migration
+## What must stay stable if official surfaces change
 
 Even if the plumbing changes later, the user mental model should stay as stable as possible:
 
@@ -74,7 +74,7 @@ Even if the plumbing changes later, the user mental model should stay as stable 
 - a strict separation between session continuity and durable memory
 - inspect, audit, and explicit correction as part of the workflow
 
-## Required compatibility seams
+## Required compatibility seam
 
 To make later migration possible, the current implementation should keep these boundaries explicit:
 
@@ -83,32 +83,20 @@ To make later migration possible, the current implementation should keep these b
 - `MemoryStore`
 - `RuntimeInjector`
 
-As long as those seams remain real, the repository can replace the integration layer without rewriting the product model.
+As long as those seams remain real, the repository can re-evaluate integration choices without rewriting the product model.
 
-## Recommended migration phases
-
-### Phase 1: Companion-first
+## Current operating rule
 
 - keep rollout JSONL as the primary session source
 - keep wrapper-based startup injection
 - keep Markdown as the primary memory surface
 - keep session continuity as a separate companion layer
-
-### Phase 2: Hybrid
-
-- only consider optional native bridges when both `cam doctor` and public docs improve
-- keep wrapper fallback
-- preserve the Markdown contract and scope model
-
-### Phase 3: Native-first
-
-- move only when native behavior is public, stable, and testable
-- if native behavior cannot preserve the Markdown-first and topic-file model, keep a strict compatibility mode
+- keep only an explicit compatibility seam for future native surfaces, without implying a switch phase
 
 ## Decision rule
 
-Do not migrate simply because a native flag exists.  
-Migration becomes reasonable only when all of the following are true:
+Do not rewrite the roadmap simply because a native flag exists.
+Re-evaluation becomes reasonable only when all of the following are true:
 
 - official public documentation is sufficiently explicit
 - behavior is stable across releases
@@ -123,3 +111,5 @@ Migration becomes reasonable only when all of the following are true:
 - Codex changelog: <https://developers.openai.com/codex/changelog>
 - Codex config basics: <https://developers.openai.com/codex/config-basic>
 - Codex config reference: <https://developers.openai.com/codex/config-reference>
+
+<!-- Last verified: 2026-03 against developers.openai.com/codex/* official pages. -->

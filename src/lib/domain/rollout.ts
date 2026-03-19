@@ -8,6 +8,14 @@ interface JsonLine {
   payload?: Record<string, unknown>;
 }
 
+interface ParsedSessionMeta {
+  sessionId: string;
+  createdAt: string;
+  cwd: string;
+  isSubagent: boolean;
+  forkedFromSessionId?: string;
+}
+
 async function normalizeFsPath(input: string): Promise<string> {
   try {
     return await fs.realpath(input);
@@ -66,9 +74,49 @@ function sessionMetaValue(
   payload: Record<string, unknown>,
   key: "id" | "cwd" | "timestamp"
 ): string {
-  const nested = payload.meta;
-  const nestedRecord = nested && typeof nested === "object" ? (nested as Record<string, unknown>) : undefined;
+  const nestedRecord = sessionMetaRecord(payload);
   return String(payload[key] ?? nestedRecord?.[key] ?? "");
+}
+
+function sessionMetaRecord(
+  payload: Record<string, unknown>
+): Record<string, unknown> | undefined {
+  const nested = payload.meta;
+  return nested && typeof nested === "object" ? (nested as Record<string, unknown>) : undefined;
+}
+
+function isSubagentSource(value: unknown): boolean {
+  return Boolean(value && typeof value === "object" && "subagent" in (value as Record<string, unknown>));
+}
+
+function parseSessionMeta(payload: Record<string, unknown>): ParsedSessionMeta | null {
+  const sessionId = sessionMetaValue(payload, "id");
+  const createdAt = sessionMetaValue(payload, "timestamp");
+  const cwd = sessionMetaValue(payload, "cwd");
+  if (!sessionId || !createdAt || !cwd) {
+    return null;
+  }
+
+  const nestedRecord = sessionMetaRecord(payload);
+  const forkedFromValue =
+    payload.forked_from_id ?? nestedRecord?.forked_from_id;
+  const sourceValue = payload.source ?? nestedRecord?.source;
+  const forkedFromSessionId =
+    typeof forkedFromValue === "string" && forkedFromValue.length > 0
+      ? forkedFromValue
+      : undefined;
+
+  return {
+    sessionId,
+    createdAt,
+    cwd,
+    isSubagent: Boolean(forkedFromSessionId) || isSubagentSource(sourceValue),
+    forkedFromSessionId
+  };
+}
+
+function isPrimaryRolloutMeta(meta: RolloutMeta): boolean {
+  return meta.isSubagent !== true;
 }
 
 export async function readRolloutMeta(filePath: string): Promise<RolloutMeta | null> {
@@ -90,20 +138,19 @@ export async function readRolloutMeta(filePath: string): Promise<RolloutMeta | n
       continue;
     }
 
-    const sessionId = sessionMetaValue(payload, "id");
-    const createdAt = sessionMetaValue(payload, "timestamp");
-    const cwdValue = sessionMetaValue(payload, "cwd");
-    const cwd = cwdValue ? await normalizeFsPath(cwdValue) : "";
-    if (!sessionId || !createdAt || !cwd) {
-      return null;
+    const parsedMeta = parseSessionMeta(payload);
+    if (!parsedMeta) {
+      continue;
     }
 
     return {
-      sessionId,
-      createdAt,
-      createdAtMs: parseTimestamp(createdAt),
-      cwd,
-      rolloutPath: filePath
+      sessionId: parsedMeta.sessionId,
+      createdAt: parsedMeta.createdAt,
+      createdAtMs: parseTimestamp(parsedMeta.createdAt),
+      cwd: await normalizeFsPath(parsedMeta.cwd),
+      rolloutPath: filePath,
+      isSubagent: parsedMeta.isSubagent,
+      forkedFromSessionId: parsedMeta.forkedFromSessionId
     };
   }
 
@@ -120,26 +167,29 @@ export async function findRelevantRollouts(
   const beforeSet = new Set(before);
   const additions = after.filter((filePath) => !beforeSet.has(filePath));
 
-  const candidates = additions.length > 0 ? additions : after;
-  const metas = (
-    await Promise.all(
-      candidates.map(async (filePath) => ({
-        filePath,
-        meta: await readRolloutMeta(filePath)
-      }))
+  const readMetas = async (files: string[]): Promise<RolloutMeta[]> =>
+    (
+      await Promise.all(
+        files.map(async (filePath) => ({
+          filePath,
+          meta: await readRolloutMeta(filePath)
+        }))
+      )
     )
-  )
-    .filter(
-      (item): item is { filePath: string; meta: RolloutMeta } =>
-        item.meta !== null && matchesProjectContext(item.meta, project)
-    )
-    .map((item) => item.meta);
+      .filter(
+        (item): item is { filePath: string; meta: RolloutMeta } =>
+          item.meta !== null && matchesProjectContext(item.meta, project)
+      )
+      .map((item) => item.meta);
 
-  if (additions.length > 0) {
-    return metas
+  const additionMetas = await readMetas(additions);
+  if (additionMetas.length > 0) {
+    return additionMetas
       .sort((left, right) => left.createdAtMs - right.createdAtMs)
       .map((meta) => meta.rolloutPath);
   }
+
+  const metas = await readMetas(after);
 
   const windowStart = startedAtMs - 5_000;
   const windowEnd = endedAtMs + 5_000;
@@ -177,7 +227,9 @@ export async function findLatestProjectRollout(
   )
     .filter(
       (item): item is { filePath: string; meta: RolloutMeta } =>
-        item.meta !== null && matchesProjectContext(item.meta, project)
+        item.meta !== null &&
+        matchesProjectContext(item.meta, project) &&
+        isPrimaryRolloutMeta(item.meta)
     )
     .map((item) => item.meta)
     .sort((left, right) => right.createdAtMs - left.createdAtMs);
@@ -199,6 +251,9 @@ export async function parseRolloutEvidence(filePath: string): Promise<RolloutEvi
   let sessionId = "";
   let createdAt = "";
   let cwd = "";
+  let isSubagent = false;
+  let forkedFromSessionId: string | undefined;
+  let seenPrimaryMeta = false;
 
   for (const line of lines) {
     let item: JsonLine;
@@ -209,10 +264,21 @@ export async function parseRolloutEvidence(filePath: string): Promise<RolloutEvi
     }
     const payload = item.payload ?? {};
     if (item.type === "session_meta") {
-      sessionId = sessionMetaValue(payload, "id");
-      createdAt = sessionMetaValue(payload, "timestamp");
-      const cwdValue = sessionMetaValue(payload, "cwd");
-      cwd = cwdValue ? await normalizeFsPath(cwdValue) : "";
+      if (seenPrimaryMeta) {
+        continue;
+      }
+
+      const parsedMeta = parseSessionMeta(payload);
+      if (!parsedMeta) {
+        continue;
+      }
+
+      sessionId = parsedMeta.sessionId;
+      createdAt = parsedMeta.createdAt;
+      cwd = await normalizeFsPath(parsedMeta.cwd);
+      isSubagent = parsedMeta.isSubagent;
+      forkedFromSessionId = parsedMeta.forkedFromSessionId;
+      seenPrimaryMeta = true;
       continue;
     }
 
@@ -263,7 +329,9 @@ export async function parseRolloutEvidence(filePath: string): Promise<RolloutEvi
     userMessages,
     agentMessages,
     toolCalls: stitchedToolCalls,
-    rolloutPath: filePath
+    rolloutPath: filePath,
+    isSubagent,
+    forkedFromSessionId
   };
 }
 

@@ -3,7 +3,7 @@
 [简体中文](./README.md) | [English](./README.en.md)
 
 > 这里是 `codex-auto-memory` 的文档入口页。  
-> 如果你是第一次进入仓库，建议先读默认 [README](../README.md)；如果你要深入设计边界、迁移姿态或 reviewer 视角，再从这里进入对应文档。
+> 如果你是第一次进入仓库，建议先读默认 [README](../README.md)；如果你要深入设计边界、兼容性姿态或 reviewer 视角，再从这里进入对应文档。
 
 ## 阅读路径
 
@@ -33,7 +33,7 @@
 | :-- | :-- | :-- |
 | [Claude Code 参考契约](./claude-reference.md) | 说明本项目主动对齐的 Claude Code memory 契约边界 | 中文 / [English](./claude-reference.en.md) |
 | [架构设计](./architecture.md) | 解释 startup injection、sync、continuity 与存储布局 | 中文 / [English](./architecture.en.md) |
-| [Native migration 策略](./native-migration.md) | 说明为什么当前仍然 companion-first，以及未来何时可以迁移 | 中文 / [English](./native-migration.en.md) |
+| [Native migration 策略](./native-migration.md) | 说明为什么当前仍然 companion-first，以及未来如何重评 compatibility seam | 中文 / [English](./native-migration.en.md) |
 
 ## 运行时与维护文档
 

@@ -14,6 +14,7 @@ Use this checklist before cutting any alpha or beta release of `codex-auto-memor
 - Confirm `docs/claude-reference.md` still reflects the Claude-style contract the code is trying to mimic.
 - Confirm `docs/native-migration.md` still matches the current compatibility seams in code.
 - Confirm public wording still keeps `cam memory` as an inspect/audit surface, `cam session` as a compact continuity surface, and the project as companion-first rather than native-ready.
+- Confirm `docs/session-continuity.md` matches the current `cam session` command surface and reviewer semantics, especially the wording split between `save`, `refresh`, and recovery markers.
 
 ## Code and runtime checks
 
@@ -21,6 +22,8 @@ Use this checklist before cutting any alpha or beta release of `codex-auto-memor
 - Run `pnpm test`
 - Run `pnpm build`
 - Run `cam audit`
+- Run `cam session refresh --json` and confirm `action`, `writeMode`, and `rolloutSelection` reflect the selected provenance.
+- Run `cam session load --json` and confirm older JSON consumers still receive the existing core fields.
 - Run `cam session status --json` and confirm the latest explicit audit drill-down matches the newest audit-log entry when present.
 - Run a local smoke flow:
   - `cam init`
@@ -28,6 +31,7 @@ Use this checklist before cutting any alpha or beta release of `codex-auto-memor
   - `cam memory --recent --print-startup`
   - `cam session status`
   - `cam session save`
+  - `cam session refresh`
   - `cam session load --print-startup`
   - `cam forget "..."`
   - `cam doctor`
