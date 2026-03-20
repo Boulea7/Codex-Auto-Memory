@@ -9,7 +9,9 @@ async function readDoc(relativePath: string): Promise<string> {
 describe("docs contract", () => {
   it("keeps the public reviewer command surface and deterministic verification entry points documented", async () => {
     const readme = await readDoc("README.md");
+    const readmeTw = await readDoc("README.zh-TW.md");
     const readmeEn = await readDoc("README.en.md");
+    const readmeJa = await readDoc("README.ja.md");
     const releaseChecklist = await readDoc("docs/release-checklist.md");
     const contributing = await readDoc("CONTRIBUTING.md");
     const ciWorkflow = await readDoc(".github/workflows/ci.yml");
@@ -24,12 +26,20 @@ describe("docs contract", () => {
     expect(readme).toContain("reviewer warning prose");
     expect(readme).toContain("tagged GitHub Releases");
     expect(readme).toContain("tarball install smoke");
+    expect(readme).toContain("README.zh-TW.md");
+    expect(readme).toContain("README.ja.md");
+    expect(readmeTw).toContain("README.md");
+    expect(readmeTw).toContain("README.en.md");
+    expect(readmeJa).toContain("README.md");
+    expect(readmeJa).toContain("README.en.md");
     expect(readmeEn).toContain("cam memory");
     expect(readmeEn).toContain("cam session status");
     expect(readmeEn).toContain("confidence");
     expect(readmeEn).toContain("deterministic scrub");
     expect(readmeEn).toContain("tagged GitHub Releases");
     expect(readmeEn).toContain("tarball install smoke");
+    expect(readmeEn).toContain("README.zh-TW.md");
+    expect(readmeEn).toContain("README.ja.md");
     expect(releaseChecklist).toContain("pnpm test:dist-cli-smoke");
     expect(releaseChecklist).toContain("pnpm test:tarball-install-smoke");
     expect(releaseChecklist).toContain("node dist/cli.js --version");
@@ -48,6 +58,9 @@ describe("docs contract", () => {
     expect(packageJson.scripts["test:dist-cli-smoke"]).toBe("vitest run test/dist-cli-smoke.test.ts");
     expect(packageJson.scripts["test:tarball-install-smoke"]).toBe(
       "vitest run test/tarball-install-smoke.test.ts"
+    );
+    expect(packageJson.files).toEqual(
+      expect.arrayContaining(["README.md", "README.zh-TW.md", "README.en.md", "README.ja.md"])
     );
     expect(packageJson.scripts.prepack).toBe("pnpm build");
     expect(packageJson.scripts["verify:release"]).toContain("pnpm test:dist-cli-smoke");

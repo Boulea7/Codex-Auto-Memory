@@ -11,7 +11,9 @@
     "docs",
     "schemas",
     "README.md",
+    "README.zh-TW.md",
     "README.en.md",
+    "README.ja.md",
     "LICENSE"
   ],
   "engines": {

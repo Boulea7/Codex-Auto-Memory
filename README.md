@@ -3,7 +3,9 @@
   <p><strong>为 Codex 复现 Claude-style auto memory 工作流的 local-first companion CLI</strong></p>
   <p>
     <a href="./README.md">简体中文</a> |
+    <a href="./README.zh-TW.md">繁體中文</a> |
     <a href="./README.en.md">English</a>
+    <a href="./README.ja.md">日本語</a>
   </p>
   <p>
     <a href="https://github.com/Boulea7/Codex-Auto-Memory/actions/workflows/ci.yml">
