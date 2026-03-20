@@ -2,6 +2,7 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { runSession } from "../src/lib/commands/session.js";
+import { runWrappedCodex } from "../src/lib/commands/wrapper.js";
 import { detectProjectContext } from "../src/lib/domain/project-context.js";
 import { SessionContinuityStore } from "../src/lib/domain/session-continuity-store.js";
 import type { SessionContinuityAuditEntry } from "../src/lib/types.js";
@@ -15,7 +16,8 @@ import { runCli } from "./helpers/cli-runner.js";
 import {
   cleanupTempDirs,
   createTempDir,
-  makeEvidenceCounts
+  makeEvidenceCounts,
+  writeSessionRolloutFile
 } from "./helpers/session-test-support.js";
 
 const tempDirs: string[] = [];
@@ -35,6 +37,25 @@ afterEach(async () => {
   process.env.CAM_CODEX_SESSIONS_DIR = originalSessionsDir;
   await cleanupTempDirs(tempDirs);
 });
+
+const rolloutFixturesDir = path.join(process.cwd(), "test/fixtures/rollouts");
+
+async function copyRolloutFixture(fixtureName: string, destinationPath: string): Promise<void> {
+  await fs.copyFile(path.join(rolloutFixturesDir, fixtureName), destinationPath);
+}
+
+async function writeNoopCodexBinary(repoDir: string): Promise<string> {
+  const mockCodexPath = path.join(repoDir, "mock-codex");
+  await fs.writeFile(
+    mockCodexPath,
+    `#!/usr/bin/env node
+process.exit(0);
+`,
+    "utf8"
+  );
+  await fs.chmod(mockCodexPath, 0o755);
+  return mockCodexPath;
+}
 
 describe("runSession", () => {
   it("shows an empty compact prior preview when no continuity audit history exists", async () => {
@@ -304,12 +325,24 @@ describe("runSession", () => {
 
     expect(result.exitCode).toBe(0);
     const payload = JSON.parse(result.stdout) as {
-      diagnostics: { actualPath: string };
-      latestContinuityAuditEntry: { rolloutPath: string } | null;
+      diagnostics: { actualPath: string; confidence: string; warnings: string[] };
+      latestContinuityAuditEntry: {
+        rolloutPath: string;
+        trigger?: string;
+        writeMode?: string;
+      } | null;
       recentContinuityAuditEntries: Array<{ rolloutPath: string }>;
     };
     expect(payload.diagnostics.actualPath).toBe("heuristic");
+    expect(payload.diagnostics.confidence).toBe("low");
+    expect(payload.diagnostics.warnings).toEqual(
+      expect.arrayContaining([
+        expect.stringContaining("Next steps were inferred from the latest request")
+      ])
+    );
     expect(payload.latestContinuityAuditEntry?.rolloutPath).toBe(rolloutPath);
+    expect(payload.latestContinuityAuditEntry?.trigger).toBe("manual-save");
+    expect(payload.latestContinuityAuditEntry?.writeMode).toBe("merge");
     expect(payload.recentContinuityAuditEntries[0]?.rolloutPath).toBe(rolloutPath);
   }, 30_000);
 
@@ -364,6 +397,10 @@ describe("runSession", () => {
       action: string;
       writeMode: string;
       rolloutPath: string;
+      diagnostics: { confidence: string; warnings: string[] };
+      recentContinuityAuditEntries: Array<{ rolloutPath: string }>;
+      continuityAuditPath: string;
+      pendingContinuityRecovery: object | null;
       rolloutSelection: { kind: string; rolloutPath: string };
       latestContinuityAuditEntry: {
         rolloutPath: string;
@@ -381,6 +418,59 @@ describe("runSession", () => {
     expect(payload.latestContinuityAuditEntry?.rolloutPath).toBe(rolloutPath);
     expect(payload.latestContinuityAuditEntry?.trigger).toBe("manual-refresh");
     expect(payload.latestContinuityAuditEntry?.writeMode).toBe("replace");
+    expect(payload.diagnostics.confidence).toBe("low");
+    expect(payload.diagnostics.warnings).toEqual(
+      expect.arrayContaining([
+        expect.stringContaining("Next steps were inferred from the latest request")
+      ])
+    );
+    expect(payload.recentContinuityAuditEntries[0]?.rolloutPath).toBe(rolloutPath);
+    expect(payload.continuityAuditPath).toContain("session-continuity-log.jsonl");
+    expect(payload.pendingContinuityRecovery).toBeNull();
+
+    const loadPayload = JSON.parse(
+      await runSession("load", { cwd: repoDir, json: true })
+    ) as {
+      latestContinuityAuditEntry: {
+        rolloutPath: string;
+        trigger?: string;
+        writeMode?: string;
+      } | null;
+      latestContinuityDiagnostics: { confidence: string; warnings: string[] } | null;
+    };
+    expect(loadPayload.latestContinuityAuditEntry).toMatchObject({
+      rolloutPath,
+      trigger: "manual-refresh",
+      writeMode: "replace"
+    });
+    expect(loadPayload.latestContinuityDiagnostics?.confidence).toBe("low");
+    expect(loadPayload.latestContinuityDiagnostics?.warnings).toEqual(
+      expect.arrayContaining([
+        expect.stringContaining("Next steps were inferred from the latest request")
+      ])
+    );
+
+    const statusPayload = JSON.parse(
+      await runSession("status", { cwd: repoDir, json: true })
+    ) as {
+      latestContinuityAuditEntry: {
+        rolloutPath: string;
+        trigger?: string;
+        writeMode?: string;
+      } | null;
+      latestContinuityDiagnostics: { confidence: string; warnings: string[] } | null;
+    };
+    expect(statusPayload.latestContinuityAuditEntry).toMatchObject({
+      rolloutPath,
+      trigger: "manual-refresh",
+      writeMode: "replace"
+    });
+    expect(statusPayload.latestContinuityDiagnostics?.confidence).toBe("low");
+    expect(statusPayload.latestContinuityDiagnostics?.warnings).toEqual(
+      expect.arrayContaining([
+        expect.stringContaining("Next steps were inferred from the latest request")
+      ])
+    );
 
     const merged = await store.readMergedState();
     expect(merged?.goal).toContain("Refresh continuity through the CLI command surface.");
@@ -555,13 +645,24 @@ describe("runSession", () => {
     expect(loadResult.exitCode).toBe(0);
     const loadPayload = JSON.parse(loadResult.stdout) as {
       startup: { text: string };
-      latestContinuityAuditEntry: { rolloutPath: string } | null;
-      latestContinuityDiagnostics: { actualPath: string; warnings: string[] } | null;
+      latestContinuityAuditEntry: {
+        rolloutPath: string;
+        trigger?: string;
+        writeMode?: string;
+      } | null;
+      latestContinuityDiagnostics: {
+        actualPath: string;
+        confidence: string;
+        warnings: string[];
+      } | null;
       recentContinuityAuditEntries: Array<{ rolloutPath: string }>;
     };
     expect(loadPayload.startup.text).toContain("# Session Continuity");
     expect(loadPayload.latestContinuityAuditEntry?.rolloutPath).toBe(rolloutPath);
+    expect(loadPayload.latestContinuityAuditEntry?.trigger).toBe("manual-save");
+    expect(loadPayload.latestContinuityAuditEntry?.writeMode).toBe("merge");
     expect(loadPayload.latestContinuityDiagnostics?.actualPath).toBe("heuristic");
+    expect(loadPayload.latestContinuityDiagnostics?.confidence).toBe("low");
     expect(loadPayload.latestContinuityDiagnostics?.warnings).toEqual(
       expect.arrayContaining([
         expect.stringContaining("Next steps were inferred from the latest request")
@@ -572,18 +673,78 @@ describe("runSession", () => {
     const statusResult = runCli(repoDir, ["session", "status", "--json"]);
     expect(statusResult.exitCode).toBe(0);
     const statusPayload = JSON.parse(statusResult.stdout) as {
-      latestContinuityAuditEntry: { rolloutPath: string } | null;
-      latestContinuityDiagnostics: { actualPath: string; warnings: string[] } | null;
+      latestContinuityAuditEntry: {
+        rolloutPath: string;
+        trigger?: string;
+        writeMode?: string;
+      } | null;
+      latestContinuityDiagnostics: {
+        actualPath: string;
+        confidence: string;
+        warnings: string[];
+      } | null;
       recentContinuityAuditEntries: Array<{ rolloutPath: string }>;
     };
     expect(statusPayload.latestContinuityAuditEntry?.rolloutPath).toBe(rolloutPath);
+    expect(statusPayload.latestContinuityAuditEntry?.trigger).toBe("manual-save");
+    expect(statusPayload.latestContinuityAuditEntry?.writeMode).toBe("merge");
     expect(statusPayload.latestContinuityDiagnostics?.actualPath).toBe("heuristic");
+    expect(statusPayload.latestContinuityDiagnostics?.confidence).toBe("low");
     expect(statusPayload.latestContinuityDiagnostics?.warnings).toEqual(
       expect.arrayContaining([
         expect.stringContaining("Next steps were inferred from the latest request")
       ])
     );
     expect(statusPayload.recentContinuityAuditEntries[0]?.rolloutPath).toBe(rolloutPath);
+  }, 30_000);
+
+  it("keeps reviewer noise in diagnostics but out of persisted continuity markdown for a mixed-language rollout fixture", async () => {
+    const repoDir = await tempDir("cam-session-mixed-noise-repo-");
+    const memoryRoot = await tempDir("cam-session-mixed-noise-memory-");
+    await initRepo(repoDir);
+
+    await writeProjectConfig(
+      repoDir,
+      configJson(),
+      { autoMemoryDirectory: memoryRoot }
+    );
+
+    const rolloutPath = path.join(repoDir, "mixed-language-reviewer-noise.jsonl");
+    await copyRolloutFixture("mixed-language-reviewer-noise.jsonl", rolloutPath);
+
+    const saveResult = runCli(repoDir, ["session", "save", "--json", "--rollout", rolloutPath]);
+    expect(saveResult.exitCode).toBe(0);
+    const savePayload = JSON.parse(saveResult.stdout) as {
+      diagnostics: { confidence: string; warnings: string[] };
+      latestContinuityAuditEntry: { warnings?: string[] } | null;
+    };
+    expect(savePayload.diagnostics.confidence).toBe("low");
+    expect(savePayload.diagnostics.warnings).toEqual(
+      expect.arrayContaining([
+        expect.stringContaining("Reviewer or subagent prompt noise")
+      ])
+    );
+    expect(savePayload.latestContinuityAuditEntry?.warnings).toEqual(
+      expect.arrayContaining([
+        expect.stringContaining("Reviewer or subagent prompt noise")
+      ])
+    );
+
+    const store = new SessionContinuityStore(detectProjectContext(repoDir), {
+      ...configJson(),
+      autoMemoryDirectory: memoryRoot
+    });
+    const sharedBody = await fs.readFile(store.paths.sharedFile, "utf8");
+    const localBody = await fs.readFile(store.paths.localFile, "utf8");
+
+    expect(sharedBody).toContain("pnpm test");
+    expect(sharedBody).toContain("pnpm build");
+    expect(localBody).toContain("更新 src/auth/login.ts");
+    expect(localBody).toContain("login.ts");
+    expect(sharedBody).not.toContain("Reviewer or subagent prompt noise");
+    expect(localBody).not.toContain("Reviewer or subagent prompt noise");
+    expect(sharedBody).not.toContain("Focus on docs and contract surfaces only");
+    expect(localBody).not.toContain("Focus on docs and contract surfaces only");
   }, 30_000);
 
   it("refresh prefers a matching recovery marker over audit and latest primary rollout", async () => {
@@ -936,6 +1097,295 @@ describe("runSession", () => {
     expect(payload.summary.projectLocal.incompleteNext.join("\n")).not.toContain(
       "reviewer sub-agent"
     );
+  }, 30_000);
+
+  it("keeps modern audit metadata and reviewer-noise scrub stable for a conflict-heavy rollout fixture", async () => {
+    const repoDir = await tempDir("cam-session-conflict-heavy-repo-");
+    const memoryRoot = await tempDir("cam-session-conflict-heavy-memory-");
+    await initRepo(repoDir);
+
+    await writeProjectConfig(
+      repoDir,
+      configJson(),
+      { autoMemoryDirectory: memoryRoot }
+    );
+
+    const rolloutPath = path.join(repoDir, "session-continuity-conflict-heavy.jsonl");
+    await writeSessionRolloutFile(
+      rolloutPath,
+      await fs.readFile(
+        path.join(rolloutFixturesDir, "session-continuity-conflict-heavy.jsonl"),
+        "utf8"
+      )
+    );
+
+    const savePayload = JSON.parse(
+      await runSession("save", {
+        cwd: repoDir,
+        rollout: rolloutPath,
+        scope: "both",
+        json: true
+      })
+    ) as {
+      diagnostics: { actualPath: string; confidence: string; warnings: string[] };
+      latestContinuityAuditEntry: {
+        rolloutPath: string;
+        trigger?: string;
+        writeMode?: string;
+        warnings?: string[];
+      } | null;
+    };
+    expect(savePayload.diagnostics.actualPath).toBe("heuristic");
+    expect(savePayload.diagnostics.confidence).toBe("low");
+    expect(savePayload.diagnostics.warnings).toEqual(
+      expect.arrayContaining([
+        expect.stringContaining("Reviewer or subagent prompt noise")
+      ])
+    );
+    expect(savePayload.latestContinuityAuditEntry).toMatchObject({
+      rolloutPath,
+      trigger: "manual-save",
+      writeMode: "merge"
+    });
+    expect(savePayload.latestContinuityAuditEntry?.warnings).toEqual(
+      expect.arrayContaining([
+        expect.stringContaining("Reviewer or subagent prompt noise")
+      ])
+    );
+
+    const loadPayload = JSON.parse(
+      await runSession("load", { cwd: repoDir, json: true })
+    ) as {
+      latestContinuityAuditEntry: {
+        rolloutPath: string;
+        trigger?: string;
+        writeMode?: string;
+      } | null;
+      latestContinuityDiagnostics: { confidence: string; warnings: string[] } | null;
+      recentContinuityAuditEntries: Array<{ rolloutPath: string }>;
+      projectState: {
+        goal: string;
+        confirmedWorking: string[];
+        triedAndFailed: string[];
+        notYetTried: string[];
+      } | null;
+      localState: {
+        incompleteNext: string[];
+        filesDecisionsEnvironment: string[];
+      } | null;
+      mergedState: {
+        goal: string;
+        confirmedWorking: string[];
+        triedAndFailed: string[];
+        incompleteNext: string[];
+      };
+    };
+    expect(loadPayload.latestContinuityAuditEntry).toMatchObject({
+      rolloutPath,
+      trigger: "manual-save",
+      writeMode: "merge"
+    });
+    expect(loadPayload.latestContinuityDiagnostics?.confidence).toBe("low");
+    expect(loadPayload.latestContinuityDiagnostics?.warnings).toEqual(
+      expect.arrayContaining([
+        expect.stringContaining("Reviewer or subagent prompt noise")
+      ])
+    );
+    expect(loadPayload.recentContinuityAuditEntries[0]?.rolloutPath).toBe(rolloutPath);
+    expect(loadPayload.projectState?.goal).toContain("pnpm test passes");
+    expect(loadPayload.projectState?.notYetTried.join("\n")).toContain("cookies()");
+    expect(loadPayload.localState?.incompleteNext.join("\n")).toContain("guard the redirect");
+    expect(loadPayload.localState?.filesDecisionsEnvironment.join("\n")).toContain("login.ts");
+    expect(loadPayload.mergedState.goal).toContain("pnpm test passes");
+
+    const statusPayload = JSON.parse(
+      await runSession("status", { cwd: repoDir, json: true })
+    ) as {
+      latestContinuityAuditEntry: {
+        rolloutPath: string;
+        trigger?: string;
+        writeMode?: string;
+      } | null;
+      latestContinuityDiagnostics: { confidence: string; warnings: string[] } | null;
+      recentContinuityAuditEntries: Array<{ rolloutPath: string }>;
+    };
+    expect(statusPayload.latestContinuityAuditEntry).toMatchObject({
+      rolloutPath,
+      trigger: "manual-save",
+      writeMode: "merge"
+    });
+    expect(statusPayload.latestContinuityDiagnostics?.confidence).toBe("low");
+    expect(statusPayload.latestContinuityDiagnostics?.warnings).toEqual(
+      expect.arrayContaining([
+        expect.stringContaining("Reviewer or subagent prompt noise")
+      ])
+    );
+    expect(statusPayload.recentContinuityAuditEntries[0]?.rolloutPath).toBe(rolloutPath);
+
+    const store = new SessionContinuityStore(detectProjectContext(repoDir), {
+      ...configJson(),
+      autoMemoryDirectory: memoryRoot
+    });
+    const sharedBody = await fs.readFile(store.paths.sharedFile, "utf8");
+    const localBody = await fs.readFile(store.paths.localFile, "utf8");
+    expect(sharedBody).not.toContain("Reviewer or subagent prompt noise");
+    expect(localBody).not.toContain("Reviewer or subagent prompt noise");
+    expect(sharedBody).not.toContain("Focus on docs and contract surfaces only");
+    expect(localBody).not.toContain("Focus on docs and contract surfaces only");
+    expect(sharedBody).toContain("Redis must be running before integration tests.");
+    expect(localBody).toContain("src/auth/middleware.ts");
+  }, 30_000);
+
+  it("keeps refresh provenance selection distinct from wrapper auto-save in the same scenario", async () => {
+    const repoDir = await tempDir("cam-session-refresh-vs-wrapper-repo-");
+    const memoryRoot = await tempDir("cam-session-refresh-vs-wrapper-memory-");
+    const sessionsDir = await tempDir("cam-session-refresh-vs-wrapper-sessions-");
+    const dayDir = path.join(sessionsDir, "2026", "03", "15");
+    process.env.CAM_CODEX_SESSIONS_DIR = sessionsDir;
+    await fs.mkdir(dayDir, { recursive: true });
+    await initRepo(repoDir);
+
+    const mockCodexPath = await writeNoopCodexBinary(repoDir);
+    await writeProjectConfig(
+      repoDir,
+      configJson({
+        codexBinary: mockCodexPath,
+        sessionContinuityAutoLoad: false,
+        sessionContinuityAutoSave: true
+      }),
+      {
+        autoMemoryDirectory: memoryRoot,
+        sessionContinuityAutoLoad: false,
+        sessionContinuityAutoSave: true
+      }
+    );
+
+    const recoveryRolloutPath = await writeSessionRolloutFile(
+      path.join(repoDir, "recovery-rollout.jsonl"),
+      rolloutFixture(repoDir, "Refresh should use the recovery provenance.", {
+        sessionId: "session-recovery-shared"
+      })
+    );
+    const auditRolloutPath = await writeSessionRolloutFile(
+      path.join(repoDir, "audit-rollout.jsonl"),
+      rolloutFixture(repoDir, "Refresh should use the audit provenance only if recovery is absent.", {
+        sessionId: "session-audit-shared"
+      })
+    );
+    const primaryRolloutPath = await writeSessionRolloutFile(
+      path.join(dayDir, "rollout-primary.jsonl"),
+      rolloutFixture(repoDir, "Wrapper auto-save should keep the real primary rollout.", {
+        sessionId: "session-primary-shared"
+      })
+    );
+    const subagentRolloutPath = await writeSessionRolloutFile(
+      path.join(dayDir, "rollout-subagent.jsonl"),
+      [
+        JSON.stringify({
+          type: "session_meta",
+          payload: {
+            id: "session-subagent-shared",
+            forked_from_id: "session-primary-shared",
+            timestamp: "2026-03-15T00:00:02.000Z",
+            cwd: repoDir,
+            source: {
+              subagent: {
+                thread_spawn: {
+                  parent_thread_id: "session-primary-shared"
+                }
+              }
+            }
+          }
+        }),
+        JSON.stringify({
+          type: "session_meta",
+          payload: {
+            id: "session-primary-shared",
+            timestamp: "2026-03-15T00:00:01.000Z",
+            cwd: repoDir,
+            source: "cli"
+          }
+        }),
+        JSON.stringify({
+          type: "event_msg",
+          payload: {
+            type: "user_message",
+            message: "You are reviewer sub-agent 4. Work read-only. Focus on docs and contract surfaces only."
+          }
+        })
+      ].join("\n")
+    );
+
+    const project = detectProjectContext(repoDir);
+    const store = new SessionContinuityStore(project, {
+      ...configJson({
+        codexBinary: mockCodexPath,
+        sessionContinuityAutoLoad: false,
+        sessionContinuityAutoSave: true
+      }),
+      autoMemoryDirectory: memoryRoot
+    });
+    await store.writeRecoveryRecord({
+      recordedAt: "2026-03-18T00:00:00.000Z",
+      projectId: project.projectId,
+      worktreeId: project.worktreeId,
+      rolloutPath: recoveryRolloutPath,
+      sourceSessionId: "session-recovery-shared",
+      trigger: "manual-save",
+      writeMode: "merge",
+      scope: "both",
+      writtenPaths: [store.paths.sharedFile, store.paths.localFile],
+      preferredPath: "heuristic",
+      actualPath: "heuristic",
+      fallbackReason: "configured-heuristic",
+      evidenceCounts: makeEvidenceCounts(),
+      failedStage: "audit-write",
+      failureMessage: "stale recovery marker"
+    });
+    await store.appendAuditLog({
+      generatedAt: "2026-03-18T00:01:00.000Z",
+      projectId: project.projectId,
+      worktreeId: project.worktreeId,
+      configuredExtractorMode: "heuristic",
+      trigger: "manual-save",
+      writeMode: "merge",
+      scope: "both",
+      rolloutPath: auditRolloutPath,
+      sourceSessionId: "session-audit-shared",
+      preferredPath: "heuristic",
+      actualPath: "heuristic",
+      fallbackReason: "configured-heuristic",
+      evidenceCounts: makeEvidenceCounts(),
+      writtenPaths: ["/tmp/continuity-audit.md"]
+    });
+
+    const refreshPayload = JSON.parse(
+      await runSession("refresh", { cwd: repoDir, scope: "both", json: true })
+    ) as {
+      rolloutPath: string;
+      rolloutSelection: { kind: string; rolloutPath: string };
+    };
+    expect(refreshPayload).toMatchObject({
+      rolloutPath: recoveryRolloutPath,
+      rolloutSelection: {
+        kind: "pending-recovery-marker",
+        rolloutPath: recoveryRolloutPath
+      }
+    });
+
+    const exitCode = await runWrappedCodex(repoDir, "exec", ["continue"]);
+    expect(exitCode).toBe(0);
+
+    const latestAudit = await store.readLatestAuditEntry();
+    expect(latestAudit).toMatchObject({
+      trigger: "wrapper-auto-save",
+      writeMode: "merge",
+      rolloutPath: primaryRolloutPath,
+      sourceSessionId: "session-primary-shared"
+    });
+    expect(latestAudit?.rolloutPath).not.toBe(recoveryRolloutPath);
+    expect(latestAudit?.rolloutPath).not.toBe(auditRolloutPath);
+    expect(latestAudit?.rolloutPath).not.toBe(subagentRolloutPath);
   }, 30_000);
 
   it("rejects invalid scope values", async () => {

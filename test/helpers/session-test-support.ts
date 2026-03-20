@@ -17,6 +17,15 @@ export async function cleanupTempDirs(tempDirs: string[]): Promise<void> {
   );
 }
 
+export async function writeSessionRolloutFile(
+  rolloutPath: string,
+  contents: string
+): Promise<string> {
+  await fs.mkdir(path.dirname(rolloutPath), { recursive: true });
+  await fs.writeFile(rolloutPath, contents, "utf8");
+  return rolloutPath;
+}
+
 export function makeEvidenceCounts(successfulCommands = 1): {
   successfulCommands: number;
   failedCommands: number;
@@ -72,4 +81,24 @@ fs.writeFileSync(rolloutPath, [
     capturedArgsPath,
     mockCodexPath
   };
+}
+
+export async function writeMockCodexBinary(
+  tempRoot: string,
+  body: string
+): Promise<string> {
+  const mockBinary = path.join(tempRoot, "mock-codex");
+  await fs.writeFile(
+    mockBinary,
+    `#!/usr/bin/env node
+const fs = require("node:fs");
+const args = process.argv.slice(2);
+const outputIndex = args.indexOf("-o");
+const outputPath = args[outputIndex + 1];
+${body}
+`,
+    "utf8"
+  );
+  await fs.chmod(mockBinary, 0o755);
+  return mockBinary;
 }

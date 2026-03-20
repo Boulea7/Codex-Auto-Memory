@@ -27,6 +27,7 @@ pnpm test:cli-smoke
 pnpm test
 pnpm build
 pnpm test:dist-cli-smoke
+pnpm test:tarball-install-smoke
 ```
 
 Use Node 20+ and `pnpm`.
@@ -39,6 +40,7 @@ Use Node 20+ and `pnpm`.
 - Update docs whenever behavior, config, or file layout changes.
 - Include screenshots or terminal output only when it helps explain the UX.
 - If you touch release-facing CLI behavior, validate `node dist/cli.js` or `pnpm test:dist-cli-smoke`.
+- If you touch packaging, release verification, or install-time CLI behavior, also validate `pnpm test:tarball-install-smoke`.
 
 ## Current maintainer focus
 
@@ -56,10 +58,13 @@ Use Node 20+ and `pnpm`.
 - Keep reviewer-only warnings and confidence prose in audit/reviewer surfaces; they should not become continuity body content.
 - Keep `src/cli.ts` narrow. New commands should be registered through `src/lib/cli/register-commands.ts` instead of expanding the main entrypoint again.
 - Keep runtime composition in `src/lib/runtime/runtime-context.ts`; command files should depend on that runtime surface instead of rebuilding their own composition helpers.
+- Keep `src/lib/commands/session.ts` thin. Provenance selection and action dispatch belong there; reviewer-facing text/json assembly belongs in `src/lib/commands/session-presenters.ts`.
+- Keep shared continuity persistence in `src/lib/domain/session-continuity-persistence.ts` so session commands and wrapper auto-save do not drift into separate persistence code paths.
 - When touching continuity persistence, preserve the current contract split:
   - `cam session save` = `merge`
   - `cam session refresh` = `replace`
   - wrapper auto-save = `merge`
+- Do not hard-merge the rollout selection rules for `cam session refresh` and wrapper auto-save. They intentionally share persistence semantics, not identical provenance selection.
 - If you split tests, keep `runSession` and wrapper continuity coverage in separate files and share helpers from `test/helpers/` rather than re-inlining temp-dir or mock-wrapper setup.
 
 ## Documentation Guidelines

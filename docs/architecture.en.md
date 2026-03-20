@@ -18,8 +18,10 @@ The implementation also now follows an intentionally narrow code layout:
 
 - `src/cli.ts`: wrapper fast path, version wiring, and Commander bootstrap only
 - `src/lib/cli/register-commands.ts`: centralized command registration
-- `src/lib/runtime/runtime-context.ts`: runtime composition and config-patch reload
-- `src/lib/commands/*`: command orchestration and reviewer-facing text/json surfaces
+- `src/lib/runtime/runtime-context.ts`: runtime composition, config-patch reload, and the shared reload helper used after memory enable/disable patches
+- `src/lib/commands/session.ts`: provenance selection and action dispatch only
+- `src/lib/commands/session-presenters.ts`: centralized text/json reviewer surfaces for `cam session`
+- `src/lib/domain/session-continuity-persistence.ts`: shared continuity persistence spine used by both session commands and the wrapper flow
 - `src/lib/domain/*`: core memory, continuity, audit, and rollout behavior
 - `src/lib/util/*`: utility layer
 

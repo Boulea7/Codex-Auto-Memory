@@ -23,12 +23,15 @@ describe("docs contract", () => {
     expect(readme).toContain("cam session refresh");
     expect(readme).toContain("reviewer warning prose");
     expect(readme).toContain("tagged GitHub Releases");
+    expect(readme).toContain("tarball install smoke");
     expect(readmeEn).toContain("cam memory");
     expect(readmeEn).toContain("cam session status");
     expect(readmeEn).toContain("confidence");
     expect(readmeEn).toContain("deterministic scrub");
     expect(readmeEn).toContain("tagged GitHub Releases");
+    expect(readmeEn).toContain("tarball install smoke");
     expect(releaseChecklist).toContain("pnpm test:dist-cli-smoke");
+    expect(releaseChecklist).toContain("pnpm test:tarball-install-smoke");
     expect(releaseChecklist).toContain("node dist/cli.js --version");
     expect(releaseChecklist).toContain("node dist/cli.js audit");
     expect(releaseChecklist).toContain("pnpm test:docs-contract");
@@ -41,14 +44,23 @@ describe("docs contract", () => {
     expect(contributing).toContain("reviewer-only warnings");
     expect(contributing).toContain("pnpm test:docs-contract");
     expect(contributing).toContain("pnpm test:dist-cli-smoke");
+    expect(contributing).toContain("pnpm test:tarball-install-smoke");
     expect(packageJson.scripts["test:dist-cli-smoke"]).toBe("vitest run test/dist-cli-smoke.test.ts");
+    expect(packageJson.scripts["test:tarball-install-smoke"]).toBe(
+      "vitest run test/tarball-install-smoke.test.ts"
+    );
     expect(packageJson.scripts.prepack).toBe("pnpm build");
     expect(packageJson.scripts["verify:release"]).toContain("pnpm test:dist-cli-smoke");
+    expect(packageJson.scripts["verify:release"]).toContain("pnpm test:tarball-install-smoke");
     expect(ciWorkflow).toContain("Dist CLI Smoke");
+    expect(ciWorkflow).toContain("Tarball Install Smoke");
     expect(releaseWorkflow).toContain("tags:");
     expect(releaseWorkflow).toContain("v*");
     expect(releaseWorkflow).toContain("pnpm verify:release");
     expect(releaseWorkflow).toContain("gh release create");
+    expect(releaseChecklist).toContain("default branch");
+    expect(readme).toContain("确认默认分支上的该 workflow 已激活且可观测");
+    expect(readmeEn).toContain("default branch exposes and activates that workflow");
   });
 
   it("keeps continuity, architecture, and migration wording aligned with the current product posture", async () => {

@@ -481,8 +481,19 @@ describe("runMemory", () => {
       sessionSource: "rollout-jsonl",
       status: "applied",
       appliedCount: 1,
+      suppressedOperationCount: 1,
       scopesTouched: ["project"],
       resultSummary: "1 operation(s) applied",
+      conflicts: [
+        {
+          scope: "project",
+          topic: "preferences",
+          candidateSummary: "Maybe use bun instead of pnpm in this repository.",
+          conflictsWith: ["Prefer pnpm in this repository."],
+          source: "existing-memory",
+          resolution: "suppressed"
+        }
+      ],
       operations: [
         {
           action: "upsert",
@@ -501,7 +512,18 @@ describe("runMemory", () => {
     expect(jsonResult.exitCode).toBe(0);
     const jsonOutput = JSON.parse(jsonResult.stdout) as MemoryCommandOutput;
     expect(jsonOutput.recentSyncAudit).toHaveLength(1);
-    expect(jsonOutput.recentSyncAudit[0]?.rolloutPath).toBe("/tmp/rollout-memory-cli.jsonl");
+    expect(jsonOutput.recentSyncAudit[0]).toMatchObject({
+      rolloutPath: "/tmp/rollout-memory-cli.jsonl",
+      suppressedOperationCount: 1
+    });
+    expect(jsonOutput.recentSyncAudit[0]?.conflicts).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          resolution: "suppressed"
+        })
+      ])
+    );
+    expect(jsonOutput.recentAudit).toEqual(jsonOutput.recentSyncAudit);
     expect(jsonOutput.syncAuditPath).toBe(store.getSyncAuditPath());
 
     const textResult = runCli(projectDir, ["memory", "--recent", "2", "--print-startup"]);

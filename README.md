@@ -274,7 +274,7 @@ Session continuity：
 - topic-aware startup lookup：可用
 - session continuity companion layer：可用
 - reviewer audit surfaces：可用
-- tagged GitHub Releases：可用，提供 tarball artifact；npm publish 仍保持手动流程
+- tagged GitHub Releases：release workflow 已定义并以 tarball artifact 为目标；推送首个真实 tag 前，应先确认默认分支上的该 workflow 已激活且可观测，npm publish 继续保持手动流程
 - native memory / native hooks primary path：未启用，仍非 trusted implementation path
 
 ## 路线图
@@ -292,6 +292,7 @@ Session continuity：
 - 更稳的 contradiction handling
 - 更清晰的 `cam memory` / `cam session` 审查 UX
 - continuity diagnostics 与 reviewer packet 继续收紧信息层次，并显式暴露 confidence / warnings
+- release-facing 验证继续收紧到 tarball install smoke，确保 `.tgz` 安装后的 `cam` bin shim 可直接工作
 - 继续保留对未来 hook surface 的 compatibility seam
 
 ### v0.3+
