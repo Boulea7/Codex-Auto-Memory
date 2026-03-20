@@ -630,6 +630,73 @@ describe("session continuity domain", () => {
     expect(result.diagnostics.warnings.join("\n")).not.toContain("Conflicting package manager signals");
   });
 
+  it("strips reviewer warning prose from codex continuity body while keeping diagnostics warnings", async () => {
+    const temp = await tempDir("cam-session-codex-warning-prose-");
+    const reviewerWarning =
+      "Reviewer or subagent prompt noise was detected in the rollout; continuity extraction ignored non-product transcript lines.";
+    const mockBinary = await writeMockCodexBinary(
+      temp,
+      `fs.writeFileSync(outputPath, JSON.stringify({
+  project: {
+    goal: ${JSON.stringify(reviewerWarning)},
+    confirmedWorking: ["Command succeeded: pnpm test"],
+    triedAndFailed: [],
+    notYetTried: [],
+    incompleteNext: [],
+    filesDecisionsEnvironment: [${JSON.stringify(reviewerWarning)}]
+  },
+  projectLocal: {
+    goal: "",
+    confirmedWorking: [],
+    triedAndFailed: [],
+    notYetTried: [],
+    incompleteNext: ["Update src/auth/login.ts to set an httpOnly cookie."],
+    filesDecisionsEnvironment: ["File modified: login.ts", ${JSON.stringify(reviewerWarning)}]
+  }
+}));`
+    );
+    const evidence: RolloutEvidence = {
+      sessionId: "session-codex-warning-prose",
+      createdAt: "2026-03-15T00:00:00.000Z",
+      cwd: temp,
+      userMessages: ["Continue the auth rollout."],
+      agentMessages: [
+        "接下来我会做两件并行的只读工作：一是按你要求跑完整校验命令并记录结果，二是把审查范围拆给 4 个 reviewer 子 agent 分域取证。"
+      ],
+      toolCalls: [
+        {
+          name: "exec_command",
+          arguments: JSON.stringify({ cmd: "pnpm test" }),
+          output: "Process exited with code 0"
+        }
+      ],
+      rolloutPath: "/tmp/rollout.jsonl"
+    };
+
+    const summarizer = new SessionContinuitySummarizer(
+      baseConfig("/tmp/memory-root", {
+        extractorMode: "codex",
+        codexBinary: mockBinary
+      })
+    );
+    const result = await summarizer.summarizeWithDiagnostics(evidence);
+    const renderedBody = JSON.stringify({
+      project: result.summary.project,
+      projectLocal: result.summary.projectLocal
+    });
+
+    expect(result.diagnostics.actualPath).toBe("codex");
+    expect(result.diagnostics.warnings).toEqual(
+      expect.arrayContaining([expect.stringContaining("Reviewer or subagent prompt noise")])
+    );
+    expect(result.summary.project.confirmedWorking).toEqual(["Command succeeded: pnpm test"]);
+    expect(result.summary.projectLocal.incompleteNext).toEqual([
+      "Update src/auth/login.ts to set an httpOnly cookie."
+    ]);
+    expect(result.summary.projectLocal.filesDecisionsEnvironment).toEqual(["File modified: login.ts"]);
+    expect(renderedBody).not.toContain(reviewerWarning);
+  });
+
   it("clears continuity conflict warnings when a later explicit user correction resolves the preference", async () => {
     const temp = await tempDir("cam-session-resolved-warning-");
     const mockBinary = await writeMockCodexBinary(
@@ -680,6 +747,87 @@ describe("session continuity domain", () => {
 
     expect(result.diagnostics.warnings).toEqual([]);
     expect(result.diagnostics.confidence).toBe("high");
+  });
+
+  it("falls back after scrubbing warning-only codex output", async () => {
+    const temp = await tempDir("cam-session-codex-warning-only-");
+    const reviewerWarning =
+      "Reviewer or subagent prompt noise was detected in the rollout; continuity extraction ignored non-product transcript lines.";
+    const mockBinary = await writeMockCodexBinary(
+      temp,
+      `fs.writeFileSync(outputPath, JSON.stringify({
+  project: {
+    goal: ${JSON.stringify(reviewerWarning)},
+    confirmedWorking: [${JSON.stringify(reviewerWarning)}],
+    triedAndFailed: [],
+    notYetTried: [],
+    incompleteNext: [],
+    filesDecisionsEnvironment: []
+  },
+  projectLocal: {
+    goal: "",
+    confirmedWorking: [],
+    triedAndFailed: [],
+    notYetTried: [],
+    incompleteNext: [${JSON.stringify(reviewerWarning)}],
+    filesDecisionsEnvironment: [${JSON.stringify(reviewerWarning)}]
+  }
+}));`
+    );
+    const evidence: RolloutEvidence = {
+      sessionId: "session-codex-warning-only",
+      createdAt: "2026-03-15T00:00:00.000Z",
+      cwd: temp,
+      userMessages: [
+        "We haven't tried switching the login route to cookies() yet.",
+        "Next step: update src/auth/login.ts to set an httpOnly cookie."
+      ],
+      agentMessages: [
+        "接下来我会做两件并行的只读工作：一是按你要求跑完整校验命令并记录结果，二是把审查范围拆给 4 个 reviewer 子 agent 分域取证。"
+      ],
+      toolCalls: [
+        {
+          name: "exec_command",
+          arguments: JSON.stringify({ cmd: "pnpm test" }),
+          output: "Process exited with code 0"
+        },
+        {
+          name: "apply_patch_freeform",
+          arguments:
+            "diff --git a/src/auth/login.ts b/src/auth/login.ts\nindex abc..def 100644\n--- a/src/auth/login.ts\n+++ b/src/auth/login.ts\n@@ -1,3 +1,4 @@\n+setCookie(token);\n export {};",
+          output: undefined
+        }
+      ],
+      rolloutPath: "/tmp/rollout.jsonl"
+    };
+
+    const summarizer = new SessionContinuitySummarizer(
+      baseConfig("/tmp/memory-root", {
+        extractorMode: "codex",
+        codexBinary: mockBinary
+      })
+    );
+    const result = await summarizer.summarizeWithDiagnostics(evidence);
+    const renderedBody = JSON.stringify({
+      project: result.summary.project,
+      projectLocal: result.summary.projectLocal
+    });
+
+    expect(result.diagnostics.preferredPath).toBe("codex");
+    expect(result.diagnostics.actualPath).toBe("heuristic");
+    expect(result.diagnostics.fallbackReason).toBe("low-signal");
+    expect(result.diagnostics.warnings).toEqual(
+      expect.arrayContaining([expect.stringContaining("Reviewer or subagent prompt noise")])
+    );
+    expect(result.summary.project.confirmedWorking.join("\n")).toContain("pnpm test");
+    expect(result.summary.project.notYetTried.join("\n")).toContain(
+      "switching the login route to cookies()"
+    );
+    expect(result.summary.projectLocal.incompleteNext.join("\n")).toContain(
+      "update src/auth/login.ts"
+    );
+    expect(result.summary.projectLocal.filesDecisionsEnvironment.join("\n")).toContain("login.ts");
+    expect(renderedBody).not.toContain(reviewerWarning);
   });
 
   it("collects successful and failed bash tool calls in continuity evidence buckets", () => {

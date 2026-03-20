@@ -88,6 +88,12 @@ const layerKeys = [
   "filesDecisionsEnvironment"
 ] satisfies Array<keyof SessionContinuityLayerSummary>;
 
+const REVIEWER_WARNING_PATTERNS = [
+  /\breviewer or subagent prompt noise\b/iu,
+  /\bconflicting .+ signals were detected in the rollout\b/iu,
+  /\bverify the current preference before trusting this continuity summary\b/iu
+];
+
 function isStringArray(value: unknown): value is string[] {
   return Array.isArray(value) && value.every((item) => typeof item === "string");
 }
@@ -135,6 +141,63 @@ function shouldFallbackForLowSignal(
   buckets: SessionContinuityEvidenceBuckets
 ): boolean {
   return hasEvidenceBuckets(buckets) && !hasEvidenceBearingContent(summary);
+}
+
+function normalizeWarningComparableText(value: string): string {
+  return value.replace(/\s+/g, " ").trim().toLowerCase();
+}
+
+function shouldStripReviewerWarningProse(item: string, warningHints: string[]): boolean {
+  const normalizedItem = normalizeWarningComparableText(item);
+  if (!normalizedItem) {
+    return false;
+  }
+
+  if (REVIEWER_WARNING_PATTERNS.some((pattern) => pattern.test(normalizedItem))) {
+    return true;
+  }
+
+  return warningHints.some((hint) => {
+    const normalizedHint = normalizeWarningComparableText(hint);
+    return (
+      normalizedHint.length > 0 &&
+      (normalizedItem === normalizedHint ||
+        normalizedItem.includes(normalizedHint) ||
+        normalizedHint.includes(normalizedItem))
+    );
+  });
+}
+
+function scrubReviewerWarningProseFromLayer(
+  layer: SessionContinuityLayerSummary,
+  warningHints: string[]
+): SessionContinuityLayerSummary {
+  const stripItems = (items: string[]) =>
+    items.filter((item) => !shouldStripReviewerWarningProse(item, warningHints));
+
+  return {
+    goal: shouldStripReviewerWarningProse(layer.goal, warningHints) ? "" : layer.goal,
+    confirmedWorking: stripItems(layer.confirmedWorking),
+    triedAndFailed: stripItems(layer.triedAndFailed),
+    notYetTried: stripItems(layer.notYetTried),
+    incompleteNext: stripItems(layer.incompleteNext),
+    filesDecisionsEnvironment: stripItems(layer.filesDecisionsEnvironment)
+  };
+}
+
+function scrubReviewerWarningProse(
+  summary: SessionContinuitySummary,
+  warningHints: string[]
+): SessionContinuitySummary {
+  if (warningHints.length === 0) {
+    return summary;
+  }
+
+  return {
+    ...summary,
+    project: scrubReviewerWarningProseFromLayer(summary.project, warningHints),
+    projectLocal: scrubReviewerWarningProseFromLayer(summary.projectLocal, warningHints)
+  };
 }
 
 function determineConfidence(
@@ -374,10 +437,13 @@ export class SessionContinuitySummarizer {
         };
       }
 
-      const summary: SessionContinuitySummary = {
-        ...parsed,
-        sourceSessionId: parsed.sourceSessionId ?? evidence.sessionId
-      };
+      const summary = scrubReviewerWarningProse(
+        {
+          ...parsed,
+          sourceSessionId: parsed.sourceSessionId ?? evidence.sessionId
+        },
+        buckets.warningHints
+      );
       if (shouldFallbackForLowSignal(summary, buckets)) {
         return {
           summary: null,

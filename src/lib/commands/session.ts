@@ -7,6 +7,7 @@ import {
   buildSessionContinuityAuditEntry,
   formatSessionContinuityAuditDrillDown,
   formatSessionContinuityDiagnostics,
+  normalizeContinuityRecoveryRecord,
   normalizeSessionContinuityAuditTrigger,
   normalizeSessionContinuityWriteMode,
   toSessionContinuityDiagnostics
@@ -146,27 +147,35 @@ function formatPendingContinuityRecovery(
   record: ContinuityRecoveryRecord,
   recoveryPath: string
 ): string[] {
+  const normalized = normalizeContinuityRecoveryRecord(record);
+  const warnings = normalized.warnings ?? [];
   const lines = [
     "Pending continuity recovery:",
     `- Recovery file: ${recoveryPath}`,
-    `- Failed stage: ${record.failedStage}`,
-    `- Rollout: ${record.rolloutPath}`,
-    ...(record.trigger ? [`- Trigger: ${record.trigger}`] : []),
-    ...(record.writeMode ? [`- Write mode: ${record.writeMode}`] : []),
-    `- Scope: ${record.scope}`,
-    `- Generation: ${record.actualPath} | preferred ${record.preferredPath}${record.confidence ? ` | confidence ${record.confidence}` : ""}`,
-    `- Failure: ${record.failureMessage}`
+    `- Failed stage: ${normalized.failedStage}`,
+    `- Rollout: ${normalized.rolloutPath}`,
+    ...(normalized.trigger ? [`- Trigger: ${normalized.trigger}`] : []),
+    ...(normalized.writeMode ? [`- Write mode: ${normalized.writeMode}`] : []),
+    `- Scope: ${normalized.scope}`,
+    `- Generation: ${normalized.actualPath} | preferred ${normalized.preferredPath}${normalized.confidence ? ` | confidence ${normalized.confidence}` : ""}`,
+    `- Failure: ${normalized.failureMessage}`
   ];
 
-  if (record.warnings?.length) {
-    lines.push(...record.warnings.map((warning) => `- Warning: ${warning}`));
+  if (warnings.length > 0) {
+    lines.push(...warnings.map((warning) => `- Warning: ${warning}`));
   }
 
-  if (record.writtenPaths.length > 0) {
-    lines.push(...record.writtenPaths.map((filePath) => `- Written: ${filePath}`));
+  if (normalized.writtenPaths.length > 0) {
+    lines.push(...normalized.writtenPaths.map((filePath) => `- Written: ${filePath}`));
   }
 
   return lines;
+}
+
+function existingContinuitySourceFiles(
+  ...locations: Array<{ path: string; exists: boolean }>
+): string[] {
+  return locations.filter((location) => location.exists).map((location) => location.path);
 }
 
 async function selectRefreshRollout(
@@ -273,6 +282,8 @@ async function persistSessionContinuity(
     await options.runtime.sessionContinuityStore.readRecentAuditEntries(
       recentContinuityPreviewReadLimit
     );
+  const pendingContinuityRecoveryRecord =
+    await options.runtime.sessionContinuityStore.readRecoveryRecord();
 
   return {
     rolloutPath: options.rolloutPath,
@@ -288,7 +299,9 @@ async function persistSessionContinuity(
       0,
       recentContinuityAuditLimit
     ),
-    pendingContinuityRecovery: await options.runtime.sessionContinuityStore.readRecoveryRecord(),
+    pendingContinuityRecovery: pendingContinuityRecoveryRecord
+      ? normalizeContinuityRecoveryRecord(pendingContinuityRecoveryRecord)
+      : null,
     continuityAuditPath: options.runtime.sessionContinuityStore.paths.auditFile,
     continuityRecoveryPath: options.runtime.sessionContinuityStore.getRecoveryPath()
   };
@@ -396,7 +409,6 @@ export async function runSession(
     recentContinuityAuditLimit
   );
   const latestContinuityAuditEntry = recentContinuityAuditPreviewEntries[0] ?? null;
-  const pendingContinuityRecovery = await runtime.sessionContinuityStore.readRecoveryRecord();
   const latestContinuityDiagnostics = latestContinuityAuditEntry
     ? toSessionContinuityDiagnostics(latestContinuityAuditEntry)
     : null;
@@ -407,9 +419,13 @@ export async function runSession(
       runtime.project.projectId,
       runtime.project.worktreeId
     );
+  const pendingContinuityRecoveryRecord = await runtime.sessionContinuityStore.readRecoveryRecord();
+  const pendingContinuityRecovery = pendingContinuityRecoveryRecord
+    ? normalizeContinuityRecoveryRecord(pendingContinuityRecoveryRecord)
+    : null;
   const startup = compileSessionContinuity(
     mergedState,
-    [projectLocation.path, localLocation.path].filter(Boolean),
+    existingContinuitySourceFiles(projectLocation, localLocation),
     runtime.loadedConfig.config.maxSessionContinuityLines
   );
 
