@@ -1,6 +1,6 @@
 import { runCommandCapture } from "../util/process.js";
 import { buildNativeReadinessReport, parseCodexFeatures } from "../runtime/codex-features.js";
-import { buildRuntimeContext } from "./common.js";
+import { buildRuntimeContext } from "../runtime/runtime-context.js";
 
 interface DoctorOptions {
   cwd?: string;

@@ -1,27 +1,20 @@
 import { compileStartupMemory } from "../domain/startup-memory.js";
+import { formatSessionContinuityDiagnostics } from "../domain/session-continuity-diagnostics.js";
+import { persistSessionContinuity } from "../domain/session-continuity-persistence.js";
 import {
-  buildSessionContinuityAuditEntry,
-  formatSessionContinuityDiagnostics
-} from "../domain/session-continuity-diagnostics.js";
-import {
-  buildContinuityRecoveryRecord,
-  matchesContinuityRecoveryRecord
-} from "../domain/recovery-records.js";
-import { listRolloutFiles, parseRolloutEvidence, readRolloutMeta } from "../domain/rollout.js";
+  listRolloutFiles,
+  parseRolloutEvidence,
+  readRolloutMeta
+} from "../domain/rollout.js";
 import { compileSessionContinuity } from "../domain/session-continuity.js";
 import { readCodexBaseInstructions } from "../runtime/codex-config.js";
+import { buildRuntimeContext } from "../runtime/runtime-context.js";
 import { runCommand } from "../util/process.js";
-import { buildRuntimeContext } from "./common.js";
 import { RolloutSessionSource } from "../runtime/rollout-session-source.js";
 import { WrapperRuntimeInjector } from "../runtime/wrapper-injector.js";
-import { SessionContinuitySummarizer } from "../extractor/session-continuity-summarizer.js";
 
 const sessionSource = new RolloutSessionSource();
 const runtimeInjector = new WrapperRuntimeInjector();
-
-function errorMessage(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
-}
 
 async function selectLatestPrimaryRollout(candidates: string[]): Promise<string | null> {
   const metas = await Promise.all(candidates.map((candidate) => readRolloutMeta(candidate)));
@@ -112,73 +105,23 @@ async function saveSessionContinuity(
     return null;
   }
 
-  const evidence = await parseRolloutEvidence(rolloutPath);
-  if (!evidence) {
+  if (!(await parseRolloutEvidence(rolloutPath))) {
     return null;
   }
 
-  const existing = {
-    project: await runtime.sessionContinuityStore.readState("project"),
-    projectLocal: await runtime.sessionContinuityStore.readState("project-local")
-  };
-  const summarizer = new SessionContinuitySummarizer(runtime.loadedConfig.config);
-  const generation = await summarizer.summarizeWithDiagnostics(evidence, existing);
-  const written = await runtime.sessionContinuityStore.saveSummary(generation.summary, "both");
-  const auditEntry = buildSessionContinuityAuditEntry(
-    runtime.project,
-    runtime.loadedConfig.config,
-    generation.diagnostics,
-    written,
-    "both",
-    {
-      trigger: "wrapper-auto-save",
-      writeMode: "merge"
-    }
-  );
-  try {
-    await runtime.sessionContinuityStore.appendAuditLog(auditEntry);
-  } catch (error) {
-    try {
-      await runtime.sessionContinuityStore.writeRecoveryRecord(
-        buildContinuityRecoveryRecord({
-          projectId: runtime.project.projectId,
-          worktreeId: runtime.project.worktreeId,
-          diagnostics: generation.diagnostics,
-          trigger: "wrapper-auto-save",
-          writeMode: "merge",
-          scope: "both",
-          writtenPaths: written,
-          failedStage: "audit-write",
-          failureMessage: errorMessage(error)
-        })
-      );
-    } catch {
-      // Best-effort marker persistence should not overwrite the original failure.
-    }
-    throw error;
-  }
-  try {
-    const record = await runtime.sessionContinuityStore.readRecoveryRecord();
-    if (
-      record &&
-      matchesContinuityRecoveryRecord(record, {
-        projectId: runtime.project.projectId,
-        worktreeId: runtime.project.worktreeId,
-        rolloutPath: generation.diagnostics.rolloutPath,
-        sourceSessionId: generation.diagnostics.sourceSessionId,
-        scope: "both"
-      })
-    ) {
-      await runtime.sessionContinuityStore.clearRecoveryRecord();
-    }
-  } catch {
-    // Best-effort cleanup should not fail an otherwise successful auto-save.
-  }
-  return written.length > 0
+  const persisted = await persistSessionContinuity({
+    runtime,
+    rolloutPath,
+    scope: "both",
+    trigger: "wrapper-auto-save",
+    writeMode: "merge"
+  });
+
+  return persisted.written.length > 0
     ? [
         `Updated session continuity from ${rolloutPath}:`,
-        formatSessionContinuityDiagnostics(generation.diagnostics),
-        ...written.map((filePath) => `- ${filePath}`)
+        formatSessionContinuityDiagnostics(persisted.diagnostics),
+        ...persisted.written.map((filePath) => `- ${filePath}`)
       ].join("\n")
     : null;
 }
@@ -234,7 +177,7 @@ export async function runWrappedCodex(
   if (syncError && continuityError) {
     throw new AggregateError(
       [syncError, continuityError],
-      `Post-run persistence failed: durable sync: ${errorMessage(syncError)}; continuity: ${errorMessage(continuityError)}`
+      `Post-run persistence failed: durable sync: ${syncError instanceof Error ? syncError.message : String(syncError)}; continuity: ${continuityError instanceof Error ? continuityError.message : String(continuityError)}`
     );
   }
   if (syncError) {

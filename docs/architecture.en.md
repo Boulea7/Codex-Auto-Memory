@@ -14,6 +14,17 @@
 
 The shared goal is to keep memory auditable, editable, and migration-friendly instead of hiding state inside opaque caches.
 
+The implementation also now follows an intentionally narrow code layout:
+
+- `src/cli.ts`: wrapper fast path, version wiring, and Commander bootstrap only
+- `src/lib/cli/register-commands.ts`: centralized command registration
+- `src/lib/runtime/runtime-context.ts`: runtime composition and config-patch reload
+- `src/lib/commands/*`: command orchestration and reviewer-facing text/json surfaces
+- `src/lib/domain/*`: core memory, continuity, audit, and rollout behavior
+- `src/lib/util/*`: utility layer
+
+The goal is not prettier abstraction for its own sake. The goal is a narrower entrypoint, thinner command files, and less duplicated orchestration.
+
 ## Design principles
 
 - local-first and auditable
@@ -172,6 +183,12 @@ The architecture keeps these replacement boundaries explicit:
 - `MemoryExtractor`
 - `MemoryStore`
 - `RuntimeInjector`
+
+The current code layout tries to keep those seams visible in practice:
+
+- CLI registration is separated from wrapper fast-path bootstrap
+- command orchestration is separated from domain persistence
+- shared continuity persistence is separated from rollout provenance selection
 
 That keeps the integration layer replaceable without rewriting the user mental model.
 
