@@ -25,7 +25,7 @@
   </p>
 </div>
 
-> `codex-auto-memory` は汎用メモアプリでもクラウド型メモリサービスでもありません。  
+> `codex-auto-memory` は汎用メモアプリでもクラウド型メモリサービスでもありません。<br />
 > 現在の Codex CLI に対して、ローカル Markdown、コンパクトな startup injection、必要時のみの topic file 読み出し、そして companion runtime を使い、Claude Code auto memory の観測可能な契約をできるだけ再現することが目的です。
 
 ---
@@ -114,8 +114,8 @@ Claude Code には比較的明確な auto memory 契約があります。
 | inspect / audit memory | `/memory` | 相当コマンドなし | `cam memory` |
 | native hooks / memory | Built in | Experimental / under development | compatibility seam のみ保持 |
 
-`cam memory` は inspection / audit surface として設計されています。  
-実際に startup payload に入った quoted startup files、startup budget、on-demand topic refs、edit paths、さらに `--recent [count]` の recent durable sync audit を表示します。  
+`cam memory` は inspection / audit surface として設計されています。<br />
+実際に startup payload に入った quoted startup files、startup budget、on-demand topic refs、edit paths、さらに `--recent [count]` の recent durable sync audit を表示します。<br />
 recent sync audit では、保守的に suppress された conflict candidates も reviewer-visible に保持され、矛盾する rollout 出力が silent merge されないようになっています。
 
 ## クイックスタート

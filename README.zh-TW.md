@@ -25,7 +25,7 @@
   </p>
 </div>
 
-> `codex-auto-memory` 不是通用筆記軟體，也不是雲端記憶服務。  
+> `codex-auto-memory` 不是通用筆記軟體，也不是雲端記憶服務。<br />
 > 它的目標是在今天的 Codex CLI 上，以本地 Markdown、緊湊 startup injection、按需 topic file 讀取與 companion runtime，盡可能重現 Claude Code auto memory 的可觀察產品契約。
 
 ---
@@ -114,8 +114,8 @@ Claude Code 已經公開了一套相對清晰的 auto memory 產品契約：
 | inspect / audit memory | `/memory` | 無等價命令 | `cam memory` |
 | native hooks / memory | Built in | Experimental / under development | 目前只保留 compatibility seam |
 
-`cam memory` 目前是 inspection / audit surface：它會暴露真正進入 startup payload 的 quoted startup files、startup budget、按需 topic refs、edit paths，以及 `--recent [count]` 下的 recent durable sync audit。  
-recent durable sync audit 也會顯式暴露被保守 suppress 的 conflict candidates，避免在同一個 rollout 或和現有 durable memory 衝突時靜默 merge。  
+`cam memory` 目前是 inspection / audit surface：它會暴露真正進入 startup payload 的 quoted startup files、startup budget、按需 topic refs、edit paths，以及 `--recent [count]` 下的 recent durable sync audit。<br />
+recent durable sync audit 也會顯式暴露被保守 suppress 的 conflict candidates，避免在同一個 rollout 或和現有 durable memory 衝突時靜默 merge。<br />
 如果主 memory 檔案已寫入，但 reviewer sidecar 沒有完整落盤，`cam memory` 會盡力暴露 pending sync recovery marker，幫助 reviewer 辨識 partial-success 狀態。
 
 ## 快速開始
