@@ -1,5 +1,4 @@
 import path from "node:path";
-import { patchConfigFile } from "../config/write-config.js";
 import { formatMemorySyncAuditEntry } from "../domain/memory-sync-audit.js";
 import { buildCompactHistoryPreview } from "../domain/reviewer-history.js";
 import { openPath } from "../util/open.js";
@@ -11,7 +10,10 @@ import type {
   MemorySyncAuditEntry,
   SyncRecoveryRecord
 } from "../types.js";
-import { buildRuntimeContext } from "./common.js";
+import {
+  buildRuntimeContext,
+  patchConfigAndReloadRuntime
+} from "../runtime/runtime-context.js";
 
 interface MemoryOptions {
   cwd?: string;
@@ -101,15 +103,14 @@ export async function runMemory(options: MemoryOptions = {}): Promise<string> {
   }
 
   let configUpdateMessage: string | undefined;
-  const initialRuntime = await buildRuntimeContext(cwd);
+  let runtime = await buildRuntimeContext(cwd);
   if (options.enable || options.disable) {
-    const filePath = await patchConfigFile(initialRuntime.project.projectRoot, configScope, {
+    const reloaded = await patchConfigAndReloadRuntime(cwd, configScope, {
       autoMemoryEnabled: Boolean(options.enable)
     });
-    configUpdateMessage = `Updated ${configScope} config: ${filePath}`;
+    runtime = reloaded.runtime;
+    configUpdateMessage = `Updated ${configScope} config: ${reloaded.configUpdatePath}`;
   }
-
-  const runtime = await buildRuntimeContext(cwd);
   const startup = await compileStartupMemory(
     runtime.syncService.memoryStore,
     runtime.loadedConfig.config.maxStartupLines

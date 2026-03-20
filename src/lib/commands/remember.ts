@@ -1,6 +1,6 @@
 import { slugify } from "../util/text.js";
 import type { MemoryScope } from "../types.js";
-import { buildRuntimeContext } from "./common.js";
+import { buildRuntimeContext } from "../runtime/runtime-context.js";
 
 interface RememberOptions {
   cwd?: string;
@@ -30,4 +30,3 @@ export async function runRemember(
 
   return `Saved memory to ${scope}/${topic} with id ${id}.`;
 }
-

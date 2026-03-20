@@ -14,6 +14,17 @@
 
 它们的共同目标是：让 memory 保持可审计、可编辑、可迁移，而不是把复杂状态藏进 opaque cache。
 
+当前实现也刻意保持一个“窄入口 + 清晰分层”的代码组织：
+
+- `src/cli.ts`：只负责 wrapper fast path、版本与 Commander 启动
+- `src/lib/cli/register-commands.ts`：集中做命令注册
+- `src/lib/runtime/runtime-context.ts`：集中做 runtime composition 与 config patch 后的 reload
+- `src/lib/commands/*`：命令编排与 reviewer-facing text/json surface
+- `src/lib/domain/*`：memory / continuity / audit / rollout 的核心语义与存储行为
+- `src/lib/util/*`：纯工具层
+
+这样做的目标不是“架构更花”，而是让入口更窄、命令层更薄、shared orchestration 不在多个命令文件里重复扩散。
+
 ## 设计原则
 
 - local-first and auditable
@@ -172,6 +183,12 @@ project-local continuity 适合放：
 - `MemoryExtractor`
 - `MemoryStore`
 - `RuntimeInjector`
+
+在当前代码里，对应的实现分层也尽量保持显式：
+
+- CLI registration 与 wrapper fast path 分开
+- command orchestration 与 domain persistence 分开
+- continuity 的 shared persistence 与 rollout provenance selection 分开
 
 这样未来若需要重评接入方式，可以替换 integration layer，而不是推翻用户心智模型。
 

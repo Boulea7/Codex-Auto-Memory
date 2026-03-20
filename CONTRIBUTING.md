@@ -54,6 +54,13 @@ Use Node 20+ and `pnpm`.
 - Avoid over-engineering. Start with the simplest version that keeps future migration possible.
 - Keep comments in English.
 - Keep reviewer-only warnings and confidence prose in audit/reviewer surfaces; they should not become continuity body content.
+- Keep `src/cli.ts` narrow. New commands should be registered through `src/lib/cli/register-commands.ts` instead of expanding the main entrypoint again.
+- Keep runtime composition in `src/lib/runtime/runtime-context.ts`; command files should depend on that runtime surface instead of rebuilding their own composition helpers.
+- When touching continuity persistence, preserve the current contract split:
+  - `cam session save` = `merge`
+  - `cam session refresh` = `replace`
+  - wrapper auto-save = `merge`
+- If you split tests, keep `runSession` and wrapper continuity coverage in separate files and share helpers from `test/helpers/` rather than re-inlining temp-dir or mock-wrapper setup.
 
 ## Documentation Guidelines
 
