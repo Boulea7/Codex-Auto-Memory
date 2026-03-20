@@ -3,10 +3,12 @@ import type {
   ContinuityRecoveryRecord,
   ContinuityRecoveryFailedStage,
   MemoryScope,
+  SessionContinuityAuditTrigger,
   SessionContinuityDiagnostics,
   SessionContinuityEvidenceCounts,
   SessionContinuityFallbackReason,
   SessionContinuityScope,
+  SessionContinuityWriteMode,
   SyncRecoveryFailedStage,
   SyncRecoveryRecord
 } from "../types.js";
@@ -25,6 +27,19 @@ function isExtractorPath(value: unknown): value is "codex" | "heuristic" {
 
 function isStringArray(value: unknown): value is string[] {
   return Array.isArray(value) && value.every((item) => typeof item === "string");
+}
+
+function isContinuityTrigger(value: unknown): value is SessionContinuityAuditTrigger {
+  return (
+    value === undefined ||
+    value === "manual-save" ||
+    value === "manual-refresh" ||
+    value === "wrapper-auto-save"
+  );
+}
+
+function isWriteMode(value: unknown): value is SessionContinuityWriteMode {
+  return value === undefined || value === "merge" || value === "replace";
 }
 
 function isEvidenceCounts(value: unknown): value is SessionContinuityEvidenceCounts {
@@ -103,6 +118,8 @@ export function isContinuityRecoveryRecord(
     typeof record.worktreeId === "string" &&
     typeof record.rolloutPath === "string" &&
     typeof record.sourceSessionId === "string" &&
+    isContinuityTrigger(record.trigger) &&
+    isWriteMode(record.writeMode) &&
     (record.scope === "project" || record.scope === "project-local" || record.scope === "both") &&
     isStringArray(record.writtenPaths) &&
     isExtractorPath(record.preferredPath) &&
@@ -179,6 +196,8 @@ interface BuildContinuityRecoveryRecordOptions {
   projectId: string;
   worktreeId: string;
   diagnostics: SessionContinuityDiagnostics;
+  trigger?: SessionContinuityAuditTrigger;
+  writeMode?: SessionContinuityWriteMode;
   scope: SessionContinuityScope | "both";
   writtenPaths: string[];
   failedStage: ContinuityRecoveryFailedStage;
@@ -194,6 +213,8 @@ export function buildContinuityRecoveryRecord(
     worktreeId: options.worktreeId,
     rolloutPath: options.diagnostics.rolloutPath,
     sourceSessionId: options.diagnostics.sourceSessionId,
+    trigger: options.trigger,
+    writeMode: options.writeMode,
     scope: options.scope,
     writtenPaths: options.writtenPaths,
     preferredPath: options.diagnostics.preferredPath,

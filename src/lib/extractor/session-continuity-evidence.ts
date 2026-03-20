@@ -19,10 +19,56 @@ export const UNTRIED_PATTERNS = [
 ];
 
 export const NEXT_STEP_PATTERNS = [
-  /(?:next step|follow up by|follow-up|remaining work|still need to|left to do|continue by|continue with|resume by|todo)\s*[:,-]?\s*(.+)/iu,
+  /(?:next step|follow up by|remaining work|still need to|left to do|continue by|continue with|resume by|todo)\s*[:,-]?\s*(.+)/iu,
+  /follow(?: |-)?up(?:\s+(?:by|with|on)|\s*[:,-])\s*(.+)/iu,
   /^\s*(?:we|you|i)?\s*need(?:s)?\s+to\s+(.+)/iu,
   /(?:下一步|接下来|还需要|继续|待完成|剩下的工作)\s*[:：,-]?\s*(.+)/u
 ];
+
+const CONTINUITY_PROMPT_PATTERNS = [
+  /\breviewer sub-agent\b/iu,
+  /\bwork read-only\b/iu,
+  /\bfiles to review\b/iu,
+  /\bprimary focus\b/iu,
+  /\breview dimensions\b/iu,
+  /\bforked workspace\b/iu,
+  /\bwrite scope\b/iu,
+  /\bdocs\/contract reviewer\b/iu,
+  /(?:子 ?agent|子线程|审查范围|分域|取证|只读工作|官方文档|平行审查|并行审查)/u
+];
+
+const PROGRESS_NARRATION_PATTERNS = [
+  /^(?:i|we)\s+(?:will|am going to|plan to|want to|can now|need to do)\b/iu,
+  /^(?:我会|我们会|我先|我将|下面我会|现在我会|随后我会|最后我再|接下来我会|我会做)/u
+];
+
+function isPromptLikeContinuityMessage(text: string): boolean {
+  return CONTINUITY_PROMPT_PATTERNS.some((pattern) => pattern.test(text));
+}
+
+function isProgressNarration(text: string): boolean {
+  return PROGRESS_NARRATION_PATTERNS.some((pattern) => pattern.test(text));
+}
+
+function shouldRejectContinuityCapture(message: string, captured: string): boolean {
+  if (isPromptLikeContinuityMessage(message) || isPromptLikeContinuityMessage(captured)) {
+    return true;
+  }
+
+  if (isProgressNarration(captured)) {
+    return true;
+  }
+
+  if (
+    /(?:按你要求跑完整校验命令|分域取证|审查计划|reviewer 线程|根据官方文档对代码进行审查|实现功能，而是)/u.test(
+      captured
+    )
+  ) {
+    return true;
+  }
+
+  return false;
+}
 
 export interface SessionContinuityEvidenceBuckets {
   recentSuccessfulCommands: string[];
@@ -69,6 +115,7 @@ export function extractPatternMatches(
       const captured = normalizeMessage(match[1]);
       if (captured.length < 10) continue;
       if (/^(?:而是|但是|因为|所以|不过|然后|其实|就是|也就是说)/u.test(captured)) continue;
+      if (shouldRejectContinuityCapture(message, captured)) continue;
       matches.push(captured);
       break;
     }

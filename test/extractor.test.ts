@@ -90,6 +90,41 @@ describe("HeuristicExtractor", () => {
     ).toBe(true);
   });
 
+  it("treats direct Chinese corrections with 先别用... as high-confidence replacements", async () => {
+    const extractor = new HeuristicExtractor();
+    const existingEntries: MemoryEntry[] = [
+      {
+        id: "use-npm",
+        scope: "project",
+        topic: "preferences",
+        summary: "Use npm in this repository.",
+        details: ["Use npm instead of pnpm in this repo."],
+        updatedAt: "2026-03-14T00:00:00.000Z",
+        sources: ["old"]
+      }
+    ];
+
+    const operations = await extractor.extract(
+      baseEvidence({
+        userMessages: ["先别用 npm，用 pnpm。"]
+      }),
+      existingEntries
+    );
+
+    expect(
+      operations.some(
+        (operation) => operation.action === "delete" && operation.id === "use-npm"
+      )
+    ).toBe(true);
+    expect(
+      operations.some(
+        (operation) =>
+          operation.action === "upsert" &&
+          operation.summary?.includes("先别用 npm，用 pnpm")
+      )
+    ).toBe(true);
+  });
+
   it("does not save commands with no output (output undefined)", async () => {
     const extractor = new HeuristicExtractor();
     const operations = await extractor.extract(
@@ -236,6 +271,41 @@ describe("HeuristicExtractor", () => {
     ).toBe(true);
   });
 
+  it("deletes stale preferences after a prefer-over correction rollout", async () => {
+    const extractor = new HeuristicExtractor();
+    const evidence = await parseRolloutEvidence(
+      path.join(process.cwd(), "test/fixtures/rollouts/preferences-prefer-over-correction.jsonl")
+    );
+
+    expect(evidence).not.toBeNull();
+
+    const operations = await extractor.extract(evidence!, [
+      {
+        id: "use-npm",
+        scope: "project",
+        topic: "preferences",
+        summary: "Use npm in this repository.",
+        details: ["Use npm instead of pnpm in this repository."],
+        updatedAt: "2026-03-14T00:00:00.000Z",
+        sources: ["old"]
+      }
+    ]);
+
+    expect(
+      operations.some(
+        (operation) => operation.action === "delete" && operation.id === "use-npm"
+      )
+    ).toBe(true);
+    expect(
+      operations.some(
+        (operation) =>
+          operation.action === "upsert" &&
+          operation.topic === "preferences" &&
+          operation.summary?.includes("Prefer pnpm over npm")
+      )
+    ).toBe(true);
+  });
+
   it("deletes stale workflow notes after an explicit correction rollout", async () => {
     const extractor = new HeuristicExtractor();
     const evidence = await parseRolloutEvidence(
@@ -269,6 +339,33 @@ describe("HeuristicExtractor", () => {
           operation.summary?.includes("Not grep, use rg")
       )
     ).toBe(true);
+  });
+
+  it("does not delete stale preferences for hedged prefer-over wording", async () => {
+    const extractor = new HeuristicExtractor();
+    const evidence = await parseRolloutEvidence(
+      path.join(
+        process.cwd(),
+        "test/fixtures/rollouts/ambiguous-preferences-prefer-over-correction.jsonl"
+      )
+    );
+
+    expect(evidence).not.toBeNull();
+
+    const operations = await extractor.extract(evidence!, [
+      {
+        id: "use-npm",
+        scope: "project",
+        topic: "preferences",
+        summary: "Use npm in this repository.",
+        details: ["Use npm instead of pnpm in this repository."],
+        updatedAt: "2026-03-14T00:00:00.000Z",
+        sources: ["old"]
+      }
+    ]);
+
+    expect(operations.some((operation) => operation.action === "delete")).toBe(false);
+    expect(operations.some((operation) => operation.action === "upsert")).toBe(false);
   });
 
   it("keeps stale preferences when an explicit correction is ambiguous", async () => {

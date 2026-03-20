@@ -21,14 +21,14 @@ The shared goal is to keep memory auditable, editable, and migration-friendly in
 - startup indexes must remain concise
 - topic files are the detail layer
 - session continuity must remain separate from durable memory
-- companion-first is the mainline; native migration is only a seam
+- companion-first is the mainline; a compatibility seam remains explicit
 
 ## System overview
 
 ```mermaid
 flowchart TD
     A[cam run / exec / resume] --> B[Compile startup memory]
-    B --> C[Inject quoted MEMORY.md plus topic refs]
+    B --> C[Inject quoted MEMORY.md startup files plus on-demand topic refs]
     C --> D[Run Codex]
     D --> E[Read rollout JSONL after session]
     E --> F[Extract durable memory operations]
@@ -52,9 +52,9 @@ Startup currently does the following:
 
 Important implementation traits:
 
-- each `MEMORY.md` is injected as quoted local data
-- structured topic file refs are appended
-- topic entry bodies are not eagerly loaded
+- each `MEMORY.md` is injected as quoted startup files
+- structured topic file refs are appended as on-demand lookup pointers
+- topic entry bodies are not eagerly loaded at startup
 - session continuity, when enabled, is injected as a separate block
 
 ## 2. Post-session sync path
@@ -154,10 +154,10 @@ Current public Codex surfaces still do not expose a Claude-equivalent native mem
 
 - do not mutate tracked repository files just to inject memory
 - compile memory outside the user repository
-- inject memory as quoted data rather than implicit policy
+- inject memory as quoted startup files rather than implicit policy
 - keep continuity separate from durable memory at injection time
 
-## 8. Native migration seam
+## 8. Compatibility seam
 
 The architecture keeps these replacement boundaries explicit:
 
@@ -166,7 +166,7 @@ The architecture keeps these replacement boundaries explicit:
 - `MemoryStore`
 - `RuntimeInjector`
 
-That allows future migration to replace the integration layer without rewriting the user mental model.
+That keeps the integration layer replaceable without rewriting the user mental model.
 
 ## 9. Validation priorities
 

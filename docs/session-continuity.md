@@ -127,6 +127,13 @@ Current implementation rules:
   - candidate explicit untried ideas
 - Codex output must still pass local structural validation after the CLI writes JSON
 - if the model output is malformed, missing required layers, or returns an evidence-empty summary while the rollout clearly contains command / file / next-step evidence, the system falls back to the heuristic summarizer
+- `cam session save` and wrapper auto-save still prefer the latest primary project rollout and skip forked/subagent reviewer rollouts by default; explicit `cam session save --rollout <path>` still lets a reviewer target a specific file on purpose
+- `cam session refresh` uses a different provenance selector:
+  - explicit `--rollout <path>` always wins, including subagent rollouts
+  - otherwise it checks, in order, a scope-matching pending continuity recovery marker, a scope-matching latest continuity audit entry, and then the latest primary project rollout
+  - scope matching is exact: `both` only matches `both`
+  - if a higher-priority matching marker or audit entry exists but its rollout file cannot be read, refresh fails instead of silently falling through to a lower-priority source
+- refresh provenance is about regenerating the currently active continuity from a trusted source, not about generally “grabbing the latest session”
 
 This keeps Codex-backed continuity as the primary quality path while preserving a deterministic local fallback for degraded sessions or brittle model output.
 
@@ -148,9 +155,17 @@ Session continuity is available by command immediately:
 ```bash
 cam session status
 cam session save
+cam session refresh
 cam session load
 cam session clear
+cam session open
 ```
+
+Command contract:
+
+- `cam session save` keeps merge semantics and remains the same path used by wrapper auto-save
+- `cam session refresh` ignores existing continuity during generation and replaces the selected scope from a fresh base state
+- `cam session refresh` does not call `clear` before writing; replace means direct overwrite of the target state, not delete-then-save
 
 `cam session load` now renders:
 
@@ -160,9 +175,16 @@ cam session clear
 - the latest continuity generation path and fallback status
 - the latest rollout path
 - a small latest-generation drill-down for evidence counts and written continuity paths
-- a compact prior-generation preview sourced from the continuity audit log that excludes the latest entry and coalesces consecutive repeats
+- a compact prior-generation audit preview sourced from the continuity audit log that excludes the latest entry, coalesces consecutive repeats, and does not attempt to replay full prior history
 
-`cam session status` now renders the latest generation path, the latest rollout path, the audit-log location, the same latest-generation drill-down, and the same compact prior-generation preview without printing the full shared/local continuity bodies.
+`cam session status` now renders the latest generation path, the latest rollout path, the audit-log location, the same latest-generation drill-down, and the same compact prior-generation audit preview without printing the full shared/local continuity bodies.
+
+`cam session refresh` renders a compact reviewer surface only:
+
+- it does not print the full continuity body
+- `--json` keeps the existing save payload shape and adds `action`, `writeMode`, and `rolloutSelection`
+- default `scope=both` replaces both layers together; single-layer scopes only replace the targeted layer
+- in `sessionContinuityLocalPathStyle="claude"` mode, replace rewrites the current active local file and does not delete historical `.tmp` files
 
 Automatic injection and automatic saving are disabled by default.
 
@@ -176,13 +198,15 @@ Continuity generation now keeps a separate reviewer-oriented audit log:
 ~/.codex-auto-memory/projects/<project-id>/audit/session-continuity-log.jsonl
 ```
 
-Each save records:
+Each save, refresh, or wrapper auto-save records:
 
 - whether the preferred path was `codex` or `heuristic`
 - which path actually produced the saved continuity
 - why Codex fell back when it did
 - evidence counts for commands, file writes, next steps, and untried items
 - the rollout path and written continuity files
+- `trigger`: `manual-save`, `manual-refresh`, or `wrapper-auto-save`
+- `writeMode`: `merge` or `replace`
 
 This information is intentionally **not** written into the continuity Markdown files themselves.
 
@@ -190,10 +214,18 @@ Reason:
 
 - the continuity files should stay compact and human-editable
 - reviewer/debug data belongs in an audit surface, not in the working-state note itself
-- the latest audit entry now remains exposed explicitly as `latestContinuityAuditEntry` through `cam session save --json`, `cam session load --json`, and `cam session status --json`
+- the latest audit entry now remains exposed explicitly as `latestContinuityAuditEntry` through `cam session save --json`, `cam session refresh --json`, `cam session load --json`, and `cam session status --json`
 - the compatibility summary field `latestContinuityDiagnostics` still exposes the latest path/fallback view for existing consumers
-- the same commands now also expose raw recent audit entries so reviewers can verify short history without opening the JSONL directly
-- the default `load` / `status` text surfaces now show the latest rollout, the latest evidence counts and written paths, plus a compact prior preview without becoming a dedicated history browser
+- the same commands now also expose raw recent audit entries so reviewers can verify a short audit window without opening the JSONL directly
+- the default `load` / `status` text surfaces now show the latest rollout, the latest evidence counts and written paths, plus a compact prior audit preview without becoming a dedicated history browser
+- compact prior audit preview grouping now includes normalized `trigger` and `writeMode`, so a save and a refresh from the same rollout are still shown as distinct reviewer events
+
+Recovery marker rules stay narrow:
+
+- a continuity recovery record is still written only when audit append fails
+- a successful refresh clears only a logically matching marker
+- unrelated markers stay visible
+- recovery metadata may include `trigger` and `writeMode` for explanation, but identity matching still uses the existing logical provenance fields rather than those display-oriented fields
 
 ## Startup behavior
 
@@ -255,16 +287,19 @@ This design was informed by three reference buckets:
 
 ### Official Claude Code docs
 
-- memory contract
-- settings boundary
-- hook lifecycle
-- subagent memory boundaries
+- memory contract: <https://code.claude.com/docs/en/memory>
+- settings boundary: <https://code.claude.com/docs/en/settings>
+- hook lifecycle: <https://code.claude.com/docs/en/hooks>
+- subagent memory boundaries: <https://code.claude.com/docs/en/sub-agents>
 
 Those sources justify keeping durable memory compact, auditable, and Markdown-first while treating temporary continuity as a separate companion concern.
 
 ### Official Codex docs and runtime surface
 
-- Codex CLI, config, AGENTS, resume/fork, and feature flags
+- Codex CLI overview: <https://developers.openai.com/codex/cli>
+- Codex feature maturity: <https://developers.openai.com/codex/feature-maturity>
+- Codex config basics: <https://developers.openai.com/codex/config-basic>
+- Codex config reference: <https://developers.openai.com/codex/config-reference>
 - current local `memories` / `codex_hooks` readiness from `cam doctor`
 
 These sources justify the current implementation choice:

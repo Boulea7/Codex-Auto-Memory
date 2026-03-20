@@ -1,6 +1,11 @@
 export type MemoryScope = "global" | "project" | "project-local";
 export type SessionContinuityScope = "project" | "project-local";
 export type SessionContinuityLocalPathStyle = "codex" | "claude";
+export type SessionContinuityWriteMode = "merge" | "replace";
+export type SessionContinuityAuditTrigger =
+  | "manual-save"
+  | "manual-refresh"
+  | "wrapper-auto-save";
 
 export interface MemoryEntry {
   id: string;
@@ -103,6 +108,8 @@ export interface RolloutMeta {
   createdAtMs: number;
   cwd: string;
   rolloutPath: string;
+  isSubagent?: boolean;
+  forkedFromSessionId?: string;
 }
 
 export interface RolloutEvidence {
@@ -113,6 +120,8 @@ export interface RolloutEvidence {
   agentMessages: string[];
   toolCalls: RolloutToolCall[];
   rolloutPath: string;
+  isSubagent?: boolean;
+  forkedFromSessionId?: string;
 }
 
 export interface SessionContinuityState {
@@ -184,6 +193,8 @@ export interface SessionContinuityAuditEntry {
   projectId: string;
   worktreeId: string;
   configuredExtractorMode: SessionContinuityExtractorPath;
+  trigger?: SessionContinuityAuditTrigger;
+  writeMode?: SessionContinuityWriteMode;
   scope: SessionContinuityScope | "both";
   rolloutPath: string;
   sourceSessionId: string;
@@ -331,6 +342,8 @@ export interface ContinuityRecoveryRecord {
   worktreeId: string;
   rolloutPath: string;
   sourceSessionId: string;
+  trigger?: SessionContinuityAuditTrigger;
+  writeMode?: SessionContinuityWriteMode;
   scope: SessionContinuityScope | "both";
   writtenPaths: string[];
   preferredPath: SessionContinuityExtractorPath;

@@ -18,7 +18,11 @@ import { collectSessionContinuityEvidenceBuckets } from "../src/lib/extractor/se
 import { buildSessionContinuityPrompt } from "../src/lib/extractor/session-continuity-prompt.js";
 import { SessionContinuitySummarizer } from "../src/lib/extractor/session-continuity-summarizer.js";
 import { runCommandCapture } from "../src/lib/util/process.js";
-import type { AppConfig, RolloutEvidence } from "../src/lib/types.js";
+import type { RolloutEvidence } from "../src/lib/types.js";
+import {
+  initGitRepo,
+  makeAppConfig
+} from "./helpers/cam-test-fixtures.js";
 
 const tempDirs: string[] = [];
 
@@ -26,20 +30,6 @@ async function tempDir(prefix: string): Promise<string> {
   const dir = await fs.mkdtemp(path.join(os.tmpdir(), prefix));
   tempDirs.push(dir);
   return dir;
-}
-
-async function initRepo(repoDir: string): Promise<void> {
-  const gitEnv = {
-    ...process.env,
-    GIT_AUTHOR_NAME: "Codex Auto Memory",
-    GIT_AUTHOR_EMAIL: "cam@example.com",
-    GIT_COMMITTER_NAME: "Codex Auto Memory",
-    GIT_COMMITTER_EMAIL: "cam@example.com"
-  };
-  runCommandCapture("git", ["init", "-b", "main"], repoDir, gitEnv);
-  await fs.writeFile(path.join(repoDir, "README.md"), "seed\n", "utf8");
-  runCommandCapture("git", ["add", "README.md"], repoDir, gitEnv);
-  runCommandCapture("git", ["commit", "-m", "init"], repoDir, gitEnv);
 }
 
 async function writeMockCodexBinary(tempRoot: string, body: string): Promise<string> {
@@ -59,20 +49,13 @@ ${body}
   return mockBinary;
 }
 
-function baseConfig(memoryRoot: string, overrides: Partial<AppConfig> = {}): AppConfig {
-  return {
-    autoMemoryEnabled: true,
+const initRepo = initGitRepo;
+
+function baseConfig(memoryRoot: string, overrides: Parameters<typeof makeAppConfig>[0] = {}) {
+  return makeAppConfig({
     autoMemoryDirectory: memoryRoot,
-    extractorMode: "heuristic",
-    defaultScope: "project",
-    maxStartupLines: 200,
-    sessionContinuityAutoLoad: false,
-    sessionContinuityAutoSave: false,
-    sessionContinuityLocalPathStyle: "codex",
-    maxSessionContinuityLines: 60,
-    codexBinary: "codex",
     ...overrides
-  };
+  });
 }
 
 afterEach(async () => {
@@ -508,8 +491,10 @@ describe("session continuity domain", () => {
           '继续,但是这个问题需要更多研究才能解决',
           '下一步而是要确认这个方案的可行性',
           '还需要因为依赖关系比较复杂',
+          '接下来我会做两件并行的只读工作：一是按你要求跑完整校验命令并记录结果，二是把审查范围拆给 4 个 reviewer 子 agent 分域取证。'
         ],
         [
+          'You are reviewer sub-agent 4 for a high-accountability code review. Work read-only. Focus on docs and contract surfaces only.',
           '接下来 x', // too short
         ]
       )
@@ -531,7 +516,39 @@ describe("session continuity domain", () => {
     expect(negativeBuckets.explicitUntried).toHaveLength(0);
 
     // Positive: genuine items should be captured
-    expect(positiveBuckets.explicitNextSteps.length).toBeGreaterThan(0);
+    expect(positiveBuckets.explicitNextSteps).toHaveLength(2);
+    expect(positiveBuckets.explicitNextSteps).toEqual(
+      expect.arrayContaining([
+        '修复 session-continuity-evidence.ts 中的正则匹配问题',
+        '需要更新测试文件以覆盖新的守卫逻辑'
+      ])
+    );
+    expect(positiveBuckets.explicitNextSteps.join("\n")).not.toContain("reviewer sub-agent");
+  });
+
+  it("keeps actionable focus-on and follow-up phrasing as next steps", () => {
+    const evidence: RolloutEvidence = {
+      sessionId: "session-follow-up-focus",
+      createdAt: "2026-03-15T00:00:00.000Z",
+      cwd: "/tmp/project",
+      userMessages: [
+        "Next step: focus on src/auth/login.ts and update the auth cookie path.",
+        "Follow-up: rerun pnpm test after the cookie change."
+      ],
+      agentMessages: [],
+      toolCalls: [],
+      rolloutPath: "/tmp/rollout.jsonl"
+    };
+
+    const buckets = collectSessionContinuityEvidenceBuckets(evidence);
+
+    expect(buckets.explicitNextSteps).toHaveLength(2);
+    expect(buckets.explicitNextSteps.join("\n")).toContain(
+      "focus on src/auth/login.ts and update the auth cookie path"
+    );
+    expect(buckets.explicitNextSteps.join("\n")).toContain(
+      "rerun pnpm test after the cookie change"
+    );
   });
 
   it("prompt includes evidence buckets for commands, file writes, and next steps", () => {
@@ -1030,6 +1047,74 @@ describe("SessionContinuityStore", () => {
     expect((await store.readState("project-local"))?.incompleteNext).toContain("Add middleware.");
   });
 
+  it("can replace existing continuity without merging stale state forward", async () => {
+    const repoDir = await tempDir("cam-continuity-replace-repo-");
+    const memoryRoot = await tempDir("cam-continuity-replace-memory-");
+    await initRepo(repoDir);
+
+    const store = new SessionContinuityStore(
+      detectProjectContext(repoDir),
+      baseConfig(memoryRoot)
+    );
+    await store.saveSummary(
+      {
+        project: {
+          goal: "Stale shared goal",
+          confirmedWorking: ["Stale shared success"],
+          triedAndFailed: [],
+          notYetTried: ["Stale shared idea"],
+          incompleteNext: [],
+          filesDecisionsEnvironment: ["Stale shared note"]
+        },
+        projectLocal: {
+          goal: "",
+          confirmedWorking: [],
+          triedAndFailed: [],
+          notYetTried: [],
+          incompleteNext: ["Stale local next"],
+          filesDecisionsEnvironment: ["Stale local note"]
+        },
+        sourceSessionId: "session-stale"
+      },
+      "both"
+    );
+
+    const written = await store.replaceSummary(
+      {
+        project: {
+          goal: "Fresh shared goal",
+          confirmedWorking: ["Fresh shared success"],
+          triedAndFailed: [],
+          notYetTried: [],
+          incompleteNext: [],
+          filesDecisionsEnvironment: []
+        },
+        projectLocal: {
+          goal: "",
+          confirmedWorking: [],
+          triedAndFailed: [],
+          notYetTried: [],
+          incompleteNext: ["Fresh local next"],
+          filesDecisionsEnvironment: []
+        },
+        sourceSessionId: "session-fresh"
+      },
+      "both"
+    );
+
+    expect(written).toContain(store.paths.sharedFile);
+    expect(written).toContain(store.paths.localFile);
+    expect((await store.readState("project"))?.goal).toBe("Fresh shared goal");
+    expect((await store.readState("project"))?.confirmedWorking).toEqual([
+      "Fresh shared success"
+    ]);
+    expect((await store.readState("project"))?.notYetTried).toEqual([]);
+    expect((await store.readState("project-local"))?.incompleteNext).toEqual([
+      "Fresh local next"
+    ]);
+    expect((await store.readState("project-local"))?.filesDecisionsEnvironment).toEqual([]);
+  });
+
   it("supports claude-style local files, reads the newest mtime file, and clears all active session tmp files", async () => {
     const repoDir = await tempDir("cam-continuity-claude-repo-");
     const memoryRoot = await tempDir("cam-continuity-claude-memory-");
@@ -1078,5 +1163,57 @@ describe("SessionContinuityStore", () => {
     expect(cleared).toContain(olderFile);
     expect(cleared).toContain(newerFile);
     expect((await fs.readdir(store.paths.localDir)).filter((name) => name.endsWith("-session.tmp"))).toHaveLength(0);
+  });
+
+  it("replaces the current active claude-style local file without deleting historical tmp files", async () => {
+    const repoDir = await tempDir("cam-continuity-claude-replace-repo-");
+    const memoryRoot = await tempDir("cam-continuity-claude-replace-memory-");
+    await initRepo(repoDir);
+
+    const store = new SessionContinuityStore(
+      detectProjectContext(repoDir),
+      baseConfig(memoryRoot, { sessionContinuityLocalPathStyle: "claude" })
+    );
+    await store.ensureLocalLayout();
+    const olderFile = path.join(store.paths.localDir, "2026-03-01-old-session.tmp");
+    const activeFile = path.join(store.paths.localDir, "2026-03-02-active-session.tmp");
+    await fs.writeFile(olderFile, "older\n", "utf8");
+    await fs.writeFile(activeFile, "active\n", "utf8");
+    const olderTimestamp = new Date("2026-03-01T00:00:00.000Z");
+    const activeTimestamp = new Date("2026-03-03T00:00:00.000Z");
+    await fs.utimes(olderFile, olderTimestamp, olderTimestamp);
+    await fs.utimes(activeFile, activeTimestamp, activeTimestamp);
+
+    const written = await store.replaceSummary(
+      {
+        project: {
+          goal: "",
+          confirmedWorking: [],
+          triedAndFailed: [],
+          notYetTried: [],
+          incompleteNext: [],
+          filesDecisionsEnvironment: []
+        },
+        projectLocal: {
+          goal: "",
+          confirmedWorking: [],
+          triedAndFailed: [],
+          notYetTried: [],
+          incompleteNext: ["Replace the active claude session file."],
+          filesDecisionsEnvironment: []
+        },
+        sourceSessionId: "session-claude-replace"
+      },
+      "project-local"
+    );
+
+    expect(written).toEqual([activeFile]);
+    const localLocation = await store.getLocation("project-local");
+    expect(localLocation.path).toBe(activeFile);
+    expect(await fs.readFile(activeFile, "utf8")).toContain(
+      "Replace the active claude session file."
+    );
+    expect(await fs.readFile(olderFile, "utf8")).toBe("older\n");
+    expect((await fs.readdir(store.paths.localDir)).filter((name) => name.endsWith("-session.tmp"))).toHaveLength(2);
   });
 });

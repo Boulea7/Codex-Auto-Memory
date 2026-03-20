@@ -7,6 +7,10 @@ import { configPaths } from "../src/lib/config/load-config.js";
 import { detectProjectContext } from "../src/lib/domain/project-context.js";
 import { MemoryStore } from "../src/lib/domain/memory-store.js";
 import type { AppConfig, MemoryCommandOutput } from "../src/lib/types.js";
+import {
+  makeAppConfig,
+  writeCamConfig
+} from "./helpers/cam-test-fixtures.js";
 
 const tempDirs: string[] = [];
 const originalHome = process.env.HOME;
@@ -22,6 +26,9 @@ afterEach(async () => {
   await Promise.all(tempDirs.splice(0).map((dir) => fs.rm(dir, { recursive: true, force: true })));
 });
 
+const buildProjectConfig = makeAppConfig;
+const writeProjectConfig = writeCamConfig;
+
 describe("runMemory", () => {
   it("shows scope details and recent audit entries", async () => {
     const homeDir = await tempDir("cam-memory-home-");
@@ -29,29 +36,10 @@ describe("runMemory", () => {
     const memoryRoot = await tempDir("cam-memory-root-");
     process.env.HOME = homeDir;
 
-    const projectConfig: AppConfig = {
-      autoMemoryEnabled: true,
-      extractorMode: "heuristic",
-      defaultScope: "project",
-      maxStartupLines: 200,
-      sessionContinuityAutoLoad: false,
-      sessionContinuityAutoSave: false,
-      sessionContinuityLocalPathStyle: "codex",
-      maxSessionContinuityLines: 60,
-      codexBinary: "codex"
-    };
-    await fs.writeFile(
-      path.join(projectDir, "codex-auto-memory.json"),
-      JSON.stringify(projectConfig),
-      "utf8"
-    );
-    await fs.writeFile(
-      path.join(projectDir, ".codex-auto-memory.local.json"),
-      JSON.stringify({
-        autoMemoryDirectory: memoryRoot
-      }),
-      "utf8"
-    );
+    const projectConfig = buildProjectConfig();
+    await writeProjectConfig(projectDir, projectConfig, {
+      autoMemoryDirectory: memoryRoot
+    });
 
     const project = detectProjectContext(projectDir);
     const store = new MemoryStore(project, {
@@ -143,6 +131,12 @@ describe("runMemory", () => {
     });
 
     expect(output).toContain("Startup budget:");
+    expect(output).toContain(
+      "Startup loaded files are the index files actually quoted into the current startup payload."
+    );
+    expect(output).toContain(
+      "Topic files on demand stay as references until a later read needs them."
+    );
     expect(output).toContain("Edit paths:");
     expect(output).toContain("project: 1 entry");
     expect(output).toContain("Topics: workflow");
@@ -167,29 +161,10 @@ describe("runMemory", () => {
     const memoryRoot = await tempDir("cam-memory-json-root-");
     process.env.HOME = homeDir;
 
-    const projectConfig: AppConfig = {
-      autoMemoryEnabled: true,
-      extractorMode: "heuristic",
-      defaultScope: "project",
-      maxStartupLines: 200,
-      sessionContinuityAutoLoad: false,
-      sessionContinuityAutoSave: false,
-      sessionContinuityLocalPathStyle: "codex",
-      maxSessionContinuityLines: 60,
-      codexBinary: "codex"
-    };
-    await fs.writeFile(
-      path.join(projectDir, "codex-auto-memory.json"),
-      JSON.stringify(projectConfig),
-      "utf8"
-    );
-    await fs.writeFile(
-      path.join(projectDir, ".codex-auto-memory.local.json"),
-      JSON.stringify({
-        autoMemoryDirectory: memoryRoot
-      }),
-      "utf8"
-    );
+    const projectConfig = buildProjectConfig();
+    await writeProjectConfig(projectDir, projectConfig, {
+      autoMemoryDirectory: memoryRoot
+    });
 
     const project = detectProjectContext(projectDir);
     const store = new MemoryStore(project, {
