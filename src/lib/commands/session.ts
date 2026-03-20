@@ -108,6 +108,8 @@ function formatRecentGenerationLines(entries: SessionContinuityAuditEntry[]): st
         writeMode: normalizeSessionContinuityWriteMode(entry.writeMode),
         preferredPath: entry.preferredPath,
         actualPath: entry.actualPath,
+        confidence: entry.confidence ?? "high",
+        warnings: entry.warnings ?? [],
         fallbackReason: entry.fallbackReason ?? null,
         codexExitCode: entry.codexExitCode ?? null,
         evidenceCounts: {
@@ -126,7 +128,7 @@ function formatRecentGenerationLines(entries: SessionContinuityAuditEntry[]): st
   }
 
   const lines = preview.groups.flatMap((group) => [
-    `- ${group.latest.generatedAt}: ${formatSessionContinuityDiagnostics(group.latest)}`,
+    `- ${group.latest.generatedAt}: ${formatSessionContinuityDiagnostics(toSessionContinuityDiagnostics(group.latest))}`,
     `  Rollout: ${group.latest.rolloutPath}`,
     ...(group.rawCount > 1
       ? [`  Repeated similar generations hidden: ${group.rawCount - 1}`]
@@ -152,9 +154,13 @@ function formatPendingContinuityRecovery(
     ...(record.trigger ? [`- Trigger: ${record.trigger}`] : []),
     ...(record.writeMode ? [`- Write mode: ${record.writeMode}`] : []),
     `- Scope: ${record.scope}`,
-    `- Generation: ${record.actualPath} | preferred ${record.preferredPath}`,
+    `- Generation: ${record.actualPath} | preferred ${record.preferredPath}${record.confidence ? ` | confidence ${record.confidence}` : ""}`,
     `- Failure: ${record.failureMessage}`
   ];
+
+  if (record.warnings?.length) {
+    lines.push(...record.warnings.map((warning) => `- Warning: ${warning}`));
+  }
 
   if (record.writtenPaths.length > 0) {
     lines.push(...record.writtenPaths.map((filePath) => `- Written: ${filePath}`));

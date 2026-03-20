@@ -1,5 +1,6 @@
 import type {
   AppConfig,
+  MemoryConflictCandidate,
   MemoryOperation,
   MemoryScope,
   MemorySyncAuditEntry,
@@ -24,6 +25,14 @@ function isStringArray(value: unknown): value is string[] {
   return Array.isArray(value) && value.every((item) => typeof item === "string");
 }
 
+function isConflictSource(value: unknown): value is MemoryConflictCandidate["source"] {
+  return value === "within-rollout" || value === "existing-memory";
+}
+
+function isConflictResolution(value: unknown): value is MemoryConflictCandidate["resolution"] {
+  return value === "suppressed";
+}
+
 function isExtractorMode(value: unknown): value is AppConfig["extractorMode"] {
   return value === "codex" || value === "heuristic";
 }
@@ -43,6 +52,22 @@ function isMemoryOperation(value: unknown): value is MemoryOperation {
     (operation.details === undefined || isStringArray(operation.details)) &&
     (operation.sources === undefined || isStringArray(operation.sources)) &&
     (operation.reason === undefined || typeof operation.reason === "string")
+  );
+}
+
+function isMemoryConflictCandidate(value: unknown): value is MemoryConflictCandidate {
+  if (!value || typeof value !== "object") {
+    return false;
+  }
+
+  const candidate = value as Record<string, unknown>;
+  return (
+    isMemoryScope(candidate.scope) &&
+    typeof candidate.topic === "string" &&
+    typeof candidate.candidateSummary === "string" &&
+    isStringArray(candidate.conflictsWith) &&
+    isConflictSource(candidate.source) &&
+    isConflictResolution(candidate.resolution)
   );
 }
 
@@ -73,6 +98,13 @@ export function parseMemorySyncAuditEntry(value: unknown): MemorySyncAuditEntry 
   const actualExtractorName = entry.actualExtractorName ?? entry.extractorName;
   const configuredExtractorMode = entry.configuredExtractorMode ?? actualExtractorMode;
   const configuredExtractorName = entry.configuredExtractorName ?? actualExtractorName;
+  const conflicts = Array.isArray(entry.conflicts)
+    ? entry.conflicts.filter((candidate): candidate is MemoryConflictCandidate =>
+        isMemoryConflictCandidate(candidate)
+      )
+    : [];
+  const suppressedOperationCount =
+    typeof entry.suppressedOperationCount === "number" ? entry.suppressedOperationCount : 0;
 
   if (
     typeof entry.appliedAt !== "string" ||
@@ -88,6 +120,7 @@ export function parseMemorySyncAuditEntry(value: unknown): MemorySyncAuditEntry 
     !isMemorySyncAuditStatus(entry.status) ||
     !isMemorySyncAuditSkipReason(entry.skipReason) ||
     typeof entry.appliedCount !== "number" ||
+    suppressedOperationCount < 0 ||
     !Array.isArray(entry.scopesTouched) ||
     !entry.scopesTouched.every((scope) => isMemoryScope(scope)) ||
     typeof entry.resultSummary !== "string" ||
@@ -114,8 +147,10 @@ export function parseMemorySyncAuditEntry(value: unknown): MemorySyncAuditEntry 
     skipReason: entry.status === "skipped" ? entry.skipReason : undefined,
     ...(entry.isRecovery === true ? { isRecovery: true } : {}),
     appliedCount: entry.appliedCount,
+    suppressedOperationCount,
     scopesTouched: entry.scopesTouched,
     resultSummary: entry.resultSummary,
+    conflicts,
     operations: entry.operations
   };
 }
@@ -137,6 +172,8 @@ interface BuildMemorySyncAuditEntryOptions {
   sessionId?: string;
   skipReason?: MemorySyncAuditSkipReason;
   isRecovery?: boolean;
+  suppressedOperationCount?: number;
+  conflicts?: MemoryConflictCandidate[];
   operations?: MemoryOperation[];
 }
 
@@ -144,6 +181,7 @@ export function buildMemorySyncAuditEntry(
   options: BuildMemorySyncAuditEntryOptions
 ): MemorySyncAuditEntry {
   const operations = options.operations ?? [];
+  const conflicts = options.conflicts ?? [];
   const scopesTouched = Array.from(new Set(operations.map((operation) => operation.scope)));
   const appliedCount = operations.length;
 
@@ -164,8 +202,10 @@ export function buildMemorySyncAuditEntry(
     skipReason: options.status === "skipped" ? options.skipReason : undefined,
     ...(options.isRecovery ? { isRecovery: true } : {}),
     appliedCount,
+    suppressedOperationCount: options.suppressedOperationCount ?? 0,
     scopesTouched,
     resultSummary: summaryForStatus(options.status, appliedCount, options.skipReason),
+    conflicts,
     operations
   };
 }
@@ -174,7 +214,7 @@ export function formatMemorySyncAuditEntry(entry: MemorySyncAuditEntry): string[
   const lines = [
     `- ${entry.appliedAt}: [${entry.status}]${entry.isRecovery ? ' [recovery]' : ''} ${entry.resultSummary}`,
     `  Session: ${entry.sessionId ?? "unknown"} | Extractor: ${entry.actualExtractorName || entry.actualExtractorMode}`,
-    `  Applied: ${entry.appliedCount} | Scopes: ${entry.scopesTouched.length ? entry.scopesTouched.join(", ") : "none"}`
+    `  Applied: ${entry.appliedCount} | Suppressed: ${entry.suppressedOperationCount ?? 0} | Scopes: ${entry.scopesTouched.length ? entry.scopesTouched.join(", ") : "none"}`
   ];
 
   if (
@@ -191,5 +231,17 @@ export function formatMemorySyncAuditEntry(entry: MemorySyncAuditEntry): string[
   }
 
   lines.push(`  Rollout: ${entry.rolloutPath}`);
+
+  if (entry.conflicts?.length) {
+    lines.push("  Conflict review:");
+    for (const conflict of entry.conflicts) {
+      lines.push(
+        `  - [${conflict.source}] ${conflict.topic}: ${conflict.candidateSummary}`
+      );
+      for (const conflictingSummary of conflict.conflictsWith) {
+        lines.push(`    vs ${conflictingSummary}`);
+      }
+    }
+  }
   return lines;
 }

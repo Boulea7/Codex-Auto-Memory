@@ -31,10 +31,12 @@ flowchart TD
     B --> C[Inject quoted MEMORY.md startup files plus on-demand topic refs]
     C --> D[Run Codex]
     D --> E[Read rollout JSONL after session]
-    E --> F[Extract durable memory operations]
+    E --> F[Extract durable memory candidates]
     E --> G[Optional continuity summary]
-    F --> H[Update MEMORY.md and topic files]
-    G --> I[Update shared and local continuity files]
+    F --> H[Run contradiction review and conservative suppression]
+    H --> I[Update MEMORY.md and topic files]
+    I --> J[Append durable sync audit]
+    G --> K[Update shared and local continuity files]
 ```
 
 ## 1. Startup path
@@ -63,15 +65,18 @@ The sync path turns session evidence into durable Markdown memory:
 
 1. read the relevant rollout JSONL
 2. parse user messages, tool calls, and tool outputs
-3. let the extractor produce memory operations
-4. apply upserts and deletes to the Markdown store
-5. rebuild `MEMORY.md` for the affected scope
+3. let the extractor produce candidate memory operations
+4. run contradiction review so conflicting candidates can be conservatively suppressed while explicit corrections still win
+5. apply the reviewed upserts and deletes to the Markdown store
+6. rebuild `MEMORY.md` for the affected scope
+7. append durable sync audit entries that keep suppressed conflict candidates reviewer-visible
 
 The extractor is expected to:
 
 - keep stable, future-useful knowledge
 - avoid transcript replay
 - handle explicit corrections conservatively
+- prefer provable corrections over silent conflict merges
 - keep temporary next-step noise out of durable memory
 
 ## 3. Optional session continuity path

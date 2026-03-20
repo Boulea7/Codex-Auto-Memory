@@ -7,6 +7,7 @@ import type {
   AppConfig,
   ExistingSessionContinuityState,
   RolloutEvidence,
+  SessionContinuityConfidence,
   SessionContinuityDiagnostics,
   SessionContinuityGenerationResult,
   SessionContinuityLayerSummary,
@@ -136,11 +137,28 @@ function shouldFallbackForLowSignal(
   return hasEvidenceBuckets(buckets) && !hasEvidenceBearingContent(summary);
 }
 
+function determineConfidence(
+  actualPath: SessionContinuityDiagnostics["actualPath"],
+  warnings: string[],
+  fallbackReason?: SessionContinuityDiagnostics["fallbackReason"],
+  usedFallbackNext = false
+): SessionContinuityConfidence {
+  if (fallbackReason || warnings.length > 0 || usedFallbackNext) {
+    return "low";
+  }
+
+  if (actualPath === "codex") {
+    return "high";
+  }
+
+  return "medium";
+}
+
 function heuristicSummary(
   evidence: RolloutEvidence,
   existingState?: ExistingSessionContinuityState,
   buckets = collectSessionContinuityEvidenceBuckets(evidence)
-): SessionContinuitySummary {
+): { summary: SessionContinuitySummary; usedFallbackNext: boolean } {
   const recentUserMessages = evidence.userMessages.map((message) => trimText(message, 240));
   const recentAgentMessages = evidence.agentMessages.map((message) => trimText(message, 240));
   const recentMessages = [...recentAgentMessages.slice(-10), ...recentUserMessages.slice(-10)];
@@ -167,23 +185,26 @@ function heuristicSummary(
   const sharedGoal = recentUserMessages.at(-1) ?? existingProject?.goal ?? existingLocal?.goal ?? "";
 
   return {
-    sourceSessionId: evidence.sessionId,
-    project: buildLayerSummary(existingProject, {
-      goal: sharedGoal,
-      confirmedWorking: buckets.recentSuccessfulCommands,
-      triedAndFailed: buckets.recentFailedCommands,
-      notYetTried: projectUntried,
-      filesDecisionsEnvironment: notes.project
-    }),
-    projectLocal: buildLayerSummary(existingLocal, {
-      goal: "",
-      notYetTried: localUntried,
-      incompleteNext: fallbackNext,
-      filesDecisionsEnvironment: [
-        ...buckets.detectedFileWrites,
-        ...notes.projectLocal
-      ]
-    })
+    summary: {
+      sourceSessionId: evidence.sessionId,
+      project: buildLayerSummary(existingProject, {
+        goal: sharedGoal,
+        confirmedWorking: buckets.recentSuccessfulCommands,
+        triedAndFailed: buckets.recentFailedCommands,
+        notYetTried: projectUntried,
+        filesDecisionsEnvironment: notes.project
+      }),
+      projectLocal: buildLayerSummary(existingLocal, {
+        goal: "",
+        notYetTried: localUntried,
+        incompleteNext: fallbackNext,
+        filesDecisionsEnvironment: [
+          ...buckets.detectedFileWrites,
+          ...notes.projectLocal
+        ]
+      })
+    },
+    usedFallbackNext: nextSteps.length === 0 && fallbackNext.length > 0
   };
 }
 
@@ -193,14 +214,30 @@ function buildDiagnostics(
   actualPath: SessionContinuityDiagnostics["actualPath"],
   buckets: SessionContinuityEvidenceBuckets,
   fallbackReason?: SessionContinuityDiagnostics["fallbackReason"],
-  codexExitCode?: number
+  codexExitCode?: number,
+  warnings: string[] = [],
+  usedFallbackNext = false
 ): SessionContinuityDiagnostics {
+  const normalizedWarnings = [...new Set(warnings)];
+  if (usedFallbackNext) {
+    normalizedWarnings.push(
+      "Next steps were inferred from the latest request because the rollout did not contain an explicit next-step phrase."
+    );
+  }
+
   return {
     generatedAt: new Date().toISOString(),
     rolloutPath: evidence.rolloutPath,
     sourceSessionId: evidence.sessionId,
     preferredPath,
     actualPath,
+    confidence: determineConfidence(
+      actualPath,
+      normalizedWarnings,
+      fallbackReason,
+      usedFallbackNext
+    ),
+    warnings: normalizedWarnings,
     fallbackReason,
     codexExitCode,
     evidenceCounts: buildSessionContinuityEvidenceCounts(buckets)
@@ -236,14 +273,18 @@ export class SessionContinuitySummarizer {
   ): Promise<SessionContinuityGenerationResult> {
     const buckets = collectSessionContinuityEvidenceBuckets(evidence);
     if (this.config.extractorMode !== "codex") {
+      const heuristic = heuristicSummary(evidence, existingState, buckets);
       return {
-        summary: heuristicSummary(evidence, existingState, buckets),
+        summary: heuristic.summary,
         diagnostics: buildDiagnostics(
           evidence,
           "heuristic",
           "heuristic",
           buckets,
-          "configured-heuristic"
+          "configured-heuristic",
+          undefined,
+          buckets.warningHints,
+          heuristic.usedFallbackNext
         )
       };
     }
@@ -258,20 +299,24 @@ export class SessionContinuitySummarizer {
           "codex",
           buckets,
           undefined,
-          attempt.codexExitCode
+          attempt.codexExitCode,
+          buckets.warningHints
         )
       };
     }
 
+    const heuristic = heuristicSummary(evidence, existingState, buckets);
     return {
-      summary: heuristicSummary(evidence, existingState, buckets),
+      summary: heuristic.summary,
       diagnostics: buildDiagnostics(
         evidence,
         "codex",
         "heuristic",
         buckets,
         attempt.fallbackReason,
-        attempt.codexExitCode
+        attempt.codexExitCode,
+        buckets.warningHints,
+        heuristic.usedFallbackNext
       )
     };
   }

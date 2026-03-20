@@ -2,7 +2,9 @@ import type {
   AppConfig,
   ContinuityRecoveryRecord,
   ContinuityRecoveryFailedStage,
+  MemoryConflictCandidate,
   MemoryScope,
+  SessionContinuityConfidence,
   SessionContinuityAuditTrigger,
   SessionContinuityDiagnostics,
   SessionContinuityEvidenceCounts,
@@ -29,6 +31,30 @@ function isStringArray(value: unknown): value is string[] {
   return Array.isArray(value) && value.every((item) => typeof item === "string");
 }
 
+function isConflictSource(value: unknown): value is MemoryConflictCandidate["source"] {
+  return value === "within-rollout" || value === "existing-memory";
+}
+
+function isConflictResolution(value: unknown): value is MemoryConflictCandidate["resolution"] {
+  return value === "suppressed";
+}
+
+function isMemoryConflictCandidate(value: unknown): value is MemoryConflictCandidate {
+  if (!value || typeof value !== "object") {
+    return false;
+  }
+
+  const candidate = value as Record<string, unknown>;
+  return (
+    isMemoryScope(candidate.scope) &&
+    typeof candidate.topic === "string" &&
+    typeof candidate.candidateSummary === "string" &&
+    isStringArray(candidate.conflictsWith) &&
+    isConflictSource(candidate.source) &&
+    isConflictResolution(candidate.resolution)
+  );
+}
+
 function isContinuityTrigger(value: unknown): value is SessionContinuityAuditTrigger {
   return (
     value === undefined ||
@@ -40,6 +66,10 @@ function isContinuityTrigger(value: unknown): value is SessionContinuityAuditTri
 
 function isWriteMode(value: unknown): value is SessionContinuityWriteMode {
   return value === undefined || value === "merge" || value === "replace";
+}
+
+function isContinuityConfidence(value: unknown): value is SessionContinuityConfidence {
+  return value === "high" || value === "medium" || value === "low";
 }
 
 function isEvidenceCounts(value: unknown): value is SessionContinuityEvidenceCounts {
@@ -84,6 +114,13 @@ export function isSyncRecoveryRecord(value: unknown): value is SyncRecoveryRecor
   }
 
   const record = value as Record<string, unknown>;
+  const conflicts = Array.isArray(record.conflicts)
+    ? record.conflicts.filter((candidate): candidate is MemoryConflictCandidate =>
+        isMemoryConflictCandidate(candidate)
+      )
+    : [];
+  const suppressedOperationCount =
+    typeof record.suppressedOperationCount === "number" ? record.suppressedOperationCount : 0;
   return (
     typeof record.recordedAt === "string" &&
     typeof record.projectId === "string" &&
@@ -96,8 +133,10 @@ export function isSyncRecoveryRecord(value: unknown): value is SyncRecoveryRecor
     typeof record.actualExtractorName === "string" &&
     (record.status === "applied" || record.status === "no-op") &&
     typeof record.appliedCount === "number" &&
+    suppressedOperationCount >= 0 &&
     Array.isArray(record.scopesTouched) &&
     record.scopesTouched.every((scope) => isMemoryScope(scope)) &&
+    conflicts.length === (Array.isArray(record.conflicts) ? record.conflicts.length : 0) &&
     isSyncRecoveryFailedStage(record.failedStage) &&
     typeof record.failureMessage === "string" &&
     typeof record.auditEntryWritten === "boolean"
@@ -124,6 +163,8 @@ export function isContinuityRecoveryRecord(
     isStringArray(record.writtenPaths) &&
     isExtractorPath(record.preferredPath) &&
     isExtractorPath(record.actualPath) &&
+    (record.confidence === undefined || isContinuityConfidence(record.confidence)) &&
+    (record.warnings === undefined || isStringArray(record.warnings)) &&
     isContinuityFallbackReason(record.fallbackReason) &&
     (record.codexExitCode === undefined || typeof record.codexExitCode === "number") &&
     isEvidenceCounts(record.evidenceCounts) &&
@@ -143,7 +184,9 @@ interface BuildSyncRecoveryRecordOptions {
   actualExtractorName: string;
   status: "applied" | "no-op";
   appliedCount: number;
+  suppressedOperationCount?: number;
   scopesTouched: MemoryScope[];
+  conflicts?: MemoryConflictCandidate[];
   failedStage: SyncRecoveryFailedStage;
   failureMessage: string;
   auditEntryWritten: boolean;
@@ -164,7 +207,9 @@ export function buildSyncRecoveryRecord(
     actualExtractorName: options.actualExtractorName,
     status: options.status,
     appliedCount: options.appliedCount,
+    suppressedOperationCount: options.suppressedOperationCount ?? 0,
     scopesTouched: options.scopesTouched,
+    conflicts: options.conflicts ?? [],
     failedStage: options.failedStage,
     failureMessage: options.failureMessage,
     auditEntryWritten: options.auditEntryWritten
@@ -219,6 +264,8 @@ export function buildContinuityRecoveryRecord(
     writtenPaths: options.writtenPaths,
     preferredPath: options.diagnostics.preferredPath,
     actualPath: options.diagnostics.actualPath,
+    confidence: options.diagnostics.confidence,
+    warnings: options.diagnostics.warnings,
     fallbackReason: options.diagnostics.fallbackReason,
     codexExitCode: options.diagnostics.codexExitCode,
     evidenceCounts: options.diagnostics.evidenceCounts,

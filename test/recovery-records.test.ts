@@ -97,6 +97,8 @@ describe("recovery-records", () => {
         sourceSessionId: "session-1",
         preferredPath: "codex",
         actualPath: "heuristic",
+        confidence: "low",
+        warnings: ["Low-signal continuity fallback."],
         fallbackReason: "low-signal",
         codexExitCode: 17,
         evidenceCounts: {
@@ -151,6 +153,8 @@ describe("recovery-records", () => {
         sourceSessionId: "session-1",
         preferredPath: "heuristic",
         actualPath: "heuristic",
+        confidence: "low",
+        warnings: [],
         fallbackReason: "configured-heuristic",
         evidenceCounts: {
           successfulCommands: 1,

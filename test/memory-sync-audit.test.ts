@@ -103,7 +103,7 @@ describe("memory-sync-audit", () => {
 
     expect(lines[0]).toContain("[skipped] [recovery]");
     expect(lines[1]).toContain("Session: unknown");
-    expect(lines[2]).toContain("Applied: 0 | Scopes: none");
+    expect(lines[2]).toContain("Applied: 0 | Suppressed: 0 | Scopes: none");
     expect(lines).toContain(
       "  Configured: codex-ephemeral (codex) -> Actual: heuristic (heuristic)"
     );

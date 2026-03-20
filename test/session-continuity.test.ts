@@ -588,8 +588,98 @@ describe("session continuity domain", () => {
     expect(prompt).toContain("Detected file writes:");
     expect(prompt).toContain("Candidate explicit next-step phrases:");
     expect(prompt).toContain("Candidate explicit untried phrases:");
+    expect(prompt).toContain("Reviewer warning hints:");
+    expect(prompt).toContain("Do not copy those warning phrases into project or projectLocal continuity items.");
     expect(prompt).toContain("pnpm test");
     expect(prompt).toContain("login.ts");
+  });
+
+  it("keeps reviewer noise warnings but clears resolved package-manager conflicts from a real rollout fixture", async () => {
+    const evidence = await parseRolloutEvidence(
+      path.join(process.cwd(), "test/fixtures/rollouts/mixed-language-reviewer-noise.jsonl")
+    );
+
+    expect(evidence).not.toBeNull();
+
+    const buckets = collectSessionContinuityEvidenceBuckets(evidence!);
+    expect(buckets.recentSuccessfulCommands.join("\n")).toContain("pnpm test");
+    expect(buckets.recentFailedCommands.join("\n")).toContain("pnpm build");
+    expect(buckets.detectedFileWrites.join("\n")).toContain("login.ts");
+    expect(buckets.explicitNextSteps.join("\n")).toContain("更新 src/auth/login.ts");
+    expect(buckets.explicitUntried.join("\n")).toContain("switching the login route to cookies()");
+    expect(buckets.warningHints).toEqual(
+      expect.arrayContaining([
+        expect.stringContaining("Reviewer or subagent prompt noise")
+      ])
+    );
+    expect(buckets.warningHints.join("\n")).not.toContain("Conflicting package manager signals");
+
+    const summarizer = new SessionContinuitySummarizer(baseConfig("/tmp/memory-root"));
+    const result = await summarizer.summarizeWithDiagnostics(evidence!);
+
+    expect(result.summary.project.confirmedWorking.join("\n")).toContain("pnpm test");
+    expect(result.summary.project.triedAndFailed.join("\n")).toContain("pnpm build");
+    expect(result.summary.projectLocal.incompleteNext.join("\n")).toContain("更新 src/auth/login.ts");
+    expect(result.summary.projectLocal.filesDecisionsEnvironment.join("\n")).toContain("login.ts");
+    expect(result.diagnostics.confidence).toBe("low");
+    expect(result.diagnostics.warnings).toEqual(
+      expect.arrayContaining([
+        expect.stringContaining("Reviewer or subagent prompt noise")
+      ])
+    );
+    expect(result.diagnostics.warnings.join("\n")).not.toContain("Conflicting package manager signals");
+  });
+
+  it("clears continuity conflict warnings when a later explicit user correction resolves the preference", async () => {
+    const temp = await tempDir("cam-session-resolved-warning-");
+    const mockBinary = await writeMockCodexBinary(
+      temp,
+      `fs.writeFileSync(outputPath, JSON.stringify({
+  project: {
+    goal: "Keep the package-manager guidance aligned.",
+    confirmedWorking: ["Command succeeded: pnpm test"],
+    triedAndFailed: [],
+    notYetTried: [],
+    incompleteNext: [],
+    filesDecisionsEnvironment: []
+  },
+  projectLocal: {
+    goal: "",
+    confirmedWorking: [],
+    triedAndFailed: [],
+    notYetTried: [],
+    incompleteNext: ["update the setup guide to match pnpm"],
+    filesDecisionsEnvironment: []
+  }
+}));`
+    );
+    const evidence: RolloutEvidence = {
+      sessionId: "session-resolved-package-manager-warning",
+      createdAt: "2026-03-15T00:00:00.000Z",
+      cwd: temp,
+      userMessages: [
+        "Actually use pnpm, not bun.",
+        "Next step: update the setup guide to match pnpm."
+      ],
+      agentMessages: ["Use bun in this repo for faster installs."],
+      toolCalls: [],
+      rolloutPath: "/tmp/rollout.jsonl"
+    };
+
+    const buckets = collectSessionContinuityEvidenceBuckets(evidence);
+
+    expect(buckets.warningHints).toEqual([]);
+
+    const summarizer = new SessionContinuitySummarizer(
+      baseConfig("/tmp/memory-root", {
+        extractorMode: "codex",
+        codexBinary: mockBinary
+      })
+    );
+    const result = await summarizer.summarizeWithDiagnostics(evidence);
+
+    expect(result.diagnostics.warnings).toEqual([]);
+    expect(result.diagnostics.confidence).toBe("high");
   });
 
   it("collects successful and failed bash tool calls in continuity evidence buckets", () => {
@@ -675,6 +765,8 @@ describe("session continuity domain", () => {
     ]);
     expect(diagnostics.preferredPath).toBe("codex");
     expect(diagnostics.actualPath).toBe("codex");
+    expect(diagnostics.confidence).toBe("high");
+    expect(diagnostics.warnings).toEqual([]);
     expect(diagnostics.fallbackReason).toBeUndefined();
     expect(diagnostics.codexExitCode).toBe(0);
   });
@@ -757,6 +849,7 @@ describe("session continuity domain", () => {
       expect(summary.projectLocal.filesDecisionsEnvironment.join("\n")).toContain("login.ts");
       expect(diagnostics.preferredPath).toBe("codex");
       expect(diagnostics.actualPath).toBe("heuristic");
+      expect(diagnostics.confidence).toBe("low");
       expect(diagnostics.codexExitCode).toBe(0);
       expect(diagnostics.fallbackReason).toBe(invalidCase.reason);
     }
@@ -830,6 +923,7 @@ describe("session continuity domain", () => {
     expect(summary.projectLocal.filesDecisionsEnvironment.join("\n")).toContain("login.ts");
     expect(diagnostics.preferredPath).toBe("codex");
     expect(diagnostics.actualPath).toBe("heuristic");
+    expect(diagnostics.confidence).toBe("low");
     expect(diagnostics.fallbackReason).toBe("low-signal");
   });
 
@@ -860,6 +954,7 @@ describe("session continuity domain", () => {
     expect(result.summary.sourceSessionId).toBe("session-codex-command-failed");
     expect(result.diagnostics.preferredPath).toBe("codex");
     expect(result.diagnostics.actualPath).toBe("heuristic");
+    expect(result.diagnostics.confidence).toBe("low");
     expect(result.diagnostics.fallbackReason).toBe("codex-command-failed");
     expect(result.diagnostics.codexExitCode).toBe(17);
   });
@@ -880,8 +975,10 @@ describe("session continuity domain", () => {
 
     expect(result.diagnostics.preferredPath).toBe("heuristic");
     expect(result.diagnostics.actualPath).toBe("heuristic");
+    expect(result.diagnostics.confidence).toBe("low");
     expect(result.diagnostics.fallbackReason).toBe("configured-heuristic");
     expect(result.diagnostics.evidenceCounts.nextSteps).toBeGreaterThan(0);
+    expect(result.diagnostics.warnings).toEqual([]);
   });
 
   it("applySessionContinuityLayerSummary merges summary into base state", () => {

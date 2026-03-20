@@ -4,6 +4,7 @@ import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { parseRolloutEvidence } from "../src/lib/domain/rollout.js";
 import { CodexExtractor } from "../src/lib/extractor/codex-extractor.js";
+import { reviewExtractedMemoryOperations } from "../src/lib/extractor/contradiction-review.js";
 import { HeuristicExtractor } from "../src/lib/extractor/heuristic-extractor.js";
 import { filterMemoryOperations } from "../src/lib/extractor/safety.js";
 import type { MemoryEntry, RolloutEvidence } from "../src/lib/types.js";
@@ -462,6 +463,137 @@ describe("HeuristicExtractor", () => {
           /Next step|login\.ts|middleware/u.test(operation.summary ?? "")
       )
     ).toBe(false);
+  });
+
+  it("extracts conflicting same-rollout preference candidates from a real fixture for reviewer-side suppression", async () => {
+    const extractor = new HeuristicExtractor();
+    const evidence = await parseRolloutEvidence(
+      path.join(process.cwd(), "test/fixtures/rollouts/within-rollout-preference-conflict.jsonl")
+    );
+
+    expect(evidence).not.toBeNull();
+
+    const operations = await extractor.extract(evidence!, []);
+    const upserts = operations.filter((operation) => operation.action === "upsert");
+
+    expect(upserts).toHaveLength(2);
+    expect(upserts.map((operation) => operation.summary)).toEqual(
+      expect.arrayContaining([
+        "we use pnpm in this repository",
+        "we use bun in this repository"
+      ])
+    );
+  });
+
+  it("treats mixed-language explicit corrections in noisy rollouts as high-confidence replacements", async () => {
+    const extractor = new HeuristicExtractor();
+    const evidence = await parseRolloutEvidence(
+      path.join(process.cwd(), "test/fixtures/rollouts/mixed-language-reviewer-noise.jsonl")
+    );
+
+    expect(evidence).not.toBeNull();
+
+    const operations = await extractor.extract(evidence!, [
+      {
+        id: "use-bun",
+        scope: "project",
+        topic: "preferences",
+        summary: "Use bun in this repository.",
+        details: ["Use bun instead of pnpm in this repository."],
+        updatedAt: "2026-03-14T00:00:00.000Z",
+        sources: ["old"]
+      }
+    ]);
+
+    expect(
+      operations.some((operation) => operation.action === "delete" && operation.id === "use-bun")
+    ).toBe(true);
+    expect(
+      operations.some(
+        (operation) =>
+          operation.action === "upsert" &&
+          operation.summary?.includes("实际上用 pnpm，不要用 bun")
+      )
+    ).toBe(true);
+    expect(
+      operations.some(
+        (operation) =>
+          operation.action === "upsert" &&
+          /reviewer sub-agent|cookie middleware/u.test(operation.summary ?? "")
+      )
+    ).toBe(false);
+  });
+
+  it("keeps a hedged conflict candidate available for later conservative suppression", async () => {
+    const extractor = new HeuristicExtractor();
+    const evidence = await parseRolloutEvidence(
+      path.join(process.cwd(), "test/fixtures/rollouts/hedged-preference-conflict.jsonl")
+    );
+
+    expect(evidence).not.toBeNull();
+
+    const operations = await extractor.extract(evidence!, [
+      {
+        id: "use-pnpm",
+        scope: "project",
+        topic: "preferences",
+        summary: "Use pnpm in this repository.",
+        details: ["Use pnpm instead of npm in this repository."],
+        updatedAt: "2026-03-14T00:00:00.000Z",
+        sources: ["old"]
+      }
+    ]);
+
+    expect(
+      operations.some((operation) => operation.action === "delete" && operation.id === "use-pnpm")
+    ).toBe(true);
+    expect(
+      operations.some(
+        (operation) =>
+          operation.action === "upsert" &&
+          operation.summary?.includes("maybe use bun instead of pnpm")
+      )
+    ).toBe(true);
+  });
+
+  it("keeps the latest high-confidence correction and suppresses stale same-rollout candidates", async () => {
+    const extractor = new HeuristicExtractor();
+    const operations = await extractor.extract(
+      baseEvidence({
+        userMessages: [
+          "remember that we use bun in this repository",
+          "Actually use pnpm, not bun."
+        ]
+      }),
+      []
+    );
+
+    const reviewed = reviewExtractedMemoryOperations(operations, []);
+
+    expect(
+      reviewed.operations.some(
+        (operation) =>
+          operation.action === "upsert" &&
+          operation.summary === "Actually use pnpm, not bun"
+      )
+    ).toBe(true);
+    expect(
+      reviewed.operations.some(
+        (operation) =>
+          operation.action === "upsert" &&
+          operation.summary === "we use bun in this repository"
+      )
+    ).toBe(false);
+    expect(reviewed.suppressedOperationCount).toBe(1);
+    expect(reviewed.conflicts).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          source: "within-rollout",
+          candidateSummary: "we use bun in this repository",
+          conflictsWith: ["Actually use pnpm, not bun"]
+        })
+      ])
+    );
   });
 });
 

@@ -3,6 +3,7 @@ import type {
   ProjectContext,
   SessionContinuityAuditEntry,
   SessionContinuityAuditTrigger,
+  SessionContinuityConfidence,
   SessionContinuityDiagnostics,
   SessionContinuityFallbackReason,
   SessionContinuityScope,
@@ -39,6 +40,10 @@ function isAuditTrigger(value: unknown): value is SessionContinuityAuditTrigger 
   );
 }
 
+function isConfidence(value: unknown): value is SessionContinuityConfidence {
+  return value === "high" || value === "medium" || value === "low";
+}
+
 function isWriteMode(value: unknown): value is SessionContinuityWriteMode {
   return value === undefined || value === "merge" || value === "replace";
 }
@@ -71,12 +76,35 @@ function isEvidenceCounts(
   );
 }
 
+function normalizeWarnings(value: unknown): string[] {
+  return Array.isArray(value) && value.every((item) => typeof item === "string")
+    ? value
+    : [];
+}
+
+function normalizeConfidence(
+  confidence: unknown,
+  warnings: string[],
+  fallbackReason?: SessionContinuityFallbackReason
+): SessionContinuityConfidence {
+  if (isConfidence(confidence)) {
+    return confidence;
+  }
+
+  if (fallbackReason) {
+    return "low";
+  }
+
+  return warnings.length > 0 ? "medium" : "high";
+}
+
 export function isSessionContinuityAuditEntry(value: unknown): value is SessionContinuityAuditEntry {
   if (!value || typeof value !== "object") {
     return false;
   }
 
   const entry = value as Record<string, unknown>;
+  const warnings = normalizeWarnings(entry.warnings);
   return (
     typeof entry.generatedAt === "string" &&
     typeof entry.projectId === "string" &&
@@ -89,6 +117,8 @@ export function isSessionContinuityAuditEntry(value: unknown): value is SessionC
     typeof entry.sourceSessionId === "string" &&
     isExtractorPath(entry.preferredPath) &&
     isExtractorPath(entry.actualPath) &&
+    (entry.confidence === undefined || isConfidence(entry.confidence)) &&
+    warnings.length === (Array.isArray(entry.warnings) ? entry.warnings.length : 0) &&
     isFallbackReason(entry.fallbackReason) &&
     (entry.codexExitCode === undefined || typeof entry.codexExitCode === "number") &&
     isEvidenceCounts(entry.evidenceCounts) &&
@@ -102,7 +132,8 @@ export function formatSessionContinuityDiagnostics(
 ): string {
   const parts = [
     `Generation: ${diagnostics.actualPath}`,
-    `preferred ${diagnostics.preferredPath}`
+    `preferred ${diagnostics.preferredPath}`,
+    `confidence ${diagnostics.confidence}`
   ];
 
   if (diagnostics.fallbackReason) {
@@ -127,7 +158,15 @@ function formatEvidenceCounts(entry: SessionContinuityAuditEntry): string {
 export function formatSessionContinuityAuditDrillDown(
   entry: SessionContinuityAuditEntry
 ): string[] {
-  const lines = [`Evidence: ${formatEvidenceCounts(entry)}`];
+  const warnings = normalizeWarnings(entry.warnings);
+  const lines = [
+    `Confidence: ${normalizeConfidence(entry.confidence, warnings, entry.fallbackReason)}`,
+    `Evidence: ${formatEvidenceCounts(entry)}`
+  ];
+
+  if (warnings.length > 0) {
+    lines.push("Warnings:", ...warnings.map((warning) => `- ${warning}`));
+  }
 
   if (entry.writtenPaths.length === 0) {
     lines.push("Written paths: none");
@@ -141,12 +180,15 @@ export function formatSessionContinuityAuditDrillDown(
 export function toSessionContinuityDiagnostics(
   entry: SessionContinuityAuditEntry
 ): SessionContinuityDiagnostics {
+  const warnings = normalizeWarnings(entry.warnings);
   return {
     generatedAt: entry.generatedAt,
     rolloutPath: entry.rolloutPath,
     sourceSessionId: entry.sourceSessionId,
     preferredPath: entry.preferredPath,
     actualPath: entry.actualPath,
+    confidence: normalizeConfidence(entry.confidence, warnings, entry.fallbackReason),
+    warnings,
     fallbackReason: entry.fallbackReason,
     codexExitCode: entry.codexExitCode,
     evidenceCounts: entry.evidenceCounts
@@ -190,6 +232,8 @@ export function buildSessionContinuityAuditEntry(
     sourceSessionId: diagnostics.sourceSessionId,
     preferredPath: diagnostics.preferredPath,
     actualPath: diagnostics.actualPath,
+    confidence: diagnostics.confidence,
+    warnings: diagnostics.warnings,
     fallbackReason: diagnostics.fallbackReason,
     codexExitCode: diagnostics.codexExitCode,
     evidenceCounts: diagnostics.evidenceCounts,

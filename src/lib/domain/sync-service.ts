@@ -3,6 +3,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import type {
   AppConfig,
+  MemoryConflictCandidate,
   MemoryEntry,
   MemoryOperation,
   ProcessedRolloutIdentity,
@@ -13,6 +14,7 @@ import type {
 import { MemoryStore } from "./memory-store.js";
 import { HeuristicExtractor } from "../extractor/heuristic-extractor.js";
 import { CodexExtractor } from "../extractor/codex-extractor.js";
+import { reviewExtractedMemoryOperations } from "../extractor/contradiction-review.js";
 import { filterMemoryOperations } from "../extractor/safety.js";
 import type { MemoryExtractorAdapter } from "../runtime/contracts.js";
 import { RolloutSessionSource } from "../runtime/rollout-session-source.js";
@@ -119,9 +121,11 @@ export class SyncService {
     ];
 
     const extraction = await this.extractOperations(evidence, existingEntries);
-    const applied = await this.store.applyOperations(
-      filterMemoryOperations(extraction.operations)
+    const reviewedOperations = reviewExtractedMemoryOperations(
+      filterMemoryOperations(extraction.operations),
+      existingEntries
     );
+    const applied = await this.store.applyOperations(reviewedOperations.operations);
     const status = applied.length === 0 ? "no-op" : "applied";
     const auditEntry = buildMemorySyncAuditEntry({
       project: this.project,
@@ -133,6 +137,8 @@ export class SyncService {
       actualExtractorName: extraction.actualExtractorName,
       sessionSource: this.sessionSource.name,
       status,
+      suppressedOperationCount: reviewedOperations.suppressedOperationCount,
+      conflicts: reviewedOperations.conflicts,
       operations: applied,
       ...(isRecovery ? { isRecovery: true } : {})
     });
@@ -147,7 +153,9 @@ export class SyncService {
         actualExtractorName: extraction.actualExtractorName,
         status,
         appliedCount: auditEntry.appliedCount,
+        suppressedOperationCount: auditEntry.suppressedOperationCount ?? 0,
         scopesTouched: auditEntry.scopesTouched,
+        conflicts: auditEntry.conflicts ?? [],
         failedStage: "audit-write",
         failureMessage: errorMessage(error),
         auditEntryWritten: false
@@ -165,7 +173,9 @@ export class SyncService {
         actualExtractorName: extraction.actualExtractorName,
         status,
         appliedCount: auditEntry.appliedCount,
+        suppressedOperationCount: auditEntry.suppressedOperationCount ?? 0,
         scopesTouched: auditEntry.scopesTouched,
+        conflicts: auditEntry.conflicts ?? [],
         failedStage: "processed-state-write",
         failureMessage: errorMessage(error),
         auditEntryWritten: true
@@ -247,7 +257,9 @@ export class SyncService {
     actualExtractorName: string;
     status: "applied" | "no-op";
     appliedCount: number;
+    suppressedOperationCount: number;
     scopesTouched: MemoryOperation["scope"][];
+    conflicts: MemoryConflictCandidate[];
     failedStage: "audit-write" | "processed-state-write";
     failureMessage: string;
     auditEntryWritten: boolean;
@@ -265,7 +277,9 @@ export class SyncService {
           actualExtractorName: options.actualExtractorName,
           status: options.status,
           appliedCount: options.appliedCount,
+          suppressedOperationCount: options.suppressedOperationCount,
           scopesTouched: options.scopesTouched,
+          conflicts: options.conflicts,
           failedStage: options.failedStage,
           failureMessage: options.failureMessage,
           auditEntryWritten: options.auditEntryWritten
