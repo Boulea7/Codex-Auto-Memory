@@ -187,6 +187,7 @@ cam audit           # check the repository for unexpected sensitive content
 - `cam session save`: the merge path for the continuity audit surface. It records the latest diagnostics, latest rollout, and latest audit drill-down, but it remains an incremental save and does not immediately clean polluted state.
 - `cam session refresh`: the replace path for the continuity audit surface. It regenerates continuity from selected provenance and replaces the selected scope; `--json` additionally exposes `action`, `writeMode`, and `rolloutSelection`.
 - `cam session load|status`: reviewer surface for the latest continuity diagnostics, latest rollout, latest audit drill-down, and a compact prior audit preview sourced from the continuity audit log that excludes the latest entry, coalesces consecutive repeats, and is not a full prior-history replay. Their `--json` output continues to expose raw recent audit entries, plus continuity `confidence` and warnings for conservative summaries.
+- continuity reviewer warnings still belong to the audit/reviewer surface rather than the continuity body; the current implementation applies a minimal deterministic scrub so obvious reviewer warning prose is not written back into continuity Markdown.
 - `pending continuity recovery marker`: a visible warning that continuity Markdown was written but the audit sidecar failed. It is not a general repair mechanism and is not equivalent to `cam session refresh`.
 
 ## How it works

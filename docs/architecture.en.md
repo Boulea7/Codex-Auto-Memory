@@ -85,6 +85,8 @@ Session continuity is a separate companion layer, not part of the durable memory
 
 - shared continuity: project-wide working state shared across worktrees
 - project-local continuity: worktree-specific working state
+- reviewer warnings and confidence remain audit-side metadata, not continuity-body content
+- startup provenance only lists continuity files that were actually read for the injected block
 
 Its purpose is session recovery, not long-term memory.
 

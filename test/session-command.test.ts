@@ -266,6 +266,10 @@ describe("runSession", () => {
 
     const loadOutput = await runSession("load", { cwd: repoDir });
     expect(loadOutput).toContain("Evidence: successful");
+    expect(loadOutput).toContain("Warnings:");
+    expect(loadOutput).toContain(
+      "Next steps were inferred from the latest request because the rollout did not contain an explicit next-step phrase."
+    );
     expect(loadOutput).toContain("Written paths:");
     expect(loadOutput).toContain(
       "Merged resume brief combines shared continuity with any project-local overrides."
@@ -307,6 +311,10 @@ describe("runSession", () => {
 
     const statusOutput = await runSession("status", { cwd: repoDir });
     expect(statusOutput).toContain("Evidence: successful");
+    expect(statusOutput).toContain("Warnings:");
+    expect(statusOutput).toContain(
+      "Next steps were inferred from the latest request because the rollout did not contain an explicit next-step phrase."
+    );
     expect(statusOutput).toContain("Written paths:");
     expect(statusOutput).toContain(
       "Merged resume brief combines shared continuity with any project-local overrides."
@@ -441,6 +449,66 @@ describe("runSession", () => {
     expect(merged?.filesDecisionsEnvironment.join("\n")).not.toContain("Stale local file note");
   }, 30_000);
 
+  it("supports session load/status from the real CLI surface, including startup source files", async () => {
+    const repoDir = await tempDir("cam-session-load-cli-repo-");
+    const memoryRoot = await tempDir("cam-session-load-cli-memory-");
+    await initRepo(repoDir);
+
+    await writeProjectConfig(
+      repoDir,
+      configJson(),
+      { autoMemoryDirectory: memoryRoot }
+    );
+
+    const store = new SessionContinuityStore(detectProjectContext(repoDir), {
+      ...configJson(),
+      autoMemoryDirectory: memoryRoot
+    });
+    await store.saveSummary(
+      {
+        project: {
+          goal: "Resume the shared continuity path.",
+          confirmedWorking: ["Shared continuity already exists."],
+          triedAndFailed: [],
+          notYetTried: [],
+          incompleteNext: [],
+          filesDecisionsEnvironment: []
+        },
+        projectLocal: {
+          goal: "",
+          confirmedWorking: [],
+          triedAndFailed: [],
+          notYetTried: [],
+          incompleteNext: [],
+          filesDecisionsEnvironment: []
+        }
+      },
+      "project"
+    );
+
+    const loadResult = runCli(repoDir, ["session", "load", "--json", "--print-startup"]);
+    const statusResult = runCli(repoDir, ["session", "status", "--json"]);
+
+    expect(loadResult.exitCode).toBe(0);
+    expect(statusResult.exitCode).toBe(0);
+
+    const loadPayload = JSON.parse(loadResult.stdout) as {
+      startup: { text: string; sourceFiles: string[] };
+      projectLocation: { path: string };
+      localLocation: { path: string };
+    };
+    const statusPayload = JSON.parse(statusResult.stdout) as {
+      projectLocation: { exists: boolean; path: string };
+      localLocation: { exists: boolean; path: string };
+    };
+
+    expect(loadPayload.startup.text).toContain("# Session Continuity");
+    expect(loadPayload.startup.sourceFiles).toEqual([loadPayload.projectLocation.path]);
+    expect(loadPayload.startup.sourceFiles).not.toContain(loadPayload.localLocation.path);
+    expect(statusPayload.projectLocation.exists).toBe(true);
+    expect(statusPayload.localLocation.exists).toBe(false);
+  }, 30_000);
+
   it("refresh replaces only the selected scope", async () => {
     const repoDir = await tempDir("cam-session-refresh-scope-repo-");
     const memoryRoot = await tempDir("cam-session-refresh-scope-memory-");
@@ -519,6 +587,62 @@ describe("runSession", () => {
     expect(localAfterRefresh?.filesDecisionsEnvironment.join("\n")).not.toContain(
       "Local stale file note"
     );
+  }, 30_000);
+
+  it("supports session load and status from the CLI command surface", async () => {
+    const repoDir = await tempDir("cam-session-load-status-cli-repo-");
+    const memoryRoot = await tempDir("cam-session-load-status-cli-memory-");
+    await initRepo(repoDir);
+
+    await writeProjectConfig(
+      repoDir,
+      configJson(),
+      { autoMemoryDirectory: memoryRoot }
+    );
+
+    const rolloutPath = path.join(repoDir, "rollout.jsonl");
+    await fs.writeFile(
+      rolloutPath,
+      rolloutFixture(repoDir, "Continue the login cookie work and add middleware."),
+      "utf8"
+    );
+
+    const saveResult = runCli(repoDir, ["session", "save", "--json", "--rollout", rolloutPath]);
+    expect(saveResult.exitCode).toBe(0);
+
+    const loadResult = runCli(repoDir, ["session", "load", "--json", "--print-startup"]);
+    expect(loadResult.exitCode).toBe(0);
+    const loadPayload = JSON.parse(loadResult.stdout) as {
+      startup: { text: string };
+      latestContinuityAuditEntry: { rolloutPath: string } | null;
+      latestContinuityDiagnostics: { actualPath: string; warnings: string[] } | null;
+      recentContinuityAuditEntries: Array<{ rolloutPath: string }>;
+    };
+    expect(loadPayload.startup.text).toContain("# Session Continuity");
+    expect(loadPayload.latestContinuityAuditEntry?.rolloutPath).toBe(rolloutPath);
+    expect(loadPayload.latestContinuityDiagnostics?.actualPath).toBe("heuristic");
+    expect(loadPayload.latestContinuityDiagnostics?.warnings).toEqual(
+      expect.arrayContaining([
+        expect.stringContaining("Next steps were inferred from the latest request")
+      ])
+    );
+    expect(loadPayload.recentContinuityAuditEntries[0]?.rolloutPath).toBe(rolloutPath);
+
+    const statusResult = runCli(repoDir, ["session", "status", "--json"]);
+    expect(statusResult.exitCode).toBe(0);
+    const statusPayload = JSON.parse(statusResult.stdout) as {
+      latestContinuityAuditEntry: { rolloutPath: string } | null;
+      latestContinuityDiagnostics: { actualPath: string; warnings: string[] } | null;
+      recentContinuityAuditEntries: Array<{ rolloutPath: string }>;
+    };
+    expect(statusPayload.latestContinuityAuditEntry?.rolloutPath).toBe(rolloutPath);
+    expect(statusPayload.latestContinuityDiagnostics?.actualPath).toBe("heuristic");
+    expect(statusPayload.latestContinuityDiagnostics?.warnings).toEqual(
+      expect.arrayContaining([
+        expect.stringContaining("Next steps were inferred from the latest request")
+      ])
+    );
+    expect(statusPayload.recentContinuityAuditEntries[0]?.rolloutPath).toBe(rolloutPath);
   }, 30_000);
 
   it("refresh prefers a matching recovery marker over audit and latest primary rollout", async () => {
@@ -1446,6 +1570,8 @@ describe("runSession", () => {
         rolloutPath: string;
         trigger?: string;
         writeMode?: string;
+        confidence?: string;
+        warnings?: string[];
       } | null;
     };
     expect(loadJson.latestContinuityAuditEntry?.rolloutPath).toBe("/tmp/rollout-legacy.jsonl");
@@ -1459,10 +1585,111 @@ describe("runSession", () => {
     );
     expect(loadJson.pendingContinuityRecovery?.trigger).toBeUndefined();
     expect(loadJson.pendingContinuityRecovery?.writeMode).toBeUndefined();
+    expect(loadJson.pendingContinuityRecovery?.confidence).toBe("high");
+    expect(loadJson.pendingContinuityRecovery?.warnings).toEqual([]);
 
     const statusOutput = await runSession("status", { cwd: repoDir });
     expect(statusOutput).toContain("/tmp/rollout-legacy.jsonl");
     expect(statusOutput).toContain("/tmp/rollout-legacy-recovery.jsonl");
+    expect(statusOutput).toContain("preferred heuristic | confidence high");
+  }, 30_000);
+
+  it("normalizes legacy audit and recovery warnings into json and text outputs", async () => {
+    const repoDir = await tempDir("cam-session-legacy-warning-repo-");
+    const memoryRoot = await tempDir("cam-session-legacy-warning-memory-");
+    await initRepo(repoDir);
+
+    await writeProjectConfig(
+      repoDir,
+      configJson(),
+      { autoMemoryDirectory: memoryRoot }
+    );
+
+    const auditWarning = "Legacy audit reviewer warning.";
+    const recoveryWarning = "Legacy recovery reviewer warning.";
+    const project = detectProjectContext(repoDir);
+    const store = new SessionContinuityStore(project, {
+      ...configJson(),
+      autoMemoryDirectory: memoryRoot
+    });
+    await store.ensureAuditLayout();
+    await fs.writeFile(
+      store.paths.auditFile,
+      `${JSON.stringify({
+        generatedAt: "2026-03-17T00:00:00.000Z",
+        projectId: project.projectId,
+        worktreeId: project.worktreeId,
+        configuredExtractorMode: "heuristic",
+        scope: "both",
+        rolloutPath: "/tmp/rollout-legacy-warning.jsonl",
+        sourceSessionId: "session-legacy-warning",
+        preferredPath: "heuristic",
+        actualPath: "heuristic",
+        warnings: [auditWarning],
+        evidenceCounts: makeEvidenceCounts(),
+        writtenPaths: ["/tmp/legacy-warning-continuity.md"]
+      })}\n`,
+      "utf8"
+    );
+    await fs.writeFile(
+      store.getRecoveryPath(),
+      JSON.stringify({
+        recordedAt: "2026-03-17T00:01:00.000Z",
+        projectId: project.projectId,
+        worktreeId: project.worktreeId,
+        rolloutPath: "/tmp/rollout-legacy-warning-recovery.jsonl",
+        sourceSessionId: "session-legacy-warning-recovery",
+        scope: "both",
+        writtenPaths: ["/tmp/legacy-warning-recovery.md"],
+        preferredPath: "heuristic",
+        actualPath: "heuristic",
+        warnings: [recoveryWarning],
+        evidenceCounts: makeEvidenceCounts(),
+        failedStage: "audit-write",
+        failureMessage: "legacy warning recovery marker"
+      }),
+      "utf8"
+    );
+
+    const loadJson = JSON.parse(
+      await runSession("load", { cwd: repoDir, json: true })
+    ) as {
+      latestContinuityDiagnostics: { confidence: string; warnings: string[] } | null;
+      pendingContinuityRecovery: {
+        confidence?: string;
+        warnings?: string[];
+      } | null;
+    };
+    expect(loadJson.latestContinuityDiagnostics?.confidence).toBe("medium");
+    expect(loadJson.latestContinuityDiagnostics?.warnings).toEqual([auditWarning]);
+    expect(loadJson.pendingContinuityRecovery?.confidence).toBe("medium");
+    expect(loadJson.pendingContinuityRecovery?.warnings).toEqual([recoveryWarning]);
+
+    const statusJson = JSON.parse(
+      await runSession("status", { cwd: repoDir, json: true })
+    ) as {
+      latestContinuityDiagnostics: { confidence: string; warnings: string[] } | null;
+      pendingContinuityRecovery: {
+        confidence?: string;
+        warnings?: string[];
+      } | null;
+    };
+    expect(statusJson.latestContinuityDiagnostics?.confidence).toBe("medium");
+    expect(statusJson.latestContinuityDiagnostics?.warnings).toEqual([auditWarning]);
+    expect(statusJson.pendingContinuityRecovery?.confidence).toBe("medium");
+    expect(statusJson.pendingContinuityRecovery?.warnings).toEqual([recoveryWarning]);
+
+    const loadOutput = await runSession("load", { cwd: repoDir });
+    expect(loadOutput).toContain("Warnings:");
+    expect(loadOutput).toContain(auditWarning);
+    expect(loadOutput).toContain(`- Warning: ${recoveryWarning}`);
+    expect(loadOutput).toContain("confidence medium");
+
+    const statusOutput = await runSession("status", { cwd: repoDir });
+    expect(statusOutput).toContain("Warnings:");
+    expect(statusOutput).toContain(auditWarning);
+    expect(statusOutput).toContain(`- Warning: ${recoveryWarning}`);
+    expect(statusOutput).toContain("confidence medium");
   }, 30_000);
 
   it("writes and surfaces a continuity recovery marker when audit persistence fails", async () => {
@@ -1803,6 +2030,71 @@ describe("runWrappedCodex with session continuity", () => {
     expect(merged?.goal).not.toContain("do not auto-save continuity");
     expect(await continuityStore.readLatestAuditEntry()).toBeNull();
     expect(await continuityStore.readRecoveryRecord()).toBeNull();
+  }, 30_000);
+
+  it("injects only continuity source files that actually exist", async () => {
+    const repoDir = await tempDir("cam-wrapper-existing-sources-repo-");
+    const memoryRoot = await tempDir("cam-wrapper-existing-sources-memory-");
+    const sessionsDir = await tempDir("cam-wrapper-existing-sources-rollouts-");
+    await initRepo(repoDir);
+    process.env.CAM_CODEX_SESSIONS_DIR = sessionsDir;
+
+    const { capturedArgsPath, mockCodexPath } = await writeWrapperMockCodex(repoDir, sessionsDir, {
+      sessionId: "session-wrapper-existing-sources",
+      message: "Continue with shared-only continuity."
+    });
+
+    await writeProjectConfig(
+      repoDir,
+      configJson({
+        codexBinary: mockCodexPath,
+        sessionContinuityAutoLoad: true,
+        sessionContinuityAutoSave: false
+      }),
+      {
+        autoMemoryDirectory: memoryRoot,
+        sessionContinuityAutoLoad: true,
+        sessionContinuityAutoSave: false
+      }
+    );
+
+    const continuityStore = new SessionContinuityStore(detectProjectContext(repoDir), {
+      ...configJson({
+        codexBinary: mockCodexPath,
+        sessionContinuityAutoLoad: true,
+        sessionContinuityAutoSave: false
+      }),
+      autoMemoryDirectory: memoryRoot
+    });
+    await continuityStore.saveSummary(
+      {
+        project: {
+          goal: "Shared-only continuity goal.",
+          confirmedWorking: ["Shared-only continuity exists."],
+          triedAndFailed: [],
+          notYetTried: [],
+          incompleteNext: [],
+          filesDecisionsEnvironment: []
+        },
+        projectLocal: {
+          goal: "",
+          confirmedWorking: [],
+          triedAndFailed: [],
+          notYetTried: [],
+          incompleteNext: [],
+          filesDecisionsEnvironment: []
+        }
+      },
+      "project"
+    );
+
+    const exitCode = await runWrappedCodex(repoDir, "exec", ["continue"]);
+    expect(exitCode).toBe(0);
+
+    const capturedArgs = JSON.parse(await fs.readFile(capturedArgsPath, "utf8")) as string[];
+    const baseInstructionsArg = capturedArgs.find((arg) => arg.startsWith("base_instructions="));
+    expect(baseInstructionsArg).toContain(continuityStore.paths.sharedFile);
+    expect(baseInstructionsArg).not.toContain(continuityStore.paths.localFile);
   }, 30_000);
 
   it("auto-saves continuity without injecting it when autoLoad is disabled and autoSave is enabled", async () => {

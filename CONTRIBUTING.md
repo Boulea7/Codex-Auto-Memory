@@ -21,6 +21,9 @@ When proposing changes, evaluate them against that product contract first.
 ```bash
 pnpm install
 pnpm lint
+pnpm test:docs-contract
+pnpm test:reviewer-smoke
+pnpm test:cli-smoke
 pnpm test
 pnpm build
 ```
@@ -41,6 +44,7 @@ Use Node 20+ and `pnpm`.
 - Keep file formats human-readable.
 - Avoid over-engineering. Start with the simplest version that keeps future migration possible.
 - Keep comments in English.
+- Keep reviewer-only warnings and confidence prose in audit/reviewer surfaces; they should not become continuity body content.
 
 ## Documentation Guidelines
 

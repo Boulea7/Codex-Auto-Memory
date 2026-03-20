@@ -187,6 +187,7 @@ cam audit           # 检查仓库有没有意外的敏感内容
 - `cam session save`: continuity audit surface 的 merge 路径，记录最新 continuity diagnostics、latest rollout 与 latest audit drill-down；它是 incremental save，不会立刻把已有污染状态“洗干净”。
 - `cam session refresh`: continuity audit surface 的 replace 路径，从选定 provenance 重新生成 continuity，并覆盖所选 scope；`--json` 会额外暴露 `action`、`writeMode` 与 `rolloutSelection`。
 - `cam session load|status`: reviewer surface，继续展示 latest continuity diagnostics、latest rollout、latest audit drill-down，以及 compact prior audit preview（来自 continuity audit log，排除 latest，并收敛连续重复项，不是完整 prior history 回放）；最新 diagnostics 现在也会显式带出 `confidence` 与 warnings，帮助 reviewer 区分稳定事实、临时状态与需二次核实的冲突/噪音。
+- continuity reviewer warnings 仍属于 audit / reviewer surface，而不是 continuity body；当前实现会对明显的 reviewer warning prose 做最小 deterministic scrub，避免它们被模型原样写回 continuity Markdown。
 - `pending continuity recovery marker`: continuity Markdown 已写入但 audit sidecar 失败时的可见警告；它不等于 `cam session refresh` 会自动修复一切，只会在逻辑身份匹配的后续成功写入后被清理。
 
 ## 工作方式

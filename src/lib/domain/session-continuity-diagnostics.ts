@@ -1,5 +1,6 @@
 import type {
   AppConfig,
+  ContinuityRecoveryRecord,
   ProjectContext,
   SessionContinuityAuditEntry,
   SessionContinuityAuditTrigger,
@@ -76,13 +77,13 @@ function isEvidenceCounts(
   );
 }
 
-function normalizeWarnings(value: unknown): string[] {
+export function normalizeSessionContinuityWarnings(value: unknown): string[] {
   return Array.isArray(value) && value.every((item) => typeof item === "string")
     ? value
     : [];
 }
 
-function normalizeConfidence(
+export function normalizeSessionContinuityConfidence(
   confidence: unknown,
   warnings: string[],
   fallbackReason?: SessionContinuityFallbackReason
@@ -104,7 +105,7 @@ export function isSessionContinuityAuditEntry(value: unknown): value is SessionC
   }
 
   const entry = value as Record<string, unknown>;
-  const warnings = normalizeWarnings(entry.warnings);
+  const warnings = normalizeSessionContinuityWarnings(entry.warnings);
   return (
     typeof entry.generatedAt === "string" &&
     typeof entry.projectId === "string" &&
@@ -158,9 +159,9 @@ function formatEvidenceCounts(entry: SessionContinuityAuditEntry): string {
 export function formatSessionContinuityAuditDrillDown(
   entry: SessionContinuityAuditEntry
 ): string[] {
-  const warnings = normalizeWarnings(entry.warnings);
+  const warnings = normalizeSessionContinuityWarnings(entry.warnings);
   const lines = [
-    `Confidence: ${normalizeConfidence(entry.confidence, warnings, entry.fallbackReason)}`,
+    `Confidence: ${normalizeSessionContinuityConfidence(entry.confidence, warnings, entry.fallbackReason)}`,
     `Evidence: ${formatEvidenceCounts(entry)}`
   ];
 
@@ -180,18 +181,33 @@ export function formatSessionContinuityAuditDrillDown(
 export function toSessionContinuityDiagnostics(
   entry: SessionContinuityAuditEntry
 ): SessionContinuityDiagnostics {
-  const warnings = normalizeWarnings(entry.warnings);
+  const warnings = normalizeSessionContinuityWarnings(entry.warnings);
   return {
     generatedAt: entry.generatedAt,
     rolloutPath: entry.rolloutPath,
     sourceSessionId: entry.sourceSessionId,
     preferredPath: entry.preferredPath,
     actualPath: entry.actualPath,
-    confidence: normalizeConfidence(entry.confidence, warnings, entry.fallbackReason),
+    confidence: normalizeSessionContinuityConfidence(entry.confidence, warnings, entry.fallbackReason),
     warnings,
     fallbackReason: entry.fallbackReason,
     codexExitCode: entry.codexExitCode,
     evidenceCounts: entry.evidenceCounts
+  };
+}
+
+export function normalizeContinuityRecoveryRecord(
+  record: ContinuityRecoveryRecord
+): ContinuityRecoveryRecord {
+  const warnings = normalizeSessionContinuityWarnings(record.warnings);
+  return {
+    ...record,
+    confidence: normalizeSessionContinuityConfidence(
+      record.confidence,
+      warnings,
+      record.fallbackReason
+    ),
+    warnings
   };
 }
 
