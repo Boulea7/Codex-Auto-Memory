@@ -40,6 +40,13 @@ Use Node 20+ and `pnpm`.
 - Include screenshots or terminal output only when it helps explain the UX.
 - If you touch release-facing CLI behavior, validate `node dist/cli.js` or `pnpm test:dist-cli-smoke`.
 
+## Current maintainer focus
+
+- Prefer structural simplification over feature expansion in the next phase.
+- If you refactor repository structure, keep the command surface stable unless a behavior change is intentional and documented.
+- Before borrowing ideas from similar tools such as `mem0`, first inspect their current public docs or repository context and extract only patterns that fit this project's companion-first posture.
+- Use external research to improve module boundaries, reviewer surfaces, and maintainability, not to broaden the product scope by default.
+
 ## Coding Guidelines
 
 - Prefer small modules with explicit responsibilities.
