@@ -28,8 +28,20 @@ jobs:
       - name: Lint
         run: pnpm lint
 
+      - name: Docs Contract
+        run: pnpm test:docs-contract
+
+      - name: Reviewer Smoke
+        run: pnpm test:reviewer-smoke
+
+      - name: CLI Smoke
+        run: pnpm test:cli-smoke
+
       - name: Test
         run: pnpm test
 
       - name: Build
         run: pnpm build
+
+      - name: Pack Check
+        run: pnpm pack:check

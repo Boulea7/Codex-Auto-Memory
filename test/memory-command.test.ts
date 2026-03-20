@@ -6,6 +6,7 @@ import { runMemory } from "../src/lib/commands/memory.js";
 import { configPaths } from "../src/lib/config/load-config.js";
 import { detectProjectContext } from "../src/lib/domain/project-context.js";
 import { MemoryStore } from "../src/lib/domain/memory-store.js";
+import { runCommandCapture } from "../src/lib/util/process.js";
 import type { AppConfig, MemoryCommandOutput } from "../src/lib/types.js";
 import {
   makeAppConfig,
@@ -14,6 +15,10 @@ import {
 
 const tempDirs: string[] = [];
 const originalHome = process.env.HOME;
+const sourceCliPath = path.resolve("src/cli.ts");
+const tsxBinaryPath = path.resolve(
+  process.platform === "win32" ? "node_modules/.bin/tsx.cmd" : "node_modules/.bin/tsx"
+);
 
 async function tempDir(prefix: string): Promise<string> {
   const dir = await fs.mkdtemp(path.join(os.tmpdir(), prefix));
@@ -28,6 +33,10 @@ afterEach(async () => {
 
 const buildProjectConfig = makeAppConfig;
 const writeProjectConfig = writeCamConfig;
+
+function runCli(repoDir: string, args: string[]) {
+  return runCommandCapture(tsxBinaryPath, [sourceCliPath, ...args], repoDir);
+}
 
 describe("runMemory", () => {
   it("shows scope details and recent audit entries", async () => {
@@ -70,8 +79,19 @@ describe("runMemory", () => {
       sessionSource: "rollout-jsonl",
       status: "applied",
       appliedCount: 1,
+      suppressedOperationCount: 1,
       scopesTouched: ["project"],
       resultSummary: "1 operation(s) applied",
+      conflicts: [
+        {
+          scope: "project",
+          topic: "preferences",
+          candidateSummary: "Maybe use bun instead of pnpm in this repository.",
+          conflictsWith: ["Prefer pnpm in this repository."],
+          source: "existing-memory",
+          resolution: "suppressed"
+        }
+      ],
       operations: [
         {
           action: "upsert",
@@ -152,7 +172,10 @@ describe("runMemory", () => {
     expect(output).toContain("[skipped] Skipped rollout; it was already processed");
     expect(output).toContain("Configured: codex-ephemeral (codex) -> Actual: heuristic (heuristic)");
     expect(output).toContain("Skip reason: already-processed");
-    expect(output).toContain("Applied: 0 | Scopes: none");
+    expect(output).toContain("Applied: 0 | Suppressed: 0 | Scopes: none");
+    expect(output).toContain("Suppressed: 1");
+    expect(output).toContain("Conflict review:");
+    expect(output).toContain("[existing-memory] preferences: Maybe use bun instead of pnpm in this repository.");
   });
 
   it("adds startupFilesByScope, recentSyncAudit, and syncAuditPath in json output", async () => {
@@ -195,8 +218,19 @@ describe("runMemory", () => {
       sessionSource: "rollout-jsonl",
       status: "applied",
       appliedCount: 1,
+      suppressedOperationCount: 1,
       scopesTouched: ["project"],
       resultSummary: "1 operation(s) applied",
+      conflicts: [
+        {
+          scope: "project",
+          topic: "preferences",
+          candidateSummary: "Maybe use bun instead of pnpm in this repository.",
+          conflictsWith: ["Prefer pnpm in this repository."],
+          source: "existing-memory",
+          resolution: "suppressed"
+        }
+      ],
       operations: [
         {
           action: "upsert",
@@ -247,9 +281,18 @@ describe("runMemory", () => {
       rolloutPath: "/tmp/rollout-1.jsonl",
       status: "applied",
       appliedCount: 1,
+      suppressedOperationCount: 1,
       configuredExtractorMode: "codex",
       actualExtractorMode: "heuristic"
     });
+    expect(output.recentSyncAudit[0]?.conflicts).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          source: "existing-memory",
+          resolution: "suppressed"
+        })
+      ])
+    );
     expect(output.recentAudit).toEqual(output.recentSyncAudit);
 
     const textOutput = await runMemory({
@@ -405,6 +448,77 @@ describe("runMemory", () => {
     expect(textOutput).toContain("- older sync events omitted: 1");
     expect(textOutput.match(/\/tmp\/rollout-repeat\.jsonl/g) ?? []).toHaveLength(1);
   });
+
+  it("supports memory --recent --json and --print-startup from the CLI command surface", async () => {
+    const homeDir = await tempDir("cam-memory-cli-home-");
+    const projectDir = await tempDir("cam-memory-cli-project-");
+    const memoryRoot = await tempDir("cam-memory-cli-root-");
+    process.env.HOME = homeDir;
+
+    const projectConfig = buildProjectConfig();
+    await writeProjectConfig(projectDir, projectConfig, {
+      autoMemoryDirectory: memoryRoot
+    });
+
+    const project = detectProjectContext(projectDir);
+    const store = new MemoryStore(project, {
+      ...projectConfig,
+      autoMemoryDirectory: memoryRoot
+    });
+    await store.ensureLayout();
+    await store.remember(
+      "project",
+      "workflow",
+      "prefer-pnpm",
+      "Prefer pnpm in this repository.",
+      ["Use pnpm instead of npm in this repository."],
+      "Manual note."
+    );
+    await store.appendSyncAuditEntry({
+      appliedAt: "2026-03-14T12:00:00.000Z",
+      projectId: project.projectId,
+      worktreeId: project.worktreeId,
+      rolloutPath: "/tmp/rollout-memory-cli.jsonl",
+      sessionId: "session-memory-cli",
+      configuredExtractorMode: "heuristic",
+      configuredExtractorName: "heuristic",
+      actualExtractorMode: "heuristic",
+      actualExtractorName: "heuristic",
+      extractorMode: "heuristic",
+      extractorName: "heuristic",
+      sessionSource: "rollout-jsonl",
+      status: "applied",
+      appliedCount: 1,
+      scopesTouched: ["project"],
+      resultSummary: "1 operation(s) applied",
+      operations: [
+        {
+          action: "upsert",
+          scope: "project",
+          topic: "workflow",
+          id: "prefer-pnpm",
+          summary: "Prefer pnpm in this repository.",
+          details: ["Use pnpm instead of npm in this repository."],
+          reason: "Manual note.",
+          sources: ["manual"]
+        }
+      ]
+    });
+
+    const jsonResult = runCli(projectDir, ["memory", "--recent", "2", "--json"]);
+    expect(jsonResult.exitCode).toBe(0);
+    const jsonOutput = JSON.parse(jsonResult.stdout) as MemoryCommandOutput;
+    expect(jsonOutput.recentSyncAudit).toHaveLength(1);
+    expect(jsonOutput.recentSyncAudit[0]?.rolloutPath).toBe("/tmp/rollout-memory-cli.jsonl");
+    expect(jsonOutput.syncAuditPath).toBe(store.getSyncAuditPath());
+
+    const textResult = runCli(projectDir, ["memory", "--recent", "2", "--print-startup"]);
+    expect(textResult.exitCode).toBe(0);
+    expect(textResult.stdout).toContain("Startup memory:");
+    expect(textResult.stdout).toContain("# Codex Auto Memory");
+    expect(textResult.stdout).toContain("Recent sync events (1 grouped):");
+    expect(textResult.stdout).toContain(store.getMemoryFile("project"));
+  }, 30_000);
 
   it("does not report startup-loaded files when the startup budget cannot fit quoted lines", async () => {
     const homeDir = await tempDir("cam-memory-header-only-home-");

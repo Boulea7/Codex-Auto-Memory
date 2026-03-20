@@ -68,7 +68,9 @@ function formatEvidenceBuckets(buckets: SessionContinuityEvidenceBuckets): strin
     "",
     formatBucket("Candidate explicit next-step phrases", buckets.explicitNextSteps),
     "",
-    formatBucket("Candidate explicit untried phrases", buckets.explicitUntried)
+    formatBucket("Candidate explicit untried phrases", buckets.explicitUntried),
+    "",
+    formatBucket("Reviewer warning hints", buckets.warningHints)
   ].join("\n");
 }
 
@@ -120,6 +122,7 @@ Important product rule:
 - Put project-wide prerequisites or decisions in project.
 - Do not guess untried options; only include them when the rollout explicitly suggests them.
 - Do not mark something as confirmed working unless there is concrete evidence in tool output or clear confirmation in the conversation.
+- Reviewer warning hints are reviewer-only confidence context. Do not copy those warning phrases into project or projectLocal continuity items.
 
 Current rollout:
 - Session id: ${evidence.sessionId}
@@ -144,11 +147,12 @@ ${formatEvidenceBuckets(
   buckets ?? {
     recentSuccessfulCommands: [],
     recentFailedCommands: [],
-    detectedFileWrites: [],
-    explicitNextSteps: [],
-    explicitUntried: []
-  }
-)}
+      detectedFileWrites: [],
+      explicitNextSteps: [],
+      explicitUntried: [],
+      warningHints: []
+    }
+  )}
 
 Return JSON only, matching the provided schema.
 `.trim();

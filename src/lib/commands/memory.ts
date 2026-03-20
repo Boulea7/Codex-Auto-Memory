@@ -26,16 +26,26 @@ interface MemoryOptions {
 }
 
 function formatPendingSyncRecovery(record: SyncRecoveryRecord, recoveryPath: string): string[] {
-  return [
+  const lines = [
     "Pending sync recovery:",
     `- Recovery file: ${recoveryPath}`,
     `- Failed stage: ${record.failedStage}`,
     `- Rollout: ${record.rolloutPath}`,
     `- Session: ${record.sessionId ?? "unknown"}`,
     `- Status: ${record.status} (${record.appliedCount} operation${record.appliedCount === 1 ? "" : "s"})`,
+    `- Suppressed: ${record.suppressedOperationCount ?? 0}`,
     `- Audit entry written: ${record.auditEntryWritten}`,
     `- Failure: ${record.failureMessage}`
   ];
+
+  if (record.conflicts?.length) {
+    lines.push("- Conflict review:");
+    for (const conflict of record.conflicts) {
+      lines.push(`  - [${conflict.source}] ${conflict.topic}: ${conflict.candidateSummary}`);
+    }
+  }
+
+  return lines;
 }
 
 function syncAuditSignature(entry: MemorySyncAuditEntry): string {
@@ -50,7 +60,9 @@ function syncAuditSignature(entry: MemorySyncAuditEntry): string {
     actualExtractorMode: entry.actualExtractorMode,
     actualExtractorName: entry.actualExtractorName,
     appliedCount: entry.appliedCount,
+    suppressedOperationCount: entry.suppressedOperationCount ?? 0,
     scopesTouched: entry.scopesTouched,
+    conflicts: entry.conflicts ?? [],
     resultSummary: entry.resultSummary
   });
 }

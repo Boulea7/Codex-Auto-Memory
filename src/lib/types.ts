@@ -29,6 +29,19 @@ export interface MemoryOperation {
   reason?: string;
 }
 
+export type MemoryConflictSource = "within-rollout" | "existing-memory";
+
+export type MemoryConflictResolution = "suppressed";
+
+export interface MemoryConflictCandidate {
+  scope: MemoryScope;
+  topic: string;
+  candidateSummary: string;
+  conflictsWith: string[];
+  source: MemoryConflictSource;
+  resolution: MemoryConflictResolution;
+}
+
 export interface CompiledStartupMemory {
   text: string;
   lineCount: number;
@@ -157,6 +170,8 @@ export interface SessionContinuitySummary {
 
 export type SessionContinuityExtractorPath = "codex" | "heuristic";
 
+export type SessionContinuityConfidence = "high" | "medium" | "low";
+
 export type SessionContinuityFallbackReason =
   | "codex-command-failed"
   | "invalid-json"
@@ -178,6 +193,8 @@ export interface SessionContinuityDiagnostics {
   sourceSessionId: string;
   preferredPath: SessionContinuityExtractorPath;
   actualPath: SessionContinuityExtractorPath;
+  confidence: SessionContinuityConfidence;
+  warnings: string[];
   fallbackReason?: SessionContinuityFallbackReason;
   codexExitCode?: number;
   evidenceCounts: SessionContinuityEvidenceCounts;
@@ -200,6 +217,8 @@ export interface SessionContinuityAuditEntry {
   sourceSessionId: string;
   preferredPath: SessionContinuityExtractorPath;
   actualPath: SessionContinuityExtractorPath;
+  confidence?: SessionContinuityConfidence;
+  warnings?: string[];
   fallbackReason?: SessionContinuityFallbackReason;
   codexExitCode?: number;
   evidenceCounts: SessionContinuityEvidenceCounts;
@@ -244,8 +263,10 @@ export interface MemorySyncAuditEntry {
   skipReason?: MemorySyncAuditSkipReason;
   isRecovery?: boolean;
   appliedCount: number;
+  suppressedOperationCount?: number;
   scopesTouched: MemoryScope[];
   resultSummary: string;
+  conflicts?: MemoryConflictCandidate[];
   operations: MemoryOperation[];
 }
 
@@ -263,7 +284,9 @@ export interface SyncRecoveryRecord {
   actualExtractorName: string;
   status: "applied" | "no-op";
   appliedCount: number;
+  suppressedOperationCount?: number;
   scopesTouched: MemoryScope[];
+  conflicts?: MemoryConflictCandidate[];
   failedStage: SyncRecoveryFailedStage;
   failureMessage: string;
   auditEntryWritten: boolean;
@@ -348,6 +371,8 @@ export interface ContinuityRecoveryRecord {
   writtenPaths: string[];
   preferredPath: SessionContinuityExtractorPath;
   actualPath: SessionContinuityExtractorPath;
+  confidence?: SessionContinuityConfidence;
+  warnings?: string[];
   fallbackReason?: SessionContinuityFallbackReason;
   codexExitCode?: number;
   evidenceCounts: SessionContinuityEvidenceCounts;

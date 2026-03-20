@@ -113,6 +113,7 @@ Claude Code 已经公开了一套相对清晰的 auto memory 产品契约：
 | native hooks / memory | Built in | Experimental / under development | 当前只保留 compatibility seam |
 
 `cam memory` 当前是 inspection / audit surface：它会暴露真正进入 startup payload 的 quoted startup files（当前是各 scope 的 `MEMORY.md` / index 内容）、startup budget、按需 topic refs、edit paths，以及 `--recent [count]` 下的 recent durable sync audit。这里的 topic refs 只是按需定位信息，不表示 topic body 已在启动阶段 eager 读取。
+recent durable sync audit 现在也会显式暴露被保守 suppress 的 conflict candidates，避免在同一 rollout 或与现有 durable memory 冲突时发生静默 merge。
 这些 recent sync events 来自 `~/.codex-auto-memory/projects/<project-id>/audit/sync-log.jsonl`，只覆盖 sync flow 的 `applied` / `no-op` / `skipped` 事件，不包含 manual `cam remember` / `cam forget`。
 如果主 memory 文件已经写入，但 reviewer sidecar（audit / processed-state）没有完整落盘，`cam memory` 会尽力暴露一个 pending sync recovery marker，帮助 reviewer 识别 partial-success 状态；该 marker 只会在同一 rollout/session 后续成功补齐时清理，不会被不相关的成功 sync 顺手抹掉。
 显式更新仍通过 `cam remember`、`cam forget` 或直接编辑 Markdown 文件完成，而不是提供 `/memory` 风格的命令内编辑器。
@@ -170,11 +171,11 @@ cam audit           # 检查仓库有没有意外的敏感内容
 | :-- | :-- |
 | `cam run` / `cam exec` / `cam resume` | 编译 startup memory 并通过 wrapper 启动 Codex |
 | `cam sync` | 手动把最近 rollout 同步进 durable memory |
-| `cam memory` | 查看真正进入 startup payload 的 quoted startup files、按需 topic refs、startup budget、edit paths，以及 `--recent [count]` 下的 durable sync audit |
+| `cam memory` | 查看真正进入 startup payload 的 quoted startup files、按需 topic refs、startup budget、edit paths，以及 `--recent [count]` 下的 durable sync audit 与 suppressed conflict candidates |
 | `cam remember` / `cam forget` | 显式新增或删除 memory |
 | `cam session save` | merge / incremental save；从 rollout 增量写入 continuity，不主动清掉已有污染状态 |
 | `cam session refresh` | replace / clean regeneration；从选定 provenance 重新生成 continuity 并覆盖所选 scope |
-| `cam session load` / `status` | continuity reviewer surface；显示 latest audit drill-down、compact prior preview，以及 pending continuity recovery marker |
+| `cam session load` / `status` | continuity reviewer surface；显示 latest continuity diagnostics（含 `confidence` / warnings）、latest audit drill-down、compact prior preview，以及 pending continuity recovery marker |
 | `cam session clear` / `open` | 清理当前 active continuity，或打开 local continuity 目录 |
 | `cam audit` | 做仓库级隐私 / secret hygiene 审查 |
 | `cam doctor` | 检查当前 companion wiring 与 native readiness posture |
@@ -182,10 +183,11 @@ cam audit           # 检查仓库有没有意外的敏感内容
 ## 审计面地图
 
 - `cam audit`: 仓库级的 privacy / secret hygiene 审计。
-- `cam memory --recent [count]`: durable sync audit，查看 recent `applied` / `no-op` / `skipped` sync 事件，不混入 manual `remember` / `forget`。
+- `cam memory --recent [count]`: durable sync audit，查看 recent `applied` / `no-op` / `skipped` sync 事件，不混入 manual `remember` / `forget`；当本轮提取结果因冲突而被保守 suppress 时，也会在 reviewer surface 中显式暴露。
 - `cam session save`: continuity audit surface 的 merge 路径，记录最新 continuity diagnostics、latest rollout 与 latest audit drill-down；它是 incremental save，不会立刻把已有污染状态“洗干净”。
 - `cam session refresh`: continuity audit surface 的 replace 路径，从选定 provenance 重新生成 continuity，并覆盖所选 scope；`--json` 会额外暴露 `action`、`writeMode` 与 `rolloutSelection`。
-- `cam session load|status`: reviewer surface，继续展示 latest continuity diagnostics、latest rollout、latest audit drill-down，以及 compact prior audit preview（来自 continuity audit log，排除 latest，并收敛连续重复项，不是完整 prior history 回放）；两个命令的 `--json` 继续返回 raw recent audit entries。
+- `cam session load|status`: reviewer surface，继续展示 latest continuity diagnostics、latest rollout、latest audit drill-down，以及 compact prior audit preview（来自 continuity audit log，排除 latest，并收敛连续重复项，不是完整 prior history 回放）；最新 diagnostics 现在也会显式带出 `confidence` 与 warnings，帮助 reviewer 区分稳定事实、临时状态与需二次核实的冲突/噪音。
+- continuity reviewer warnings 仍属于 audit / reviewer surface，而不是 continuity body；当前实现会对明显的 reviewer warning prose 做最小 deterministic scrub，避免它们被模型原样写回 continuity Markdown。
 - `pending continuity recovery marker`: continuity Markdown 已写入但 audit sidecar 失败时的可见警告；它不等于 `cam session refresh` 会自动修复一切，只会在逻辑身份匹配的后续成功写入后被清理。
 
 ## 工作方式
@@ -205,10 +207,12 @@ flowchart TD
     B --> C[注入 quoted MEMORY.md startup files 与按需 topic refs]
     C --> D[运行 Codex]
     D --> E[读取 rollout JSONL]
-    E --> F[提取 durable memory 操作]
+    E --> F[提取 candidate durable memory 操作]
     E --> G[可选 continuity 总结]
-    F --> H[更新 MEMORY.md 与 topic files]
-    G --> I[更新 shared / local continuity]
+    F --> H[contradiction review / conservative suppression]
+    H --> I[更新 MEMORY.md 与 topic files]
+    I --> J[追加 durable sync audit]
+    G --> K[更新 shared / local continuity]
 ```
 
 ### 为什么不是直接上 native memory
@@ -286,7 +290,7 @@ Session continuity：
 
 - 更稳的 contradiction handling
 - 更清晰的 `cam memory` / `cam session` 审查 UX
-- continuity diagnostics 与 reviewer packet 继续收紧信息层次
+- continuity diagnostics 与 reviewer packet 继续收紧信息层次，并显式暴露 confidence / warnings
 - 继续保留对未来 hook surface 的 compatibility seam
 
 ### v0.3+
