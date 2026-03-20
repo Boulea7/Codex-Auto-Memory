@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 
+import { createRequire } from "node:module";
 import { Command } from "commander";
 import { runInit } from "./lib/commands/init.js";
 import { runMemory } from "./lib/commands/memory.js";
@@ -11,6 +12,9 @@ import { installHooks, removeHooks } from "./lib/commands/hooks.js";
 import { runWrappedCodex } from "./lib/commands/wrapper.js";
 import { runAudit } from "./lib/commands/audit.js";
 import { runSession } from "./lib/commands/session.js";
+
+const require = createRequire(import.meta.url);
+const { version } = require("../package.json") as { version: string };
 
 function isWrapperCommand(input?: string): input is "run" | "exec" | "resume" {
   return input === "run" || input === "exec" || input === "resume";
@@ -28,7 +32,7 @@ async function main(): Promise<void> {
   program
     .name("cam")
     .description("Codex Auto Memory companion CLI")
-    .version("0.1.0");
+    .version(version);
 
   program
     .command("init")

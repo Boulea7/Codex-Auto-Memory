@@ -274,6 +274,7 @@ Current public-ready status:
 - topic-aware startup lookup: available
 - session continuity companion layer: available
 - reviewer audit surfaces: available
+- tagged GitHub Releases: available with tarball artifacts; npm publish remains manual
 - native memory / native hooks primary path: not enabled and not trusted as the main implementation path
 
 ## Roadmap
