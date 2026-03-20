@@ -109,6 +109,36 @@ function noOpRolloutFixture(projectDir: string, sessionId = "session-2"): string
   ].join("\n");
 }
 
+function sameRolloutCorrectionFixture(projectDir: string, sessionId = "session-correction"): string {
+  return [
+    JSON.stringify({
+      timestamp: "2026-03-14T00:20:00.000Z",
+      type: "session_meta",
+      payload: {
+        id: sessionId,
+        timestamp: "2026-03-14T00:20:00.000Z",
+        cwd: projectDir
+      }
+    }),
+    JSON.stringify({
+      timestamp: "2026-03-14T00:20:01.000Z",
+      type: "event_msg",
+      payload: {
+        type: "user_message",
+        message: "remember that we use bun in this repository"
+      }
+    }),
+    JSON.stringify({
+      timestamp: "2026-03-14T00:20:02.000Z",
+      type: "event_msg",
+      payload: {
+        type: "user_message",
+        message: "Actually use pnpm, not bun."
+      }
+    })
+  ].join("\n");
+}
+
 afterEach(async () => {
   await Promise.all(tempDirs.splice(0).map((dir) => fs.rm(dir, { recursive: true, force: true })));
 });
@@ -190,6 +220,138 @@ describe("SyncService", () => {
       resultSummary: "0 operations applied"
     });
     expect(auditEntries[0]?.operations).toEqual([]);
+  });
+
+  it("suppresses conflicting preference candidates from the same rollout and records reviewer conflicts", async () => {
+    const projectDir = await tempDir("cam-sync-within-conflict-project-");
+    const memoryRoot = await tempDir("cam-sync-within-conflict-memory-");
+    const rolloutPath = path.join(projectDir, "within-rollout-preference-conflict.jsonl");
+    const fixturePath = path.join(
+      process.cwd(),
+      "test/fixtures/rollouts/within-rollout-preference-conflict.jsonl"
+    );
+    await fs.copyFile(fixturePath, rolloutPath);
+
+    const service = new SyncService(
+      detectProjectContext(projectDir),
+      baseConfig(memoryRoot),
+      path.resolve("schemas/memory-operations.schema.json")
+    );
+
+    const result = await service.syncRollout(rolloutPath, true);
+    const auditEntries = await service.memoryStore.readRecentSyncAuditEntries(5);
+    const projectEntries = await service.memoryStore.listEntries("project");
+
+    expect(result.skipped).toBe(false);
+    expect(result.applied).toEqual([]);
+    expect(projectEntries).toEqual([]);
+    expect(auditEntries[0]).toMatchObject({
+      rolloutPath,
+      status: "no-op",
+      appliedCount: 0,
+      suppressedOperationCount: 2
+    });
+    expect(auditEntries[0]?.conflicts).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          source: "within-rollout",
+          topic: "preferences",
+          resolution: "suppressed"
+        })
+      ])
+    );
+  });
+
+  it("suppresses hedged preference conflicts against existing durable memory and keeps the old entry", async () => {
+    const projectDir = await tempDir("cam-sync-existing-conflict-project-");
+    const memoryRoot = await tempDir("cam-sync-existing-conflict-memory-");
+    const rolloutPath = path.join(projectDir, "hedged-preference-conflict.jsonl");
+    const fixturePath = path.join(
+      process.cwd(),
+      "test/fixtures/rollouts/hedged-preference-conflict.jsonl"
+    );
+    await fs.copyFile(fixturePath, rolloutPath);
+
+    const service = new SyncService(
+      detectProjectContext(projectDir),
+      baseConfig(memoryRoot),
+      path.resolve("schemas/memory-operations.schema.json")
+    );
+    await service.memoryStore.remember(
+      "project",
+      "preferences",
+      "use-pnpm",
+      "Use pnpm in this repository.",
+      ["Use pnpm instead of npm in this repository."],
+      "Seed durable preference."
+    );
+
+    const result = await service.syncRollout(rolloutPath, true);
+    const auditEntries = await service.memoryStore.readRecentSyncAuditEntries(5);
+    const projectEntries = await service.memoryStore.listEntries("project");
+
+    expect(result.skipped).toBe(false);
+    expect(result.applied).toEqual([]);
+    expect(projectEntries.map((entry) => entry.summary)).toEqual(["Use pnpm in this repository."]);
+    expect(auditEntries[0]).toMatchObject({
+      rolloutPath,
+      status: "no-op",
+      appliedCount: 0,
+      suppressedOperationCount: 2
+    });
+    expect(auditEntries[0]?.conflicts).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          source: "existing-memory",
+          topic: "preferences",
+          resolution: "suppressed"
+        })
+      ])
+    );
+  });
+
+  it("keeps the latest high-confidence same-rollout correction and audits the suppressed stale candidate", async () => {
+    const projectDir = await tempDir("cam-sync-rollout-correction-project-");
+    const memoryRoot = await tempDir("cam-sync-rollout-correction-memory-");
+    const rolloutPath = path.join(projectDir, "same-rollout-correction.jsonl");
+    await fs.writeFile(
+      rolloutPath,
+      sameRolloutCorrectionFixture(projectDir, "session-rollout-correction"),
+      "utf8"
+    );
+
+    const service = new SyncService(
+      detectProjectContext(projectDir),
+      baseConfig(memoryRoot),
+      path.resolve("schemas/memory-operations.schema.json")
+    );
+
+    const result = await service.syncRollout(rolloutPath, true);
+    const auditEntries = await service.memoryStore.readRecentSyncAuditEntries(5);
+    const projectEntries = await service.memoryStore.listEntries("project");
+
+    expect(result.skipped).toBe(false);
+    expect(result.applied).toHaveLength(1);
+    expect(projectEntries.map((entry) => entry.summary)).toEqual([
+      "Actually use pnpm, not bun"
+    ]);
+    expect(auditEntries[0]).toMatchObject({
+      rolloutPath,
+      status: "applied",
+      appliedCount: 1,
+      suppressedOperationCount: 1,
+      scopesTouched: ["project"]
+    });
+    expect(auditEntries[0]?.conflicts).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          source: "within-rollout",
+          candidateSummary: "we use bun in this repository",
+          conflictsWith: ["Actually use pnpm, not bun"],
+          resolution: "suppressed"
+        })
+      ])
+    );
   });
 
   it("records skipped audit entries for already processed and no-evidence rollouts", async () => {

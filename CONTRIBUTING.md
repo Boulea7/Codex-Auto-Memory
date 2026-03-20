@@ -48,14 +48,17 @@ If your change affects one of these areas, update the matching file:
 
 - Claude behavior parity: `docs/claude-reference.md`
 - internals and storage model: `docs/architecture.md`
+- reviewer continuity contract: `docs/session-continuity.md`
+- release-time reviewer checks: `docs/release-checklist.md`
 - future native compatibility: `docs/native-migration.md`
-- onboarding and positioning: `README.md`
+- onboarding and positioning: `README.md` and `README.en.md`
 
 The repository now uses a bilingual public-doc setup:
 
 - `README.md` is the default Chinese landing page
 - `README.en.md` is the English landing page
 - `docs/claude-reference.*`, `docs/architecture.*`, and `docs/native-migration.*` are maintained in both Chinese and English
+- `docs/session-continuity.md` and `docs/release-checklist.md` are English-first maintainer/reviewer docs and should still be updated when reviewer surfaces or command contracts change
 
 If you change shared meaning in one of those files, update the sibling language version in the same task or explicitly note the follow-up gap in your handoff.
 

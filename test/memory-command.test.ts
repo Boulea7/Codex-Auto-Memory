@@ -70,8 +70,19 @@ describe("runMemory", () => {
       sessionSource: "rollout-jsonl",
       status: "applied",
       appliedCount: 1,
+      suppressedOperationCount: 1,
       scopesTouched: ["project"],
       resultSummary: "1 operation(s) applied",
+      conflicts: [
+        {
+          scope: "project",
+          topic: "preferences",
+          candidateSummary: "Maybe use bun instead of pnpm in this repository.",
+          conflictsWith: ["Prefer pnpm in this repository."],
+          source: "existing-memory",
+          resolution: "suppressed"
+        }
+      ],
       operations: [
         {
           action: "upsert",
@@ -152,7 +163,10 @@ describe("runMemory", () => {
     expect(output).toContain("[skipped] Skipped rollout; it was already processed");
     expect(output).toContain("Configured: codex-ephemeral (codex) -> Actual: heuristic (heuristic)");
     expect(output).toContain("Skip reason: already-processed");
-    expect(output).toContain("Applied: 0 | Scopes: none");
+    expect(output).toContain("Applied: 0 | Suppressed: 0 | Scopes: none");
+    expect(output).toContain("Suppressed: 1");
+    expect(output).toContain("Conflict review:");
+    expect(output).toContain("[existing-memory] preferences: Maybe use bun instead of pnpm in this repository.");
   });
 
   it("adds startupFilesByScope, recentSyncAudit, and syncAuditPath in json output", async () => {
@@ -195,8 +209,19 @@ describe("runMemory", () => {
       sessionSource: "rollout-jsonl",
       status: "applied",
       appliedCount: 1,
+      suppressedOperationCount: 1,
       scopesTouched: ["project"],
       resultSummary: "1 operation(s) applied",
+      conflicts: [
+        {
+          scope: "project",
+          topic: "preferences",
+          candidateSummary: "Maybe use bun instead of pnpm in this repository.",
+          conflictsWith: ["Prefer pnpm in this repository."],
+          source: "existing-memory",
+          resolution: "suppressed"
+        }
+      ],
       operations: [
         {
           action: "upsert",
@@ -247,9 +272,18 @@ describe("runMemory", () => {
       rolloutPath: "/tmp/rollout-1.jsonl",
       status: "applied",
       appliedCount: 1,
+      suppressedOperationCount: 1,
       configuredExtractorMode: "codex",
       actualExtractorMode: "heuristic"
     });
+    expect(output.recentSyncAudit[0]?.conflicts).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          source: "existing-memory",
+          resolution: "suppressed"
+        })
+      ])
+    );
     expect(output.recentAudit).toEqual(output.recentSyncAudit);
 
     const textOutput = await runMemory({

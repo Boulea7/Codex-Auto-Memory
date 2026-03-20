@@ -148,6 +148,7 @@ describe("runSession", () => {
     });
     expect(saveOutput).toContain("Saved session continuity");
     expect(saveOutput).toContain("Generation: heuristic");
+    expect(saveOutput).toContain("confidence low");
     expect(saveOutput).toContain("Evidence: successful");
     expect(saveOutput).toContain("Written paths:");
 
@@ -162,10 +163,14 @@ describe("runSession", () => {
       diagnostics: {
         preferredPath: string;
         actualPath: string;
+        confidence: string;
+        warnings: string[];
         fallbackReason?: string;
       };
       latestContinuityAuditEntry: {
         rolloutPath: string;
+        confidence?: string;
+        warnings?: string[];
         fallbackReason?: string;
         evidenceCounts: {
           successfulCommands: number;
@@ -184,8 +189,20 @@ describe("runSession", () => {
     };
     expect(saveJson.diagnostics.preferredPath).toBe("heuristic");
     expect(saveJson.diagnostics.actualPath).toBe("heuristic");
+    expect(saveJson.diagnostics.confidence).toBe("low");
+    expect(saveJson.diagnostics.warnings).toEqual(
+      expect.arrayContaining([
+        expect.stringContaining("Next steps were inferred from the latest request")
+      ])
+    );
     expect(saveJson.diagnostics.fallbackReason).toBe("configured-heuristic");
     expect(saveJson.latestContinuityAuditEntry?.rolloutPath).toBe(secondRolloutPath);
+    expect(saveJson.latestContinuityAuditEntry?.confidence).toBe("low");
+    expect(saveJson.latestContinuityAuditEntry?.warnings).toEqual(
+      expect.arrayContaining([
+        expect.stringContaining("Next steps were inferred from the latest request")
+      ])
+    );
     expect(saveJson.latestContinuityAuditEntry?.fallbackReason).toBe("configured-heuristic");
     expect(saveJson.latestContinuityAuditEntry?.evidenceCounts.successfulCommands).toBeGreaterThan(0);
     expect(saveJson.latestContinuityAuditEntry?.writtenPaths.length).toBeGreaterThan(0);
@@ -218,6 +235,8 @@ describe("runSession", () => {
       } | null;
       latestContinuityDiagnostics: {
         actualPath: string;
+        confidence: string;
+        warnings: string[];
         fallbackReason?: string;
       } | null;
       recentContinuityAuditEntries: Array<{
@@ -234,6 +253,12 @@ describe("runSession", () => {
     expect(loadJson.latestContinuityAuditEntry?.writtenPaths.length).toBeGreaterThan(0);
     expect(loadJson.latestContinuityAuditEntry?.evidenceCounts.successfulCommands).toBeGreaterThan(0);
     expect(loadJson.latestContinuityDiagnostics?.actualPath).toBe("heuristic");
+    expect(loadJson.latestContinuityDiagnostics?.confidence).toBe("low");
+    expect(loadJson.latestContinuityDiagnostics?.warnings).toEqual(
+      expect.arrayContaining([
+        expect.stringContaining("Next steps were inferred from the latest request")
+      ])
+    );
     expect(loadJson.latestContinuityDiagnostics?.fallbackReason).toBe("configured-heuristic");
     expect(loadJson.recentContinuityAuditEntries).toHaveLength(2);
     expect(loadJson.recentContinuityAuditEntries[0]?.rolloutPath).toBe(secondRolloutPath);
@@ -262,7 +287,7 @@ describe("runSession", () => {
         rolloutPath: string;
         writtenPaths: string[];
       } | null;
-      latestContinuityDiagnostics: { actualPath: string } | null;
+      latestContinuityDiagnostics: { actualPath: string; confidence: string; warnings: string[] } | null;
       recentContinuityAuditEntries: Array<{ rolloutPath: string }>;
       continuityAuditPath: string;
     };
@@ -270,6 +295,12 @@ describe("runSession", () => {
     expect(statusJson.latestContinuityAuditEntry?.rolloutPath).toBe(secondRolloutPath);
     expect(statusJson.latestContinuityAuditEntry?.writtenPaths.length).toBeGreaterThan(0);
     expect(statusJson.latestContinuityDiagnostics?.actualPath).toBe("heuristic");
+    expect(statusJson.latestContinuityDiagnostics?.confidence).toBe("low");
+    expect(statusJson.latestContinuityDiagnostics?.warnings).toEqual(
+      expect.arrayContaining([
+        expect.stringContaining("Next steps were inferred from the latest request")
+      ])
+    );
     expect(statusJson.recentContinuityAuditEntries).toHaveLength(2);
     expect(statusJson.recentContinuityAuditEntries[0]?.rolloutPath).toBe(secondRolloutPath);
     expect(statusJson.continuityAuditPath).toContain("session-continuity-log.jsonl");
@@ -1406,6 +1437,11 @@ describe("runSession", () => {
         trigger?: string;
         writeMode?: string;
       } | null;
+      latestContinuityDiagnostics: {
+        confidence: string;
+        warnings: string[];
+        fallbackReason?: string;
+      } | null;
       pendingContinuityRecovery: {
         rolloutPath: string;
         trigger?: string;
@@ -1415,6 +1451,9 @@ describe("runSession", () => {
     expect(loadJson.latestContinuityAuditEntry?.rolloutPath).toBe("/tmp/rollout-legacy.jsonl");
     expect(loadJson.latestContinuityAuditEntry?.trigger).toBeUndefined();
     expect(loadJson.latestContinuityAuditEntry?.writeMode).toBeUndefined();
+    expect(loadJson.latestContinuityDiagnostics?.confidence).toBe("low");
+    expect(loadJson.latestContinuityDiagnostics?.warnings).toEqual([]);
+    expect(loadJson.latestContinuityDiagnostics?.fallbackReason).toBe("configured-heuristic");
     expect(loadJson.pendingContinuityRecovery?.rolloutPath).toBe(
       "/tmp/rollout-legacy-recovery.jsonl"
     );

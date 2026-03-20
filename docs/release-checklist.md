@@ -25,6 +25,8 @@ Use this checklist before cutting any alpha or beta release of `codex-auto-memor
 - Run `cam session refresh --json` and confirm `action`, `writeMode`, and `rolloutSelection` reflect the selected provenance.
 - Run `cam session load --json` and confirm older JSON consumers still receive the existing core fields.
 - Run `cam session status --json` and confirm the latest explicit audit drill-down matches the newest audit-log entry when present.
+- Run `cam memory --recent --json` and confirm suppressed conflict candidates remain reviewer-visible instead of being silently merged.
+- Confirm `cam session load --json` / `status --json` still expose `confidence` and warnings when the rollout required a conservative continuity summary.
 - Run a local smoke flow:
   - `cam init`
   - `cam remember "..."`
