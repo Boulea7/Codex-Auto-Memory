@@ -117,6 +117,15 @@ async function main(): Promise<void> {
       process.stdout.write(`${await runSession("save", options)}\n`);
     });
   sessionCommand
+    .command("refresh")
+    .description("Regenerate session continuity from provenance and replace the selected scope")
+    .option("--json", "Print JSON output")
+    .option("--rollout <path>", "Specific rollout JSONL file to summarize")
+    .option("--scope <scope>", "Target continuity scope: project, project-local, or both", "both")
+    .action(async (options) => {
+      process.stdout.write(`${await runSession("refresh", options)}\n`);
+    });
+  sessionCommand
     .command("load")
     .description("Load current session continuity summary")
     .option("--json", "Print JSON output")

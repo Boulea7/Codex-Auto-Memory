@@ -7,7 +7,7 @@ import {
   buildContinuityRecoveryRecord,
   matchesContinuityRecoveryRecord
 } from "../domain/recovery-records.js";
-import { listRolloutFiles, parseRolloutEvidence } from "../domain/rollout.js";
+import { listRolloutFiles, parseRolloutEvidence, readRolloutMeta } from "../domain/rollout.js";
 import { compileSessionContinuity } from "../domain/session-continuity.js";
 import { readCodexBaseInstructions } from "../runtime/codex-config.js";
 import { runCommand } from "../util/process.js";
@@ -21,6 +21,18 @@ const runtimeInjector = new WrapperRuntimeInjector();
 
 function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
+}
+
+async function selectLatestPrimaryRollout(candidates: string[]): Promise<string | null> {
+  const metas = await Promise.all(candidates.map((candidate) => readRolloutMeta(candidate)));
+  for (let index = candidates.length - 1; index >= 0; index -= 1) {
+    if (metas[index]?.isSubagent === true) {
+      continue;
+    }
+    return candidates[index] ?? null;
+  }
+
+  return null;
 }
 
 async function syncRecentRollouts(
@@ -93,7 +105,7 @@ async function saveSessionContinuity(
     startedAtMs,
     endedAtMs
   );
-  const rolloutPath = candidates.at(-1) ?? null;
+  const rolloutPath = await selectLatestPrimaryRollout(candidates);
   if (!rolloutPath) {
     return null;
   }
@@ -115,7 +127,11 @@ async function saveSessionContinuity(
     runtime.loadedConfig.config,
     generation.diagnostics,
     written,
-    "both"
+    "both",
+    {
+      trigger: "wrapper-auto-save",
+      writeMode: "merge"
+    }
   );
   try {
     await runtime.sessionContinuityStore.appendAuditLog(auditEntry);
@@ -126,6 +142,8 @@ async function saveSessionContinuity(
           projectId: runtime.project.projectId,
           worktreeId: runtime.project.worktreeId,
           diagnostics: generation.diagnostics,
+          trigger: "wrapper-auto-save",
+          writeMode: "merge",
           scope: "both",
           writtenPaths: written,
           failedStage: "audit-write",

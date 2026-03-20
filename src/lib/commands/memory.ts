@@ -198,6 +198,8 @@ export async function runMemory(options: MemoryOptions = {}): Promise<string> {
     `Auto memory enabled: ${runtime.loadedConfig.config.autoMemoryEnabled}`,
     `Config files: ${runtime.loadedConfig.files.length ? runtime.loadedConfig.files.join(", ") : "none"}`,
     `Startup budget: ${startupBudget.usedLines}/${startupBudget.maxLines} lines | Refs: global ${refCountsByScope.global.startupFiles}/${refCountsByScope.global.topicFiles}, project ${refCountsByScope.project.startupFiles}/${refCountsByScope.project.topicFiles}, project-local ${refCountsByScope.projectLocal.startupFiles}/${refCountsByScope.projectLocal.topicFiles}`,
+    "Startup loaded files are the index files actually quoted into the current startup payload.",
+    "Topic files on demand stay as references until a later read needs them.",
     ...(configUpdateMessage ? [configUpdateMessage] : []),
     ...runtime.loadedConfig.warnings.map((warning) => `Warning: ${warning}`),
     "",

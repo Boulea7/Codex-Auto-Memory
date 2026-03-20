@@ -70,7 +70,7 @@ Claude Code 已经公开了一套相对清晰的 auto memory 产品契约：
 - 本地 persistent sessions / rollout logs
 - 本地 `cam doctor` / feature output 里可见的 `memories`、`codex_hooks` signal
 
-`codex-auto-memory` 的价值，就是在官方 native memory 还没有稳定公开之前，先提供一条干净、可审计、可迁移的 companion-first 路线。
+`codex-auto-memory` 的价值，就是在官方 native memory 还没有稳定公开之前，先提供一条干净、可审计的 companion-first 路线，并只保留一条窄 compatibility seam。当前 UX 规划重点是继续收紧 `cam memory` / `cam session` 的 reviewer 体验。
 
 ## 这个项目适合谁
 
@@ -79,7 +79,7 @@ Claude Code 已经公开了一套相对清晰的 auto memory 产品契约：
 - 想在 Codex 中获得更接近 Claude-style auto memory 工作流的用户
 - 希望 memory 完全本地、完全可编辑、可以直接放进 Git 审查语境里的团队
 - 需要在多个 worktree 之间共享 project memory，同时保留 worktree-local continuity 的工程流
-- 希望未来迁移到官方 native memory 时，不需要重建用户心智模型的维护者
+- 希望未来即使官方 surface 变化，也不需要重建用户心智模型的维护者
 
 不适合：
 
@@ -93,7 +93,7 @@ Claude Code 已经公开了一套相对清晰的 auto memory 产品契约：
 | :-- | :-- |
 | 自动 memory 同步 | 会话结束后从 Codex rollout JSONL 中提取稳定、未来有用的信息并写回 Markdown memory |
 | Markdown-first | `MEMORY.md` 与 topic files 就是产品表面，而不是内部缓存 |
-| 紧凑启动注入 | 启动时只注入紧凑的 `MEMORY.md` 索引和 topic refs，不做 eager topic loading |
+| 紧凑启动注入 | 启动时只注入真正进入 payload 的 quoted `MEMORY.md` startup files，并附带按需 topic refs，不做 eager topic loading |
 | worktree-aware | project memory 在同一 git 仓库的 worktree 间共享，project-local 仍保持隔离 |
 | session continuity | 临时 working state 与 durable memory 分层存储、分层加载 |
 | reviewer surface | `cam memory` / `cam session` / `cam audit` 为维护者和 reviewer 提供可核查的审查入口 |
@@ -106,13 +106,13 @@ Claude Code 已经公开了一套相对清晰的 auto memory 产品契约：
 | 本地 Markdown memory | Built in | 没有完整公开契约 | 支持 |
 | `MEMORY.md` 启动入口 | Built in | 没有 | 支持 |
 | 200 行启动预算 | Built in | 没有 | 支持 |
-| topic files 按需读取 | Built in | 没有 | 部分支持，启动时注入路径引用并按需读取 |
+| topic files 按需读取 | Built in | 没有 | 部分支持，启动时暴露 topic refs，供后续按需读取 |
 | 跨会话 continuity | 社区方案较多 | 没有完整公开契约 | 作为独立 companion layer 支持 |
 | worktree 共享 project memory | Built in | 没有公开契约 | 支持 |
 | inspect / audit memory | `/memory` | 无等价命令 | `cam memory` |
-| native hooks / memory | Built in | Experimental / under development | 当前只保留迁移 seam |
+| native hooks / memory | Built in | Experimental / under development | 当前只保留 compatibility seam |
 
-`cam memory` 当前是 inspection / audit surface：它会暴露真正进入 startup payload 的 quoted index files、startup budget、按需 topic refs、edit paths，以及 `--recent [count]` 下的 recent durable sync audit。
+`cam memory` 当前是 inspection / audit surface：它会暴露真正进入 startup payload 的 quoted startup files（当前是各 scope 的 `MEMORY.md` / index 内容）、startup budget、按需 topic refs、edit paths，以及 `--recent [count]` 下的 recent durable sync audit。这里的 topic refs 只是按需定位信息，不表示 topic body 已在启动阶段 eager 读取。
 这些 recent sync events 来自 `~/.codex-auto-memory/projects/<project-id>/audit/sync-log.jsonl`，只覆盖 sync flow 的 `applied` / `no-op` / `skipped` 事件，不包含 manual `cam remember` / `cam forget`。
 如果主 memory 文件已经写入，但 reviewer sidecar（audit / processed-state）没有完整落盘，`cam memory` 会尽力暴露一个 pending sync recovery marker，帮助 reviewer 识别 partial-success 状态；该 marker 只会在同一 rollout/session 后续成功补齐时清理，不会被不相关的成功 sync 顺手抹掉。
 显式更新仍通过 `cam remember`、`cam forget` 或直接编辑 Markdown 文件完成，而不是提供 `/memory` 风格的命令内编辑器。
@@ -158,6 +158,7 @@ cam run
 ```bash
 cam memory          # 查看当前 memory 文件和 startup budget
 cam session status  # 查看 session continuity 状态
+cam session refresh # 从选定 provenance 重新生成并覆盖 continuity
 cam remember "Always use pnpm instead of npm"   # 手动记录偏好
 cam forget "old debug note"                     # 删除过时记录
 cam audit           # 检查仓库有没有意外的敏感内容
@@ -169,9 +170,12 @@ cam audit           # 检查仓库有没有意外的敏感内容
 | :-- | :-- |
 | `cam run` / `cam exec` / `cam resume` | 编译 startup memory 并通过 wrapper 启动 Codex |
 | `cam sync` | 手动把最近 rollout 同步进 durable memory |
-| `cam memory` | 查看 startup 实际加载的 index files、按需 topic refs、startup budget、edit paths，以及 `--recent [count]` 下的 durable sync audit |
+| `cam memory` | 查看真正进入 startup payload 的 quoted startup files、按需 topic refs、startup budget、edit paths，以及 `--recent [count]` 下的 durable sync audit |
 | `cam remember` / `cam forget` | 显式新增或删除 memory |
-| `cam session save` / `load` / `status` / `clear` | 管理独立的 session continuity layer，并在需要时暴露 pending continuity recovery marker |
+| `cam session save` | merge / incremental save；从 rollout 增量写入 continuity，不主动清掉已有污染状态 |
+| `cam session refresh` | replace / clean regeneration；从选定 provenance 重新生成 continuity 并覆盖所选 scope |
+| `cam session load` / `status` | continuity reviewer surface；显示 latest audit drill-down、compact prior preview，以及 pending continuity recovery marker |
+| `cam session clear` / `open` | 清理当前 active continuity，或打开 local continuity 目录 |
 | `cam audit` | 做仓库级隐私 / secret hygiene 审查 |
 | `cam doctor` | 检查当前 companion wiring 与 native readiness posture |
 
@@ -179,7 +183,10 @@ cam audit           # 检查仓库有没有意外的敏感内容
 
 - `cam audit`: 仓库级的 privacy / secret hygiene 审计。
 - `cam memory --recent [count]`: durable sync audit，查看 recent `applied` / `no-op` / `skipped` sync 事件，不混入 manual `remember` / `forget`。
-- `cam session save|load|status`: continuity audit surface，查看最新 continuity diagnostics、latest rollout 与 latest audit drill-down；其中 `load` / `status` 的文本输出会额外显示 compact prior preview（排除 latest，并收敛连续重复项），三个命令的 `--json` 都会继续返回 raw recent audit entries；当 continuity Markdown 已写入但 audit 失败时，还会暴露 pending continuity recovery marker。
+- `cam session save`: continuity audit surface 的 merge 路径，记录最新 continuity diagnostics、latest rollout 与 latest audit drill-down；它是 incremental save，不会立刻把已有污染状态“洗干净”。
+- `cam session refresh`: continuity audit surface 的 replace 路径，从选定 provenance 重新生成 continuity，并覆盖所选 scope；`--json` 会额外暴露 `action`、`writeMode` 与 `rolloutSelection`。
+- `cam session load|status`: reviewer surface，继续展示 latest continuity diagnostics、latest rollout、latest audit drill-down，以及 compact prior audit preview（来自 continuity audit log，排除 latest，并收敛连续重复项，不是完整 prior history 回放）；两个命令的 `--json` 继续返回 raw recent audit entries。
+- `pending continuity recovery marker`: continuity Markdown 已写入但 audit sidecar 失败时的可见警告；它不等于 `cam session refresh` 会自动修复一切，只会在逻辑身份匹配的后续成功写入后被清理。
 
 ## 工作方式
 
@@ -187,7 +194,7 @@ cam audit           # 检查仓库有没有意外的敏感内容
 
 - `local-first and auditable`
 - `Markdown files are the product surface`
-- `companion-first today, native migration seam tomorrow`
+- `companion-first, with a narrow compatibility seam`
 - `session continuity` 与 `durable memory` 明确分离
 
 ### 运行流
@@ -195,7 +202,7 @@ cam audit           # 检查仓库有没有意外的敏感内容
 ```mermaid
 flowchart TD
     A[启动 Codex 会话] --> B[编译 startup memory]
-    B --> C[注入 quoted MEMORY.md 与 topic refs]
+    B --> C[注入 quoted MEMORY.md startup files 与按需 topic refs]
     C --> D[运行 Codex]
     D --> E[读取 rollout JSONL]
     E --> F[提取 durable memory 操作]
@@ -207,7 +214,7 @@ flowchart TD
 ### 为什么不是直接上 native memory
 
 - 官方公开文档尚未给出完整、稳定、等价于 Claude Code 的 native memory 契约；本地 `cam doctor --json` 也仍把 `memories` / `codex_hooks` 视为未进入 trusted primary path 的 signal
-- 本地观察与 source inspection 可以作为 migration signal，但不能直接升级成稳定产品契约
+- 本地观察与 source inspection 可以作为重评 compatibility seam 的线索，但不能直接升级成稳定产品契约
 - 因此项目默认仍然坚持 companion-first，直到官方文档、运行时稳定性和 CI 可验证性都足够强
 
 ## 存储布局
@@ -278,13 +285,13 @@ Session continuity：
 ### v0.2
 
 - 更稳的 contradiction handling
-- 更好的 `cam memory` / `cam session` 审查体验
-- continuity diagnostics 与 reviewer packet 继续打磨
-- 为未来 hook bridge 保留 seam
+- 更清晰的 `cam memory` / `cam session` 审查 UX
+- continuity diagnostics 与 reviewer packet 继续收紧信息层次
+- 继续保留对未来 hook surface 的 compatibility seam
 
 ### v0.3+
 
-- 在官方 native memory / hooks 足够稳定后提供 native adapter
+- 继续跟踪官方 Codex memory / hooks surfaces，不预设主路径变更
 - 可选 GUI / TUI browser
 - 更强的跨会话 diagnostics 与 confidence surfaces
 
