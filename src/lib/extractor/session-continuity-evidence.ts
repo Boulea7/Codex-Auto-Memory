@@ -42,6 +42,11 @@ const PROGRESS_NARRATION_PATTERNS = [
   /^(?:我会|我们会|我先|我将|下面我会|现在我会|随后我会|最后我再|接下来我会|我会做)/u
 ];
 
+const packageManagerValues = ["pnpm", "npm", "yarn", "bun"] as const;
+const repoSearchValues = ["rg", "ripgrep", "grep"] as const;
+const hedgedDirectivePattern =
+  /(?:\bmaybe\b|\bperhaps\b|\bif possible\b|\bwhen possible\b|\bfor now\b|\bprobably\b|\busually\b|\bsometimes\b|\btry\b|\bconsider\b|\bmight\b|\bcould\b|尽量|如果可以|可能|暂时)/iu;
+
 function isPromptLikeContinuityMessage(text: string): boolean {
   return CONTINUITY_PROMPT_PATTERNS.some((pattern) => pattern.test(text));
 }
@@ -76,6 +81,7 @@ export interface SessionContinuityEvidenceBuckets {
   detectedFileWrites: string[];
   explicitNextSteps: string[];
   explicitUntried: string[];
+  warningHints: string[];
 }
 
 export function normalizeMessage(message: string, maxLength = 240): string {
@@ -211,6 +217,126 @@ export function summarizeFileWrite(toolCall: RolloutToolCall): string | null {
   return `File modified: ${trimText(basename, 120)}`;
 }
 
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+interface DirectiveSignal {
+  key: string;
+  value: string;
+  authoritative: boolean;
+}
+
+function extractDirectiveChoice(
+  text: string,
+  values: readonly string[],
+  key: string
+): DirectiveSignal | null {
+  const normalized = text.toLowerCase();
+  const hedged = hedgedDirectivePattern.test(text);
+
+  for (const value of values) {
+    const escaped = escapeRegExp(value);
+    const authoritativePatterns = [
+      new RegExp(`\\b(?:actually\\s+)?use\\s+${escaped}\\s*,\\s*not\\s+[^,.]+`, "iu"),
+      new RegExp(`\\b(?:actually\\s+)?use\\s+${escaped}\\s+instead of\\s+[^,.]+`, "iu"),
+      new RegExp(`\\bprefer\\s+${escaped}\\s+over\\s+[^,.]+`, "iu"),
+      new RegExp(`\\bnot\\s+[^,.]+[,，]\\s*(?:actually\\s+)?use\\s+${escaped}\\b`, "iu"),
+      new RegExp(`我们用\\s*${escaped}\\s*[,，]\\s*不用\\s*.+`, "u"),
+      new RegExp(`(?:别用|不要用).+[，,]\\s*用\\s*${escaped}\\b`, "u"),
+      new RegExp(`实际上用\\s*${escaped}\\s*[,，]\\s*不要用\\s*.+`, "u")
+    ];
+    const genericPatterns = [
+      new RegExp(`\\b(?:we\\s+)?use\\s+${escaped}\\b`, "iu"),
+      new RegExp(`\\bprefer\\s+${escaped}\\b`, "iu"),
+      new RegExp(`\\balways\\s+use\\s+${escaped}\\b`, "iu"),
+      new RegExp(`(?:使用|用|优先用|优先使用)\\s*${escaped}\\b`, "u")
+    ];
+
+    if (!hedged && authoritativePatterns.some((pattern) => pattern.test(text))) {
+      return {
+        key,
+        value,
+        authoritative: true
+      };
+    }
+
+    if (genericPatterns.some((pattern) => pattern.test(normalized))) {
+      return {
+        key,
+        value,
+        authoritative: false
+      };
+    }
+  }
+
+  return null;
+}
+
+function collectWarningHints(agentMessages: string[], userMessages: string[]): string[] {
+  const warnings = new Set<string>();
+  const directiveValues = new Map<string, Set<string>>();
+  let promptNoiseDetected = false;
+
+  const applySignal = (signal: DirectiveSignal) => {
+    const values = directiveValues.get(signal.key) ?? new Set<string>();
+    if (signal.authoritative) {
+      values.clear();
+    }
+    values.add(signal.value);
+    directiveValues.set(signal.key, values);
+  };
+
+  for (const message of agentMessages) {
+    if (isPromptLikeContinuityMessage(message)) {
+      promptNoiseDetected = true;
+      continue;
+    }
+    const choices = [
+      extractDirectiveChoice(message, packageManagerValues, "package-manager"),
+      extractDirectiveChoice(message, repoSearchValues, "repo-search")
+    ].filter((choice): choice is DirectiveSignal => Boolean(choice));
+
+    for (const choice of choices) {
+      applySignal(choice);
+    }
+  }
+
+  for (const message of userMessages) {
+    if (isPromptLikeContinuityMessage(message)) {
+      promptNoiseDetected = true;
+      continue;
+    }
+
+    const choices = [
+      extractDirectiveChoice(message, packageManagerValues, "package-manager"),
+      extractDirectiveChoice(message, repoSearchValues, "repo-search")
+    ].filter((choice): choice is DirectiveSignal => Boolean(choice));
+
+    for (const choice of choices) {
+      applySignal(choice);
+    }
+  }
+
+  if (promptNoiseDetected) {
+    warnings.add(
+      "Reviewer or subagent prompt noise was detected in the rollout; continuity extraction ignored non-product transcript lines."
+    );
+  }
+
+  for (const [key, values] of directiveValues) {
+    if (values.size <= 1) {
+      continue;
+    }
+
+    warnings.add(
+      `Conflicting ${key.replace(/-/g, " ")} signals were detected in the rollout; verify the current preference before trusting this continuity summary.`
+    );
+  }
+
+  return [...warnings];
+}
+
 export function collectSessionContinuityEvidenceBuckets(
   evidence: RolloutEvidence
 ): SessionContinuityEvidenceBuckets {
@@ -247,7 +373,8 @@ export function collectSessionContinuityEvidenceBuckets(
     recentFailedCommands,
     detectedFileWrites,
     explicitNextSteps: extractPatternMatches(recentMessagesReversed, NEXT_STEP_PATTERNS, 4),
-    explicitUntried: extractPatternMatches(recentMessagesReversed, UNTRIED_PATTERNS, 6)
+    explicitUntried: extractPatternMatches(recentMessagesReversed, UNTRIED_PATTERNS, 6),
+    warningHints: collectWarningHints(recentAgentMessages, recentUserMessages)
   };
 }
 

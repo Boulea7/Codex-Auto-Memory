@@ -173,6 +173,7 @@ Command contract:
 - project-local continuity
 - the effective merged resume brief
 - the latest continuity generation path and fallback status
+- the latest continuity confidence and reviewer warnings when present
 - the latest rollout path
 - a small latest-generation drill-down for evidence counts and written continuity paths
 - a compact prior-generation audit preview sourced from the continuity audit log that excludes the latest entry, coalesces consecutive repeats, and does not attempt to replay full prior history
@@ -203,6 +204,7 @@ Each save, refresh, or wrapper auto-save records:
 - whether the preferred path was `codex` or `heuristic`
 - which path actually produced the saved continuity
 - why Codex fell back when it did
+- a compact `confidence` level plus reviewer warnings for conflict/noise cases
 - evidence counts for commands, file writes, next steps, and untried items
 - the rollout path and written continuity files
 - `trigger`: `manual-save`, `manual-refresh`, or `wrapper-auto-save`
@@ -216,6 +218,7 @@ Reason:
 - reviewer/debug data belongs in an audit surface, not in the working-state note itself
 - the latest audit entry now remains exposed explicitly as `latestContinuityAuditEntry` through `cam session save --json`, `cam session refresh --json`, `cam session load --json`, and `cam session status --json`
 - the compatibility summary field `latestContinuityDiagnostics` still exposes the latest path/fallback view for existing consumers
+- those same diagnostics now also expose `confidence` and reviewer warnings so consumers can distinguish explicit evidence from conservative fallback or noisy/contradictory rollouts
 - the same commands now also expose raw recent audit entries so reviewers can verify a short audit window without opening the JSONL directly
 - the default `load` / `status` text surfaces now show the latest rollout, the latest evidence counts and written paths, plus a compact prior audit preview without becoming a dedicated history browser
 - compact prior audit preview grouping now includes normalized `trigger` and `writeMode`, so a save and a refresh from the same rollout are still shown as distinct reviewer events

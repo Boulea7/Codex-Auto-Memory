@@ -20,10 +20,15 @@
   "packageManager": "pnpm@10.11.0",
   "scripts": {
     "build": "tsc -p tsconfig.build.json",
+    "ci": "pnpm lint && pnpm test:docs-contract && pnpm test:reviewer-smoke && pnpm test:cli-smoke && pnpm test && pnpm build && pnpm pack:check",
     "clean": "rimraf dist coverage .tmp",
     "dev": "tsx src/cli.ts",
     "lint": "tsc --noEmit -p tsconfig.json",
+    "pack:check": "npm pack --dry-run",
     "test": "vitest run",
+    "test:cli-smoke": "vitest run test/audit.test.ts test/memory-command.test.ts test/session-command.test.ts",
+    "test:docs-contract": "vitest run test/docs-contract.test.ts",
+    "test:reviewer-smoke": "vitest run test/docs-contract.test.ts test/memory-command.test.ts test/session-command.test.ts test/session-continuity.test.ts",
     "test:watch": "vitest"
   },
   "keywords": [

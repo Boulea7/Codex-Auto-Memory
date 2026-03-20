@@ -1,0 +1,6 @@
+{"type":"session_meta","payload":{"id":"fixture-within-rollout-preference-conflict","timestamp":"2026-03-19T00:00:00.000Z","cwd":"/tmp/project"}}
+{"type":"event_msg","payload":{"type":"user_message","message":"Remember that we use pnpm in this repository."}}
+{"type":"event_msg","payload":{"type":"user_message","message":"Remember that we use bun in this repository."}}
+{"type":"event_msg","payload":{"type":"agent_message","message":"Next step: keep only one package manager choice in the docs and startup notes."}}
+{"type":"response_item","payload":{"type":"function_call","name":"edit_file","call_id":"call-1","arguments":"{\"path\":\"docs/setup.md\"}"}}
+

@@ -82,7 +82,9 @@ async function compileStartupPayload(cwd: string): Promise<string> {
   const localLocation = await runtime.sessionContinuityStore.getLocation("project-local");
   const continuity = compileSessionContinuity(
     merged,
-    [projectLocation.path, localLocation.path].filter(Boolean),
+    [projectLocation, localLocation]
+      .filter((location) => location.exists)
+      .map((location) => location.path),
     runtime.loadedConfig.config.maxSessionContinuityLines
   );
   return `${continuity.text.trimEnd()}\n\n${durable.text.trimStart()}`;

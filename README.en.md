@@ -113,6 +113,7 @@ Not a good fit:
 | Native hooks / memory integration | Built in | Experimental / under development | Compatibility seam only |
 
 `cam memory` is intentionally an inspection and audit surface. It exposes the quoted startup files that actually made it into the startup payload, currently the scoped `MEMORY.md` / index content, plus the startup budget, on-demand topic refs, edit paths, and recent durable sync audit events behind `--recent [count]`. Those topic refs are lookup pointers, not proof that topic bodies were eagerly loaded at startup.
+Recent durable sync audit events now also surface conservatively suppressed conflict candidates so contradictory rollout output does not silently merge into durable memory.
 Those recent sync events come from `~/.codex-auto-memory/projects/<project-id>/audit/sync-log.jsonl` and only cover sync-flow `applied`, `no-op`, and `skipped` events. Manual `cam remember` / `cam forget` updates stay outside that audit stream by design.
 When primary memory files were written but the reviewer sidecar did not complete, `cam memory` will try to expose a pending sync recovery marker so reviewers can see that partial-success state explicitly; that marker is only cleared when the same rollout/session later completes successfully, not by an unrelated successful sync.
 Explicit updates still happen through `cam remember`, `cam forget`, or direct Markdown edits rather than a `/memory`-style in-command editor.
@@ -170,11 +171,11 @@ cam audit           # check the repository for unexpected sensitive content
 | :-- | :-- |
 | `cam run` / `cam exec` / `cam resume` | compile startup memory and launch Codex through the wrapper |
 | `cam sync` | manually sync the latest rollout into durable memory |
-| `cam memory` | inspect the quoted startup files that actually entered the payload, on-demand topic refs, startup budget, edit paths, and durable sync audit events via `--recent [count]` |
+| `cam memory` | inspect the quoted startup files that actually entered the payload, on-demand topic refs, startup budget, edit paths, and durable sync audit events plus suppressed conflict candidates via `--recent [count]` |
 | `cam remember` / `cam forget` | explicitly add or remove durable memory |
 | `cam session save` | merge / incremental save; append rollout-derived continuity without cleaning stale state immediately |
 | `cam session refresh` | replace / clean regeneration; rebuild continuity from the selected provenance and replace the selected scope |
-| `cam session load` / `status` | continuity reviewer surface for the latest audit drill-down, compact prior preview, and any pending continuity recovery marker |
+| `cam session load` / `status` | continuity reviewer surface for the latest continuity diagnostics, including `confidence` / warnings when present, plus the latest audit drill-down, compact prior preview, and any pending continuity recovery marker |
 | `cam session clear` / `open` | clear active continuity files or open the local continuity directory |
 | `cam audit` | run privacy and secret-hygiene checks against the repository |
 | `cam doctor` | inspect local companion wiring and native-readiness posture |
@@ -182,10 +183,11 @@ cam audit           # check the repository for unexpected sensitive content
 ## Audit Surface Map
 
 - `cam audit`: repository-level privacy and secret-hygiene audit.
-- `cam memory --recent [count]`: durable sync audit for recent `applied`, `no-op`, and `skipped` sync events, without mixing in manual `remember` / `forget`.
+- `cam memory --recent [count]`: durable sync audit for recent `applied`, `no-op`, and `skipped` sync events, without mixing in manual `remember` / `forget`; suppressed conflict candidates stay reviewer-visible here instead of silently merging.
 - `cam session save`: the merge path for the continuity audit surface. It records the latest diagnostics, latest rollout, and latest audit drill-down, but it remains an incremental save and does not immediately clean polluted state.
 - `cam session refresh`: the replace path for the continuity audit surface. It regenerates continuity from selected provenance and replaces the selected scope; `--json` additionally exposes `action`, `writeMode`, and `rolloutSelection`.
-- `cam session load|status`: reviewer surface for the latest continuity diagnostics, latest rollout, latest audit drill-down, and a compact prior audit preview sourced from the continuity audit log that excludes the latest entry, coalesces consecutive repeats, and is not a full prior-history replay. Their `--json` output continues to expose raw recent audit entries.
+- `cam session load|status`: reviewer surface for the latest continuity diagnostics, latest rollout, latest audit drill-down, and a compact prior audit preview sourced from the continuity audit log that excludes the latest entry, coalesces consecutive repeats, and is not a full prior-history replay. Their `--json` output continues to expose raw recent audit entries, plus continuity `confidence` and warnings for conservative summaries.
+- continuity reviewer warnings still belong to the audit/reviewer surface rather than the continuity body; the current implementation applies a minimal deterministic scrub so obvious reviewer warning prose is not written back into continuity Markdown.
 - `pending continuity recovery marker`: a visible warning that continuity Markdown was written but the audit sidecar failed. It is not a general repair mechanism and is not equivalent to `cam session refresh`.
 
 ## How it works
@@ -205,10 +207,12 @@ flowchart TD
     B --> C[Inject quoted MEMORY.md startup files plus on-demand topic refs]
     C --> D[Run Codex]
     D --> E[Read rollout JSONL]
-    E --> F[Extract durable memory operations]
+    E --> F[Extract candidate durable memory operations]
     E --> G[Optional continuity summary]
-    F --> H[Update MEMORY.md and topic files]
-    G --> I[Update shared and local continuity files]
+    F --> H[Contradiction review and conservative suppression]
+    H --> I[Update MEMORY.md and topic files]
+    I --> J[Append durable sync audit]
+    G --> K[Update shared and local continuity files]
 ```
 
 ### Why the project does not switch to native memory yet
@@ -286,7 +290,7 @@ Current public-ready status:
 
 - stronger contradiction handling
 - clearer `cam memory` and `cam session` reviewer UX
-- tighter continuity diagnostics and reviewer packets
+- tighter continuity diagnostics and reviewer packets, with explicit confidence and warning surfaces
 - keep a compatibility seam for future hook surfaces
 
 ### v0.3+

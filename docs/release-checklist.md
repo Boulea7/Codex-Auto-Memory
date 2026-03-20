@@ -19,22 +19,29 @@ Use this checklist before cutting any alpha or beta release of `codex-auto-memor
 ## Code and runtime checks
 
 - Run `pnpm lint`
+- Run `pnpm test:docs-contract`
+- Run `pnpm test:reviewer-smoke`
+- Run `pnpm test:cli-smoke`
 - Run `pnpm test`
 - Run `pnpm build`
-- Run `cam audit`
-- Run `cam session refresh --json` and confirm `action`, `writeMode`, and `rolloutSelection` reflect the selected provenance.
-- Run `cam session load --json` and confirm older JSON consumers still receive the existing core fields.
-- Run `cam session status --json` and confirm the latest explicit audit drill-down matches the newest audit-log entry when present.
+- Run `pnpm pack:check`
+- Run `pnpm exec tsx src/cli.ts audit` if you want the repository privacy scan; keep it as a manual release-time check instead of a CI gate.
+- Run `pnpm exec tsx src/cli.ts session refresh --json` and confirm `action`, `writeMode`, and `rolloutSelection` reflect the selected provenance.
+- Run `pnpm exec tsx src/cli.ts session load --json` and confirm older JSON consumers still receive the existing core fields.
+- Run `pnpm exec tsx src/cli.ts session status --json` and confirm the latest explicit audit drill-down matches the newest audit-log entry when present.
+- Run `pnpm exec tsx src/cli.ts memory --recent --json` and confirm suppressed conflict candidates remain reviewer-visible instead of being silently merged.
+- Confirm `pnpm exec tsx src/cli.ts session load --json` / `status --json` still expose `confidence` and warnings when the rollout required a conservative continuity summary.
+- Confirm continuity reviewer warnings stay in diagnostics / audit surfaces and are not written into continuity Markdown body text.
 - Run a local smoke flow:
-  - `cam init`
-  - `cam remember "..."`
-  - `cam memory --recent --print-startup`
-  - `cam session status`
-  - `cam session save`
-  - `cam session refresh`
-  - `cam session load --print-startup`
-  - `cam forget "..."`
-  - `cam doctor`
+  - `pnpm exec tsx src/cli.ts init`
+  - `pnpm exec tsx src/cli.ts remember "..."`
+  - `pnpm exec tsx src/cli.ts memory --recent --print-startup`
+  - `pnpm exec tsx src/cli.ts session status`
+  - `pnpm exec tsx src/cli.ts session save`
+  - `pnpm exec tsx src/cli.ts session refresh`
+  - `pnpm exec tsx src/cli.ts session load --print-startup`
+  - `pnpm exec tsx src/cli.ts forget "..."`
+  - `pnpm exec tsx src/cli.ts doctor`
 
 ## Documentation checks
 
@@ -45,7 +52,7 @@ Use this checklist before cutting any alpha or beta release of `codex-auto-memor
 ## Native compatibility checks
 
 - Run `cam doctor` and record the current `memories` / `codex_hooks` status.
-- Run `cam audit` and record whether any medium/high findings remain.
+- Run `pnpm exec tsx src/cli.ts audit` and record whether any medium/high findings remain.
 - Confirm that any native-facing code still preserves companion fallback.
 - Confirm that Markdown memory remains the user-facing source of truth.
 
@@ -55,6 +62,5 @@ Do not tag a release unless:
 
 - tests are green
 - docs are current
-- changelog is updated
 - review artifacts are in place
 - the current milestone can be explained without reading every commit in the repository
