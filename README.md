@@ -274,6 +274,7 @@ Session continuity：
 - topic-aware startup lookup：可用
 - session continuity companion layer：可用
 - reviewer audit surfaces：可用
+- tagged GitHub Releases：可用，提供 tarball artifact；npm publish 仍保持手动流程
 - native memory / native hooks primary path：未启用，仍非 trusted implementation path
 
 ## 路线图

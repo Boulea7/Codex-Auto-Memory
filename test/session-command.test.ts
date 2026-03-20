@@ -7,7 +7,6 @@ import { runWrappedCodex } from "../src/lib/commands/wrapper.js";
 import { detectProjectContext } from "../src/lib/domain/project-context.js";
 import { SessionContinuityStore } from "../src/lib/domain/session-continuity-store.js";
 import { SyncService } from "../src/lib/domain/sync-service.js";
-import { runCommandCapture } from "../src/lib/util/process.js";
 import type { SessionContinuityAuditEntry } from "../src/lib/types.js";
 import {
   initGitRepo,
@@ -15,13 +14,10 @@ import {
   makeRolloutFixture,
   writeCamConfig
 } from "./helpers/cam-test-fixtures.js";
+import { runCli } from "./helpers/cli-runner.js";
 
 const tempDirs: string[] = [];
 const originalSessionsDir = process.env.CAM_CODEX_SESSIONS_DIR;
-const sourceCliPath = path.resolve("src/cli.ts");
-const tsxBinaryPath = path.resolve(
-  process.platform === "win32" ? "node_modules/.bin/tsx.cmd" : "node_modules/.bin/tsx"
-);
 
 async function tempDir(prefix: string): Promise<string> {
   const dir = await fs.mkdtemp(path.join(os.tmpdir(), prefix));
@@ -31,10 +27,6 @@ async function tempDir(prefix: string): Promise<string> {
 
 const initRepo = initGitRepo;
 const configJson = makeAppConfig;
-
-function runCli(repoDir: string, args: string[]) {
-  return runCommandCapture(tsxBinaryPath, [sourceCliPath, ...args], repoDir);
-}
 
 const writeProjectConfig = writeCamConfig;
 const rolloutFixture = makeRolloutFixture;

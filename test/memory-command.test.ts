@@ -6,19 +6,15 @@ import { runMemory } from "../src/lib/commands/memory.js";
 import { configPaths } from "../src/lib/config/load-config.js";
 import { detectProjectContext } from "../src/lib/domain/project-context.js";
 import { MemoryStore } from "../src/lib/domain/memory-store.js";
-import { runCommandCapture } from "../src/lib/util/process.js";
 import type { AppConfig, MemoryCommandOutput } from "../src/lib/types.js";
 import {
   makeAppConfig,
   writeCamConfig
 } from "./helpers/cam-test-fixtures.js";
+import { runCli } from "./helpers/cli-runner.js";
 
 const tempDirs: string[] = [];
 const originalHome = process.env.HOME;
-const sourceCliPath = path.resolve("src/cli.ts");
-const tsxBinaryPath = path.resolve(
-  process.platform === "win32" ? "node_modules/.bin/tsx.cmd" : "node_modules/.bin/tsx"
-);
 
 async function tempDir(prefix: string): Promise<string> {
   const dir = await fs.mkdtemp(path.join(os.tmpdir(), prefix));
@@ -33,10 +29,6 @@ afterEach(async () => {
 
 const buildProjectConfig = makeAppConfig;
 const writeProjectConfig = writeCamConfig;
-
-function runCli(repoDir: string, args: string[]) {
-  return runCommandCapture(tsxBinaryPath, [sourceCliPath, ...args], repoDir);
-}
 
 describe("runMemory", () => {
   it("shows scope details and recent audit entries", async () => {

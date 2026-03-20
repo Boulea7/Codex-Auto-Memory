@@ -12,25 +12,43 @@ describe("docs contract", () => {
     const readmeEn = await readDoc("README.en.md");
     const releaseChecklist = await readDoc("docs/release-checklist.md");
     const contributing = await readDoc("CONTRIBUTING.md");
+    const ciWorkflow = await readDoc(".github/workflows/ci.yml");
+    const releaseWorkflow = await readDoc(".github/workflows/release.yml");
+    const packageJson = JSON.parse(await readDoc("package.json")) as {
+      scripts: Record<string, string>;
+    };
 
     expect(readme).toContain("cam memory");
     expect(readme).toContain("cam session status");
     expect(readme).toContain("cam session refresh");
     expect(readme).toContain("reviewer warning prose");
+    expect(readme).toContain("tagged GitHub Releases");
     expect(readmeEn).toContain("cam memory");
     expect(readmeEn).toContain("cam session status");
     expect(readmeEn).toContain("confidence");
     expect(readmeEn).toContain("deterministic scrub");
-    expect(releaseChecklist).toContain("pnpm exec tsx src/cli.ts audit");
+    expect(readmeEn).toContain("tagged GitHub Releases");
+    expect(releaseChecklist).toContain("pnpm test:dist-cli-smoke");
+    expect(releaseChecklist).toContain("node dist/cli.js --version");
+    expect(releaseChecklist).toContain("node dist/cli.js audit");
     expect(releaseChecklist).toContain("pnpm test:docs-contract");
     expect(releaseChecklist).toContain("pnpm test:reviewer-smoke");
     expect(releaseChecklist).toContain("pnpm test:cli-smoke");
     expect(releaseChecklist).toContain("pnpm pack:check");
-    expect(releaseChecklist).toContain("pnpm exec tsx src/cli.ts session refresh --json");
-    expect(releaseChecklist).toContain("pnpm exec tsx src/cli.ts session load --json");
-    expect(releaseChecklist).toContain("pnpm exec tsx src/cli.ts session status --json");
+    expect(releaseChecklist).toContain("node dist/cli.js session refresh --json");
+    expect(releaseChecklist).toContain("node dist/cli.js session load --json");
+    expect(releaseChecklist).toContain("node dist/cli.js session status --json");
     expect(contributing).toContain("reviewer-only warnings");
     expect(contributing).toContain("pnpm test:docs-contract");
+    expect(contributing).toContain("pnpm test:dist-cli-smoke");
+    expect(packageJson.scripts["test:dist-cli-smoke"]).toBe("vitest run test/dist-cli-smoke.test.ts");
+    expect(packageJson.scripts.prepack).toBe("pnpm build");
+    expect(packageJson.scripts["verify:release"]).toContain("pnpm test:dist-cli-smoke");
+    expect(ciWorkflow).toContain("Dist CLI Smoke");
+    expect(releaseWorkflow).toContain("tags:");
+    expect(releaseWorkflow).toContain("v*");
+    expect(releaseWorkflow).toContain("pnpm verify:release");
+    expect(releaseWorkflow).toContain("gh release create");
   });
 
   it("keeps continuity, architecture, and migration wording aligned with the current product posture", async () => {

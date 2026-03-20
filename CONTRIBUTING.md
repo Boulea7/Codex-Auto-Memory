@@ -26,6 +26,7 @@ pnpm test:reviewer-smoke
 pnpm test:cli-smoke
 pnpm test
 pnpm build
+pnpm test:dist-cli-smoke
 ```
 
 Use Node 20+ and `pnpm`.
@@ -37,6 +38,7 @@ Use Node 20+ and `pnpm`.
 - Add or update tests for logic changes.
 - Update docs whenever behavior, config, or file layout changes.
 - Include screenshots or terminal output only when it helps explain the UX.
+- If you touch release-facing CLI behavior, validate `node dist/cli.js` or `pnpm test:dist-cli-smoke`.
 
 ## Coding Guidelines
 
