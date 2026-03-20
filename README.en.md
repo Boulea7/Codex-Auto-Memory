@@ -274,7 +274,7 @@ Current public-ready status:
 - topic-aware startup lookup: available
 - session continuity companion layer: available
 - reviewer audit surfaces: available
-- tagged GitHub Releases: available with tarball artifacts; npm publish remains manual
+- tagged GitHub Releases: the release workflow is defined with tarball artifacts as the target; before pushing the first real tag, confirm that the default branch exposes and activates that workflow; npm publish remains manual
 - native memory / native hooks primary path: not enabled and not trusted as the main implementation path
 
 ## Roadmap
@@ -292,6 +292,7 @@ Current public-ready status:
 - stronger contradiction handling
 - clearer `cam memory` and `cam session` reviewer UX
 - tighter continuity diagnostics and reviewer packets, with explicit confidence and warning surfaces
+- tighter release-facing verification through tarball install smoke so the `.tgz`-installed `cam` bin shim is exercised directly
 - keep a compatibility seam for future hook surfaces
 
 ### v0.3+

@@ -18,8 +18,10 @@
 
 - `src/cli.ts`：只负责 wrapper fast path、版本与 Commander 启动
 - `src/lib/cli/register-commands.ts`：集中做命令注册
-- `src/lib/runtime/runtime-context.ts`：集中做 runtime composition 与 config patch 后的 reload
-- `src/lib/commands/*`：命令编排与 reviewer-facing text/json surface
+- `src/lib/runtime/runtime-context.ts`：集中做 runtime composition、config patch 后的 reload，以及 memory enable/disable 的统一 reload helper
+- `src/lib/commands/session.ts`：只保留 provenance 选择与 action dispatch
+- `src/lib/commands/session-presenters.ts`：集中组装 `cam session` 的 text/json reviewer surface
+- `src/lib/domain/session-continuity-persistence.ts`：承载 session / wrapper 共享的 continuity persistence 主干
 - `src/lib/domain/*`：memory / continuity / audit / rollout 的核心语义与存储行为
 - `src/lib/util/*`：纯工具层
 

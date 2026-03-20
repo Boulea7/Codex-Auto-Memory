@@ -19,56 +19,69 @@ function withStdout<Args extends unknown[]>(
   };
 }
 
+function addJsonOption(command: Command): Command {
+  return command.option("--json", "Print JSON output");
+}
+
+function addSessionScopeOption(command: Command): Command {
+  return command.option(
+    "--scope <scope>",
+    "Target continuity scope: project, project-local, or both",
+    "both"
+  );
+}
+
+function addSessionRolloutOption(command: Command): Command {
+  return command.option("--rollout <path>", "Specific rollout JSONL file to summarize");
+}
+
 function registerSessionCommands(program: Command): void {
   const sessionCommand = program
     .command("session")
     .description("Manage temporary cross-session continuity state");
 
-  sessionCommand
-    .command("status")
-    .description("Inspect current session continuity state")
-    .option("--json", "Print JSON output")
+  addJsonOption(
+    sessionCommand
+      .command("status")
+      .description("Inspect current session continuity state")
+  )
     .action(withStdout(async (options) => runSession("status", options)));
 
-  sessionCommand
-    .command("save")
-    .description("Save temporary session continuity from a rollout")
-    .option("--json", "Print JSON output")
-    .option("--rollout <path>", "Specific rollout JSONL file to summarize")
-    .option(
-      "--scope <scope>",
-      "Target continuity scope: project, project-local, or both",
-      "both"
+  addSessionScopeOption(
+    addSessionRolloutOption(
+      addJsonOption(
+        sessionCommand
+          .command("save")
+          .description("Save temporary session continuity from a rollout")
+      )
     )
+  )
     .action(withStdout(async (options) => runSession("save", options)));
 
-  sessionCommand
-    .command("refresh")
-    .description("Regenerate session continuity from provenance and replace the selected scope")
-    .option("--json", "Print JSON output")
-    .option("--rollout <path>", "Specific rollout JSONL file to summarize")
-    .option(
-      "--scope <scope>",
-      "Target continuity scope: project, project-local, or both",
-      "both"
+  addSessionScopeOption(
+    addSessionRolloutOption(
+      addJsonOption(
+        sessionCommand
+          .command("refresh")
+          .description("Regenerate session continuity from provenance and replace the selected scope")
+      )
     )
+  )
     .action(withStdout(async (options) => runSession("refresh", options)));
 
-  sessionCommand
-    .command("load")
-    .description("Load current session continuity summary")
-    .option("--json", "Print JSON output")
+  addJsonOption(
+    sessionCommand
+      .command("load")
+      .description("Load current session continuity summary")
+  )
     .option("--print-startup", "Print the compiled startup continuity block")
     .action(withStdout(async (options) => runSession("load", options)));
 
-  sessionCommand
-    .command("clear")
-    .description("Clear active session continuity state")
-    .option(
-      "--scope <scope>",
-      "Target continuity scope: project, project-local, or both",
-      "both"
-    )
+  addSessionScopeOption(
+    sessionCommand
+      .command("clear")
+      .description("Clear active session continuity state")
+  )
     .action(withStdout(async (options) => runSession("clear", options)));
 
   sessionCommand

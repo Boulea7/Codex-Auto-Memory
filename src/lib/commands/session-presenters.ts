@@ -11,6 +11,10 @@ import {
   normalizeSessionContinuityWriteMode,
   toSessionContinuityDiagnostics
 } from "../domain/session-continuity-diagnostics.js";
+import {
+  defaultRecentContinuityAuditLimit,
+  defaultRecentContinuityPreviewReadLimit
+} from "../domain/session-continuity-persistence.js";
 import type { PersistSessionContinuityResult } from "../domain/session-continuity-persistence.js";
 import type { RuntimeContext } from "../runtime/runtime-context.js";
 import type {
@@ -23,8 +27,6 @@ import type {
   SessionContinuityWriteMode
 } from "../types.js";
 
-const recentContinuityAuditLimit = 5;
-const recentContinuityPreviewReadLimit = 10;
 const recentContinuityPreviewGroupLimit = 3;
 
 interface RolloutSelectionSummary {
@@ -163,6 +165,47 @@ function formatLayerSection(
   ];
 }
 
+function buildSessionInspectionPayload(view: SessionInspectionView): Record<string, unknown> {
+  return {
+    projectLocation: view.projectLocation,
+    localLocation: view.localLocation,
+    projectState: view.projectState,
+    localState: view.localState,
+    mergedState: view.mergedState,
+    latestContinuityAuditEntry: view.latestContinuityAuditEntry,
+    latestContinuityDiagnostics: view.latestContinuityDiagnostics,
+    recentContinuityAuditEntries: view.recentContinuityAuditEntries,
+    continuityAuditPath: view.continuityAuditPath,
+    pendingContinuityRecovery: view.pendingContinuityRecovery,
+    continuityRecoveryPath: view.continuityRecoveryPath
+  };
+}
+
+function buildSessionOverviewLines(
+  view: SessionInspectionView,
+  headingLines: string[]
+): string[] {
+  return [
+    ...headingLines,
+    `Latest generation: ${view.latestContinuityDiagnostics ? formatSessionContinuityDiagnostics(view.latestContinuityDiagnostics) : "none recorded yet"}`,
+    ...(view.latestContinuityAuditEntry ? [`Latest rollout: ${view.latestContinuityAuditEntry.rolloutPath}`] : []),
+    `Continuity audit: ${view.continuityAuditPath}`,
+    "Merged resume brief combines shared continuity with any project-local overrides.",
+    "Recent prior generations below are compact audit previews, not startup-injected history.",
+    ...(view.latestContinuityAuditEntry
+      ? formatSessionContinuityAuditDrillDown(view.latestContinuityAuditEntry)
+      : []),
+    ...(view.pendingContinuityRecovery
+      ? formatPendingContinuityRecovery(
+          view.pendingContinuityRecovery,
+          view.continuityRecoveryPath
+        )
+      : []),
+    "Recent prior generations:",
+    ...formatRecentGenerationLines(view.recentContinuityAuditPreviewEntries)
+  ];
+}
+
 export async function loadSessionInspectionView(
   runtime: RuntimeContext
 ): Promise<SessionInspectionView> {
@@ -171,7 +214,9 @@ export async function loadSessionInspectionView(
   const projectState = await runtime.sessionContinuityStore.readState("project");
   const localState = await runtime.sessionContinuityStore.readState("project-local");
   const recentContinuityAuditPreviewEntries =
-    await runtime.sessionContinuityStore.readRecentAuditEntries(recentContinuityPreviewReadLimit);
+    await runtime.sessionContinuityStore.readRecentAuditEntries(
+      defaultRecentContinuityPreviewReadLimit
+    );
   const latestContinuityAuditEntry = recentContinuityAuditPreviewEntries[0] ?? null;
   const latestContinuityDiagnostics = latestContinuityAuditEntry
     ? toSessionContinuityDiagnostics(latestContinuityAuditEntry)
@@ -209,7 +254,7 @@ export async function loadSessionInspectionView(
     latestContinuityDiagnostics,
     recentContinuityAuditEntries: recentContinuityAuditPreviewEntries.slice(
       0,
-      recentContinuityAuditLimit
+      defaultRecentContinuityAuditLimit
     ),
     recentContinuityAuditPreviewEntries,
     continuityAuditPath: runtime.sessionContinuityStore.paths.auditFile,
@@ -271,18 +316,8 @@ export function buildPersistedSessionJson(
 export function buildSessionLoadJson(view: SessionInspectionView): string {
   return JSON.stringify(
     {
-      projectLocation: view.projectLocation,
-      localLocation: view.localLocation,
-      projectState: view.projectState,
-      localState: view.localState,
-      mergedState: view.mergedState,
+      ...buildSessionInspectionPayload(view),
       startup: view.startup,
-      latestContinuityAuditEntry: view.latestContinuityAuditEntry,
-      latestContinuityDiagnostics: view.latestContinuityDiagnostics,
-      recentContinuityAuditEntries: view.recentContinuityAuditEntries,
-      continuityAuditPath: view.continuityAuditPath,
-      pendingContinuityRecovery: view.pendingContinuityRecovery,
-      continuityRecoveryPath: view.continuityRecoveryPath
     },
     null,
     2
@@ -294,25 +329,11 @@ export function formatSessionLoadText(
   printStartup = false
 ): string {
   const lines = [
-    "Session Continuity",
-    `Project continuity: ${view.projectLocation.exists ? "active" : "missing"} (${view.projectLocation.path})`,
-    `Project-local continuity: ${view.localLocation.exists ? "active" : "missing"} (${view.localLocation.path})`,
-    `Latest generation: ${view.latestContinuityDiagnostics ? formatSessionContinuityDiagnostics(view.latestContinuityDiagnostics) : "none recorded yet"}`,
-    ...(view.latestContinuityAuditEntry ? [`Latest rollout: ${view.latestContinuityAuditEntry.rolloutPath}`] : []),
-    `Continuity audit: ${view.continuityAuditPath}`,
-    "Merged resume brief combines shared continuity with any project-local overrides.",
-    "Recent prior generations below are compact audit previews, not startup-injected history.",
-    ...(view.latestContinuityAuditEntry
-      ? formatSessionContinuityAuditDrillDown(view.latestContinuityAuditEntry)
-      : []),
-    ...(view.pendingContinuityRecovery
-      ? formatPendingContinuityRecovery(
-          view.pendingContinuityRecovery,
-          view.continuityRecoveryPath
-        )
-      : []),
-    "Recent prior generations:",
-    ...formatRecentGenerationLines(view.recentContinuityAuditPreviewEntries),
+    ...buildSessionOverviewLines(view, [
+      "Session Continuity",
+      `Project continuity: ${view.projectLocation.exists ? "active" : "missing"} (${view.projectLocation.path})`,
+      `Project-local continuity: ${view.localLocation.exists ? "active" : "missing"} (${view.localLocation.path})`
+    ]),
     "",
     "Shared project continuity:",
     `Goal: ${view.projectState?.goal || "No active goal recorded."}`,
@@ -387,17 +408,7 @@ export function buildSessionStatusJson(view: SessionInspectionView): string {
       autoSave: view.autoSave,
       localPathStyle: view.localPathStyle,
       maxLines: view.maxLines,
-      projectLocation: view.projectLocation,
-      localLocation: view.localLocation,
-      projectState: view.projectState,
-      localState: view.localState,
-      mergedState: view.mergedState,
-      latestContinuityAuditEntry: view.latestContinuityAuditEntry,
-      latestContinuityDiagnostics: view.latestContinuityDiagnostics,
-      recentContinuityAuditEntries: view.recentContinuityAuditEntries,
-      continuityAuditPath: view.continuityAuditPath,
-      pendingContinuityRecovery: view.pendingContinuityRecovery,
-      continuityRecoveryPath: view.continuityRecoveryPath
+      ...buildSessionInspectionPayload(view)
     },
     null,
     2
@@ -406,28 +417,14 @@ export function buildSessionStatusJson(view: SessionInspectionView): string {
 
 export function formatSessionStatusText(view: SessionInspectionView): string {
   return [
-    "Codex Auto Memory Session Continuity",
-    `Auto-load: ${view.autoLoad}`,
-    `Auto-save: ${view.autoSave}`,
-    `Local path style: ${view.localPathStyle}`,
-    `Shared continuity: ${view.projectLocation.exists ? "active" : "missing"} (${view.projectLocation.path})`,
-    `Project-local continuity: ${view.localLocation.exists ? "active" : "missing"} (${view.localLocation.path})`,
-    `Latest generation: ${view.latestContinuityDiagnostics ? formatSessionContinuityDiagnostics(view.latestContinuityDiagnostics) : "none recorded yet"}`,
-    ...(view.latestContinuityAuditEntry ? [`Latest rollout: ${view.latestContinuityAuditEntry.rolloutPath}`] : []),
-    `Continuity audit: ${view.continuityAuditPath}`,
-    "Merged resume brief combines shared continuity with any project-local overrides.",
-    "Recent prior generations below are compact audit previews, not startup-injected history.",
-    ...(view.latestContinuityAuditEntry
-      ? formatSessionContinuityAuditDrillDown(view.latestContinuityAuditEntry)
-      : []),
-    ...(view.pendingContinuityRecovery
-      ? formatPendingContinuityRecovery(
-          view.pendingContinuityRecovery,
-          view.continuityRecoveryPath
-        )
-      : []),
-    "Recent prior generations:",
-    ...formatRecentGenerationLines(view.recentContinuityAuditPreviewEntries),
+    ...buildSessionOverviewLines(view, [
+      "Codex Auto Memory Session Continuity",
+      `Auto-load: ${view.autoLoad}`,
+      `Auto-save: ${view.autoSave}`,
+      `Local path style: ${view.localPathStyle}`,
+      `Shared continuity: ${view.projectLocation.exists ? "active" : "missing"} (${view.projectLocation.path})`,
+      `Project-local continuity: ${view.localLocation.exists ? "active" : "missing"} (${view.localLocation.path})`
+    ]),
     "",
     `Shared updated at: ${view.projectState?.updatedAt ?? "n/a"}`,
     `Project-local updated at: ${view.localState?.updatedAt ?? "n/a"}`,

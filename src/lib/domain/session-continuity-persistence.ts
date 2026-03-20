@@ -19,8 +19,8 @@ import type {
   SessionContinuityDiagnostics
 } from "../types.js";
 
-const defaultRecentContinuityAuditLimit = 5;
-const defaultRecentContinuityPreviewReadLimit = 10;
+export const defaultRecentContinuityAuditLimit = 5;
+export const defaultRecentContinuityPreviewReadLimit = 10;
 
 export interface PersistSessionContinuityOptions {
   runtime: RuntimeContext;

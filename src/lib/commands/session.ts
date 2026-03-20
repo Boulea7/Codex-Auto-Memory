@@ -34,6 +34,12 @@ interface SessionOptions {
   scope?: SessionContinuityScope | "both";
 }
 
+interface SessionPersistenceRequest {
+  rolloutSelection: RolloutSelection;
+  trigger: "manual-save" | "manual-refresh";
+  writeMode: "merge" | "replace";
+}
+
 function selectedScope(scope?: SessionContinuityScope | "both"): SessionContinuityScope | "both" {
   if (!scope) {
     return "both";
@@ -86,6 +92,31 @@ async function selectRefreshRollout(
   throw new Error("No relevant rollout found for this project.");
 }
 
+async function prepareSessionPersistenceRequest(
+  runtime: RuntimeContext,
+  action: "save" | "refresh",
+  scope: SessionContinuityScope | "both",
+  explicitRollout?: string
+): Promise<SessionPersistenceRequest> {
+  const rolloutSelection: RolloutSelection =
+    action === "refresh"
+      ? await selectRefreshRollout(runtime, scope, explicitRollout)
+      : {
+          kind: explicitRollout ? "explicit-rollout" : "latest-primary-rollout",
+          rolloutPath: explicitRollout ?? (await findLatestProjectRollout(runtime.project)) ?? ""
+        };
+
+  if (!rolloutSelection.rolloutPath) {
+    throw new Error("No relevant rollout found for this project.");
+  }
+
+  return {
+    rolloutSelection,
+    trigger: action === "refresh" ? "manual-refresh" : "manual-save",
+    writeMode: action === "refresh" ? "replace" : "merge"
+  };
+}
+
 export async function runSession(
   action: SessionAction,
   options: SessionOptions = {}
@@ -95,31 +126,26 @@ export async function runSession(
   const scope = selectedScope(options.scope);
 
   if (action === "save" || action === "refresh") {
-    const rolloutSelection =
-      action === "refresh"
-        ? await selectRefreshRollout(runtime, scope, options.rollout)
-        : {
-            kind: options.rollout ? "explicit-rollout" : "latest-primary-rollout",
-            rolloutPath: options.rollout ?? (await findLatestProjectRollout(runtime.project)) ?? ""
-          };
-
-    if (!rolloutSelection.rolloutPath) {
-      throw new Error("No relevant rollout found for this project.");
-    }
+    const persistenceRequest = await prepareSessionPersistenceRequest(
+      runtime,
+      action,
+      scope,
+      options.rollout
+    );
 
     const persisted = await persistSessionContinuity({
       runtime,
-      rolloutPath: rolloutSelection.rolloutPath,
+      rolloutPath: persistenceRequest.rolloutSelection.rolloutPath,
       scope,
-      trigger: action === "refresh" ? "manual-refresh" : "manual-save",
-      writeMode: action === "refresh" ? "replace" : "merge"
+      trigger: persistenceRequest.trigger,
+      writeMode: persistenceRequest.writeMode
     });
 
     if (options.json) {
-      return buildPersistedSessionJson(action, persisted, rolloutSelection);
+      return buildPersistedSessionJson(action, persisted, persistenceRequest.rolloutSelection);
     }
 
-    return formatPersistedSessionText(action, persisted, rolloutSelection);
+    return formatPersistedSessionText(action, persisted, persistenceRequest.rolloutSelection);
   }
 
   if (action === "clear") {

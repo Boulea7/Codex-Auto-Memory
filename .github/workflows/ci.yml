@@ -48,3 +48,6 @@ jobs:
 
       - name: Pack Check
         run: pnpm pack:check
+
+      - name: Tarball Install Smoke
+        run: pnpm test:tarball-install-smoke
