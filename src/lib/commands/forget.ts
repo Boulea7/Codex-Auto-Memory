@@ -1,4 +1,4 @@
-import { buildRuntimeContext } from "./common.js";
+import { buildRuntimeContext } from "../runtime/runtime-context.js";
 import type { MemoryScope } from "../types.js";
 
 interface ForgetOptions {
@@ -21,4 +21,3 @@ export async function runForget(
     ...deleted.map((entry) => `- ${entry.scope}/${entry.topic}/${entry.id}: ${entry.summary}`)
   ].join("\n");
 }
-

@@ -1,4 +1,4 @@
-import { buildRuntimeContext } from "./common.js";
+import { buildRuntimeContext } from "../runtime/runtime-context.js";
 import { listRolloutFiles, matchesProjectContext, parseRolloutEvidence } from "../domain/rollout.js";
 
 interface SyncOptions {
@@ -33,4 +33,3 @@ export async function runSync(options: SyncOptions = {}): Promise<string> {
   const result = await runtime.syncService.syncRollout(rolloutPath, options.force);
   return result.message;
 }
-

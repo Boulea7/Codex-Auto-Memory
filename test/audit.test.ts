@@ -6,12 +6,9 @@ import { runAuditScan } from "../src/lib/security/audit.js";
 import { runAudit } from "../src/lib/commands/audit.js";
 import { runCommandCapture } from "../src/lib/util/process.js";
 import * as processUtils from "../src/lib/util/process.js";
+import { runCli } from "./helpers/cli-runner.js";
 
 const tempDirs: string[] = [];
-const sourceCliPath = path.resolve("src/cli.ts");
-const tsxBinaryPath = path.resolve(
-  process.platform === "win32" ? "node_modules/.bin/tsx.cmd" : "node_modules/.bin/tsx"
-);
 
 async function tempDir(prefix: string): Promise<string> {
   const dir = await fs.mkdtemp(path.join(os.tmpdir(), prefix));
@@ -31,10 +28,6 @@ async function initRepo(repoDir: string): Promise<void> {
   await fs.writeFile(path.join(repoDir, ".gitignore"), ".claude/\n", "utf8");
   runCommandCapture("git", ["add", ".gitignore"], repoDir, gitEnv);
   runCommandCapture("git", ["commit", "-m", "init"], repoDir, gitEnv);
-}
-
-function runCli(repoDir: string, args: string[]) {
-  return runCommandCapture(tsxBinaryPath, [sourceCliPath, ...args], repoDir);
 }
 
 afterEach(async () => {

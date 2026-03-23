@@ -18,30 +18,39 @@ Use this checklist before cutting any alpha or beta release of `codex-auto-memor
 
 ## Code and runtime checks
 
+- Prefer `pnpm verify:release` as the canonical full milestone check; run the individual commands below when you need to isolate a failure.
 - Run `pnpm lint`
 - Run `pnpm test:docs-contract`
 - Run `pnpm test:reviewer-smoke`
 - Run `pnpm test:cli-smoke`
+- Run `pnpm test:dist-cli-smoke`
+- Run `pnpm test:tarball-install-smoke`
 - Run `pnpm test`
 - Run `pnpm build`
 - Run `pnpm pack:check`
-- Run `pnpm exec tsx src/cli.ts audit` if you want the repository privacy scan; keep it as a manual release-time check instead of a CI gate.
-- Run `pnpm exec tsx src/cli.ts session refresh --json` and confirm `action`, `writeMode`, and `rolloutSelection` reflect the selected provenance.
-- Run `pnpm exec tsx src/cli.ts session load --json` and confirm older JSON consumers still receive the existing core fields.
-- Run `pnpm exec tsx src/cli.ts session status --json` and confirm the latest explicit audit drill-down matches the newest audit-log entry when present.
-- Run `pnpm exec tsx src/cli.ts memory --recent --json` and confirm suppressed conflict candidates remain reviewer-visible instead of being silently merged.
-- Confirm `pnpm exec tsx src/cli.ts session load --json` / `status --json` still expose `confidence` and warnings when the rollout required a conservative continuity summary.
+- Confirm `package.json.files` still whitelists the release-facing surfaces you intend to ship: `dist`, `docs`, `schemas`, the multilingual READMEs, and `LICENSE`.
+- Confirm `pnpm build` still starts from a clean `dist/` directory so `npm pack` cannot accidentally pick up stale compiled artifacts from an older tree shape.
+- If you add new generated outputs beyond `dist/`, keep their cleanup path aligned with the build and pack workflow instead of letting release tarballs accumulate leftovers.
+- After `pnpm build`, prefer validating release-facing CLI behavior through `node dist/cli.js ...` rather than `tsx src/cli.ts`.
+- Run `node dist/cli.js --version` and confirm it matches `package.json`.
+- Run `pnpm test:tarball-install-smoke` and confirm the packed `.tgz` installs cleanly, `./node_modules/.bin/cam --version` works, and at least one lightweight reviewer path such as `cam session status --json` succeeds from the installed package.
+- Run `node dist/cli.js audit` if you want the repository privacy scan; keep it as a manual release-time check instead of a CI gate.
+- Run `node dist/cli.js session refresh --json` and confirm `action`, `writeMode`, and `rolloutSelection` reflect the selected provenance.
+- Run `node dist/cli.js session load --json` and confirm older JSON consumers still receive the existing core fields.
+- Run `node dist/cli.js session status --json` and confirm the latest explicit audit drill-down matches the newest audit-log entry when present.
+- Run `node dist/cli.js memory --recent --json` and confirm suppressed conflict candidates remain reviewer-visible instead of being silently merged.
+- Confirm `node dist/cli.js session load --json` / `status --json` still expose `confidence` and warnings when the rollout required a conservative continuity summary.
 - Confirm continuity reviewer warnings stay in diagnostics / audit surfaces and are not written into continuity Markdown body text.
 - Run a local smoke flow:
-  - `pnpm exec tsx src/cli.ts init`
-  - `pnpm exec tsx src/cli.ts remember "..."`
-  - `pnpm exec tsx src/cli.ts memory --recent --print-startup`
-  - `pnpm exec tsx src/cli.ts session status`
-  - `pnpm exec tsx src/cli.ts session save`
-  - `pnpm exec tsx src/cli.ts session refresh`
-  - `pnpm exec tsx src/cli.ts session load --print-startup`
-  - `pnpm exec tsx src/cli.ts forget "..."`
-  - `pnpm exec tsx src/cli.ts doctor`
+  - `node dist/cli.js init`
+  - `node dist/cli.js remember "..."`
+  - `node dist/cli.js memory --recent --print-startup`
+  - `node dist/cli.js session status`
+  - `node dist/cli.js session save`
+  - `node dist/cli.js session refresh`
+  - `node dist/cli.js session load --print-startup`
+  - `node dist/cli.js forget "..."`
+  - `node dist/cli.js doctor`
 
 ## Documentation checks
 
@@ -51,8 +60,8 @@ Use this checklist before cutting any alpha or beta release of `codex-auto-memor
 
 ## Native compatibility checks
 
-- Run `cam doctor` and record the current `memories` / `codex_hooks` status.
-- Run `pnpm exec tsx src/cli.ts audit` and record whether any medium/high findings remain.
+- Run `node dist/cli.js doctor` and record the current `memories` / `codex_hooks` status.
+- Run `node dist/cli.js audit` and record whether any medium/high findings remain.
 - Confirm that any native-facing code still preserves companion fallback.
 - Confirm that Markdown memory remains the user-facing source of truth.
 
@@ -64,3 +73,11 @@ Do not tag a release unless:
 - docs are current
 - review artifacts are in place
 - the current milestone can be explained without reading every commit in the repository
+- the tag format is `v<package.json.version>`
+
+## Release automation notes
+
+- A pushed `v*` tag is intended to run the GitHub Release workflow.
+- The workflow verifies `GITHUB_REF_NAME === v${package.json.version}`, runs `pnpm verify:release`, and uploads the `npm pack` tarball to the GitHub Release.
+- Before the first real tag validation, confirm that the remote default branch exposes `release.yml` in Actions and that the workflow is active.
+- npm publish remains manual until registry credentials and approval posture are intentionally wired.
