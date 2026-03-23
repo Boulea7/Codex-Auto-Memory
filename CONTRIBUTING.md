@@ -32,6 +32,9 @@ pnpm test:tarball-install-smoke
 
 Use Node 20+ and `pnpm`.
 
+`pnpm test` is the default source-level suite. Build-dependent release checks stay explicit in
+`pnpm test:dist-cli-smoke` and `pnpm test:tarball-install-smoke`.
+
 ## Branch and PR expectations
 
 - Keep pull requests focused.
