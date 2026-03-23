@@ -3,7 +3,9 @@
   <p><strong>A local-first companion CLI that brings Claude-style auto memory workflows to Codex</strong></p>
   <p>
     <a href="./README.md">简体中文</a> |
+    <a href="./README.zh-TW.md">繁體中文</a> |
     <a href="./README.en.md">English</a>
+    <a href="./README.ja.md">日本語</a>
   </p>
   <p>
     <a href="https://github.com/Boulea7/Codex-Auto-Memory/actions/workflows/ci.yml">
@@ -274,6 +276,7 @@ Current public-ready status:
 - topic-aware startup lookup: available
 - session continuity companion layer: available
 - reviewer audit surfaces: available
+- tagged GitHub Releases: the release workflow is defined with tarball artifacts as the target; before pushing the first real tag, confirm that the default branch exposes and activates that workflow; npm publish remains manual
 - native memory / native hooks primary path: not enabled and not trusted as the main implementation path
 
 ## Roadmap
@@ -291,6 +294,7 @@ Current public-ready status:
 - stronger contradiction handling
 - clearer `cam memory` and `cam session` reviewer UX
 - tighter continuity diagnostics and reviewer packets, with explicit confidence and warning surfaces
+- tighter release-facing verification through tarball install smoke so the `.tgz`-installed `cam` bin shim is exercised directly
 - keep a compatibility seam for future hook surfaces
 
 ### v0.3+

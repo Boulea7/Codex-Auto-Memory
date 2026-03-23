@@ -11,7 +11,9 @@
     "docs",
     "schemas",
     "README.md",
+    "README.zh-TW.md",
     "README.en.md",
+    "README.ja.md",
     "LICENSE"
   ],
   "engines": {
@@ -19,17 +21,20 @@
   },
   "packageManager": "pnpm@10.11.0",
   "scripts": {
-    "build": "tsc -p tsconfig.build.json",
-    "ci": "pnpm lint && pnpm test:docs-contract && pnpm test:reviewer-smoke && pnpm test:cli-smoke && pnpm test && pnpm build && pnpm pack:check",
+    "build": "rimraf dist && tsc -p tsconfig.build.json",
     "clean": "rimraf dist coverage .tmp",
     "dev": "tsx src/cli.ts",
     "lint": "tsc --noEmit -p tsconfig.json",
     "pack:check": "npm pack --dry-run",
-    "test": "vitest run",
-    "test:cli-smoke": "vitest run test/audit.test.ts test/memory-command.test.ts test/session-command.test.ts",
+    "prepack": "pnpm build",
+    "test": "vitest run --exclude test/dist-cli-smoke.test.ts --exclude test/tarball-install-smoke.test.ts",
+    "test:cli-smoke": "vitest run test/audit.test.ts test/memory-command.test.ts test/session-command.test.ts test/wrapper-session-continuity.test.ts",
+    "test:dist-cli-smoke": "vitest run test/dist-cli-smoke.test.ts",
     "test:docs-contract": "vitest run test/docs-contract.test.ts",
-    "test:reviewer-smoke": "vitest run test/docs-contract.test.ts test/memory-command.test.ts test/session-command.test.ts test/session-continuity.test.ts",
-    "test:watch": "vitest"
+    "test:reviewer-smoke": "vitest run test/docs-contract.test.ts test/memory-command.test.ts test/session-command.test.ts test/wrapper-session-continuity.test.ts test/session-continuity.test.ts",
+    "test:tarball-install-smoke": "vitest run test/tarball-install-smoke.test.ts",
+    "test:watch": "vitest",
+    "verify:release": "pnpm lint && pnpm test:docs-contract && pnpm test:reviewer-smoke && pnpm test:cli-smoke && pnpm test && pnpm build && pnpm test:dist-cli-smoke && pnpm pack:check && pnpm test:tarball-install-smoke"
   },
   "keywords": [
     "codex",
