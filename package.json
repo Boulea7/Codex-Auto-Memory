@@ -27,7 +27,7 @@
     "lint": "tsc --noEmit -p tsconfig.json",
     "pack:check": "npm pack --dry-run",
     "prepack": "pnpm build",
-    "test": "vitest run",
+    "test": "vitest run --exclude test/dist-cli-smoke.test.ts --exclude test/tarball-install-smoke.test.ts",
     "test:cli-smoke": "vitest run test/audit.test.ts test/memory-command.test.ts test/session-command.test.ts test/wrapper-session-continuity.test.ts",
     "test:dist-cli-smoke": "vitest run test/dist-cli-smoke.test.ts",
     "test:docs-contract": "vitest run test/docs-contract.test.ts",
