@@ -19,9 +19,10 @@ export function runCli(
   } = {}
 ): ProcessOutput {
   const entrypoint = options.entrypoint ?? "source";
+  const env = options.env ? { ...process.env, ...options.env } : process.env;
   if (entrypoint === "dist") {
-    return runCommandCapture("node", [distCliPath, ...args], repoDir, options.env);
+    return runCommandCapture("node", [distCliPath, ...args], repoDir, env);
   }
 
-  return runCommandCapture(tsxBinaryPath, [sourceCliPath, ...args], repoDir, options.env);
+  return runCommandCapture(tsxBinaryPath, [sourceCliPath, ...args], repoDir, env);
 }

@@ -14,7 +14,6 @@ import {
 import { runCli } from "./helpers/cli-runner.js";
 
 const tempDirs: string[] = [];
-const originalHome = process.env.HOME;
 
 async function tempDir(prefix: string): Promise<string> {
   const dir = await fs.mkdtemp(path.join(os.tmpdir(), prefix));
@@ -22,8 +21,27 @@ async function tempDir(prefix: string): Promise<string> {
   return dir;
 }
 
+async function waitForFile(pathname: string, timeoutMs = 2_000): Promise<string> {
+  const deadline = Date.now() + timeoutMs;
+  while (true) {
+    try {
+      return await fs.readFile(pathname, "utf8");
+    } catch (error) {
+      if (
+        error instanceof Error &&
+        "code" in error &&
+        error.code === "ENOENT" &&
+        Date.now() < deadline
+      ) {
+        await new Promise((resolve) => setTimeout(resolve, 25));
+        continue;
+      }
+      throw error;
+    }
+  }
+}
+
 afterEach(async () => {
-  process.env.HOME = originalHome;
   await Promise.all(tempDirs.splice(0).map((dir) => fs.rm(dir, { recursive: true, force: true })));
 });
 
@@ -44,7 +62,7 @@ describe("dist cli smoke", () => {
     const homeDir = await tempDir("cam-dist-home-");
     const projectDir = await tempDir("cam-dist-project-");
     const memoryRoot = await tempDir("cam-dist-memory-root-");
-    process.env.HOME = homeDir;
+    const cliEnv = { HOME: homeDir };
 
     const config = makeAppConfig();
     await writeCamConfig(projectDir, config, {
@@ -123,14 +141,16 @@ describe("dist cli smoke", () => {
     );
 
     const memoryResult = runCli(projectDir, ["memory", "--recent", "1", "--json"], {
-      entrypoint: "dist"
+      entrypoint: "dist",
+      env: cliEnv
     });
     const sessionResult = runCli(projectDir, ["session", "status", "--json"], {
-      entrypoint: "dist"
+      entrypoint: "dist",
+      env: cliEnv
     });
 
-    expect(memoryResult.exitCode).toBe(0);
-    expect(sessionResult.exitCode).toBe(0);
+    expect(memoryResult.exitCode, memoryResult.stderr).toBe(0);
+    expect(sessionResult.exitCode, sessionResult.stderr).toBe(0);
 
     const memoryPayload = JSON.parse(memoryResult.stdout) as {
       recentSyncAudit: Array<{ rolloutPath: string }>;
@@ -146,6 +166,7 @@ describe("dist cli smoke", () => {
 
   it("routes exec through the compiled wrapper entrypoint", async () => {
     const repoDir = await tempDir("cam-dist-wrapper-repo-");
+    const homeDir = await tempDir("cam-dist-wrapper-home-");
     const memoryRoot = await tempDir("cam-dist-wrapper-memory-");
     await initGitRepo(repoDir);
 
@@ -175,11 +196,12 @@ fs.writeFileSync(${JSON.stringify(capturedArgsPath)}, JSON.stringify(process.arg
     });
 
     const result = runCli(repoDir, ["exec", "continue"], {
-      entrypoint: "dist"
+      entrypoint: "dist",
+      env: { HOME: homeDir }
     });
-    const capturedArgs = JSON.parse(await fs.readFile(capturedArgsPath, "utf8")) as string[];
 
-    expect(result.exitCode).toBe(0);
+    expect(result.exitCode, result.stderr).toBe(0);
+    const capturedArgs = JSON.parse(await waitForFile(capturedArgsPath)) as string[];
     expect(capturedArgs).toContain("exec");
     expect(capturedArgs).toContain("continue");
     expect(capturedArgs.some((value) => value.startsWith("base_instructions="))).toBe(true);
