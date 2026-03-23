@@ -28,6 +28,7 @@ Use this checklist before cutting any alpha or beta release of `codex-auto-memor
 - Run `pnpm test`
 - Run `pnpm build`
 - Run `pnpm pack:check`
+- Confirm `package.json.files` still whitelists the release-facing surfaces you intend to ship: `dist`, `docs`, `schemas`, the multilingual READMEs, and `LICENSE`.
 - Confirm `pnpm build` still starts from a clean `dist/` directory so `npm pack` cannot accidentally pick up stale compiled artifacts from an older tree shape.
 - If you add new generated outputs beyond `dist/`, keep their cleanup path aligned with the build and pack workflow instead of letting release tarballs accumulate leftovers.
 - After `pnpm build`, prefer validating release-facing CLI behavior through `node dist/cli.js ...` rather than `tsx src/cli.ts`.

@@ -2,6 +2,14 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
 
+interface PackageJsonContract {
+  bin: {
+    cam: string;
+  };
+  files: string[];
+  scripts: Record<string, string>;
+}
+
 async function readDoc(relativePath: string): Promise<string> {
   return fs.readFile(path.join(process.cwd(), relativePath), "utf8");
 }
@@ -16,9 +24,7 @@ describe("docs contract", () => {
     const contributing = await readDoc("CONTRIBUTING.md");
     const ciWorkflow = await readDoc(".github/workflows/ci.yml");
     const releaseWorkflow = await readDoc(".github/workflows/release.yml");
-    const packageJson = JSON.parse(await readDoc("package.json")) as {
-      scripts: Record<string, string>;
-    };
+    const packageJson = JSON.parse(await readDoc("package.json")) as PackageJsonContract;
 
     expect(readme).toContain("cam memory");
     expect(readme).toContain("cam session status");
@@ -48,6 +54,7 @@ describe("docs contract", () => {
     expect(releaseChecklist).toContain("pnpm test:reviewer-smoke");
     expect(releaseChecklist).toContain("pnpm test:cli-smoke");
     expect(releaseChecklist).toContain("pnpm pack:check");
+    expect(releaseChecklist).toContain("package.json.files");
     expect(releaseChecklist).toContain("node dist/cli.js session refresh --json");
     expect(releaseChecklist).toContain("node dist/cli.js session load --json");
     expect(releaseChecklist).toContain("node dist/cli.js session status --json");
@@ -59,8 +66,18 @@ describe("docs contract", () => {
     expect(packageJson.scripts["test:tarball-install-smoke"]).toBe(
       "vitest run test/tarball-install-smoke.test.ts"
     );
+    expect(packageJson.bin.cam).toBe("dist/cli.js");
     expect(packageJson.files).toEqual(
-      expect.arrayContaining(["README.md", "README.zh-TW.md", "README.en.md", "README.ja.md"])
+      expect.arrayContaining([
+        "dist",
+        "docs",
+        "schemas",
+        "README.md",
+        "README.zh-TW.md",
+        "README.en.md",
+        "README.ja.md",
+        "LICENSE"
+      ])
     );
     expect(packageJson.scripts.prepack).toBe("pnpm build");
     expect(packageJson.scripts["verify:release"]).toContain("pnpm test:dist-cli-smoke");
