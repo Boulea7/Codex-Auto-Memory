@@ -3,10 +3,24 @@ import { runAudit } from "../commands/audit.js";
 import { runDoctor } from "../commands/doctor.js";
 import { runForget } from "../commands/forget.js";
 import { installHooks, removeHooks } from "../commands/hooks.js";
+import {
+  runIntegrationsApply,
+  runIntegrationsDoctor,
+  runIntegrationsInstall
+} from "../commands/integrations.js";
 import { runInit } from "../commands/init.js";
 import { runMemory } from "../commands/memory.js";
+import {
+  runMcpApplyGuidance,
+  runMcpDoctor,
+  runMcpInstall,
+  runMcpPrintConfig,
+  runMcpServe
+} from "../commands/mcp.js";
+import { runRecall } from "../commands/recall.js";
 import { runRemember } from "../commands/remember.js";
 import { runSession } from "../commands/session.js";
+import { installSkills, removeSkills } from "../commands/skills.js";
 import { runSync } from "../commands/sync.js";
 
 type AsyncCommandHandler<Args extends unknown[]> = (...args: Args) => Promise<string>;
@@ -93,17 +107,169 @@ function registerSessionCommands(program: Command): void {
 function registerHookCommands(program: Command): void {
   const hooksCommand = program
     .command("hooks")
-    .description("Manage future hook bridge assets");
+    .description("Manage the local bridge and fallback helper bundle for current and upcoming integrations");
 
   hooksCommand
     .command("install")
-    .description("Generate local hook bridge assets")
+    .description("Generate the local recall bridge bundle plus startup and post-session helper scripts")
     .action(withStdout(async () => installHooks()));
 
   hooksCommand
     .command("remove")
     .description("Describe how to remove generated hook bridge assets")
     .action(withStdout(async () => removeHooks()));
+}
+
+function registerSkillCommands(program: Command): void {
+  const skillsCommand = program
+    .command("skills")
+    .description("Manage Codex skill assets for MCP-first and CLI-fallback durable memory retrieval");
+
+  skillsCommand
+    .command("install")
+    .description("Install a Codex skill that teaches search -> timeline -> details memory retrieval")
+    .option(
+      "--surface <surface>",
+      "Skill install surface: runtime, official-user, or official-project",
+      "runtime"
+    )
+    .option("--cwd <path>", "Project directory to anchor project-scoped skill installs to")
+    .action(withStdout(async (options) => installSkills(options)));
+
+  skillsCommand
+    .command("remove")
+    .description("Describe how to remove the installed Codex skill assets")
+    .option(
+      "--surface <surface>",
+      "Skill surface to remove: runtime, official-user, or official-project",
+      "runtime"
+    )
+    .option("--cwd <path>", "Project directory to anchor project-scoped skill installs to")
+    .action(withStdout(async (options) => removeSkills(options)));
+}
+
+function registerRecallCommands(program: Command): void {
+  const recallCommand = program
+    .command("recall")
+    .description("Search, inspect, and drill into durable memory with progressive disclosure");
+
+  addJsonOption(
+    recallCommand
+      .command("search")
+      .description("Search compact memory candidates without loading full details")
+      .argument("<query>", "Search query")
+      .option("--scope <scope>", "Limit search scope: global, project, project-local, or all", "all")
+      .option(
+        "--state <state>",
+        "Limit memory state: active, archived, all, or auto",
+        "auto"
+      )
+      .option("--limit <count>", "Maximum number of results to return", "8")
+  ).action(withStdout(async (query, options) => runRecall("search", query, options)));
+
+  addJsonOption(
+    recallCommand
+      .command("timeline")
+      .description("Show the recorded lifecycle timeline for a specific memory ref")
+      .argument("<ref>", "Memory ref from recall search")
+  ).action(withStdout(async (ref, options) => runRecall("timeline", ref, options)));
+
+  addJsonOption(
+    recallCommand
+      .command("details")
+      .description("Fetch full Markdown-backed details for a specific memory ref")
+      .argument("<ref>", "Memory ref from recall search")
+  ).action(withStdout(async (ref, options) => runRecall("details", ref, options)));
+}
+
+function registerMcpCommands(program: Command): void {
+  const mcpCommand = program
+    .command("mcp")
+    .description(
+      "Serve the retrieval MCP plane, print or install host snippets, and inspect project wiring"
+    );
+
+  mcpCommand
+    .command("serve")
+    .description(
+      "Start a read-only retrieval MCP server with search_memories, timeline_memories, and get_memory_details"
+    )
+    .option("--cwd <path>", "Project directory to anchor retrieval to")
+    .action(async (options) => {
+      await runMcpServe(options);
+    });
+
+  addJsonOption(
+    mcpCommand
+      .command("install")
+      .description("Install the recommended project-scoped MCP wiring for a supported host")
+      .requiredOption("--host <host>", "Target host: codex, claude, or gemini")
+      .option("--cwd <path>", "Project directory to write host wiring for")
+  ).action(withStdout(async (options) => runMcpInstall(options)));
+
+  addJsonOption(
+    mcpCommand
+      .command("print-config")
+      .description("Print a ready-to-paste MCP config snippet for a supported host")
+      .requiredOption("--host <host>", "Target host: codex, claude, gemini, or generic")
+      .option("--cwd <path>", "Project directory to render the snippet for")
+  ).action(withStdout(async (options) => runMcpPrintConfig(options)));
+
+  addJsonOption(
+    mcpCommand
+      .command("apply-guidance")
+      .description("Safely create or update the managed Codex Auto Memory block inside AGENTS.md")
+      .requiredOption("--host <host>", "Target host: codex")
+      .option("--cwd <path>", "Project directory whose AGENTS.md should be updated")
+  ).action(withStdout(async (options) => runMcpApplyGuidance(options)));
+
+  addJsonOption(
+    mcpCommand
+      .command("doctor")
+      .description("Inspect the recommended project-scoped MCP wiring without writing host config")
+      .option("--host <host>", "Target host: codex, claude, gemini, generic, or all", "all")
+      .option("--cwd <path>", "Project directory to inspect")
+  ).action(withStdout(async (options) => runMcpDoctor(options)));
+}
+
+function registerIntegrationCommands(program: Command): void {
+  const integrationsCommand = program
+    .command("integrations")
+    .description("Install the recommended Codex integration stack on top of existing hook, skill, and MCP surfaces");
+
+  addJsonOption(
+    integrationsCommand
+      .command("apply")
+      .description("Install the recommended Codex integration stack and safely apply the managed AGENTS guidance block")
+      .requiredOption("--host <host>", "Target host: codex")
+      .option(
+        "--skill-surface <surface>",
+        "Skill install surface: runtime, official-user, or official-project",
+        "runtime"
+      )
+      .option("--cwd <path>", "Project directory to write host wiring for")
+  ).action(withStdout(async (options) => runIntegrationsApply(options)));
+
+  addJsonOption(
+    integrationsCommand
+      .command("install")
+      .description("Install the recommended project-scoped Codex integration stack")
+      .requiredOption("--host <host>", "Target host: codex")
+      .option(
+        "--skill-surface <surface>",
+        "Skill install surface: runtime, official-user, or official-project",
+        "runtime"
+      )
+      .option("--cwd <path>", "Project directory to write host wiring for")
+  ).action(withStdout(async (options) => runIntegrationsInstall(options)));
+
+  addJsonOption(
+    integrationsCommand
+      .command("doctor")
+      .description("Inspect the current Codex integration stack without mutating memory or host config")
+      .requiredOption("--host <host>", "Target host: codex")
+      .option("--cwd <path>", "Project directory to inspect")
+  ).action(withStdout(async (options) => runIntegrationsDoctor(options)));
 }
 
 export function registerCommands(program: Command): void {
@@ -168,5 +334,9 @@ export function registerCommands(program: Command): void {
     .action(withStdout(async (options) => runAudit(options)));
 
   registerSessionCommands(program);
+  registerRecallCommands(program);
+  registerMcpCommands(program);
   registerHookCommands(program);
+  registerSkillCommands(program);
+  registerIntegrationCommands(program);
 }

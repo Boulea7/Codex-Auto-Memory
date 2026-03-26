@@ -1,41 +1,25 @@
-import fs from "node:fs/promises";
-import os from "node:os";
-import path from "node:path";
-import { ensureDir, writeTextFile } from "../util/fs.js";
-
-function hookDir(): string {
-  return path.join(os.homedir(), ".codex-auto-memory", "hooks");
-}
+import {
+  buildRecallBridgeSummaryLines,
+  hookAssetDir
+} from "../integration/assets.js";
+import { LOCAL_BRIDGE_BUNDLE_NOTE } from "../integration/codex-stack.js";
+import { installIntegrationAssets } from "../integration/install-assets.js";
 
 export async function installHooks(): Promise<string> {
-  const dir = hookDir();
-  await ensureDir(dir);
-
-  const postSessionPath = path.join(dir, "post-session-sync.sh");
-  const startupPath = path.join(dir, "startup-doctor.sh");
-
-  await writeTextFile(
-    postSessionPath,
-    "#!/bin/sh\n# Sync the latest rollout for the current project.\ncam sync \"$@\"\n"
-  );
-  await fs.chmod(postSessionPath, 0o755);
-  await writeTextFile(
-    startupPath,
-    "#!/bin/sh\n# Print diagnostic information at session start.\ncam doctor \"$@\"\n"
-  );
-  await fs.chmod(startupPath, 0o755);
+  const result = await installIntegrationAssets("hooks");
 
   return [
-    `Generated hook bridge assets in ${dir}`,
-    `- ${startupPath}`,
-    `- ${postSessionPath}`,
+    `Generated hook bridge bundle in ${result.targetDir}`,
+    `Action: ${result.action}`,
+    ...result.assets.map((asset) => `- [${asset.action}] ${asset.path}`),
     "",
-    "These files are companion hook targets for future Codex native hooks integration."
+    "These files now form a local bridge bundle for current Codex workflows and future hook/skill/MCP-aware retrieval flows.",
+    LOCAL_BRIDGE_BUNDLE_NOTE,
+    ...buildRecallBridgeSummaryLines()
   ].join("\n");
 }
 
 export async function removeHooks(): Promise<string> {
-  const dir = hookDir();
+  const dir = hookAssetDir();
   return `Hook bridge assets live under ${dir}. Remove the directory manually if you no longer need them.`;
 }
-
