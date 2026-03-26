@@ -16,6 +16,11 @@ interface ParsedSessionMeta {
   forkedFromSessionId?: string;
 }
 
+interface RolloutMetaWithMtime {
+  meta: RolloutMeta;
+  mtimeMs: number;
+}
+
 async function normalizeFsPath(input: string): Promise<string> {
   try {
     return await fs.realpath(input);
@@ -46,7 +51,7 @@ export async function listRolloutFiles(): Promise<string[]> {
   const sessionsDir = process.env.CAM_CODEX_SESSIONS_DIR
     ? path.resolve(process.env.CAM_CODEX_SESSIONS_DIR)
     : path.join(os.homedir(), ".codex", "sessions");
-  return collectRolloutFiles(sessionsDir);
+  return (await collectRolloutFiles(sessionsDir)).sort((left, right) => left.localeCompare(right));
 }
 
 function parseTimestamp(value: string): number {
@@ -119,6 +124,54 @@ function isPrimaryRolloutMeta(meta: RolloutMeta): boolean {
   return meta.isSubagent !== true;
 }
 
+async function attachRolloutMtime(metas: RolloutMeta[]): Promise<RolloutMetaWithMtime[]> {
+  return Promise.all(
+    metas.map(async (meta) => ({
+      meta,
+      mtimeMs: (await fs.stat(meta.rolloutPath)).mtimeMs
+    }))
+  );
+}
+
+function compareByCreatedAtThenMtime(
+  left: RolloutMetaWithMtime,
+  right: RolloutMetaWithMtime
+): number {
+  if (left.meta.createdAtMs !== right.meta.createdAtMs) {
+    return left.meta.createdAtMs - right.meta.createdAtMs;
+  }
+
+  if (left.mtimeMs !== right.mtimeMs) {
+    return left.mtimeMs - right.mtimeMs;
+  }
+
+  return left.meta.rolloutPath.localeCompare(right.meta.rolloutPath);
+}
+
+function compareByMtimeThenPath(left: RolloutMetaWithMtime, right: RolloutMetaWithMtime): number {
+  if (left.mtimeMs !== right.mtimeMs) {
+    return left.mtimeMs - right.mtimeMs;
+  }
+
+  if (left.meta.createdAtMs !== right.meta.createdAtMs) {
+    return left.meta.createdAtMs - right.meta.createdAtMs;
+  }
+
+  return left.meta.rolloutPath.localeCompare(right.meta.rolloutPath);
+}
+
+async function sortRolloutsByCreatedAtThenMtime(metas: RolloutMeta[]): Promise<RolloutMeta[]> {
+  return (await attachRolloutMtime(metas))
+    .sort(compareByCreatedAtThenMtime)
+    .map((item) => item.meta);
+}
+
+async function sortRolloutsByMtimeThenPath(metas: RolloutMeta[]): Promise<RolloutMeta[]> {
+  return (await attachRolloutMtime(metas))
+    .sort(compareByMtimeThenPath)
+    .map((item) => item.meta);
+}
+
 export async function readRolloutMeta(filePath: string): Promise<RolloutMeta | null> {
   const raw = await fs.readFile(filePath, "utf8");
   const lines = raw
@@ -184,9 +237,7 @@ export async function findRelevantRollouts(
 
   const additionMetas = await readMetas(additions);
   if (additionMetas.length > 0) {
-    return additionMetas
-      .sort((left, right) => left.createdAtMs - right.createdAtMs)
-      .map((meta) => meta.rolloutPath);
+    return (await sortRolloutsByCreatedAtThenMtime(additionMetas)).map((meta) => meta.rolloutPath);
   }
 
   const metas = await readMetas(after);
@@ -194,23 +245,39 @@ export async function findRelevantRollouts(
   const windowStart = startedAtMs - 5_000;
   const windowEnd = endedAtMs + 5_000;
   const inWindow = metas
-    .filter((meta) => meta.createdAtMs >= windowStart && meta.createdAtMs <= windowEnd)
-    .sort((left, right) => left.createdAtMs - right.createdAtMs)
-    .map((meta) => meta.rolloutPath);
+    .filter((meta) => meta.createdAtMs >= windowStart && meta.createdAtMs <= windowEnd);
 
   if (inWindow.length > 0) {
-    return inWindow;
+    return (await sortRolloutsByCreatedAtThenMtime(inWindow)).map((meta) => meta.rolloutPath);
   }
 
-  const recentMtimeMatches: string[] = [];
-  for (const meta of metas) {
-    const stats = await fs.stat(meta.rolloutPath);
-    if (stats.mtimeMs >= windowStart && stats.mtimeMs <= windowEnd) {
-      recentMtimeMatches.push(meta.rolloutPath);
-    }
-  }
+  const recentMtimeMatches = (await attachRolloutMtime(metas))
+    .filter((item) => item.mtimeMs >= windowStart && item.mtimeMs <= windowEnd)
+    .sort(compareByMtimeThenPath)
+    .map((item) => item.meta.rolloutPath);
 
-  return recentMtimeMatches.sort();
+  return recentMtimeMatches;
+}
+
+export async function selectLatestPrimaryRolloutFromCandidates(
+  candidates: string[]
+): Promise<string | null> {
+  const metas = (
+    await Promise.all(
+      candidates.map(async (candidate) => ({
+        candidate,
+        meta: await readRolloutMeta(candidate)
+      }))
+    )
+  )
+    .filter(
+      (item): item is { candidate: string; meta: RolloutMeta } =>
+        item.meta !== null && isPrimaryRolloutMeta(item.meta)
+    )
+    .map((item) => item.meta);
+
+  const sorted = await sortRolloutsByCreatedAtThenMtime(metas);
+  return sorted.at(-1)?.rolloutPath ?? null;
 }
 
 export async function findLatestProjectRollout(
@@ -232,9 +299,9 @@ export async function findLatestProjectRollout(
         isPrimaryRolloutMeta(item.meta)
     )
     .map((item) => item.meta)
-    .sort((left, right) => right.createdAtMs - left.createdAtMs);
+  const sorted = await sortRolloutsByCreatedAtThenMtime(metas);
 
-  return metas[0]?.rolloutPath ?? null;
+  return sorted.at(-1)?.rolloutPath ?? null;
 }
 
 export async function parseRolloutEvidence(filePath: string): Promise<RolloutEvidence | null> {
