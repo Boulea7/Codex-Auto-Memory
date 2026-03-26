@@ -13,7 +13,10 @@ Use this checklist before cutting any alpha or beta release of `codex-auto-memor
   - `docs/native-migration.md` and `docs/native-migration.en.md`
 - Confirm `docs/claude-reference.md` still reflects the Claude-style contract the code is trying to mimic.
 - Confirm `docs/native-migration.md` still matches the current compatibility seams in code.
-- Confirm public wording still keeps `cam memory` as an inspect/audit surface, `cam session` as a compact continuity surface, and the project as companion-first rather than native-ready.
+- Confirm public wording still keeps `cam memory` as an inspect/audit surface, `cam recall` as the progressive-disclosure retrieval surface, `cam session` as a compact continuity surface, and the repository as a `Codex-first Hybrid` system rather than a native-ready replacement.
+- Confirm the newer direction docs still match the README and architecture posture:
+  - `docs/integration-strategy.md`
+  - `docs/host-surfaces.md`
 - Confirm `docs/session-continuity.md` matches the current `cam session` command surface and reviewer semantics, especially the wording split between `save`, `refresh`, and recovery markers.
 
 ## Code and runtime checks
@@ -39,6 +42,22 @@ Use this checklist before cutting any alpha or beta release of `codex-auto-memor
 - Run `node dist/cli.js session load --json` and confirm older JSON consumers still receive the existing core fields.
 - Run `node dist/cli.js session status --json` and confirm the latest explicit audit drill-down matches the newest audit-log entry when present.
 - Run `node dist/cli.js memory --recent --json` and confirm suppressed conflict candidates remain reviewer-visible instead of being silently merged.
+- Run `node dist/cli.js recall search pnpm --json` and confirm the default search contract stays aligned at `state=auto, limit=8`, returning compact refs before any full detail fetch.
+- Run `node dist/cli.js recall details <ref> --json` for one returned ref and confirm the path resolves to Markdown-backed memory, including archived refs when relevant.
+- Run a local MCP smoke against `node dist/cli.js mcp serve` and confirm `search_memories`, `timeline_memories`, and `get_memory_details` are exposed as a read-only retrieval plane.
+- Run `node dist/cli.js mcp install --host <codex|claude|gemini> --json` and confirm the result contract includes `host`, `serverName`, `projectRoot`, `targetPath`, `action`, `projectPinned`, and `readOnlyRetrieval`.
+- Re-run the same `node dist/cli.js mcp install --host <codex|claude|gemini> --json` command once and confirm it returns `action: "unchanged"` when the target host config is already canonical.
+- Confirm `node dist/cli.js mcp install --host generic` fails explicitly and still points users to manual wiring.
+- Run `node dist/cli.js mcp print-config --host <codex|claude|gemini|generic> --json` for each public host and confirm the snippet contract includes `serverName`, `targetFileHint`, and a project-pinned retrieval command without writing host config files.
+- For `node dist/cli.js mcp print-config --host codex --json`, also confirm the payload includes an additive AGENTS.md snippet / guidance block that teaches MCP-first, `cam recall`-fallback durable memory usage.
+- Run `node dist/cli.js mcp apply-guidance --host codex --json` and confirm it reports `created`, `updated`, `unchanged`, or `blocked` without overwriting unrelated AGENTS.md content outside the managed block.
+- Confirm `node dist/cli.js mcp apply-guidance --host codex --json` ignores fenced-code examples of the managed markers, and that `node dist/cli.js mcp doctor --json` does not treat fenced examples as installed guidance.
+- Run `node dist/cli.js mcp doctor --json` and confirm it reports project-scoped host wiring, project pinning, and hook / skill fallback assets without creating memory layout or mutating host config files.
+- Run `node dist/cli.js integrations install --host codex --json` and confirm it orchestrates the existing Codex MCP wiring, hook bundle, and skill assets without touching the Markdown memory store.
+- Run `node dist/cli.js integrations apply --host codex --json` and confirm it orchestrates MCP wiring, managed AGENTS guidance, hook assets, and skill assets while keeping `integrations install --host codex` non-mutating for AGENTS.md.
+- Run `node dist/cli.js skills install --surface official-user` and confirm the explicit official `.agents/skills` copy is written without changing the runtime default target.
+- Run `node dist/cli.js integrations install --host codex --skill-surface official-user --json` and confirm the skill subaction reports the selected surface while MCP and AGENTS boundaries stay unchanged.
+- Run `node dist/cli.js integrations doctor --host codex --json` and confirm it reports the thin Codex-only stack readiness view with `recommendedRoute`, `recommendedPreset`, `subchecks`, and `nextSteps`.
 - Confirm `node dist/cli.js session load --json` / `status --json` still expose `confidence` and warnings when the rollout required a conservative continuity summary.
 - Confirm continuity reviewer warnings stay in diagnostics / audit surfaces and are not written into continuity Markdown body text.
 - Run a local smoke flow:
@@ -55,6 +74,7 @@ Use this checklist before cutting any alpha or beta release of `codex-auto-memor
 ## Documentation checks
 
 - Update the bilingual docs entry pages (`docs/README.md` and `docs/README.en.md`) if the public reading path changed.
+- Update `docs/integration-strategy.md` and `docs/host-surfaces.md` when the repository adds or defers a new integration surface.
 - Re-check the current official Codex and Claude public docs before changing migration wording; if the public posture is unchanged, say so explicitly in the handoff.
 - Ensure the latest milestone commit is focused enough to review independently.
 

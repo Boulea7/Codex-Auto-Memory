@@ -2,14 +2,13 @@
 
 [简体中文](./claude-reference.md) | [English](./claude-reference.en.md)
 
-> This document records the public Claude Code memory contract that `codex-auto-memory` intentionally tries to mirror.  
-> It is not a reverse-engineering note about Anthropic internals, and it should not promote local observations or community patterns into official product guarantees.
+> This document records the public Claude Code memory contract that `codex-auto-memory` intentionally mirrors where useful. It is not a reverse-engineering note about Anthropic internals, and it should not turn local observations or community patterns into official guarantees.
 
 ## What this document answers
 
 - what Claude Code publicly says about auto memory
-- which behaviors matter most for parity in this repository
-- which adjacent surfaces are relevant, but still should not be overclaimed
+- which public behaviors still matter most for this repository
+- where the repository now intentionally follows the contract in product semantics but not in host-specific implementation
 
 ## One-page summary
 
@@ -21,7 +20,7 @@
 | topic files are read on demand | startup should not eagerly load topic bodies |
 | worktrees share project memory | project identity cannot be derived only from the cwd |
 | `/memory` exposes audit and edit controls | the project needs real inspect and edit paths, even if it does not fully clone Claude `/memory` |
-| `autoMemoryDirectory` has config-scope boundaries | shared project config must not be able to hijack another user's memory path |
+| the host may expose hooks, skills, and subagent memory | the repository should treat those as real integration targets when the host supports them |
 
 ## Core public contract
 
@@ -32,13 +31,13 @@ The official Claude Code memory docs support a stable interpretation:
 - `MEMORY.md` is the compact entrypoint and topic files hold the detail layer
 - users can inspect, edit, and delete memory
 
-These are the core behaviors this repository should keep aligned with.
+These remain the core behaviors this repository should stay aligned with.
 
 ## Product behaviors to mirror
 
 ### 1. AI-managed local memory with user control
 
-Claude Code presents auto memory as notes Claude writes for itself while working.  
+Claude Code presents auto memory as notes Claude writes for itself while working.
 Good examples include:
 
 - build and test commands
@@ -86,36 +85,43 @@ That means project identity should follow the git repository boundary, not only 
 
 ### 5. Users must be able to inspect and edit memory
 
-Claude Code exposes `/memory` as an audit and edit surface.  
-This repository does not currently claim full `/memory` interaction parity, but it still must preserve two things:
+Claude Code exposes `/memory` as an audit and edit surface.
+This repository still does not claim full `/memory` interaction parity, but it must preserve two things:
 
 - users can see the actual memory files and active paths
-- users can modify memory through Markdown files or explicit companion commands
+- users can modify memory through Markdown files or explicit commands
 
-### 6. `autoMemoryDirectory` has a configuration safety boundary
+### 6. Host integration surfaces matter, but should not replace the core contract
 
-Claude's documented config behavior makes one design point clear: a shared project should not be able to redirect another user's memory writes.
+Claude Code also exposes stronger host-native surfaces around memory:
 
-For this project, that means:
+- hooks
+- skills
+- subagents with persistent memory
+- plugin packaging
 
-- managed / user / local config may control the memory directory
-- shared project config should not hijack the user's durable memory path
+For `codex-auto-memory`, this now means:
+
+- those surfaces are worth targeting as future integration paths
+- but the core product contract is still the Markdown memory contract itself
+- the repository should not confuse host-native convenience with the canonical memory model
 
 ## Relevant but non-primary surfaces
 
 ### Subagent memory
 
-Claude Code publicly documents separate persistent memory paths for subagents.  
+Claude Code publicly documents separate persistent memory paths for subagents.
 That makes subagent memory a relevant parity surface, but not proof that this repository already has equivalent behavior.
 
 ### Hooks
 
-Claude Code exposes a much richer hook lifecycle surface than current Codex.  
-This is useful migration context, but not a reason to describe Codex hooks as effectively ready today.
+Claude Code exposes a much richer hook lifecycle surface than current Codex.
+That is useful product reference material, and it is now relevant to this repository’s broader integration direction.
+It still does **not** justify claiming that Codex native hooks are already ready.
 
 ### `/memory` depth
 
-Claude `/memory` is a full interaction surface.  
+Claude `/memory` is a full interaction surface.
 `codex-auto-memory` currently maps more closely to:
 
 - `cam memory` for inspection and audit
@@ -133,11 +139,13 @@ This repository should continue to preserve these Claude-aligned rules:
 - topic files stay the detail layer and are read on demand
 - project memory remains worktree-shared
 - session continuity stays separate from durable memory
-- native migration remains a seam, not the primary path
+- future hook / skill / MCP-aware integrations must preserve the same memory contract instead of replacing it
+- native Codex migration remains only one branch of the strategy, not the whole strategy
 
 ## Official references
 
 - Claude memory docs: <https://code.claude.com/docs/en/memory>
 - Claude settings docs: <https://code.claude.com/docs/en/settings>
 - Claude subagents docs: <https://code.claude.com/docs/en/sub-agents>
+- Claude hooks docs: <https://code.claude.com/docs/en/hooks>
 - Claude docs index: <https://code.claude.com/docs/llms.txt>
