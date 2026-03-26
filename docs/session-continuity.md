@@ -281,6 +281,7 @@ Therefore the current implementation is:
 - companion-first
 - Codex-first in path defaults and command surface
 - Claude-compatible through path-style and workflow adapters
+- wrapper-first in day-to-day operation, while future hook / skill / MCP-aware paths remain required to preserve the same continuity contract
 
 Claude-specific community patterns are useful reference material, but they do not override the Codex-first design rule.
 
@@ -310,6 +311,7 @@ These sources justify the current implementation choice:
 - Codex-first path defaults
 - wrapper-based startup injection
 - optional automation rather than assuming stable native hooks
+- future integration surfaces should consume continuity as auditable working state, not collapse it into opaque host-native session state
 
 ### Community reference: `affaan-m/everything-claude-code`
 
@@ -324,4 +326,4 @@ Important differences from this project:
 - `codex-auto-memory` does **not** adopt `~/.claude/sessions/` as its primary canonical store
 - `codex-auto-memory` keeps shared project continuity in the companion root so worktrees can share it safely
 - Claude-style session file paths are supported only as an adapter path style, not as the main product model
-- learned skills / instincts remain future companion ideas, not part of the current durable memory or continuity contract
+- learned skills or hook-driven recall paths may eventually consume continuity outputs, but they are still downstream integration surfaces rather than part of the continuity body itself

@@ -1,10 +1,10 @@
 <div align="center">
   <h1>Codex Auto Memory</h1>
-  <p><strong>A local-first companion CLI that brings Claude-style auto memory workflows to Codex</strong></p>
+  <p><strong>A Markdown-first local memory runtime for Codex, evolving from a companion CLI into a hook/skill/MCP-aware hybrid workflow</strong></p>
   <p>
     <a href="./README.md">简体中文</a> |
     <a href="./README.zh-TW.md">繁體中文</a> |
-    <a href="./README.en.md">English</a>
+    <a href="./README.en.md">English</a> |
     <a href="./README.ja.md">日本語</a>
   </p>
   <p>
@@ -26,15 +26,15 @@
 </div>
 
 > `codex-auto-memory` is not a generic note-taking app and not a cloud memory service.
-> Its job is to recreate the observable Claude Code auto memory contract for today's Codex runtime with local Markdown files, compact startup injection, topic-file lookup on demand, and a clean migration seam toward future native memory features.
+> It is a Markdown-first, local-first memory runtime for Codex. Today it is strongest as a Codex wrapper and companion CLI, and it is now explicitly evolving toward hook, skill, and MCP-aware integration surfaces without giving up auditable local Markdown files as the source of truth.
 
 ---
 
 **Three things to know up front:**
 
-1. **What it does** — After each Codex session, it automatically extracts useful knowledge from the session log and writes it into local Markdown files. Those files are injected at next startup so Codex "remembers" your project.
-2. **How it stores** — Everything is plain Markdown under `~/.codex-auto-memory/`. You can read, edit, and include it in code review at any time.
-3. **Relation to Claude** — This is a companion CLI. It replicates the Claude Code auto memory workflow on top of Codex. It is not an Anthropic product and has no cloud component.
+1. **What it does** — It extracts future-useful knowledge from Codex sessions, keeps it as local Markdown, and brings it back into future sessions.
+2. **How it stores** — Durable memory stays in local Markdown under `~/.codex-auto-memory/`, with compact indexes and topic files rather than opaque cache.
+3. **Where it is going** — The repository remains Codex-first, but it is no longer documenting only a narrow companion seam. The roadmap now explicitly includes lower-friction hook, skill, and MCP-friendly paths alongside the existing wrapper flow.
 
 ---
 
@@ -42,6 +42,7 @@
 
 - [Why this project exists](#why-this-project-exists)
 - [Who this is for](#who-this-is-for)
+- [Current priorities](#current-priorities)
 - [Core capabilities](#core-capabilities)
 - [Capability matrix](#capability-matrix)
 - [Quick start](#quick-start)
@@ -55,24 +56,25 @@
 
 ## Why this project exists
 
-Claude Code already exposes a fairly clear public auto memory contract:
+Claude Code publicly exposes a relatively clear memory contract:
 
-- memory is written automatically by the assistant
+- memory can be written automatically by the assistant
 - memory is stored as local Markdown
-- `MEMORY.md` is the compact startup entrypoint
+- `MEMORY.md` acts as the compact startup entrypoint
 - only the first 200 lines are loaded at startup
-- detail lives in topic files and is read on demand
+- details live in topic files and are read on demand
 - worktrees in the same repository share project memory
 - `/memory` provides audit and edit controls
 
-Codex already has useful primitives, but not the same complete public memory surface:
+Codex already exposes useful building blocks, but not the same complete public memory surface:
 
 - `AGENTS.md`
 - multi-agent workflows
-- local persistent sessions and rollout logs
-- local `cam doctor` / feature-output signals for `memories` and `codex_hooks`
+- local sessions and rollout logs
+- configurable MCP servers and growing skill/subagent surfaces
+- local `cam doctor` / feature-output readiness signals for `memories` and `codex_hooks`
 
-`codex-auto-memory` fills that gap with a companion-first design and only a narrow compatibility seam instead of pretending native Codex memory is already ready for daily use. Near-term UX work stays focused on clearer `cam memory` / `cam session` reviewer flows.
+`codex-auto-memory` exists to close that gap with a Codex-first implementation that keeps memory local, inspectable, and editable. The current repository is still most mature as a wrapper-driven companion layer, but its product direction is now broader: preserve the Markdown-first contract while also making memory easier to consume through future hook, skill, and MCP-aware flows.
 
 ## Who this is for
 
@@ -80,45 +82,60 @@ Good fit:
 
 - Codex users who want a Claude-style auto memory workflow today
 - teams that want fully local, auditable, editable Markdown memory
-- maintainers who need worktree-shared project memory with worktree-local continuity
-- projects that want the user mental model to stay stable even if official Codex surfaces evolve later
+- users who prefer explicit CLI control now but want more automation later
+- maintainers who want a stable mental model even if Codex gains stronger native surfaces
 
 Not a good fit:
 
-- users looking for a general note-taking or knowledge-base app
+- users looking for a generic note-taking or knowledge-base app
 - teams that need account-level cloud memory
-- users expecting full Claude `/memory` interaction depth today
+- users expecting a full Claude `/memory` clone today
+
+## Current priorities
+
+The repository is currently optimizing for four concrete product goals:
+
+1. Automatically extract reusable long-term memory from conversations and tasks.
+2. Automatically recall that memory in later sessions.
+3. Support memory updates, deduplication, overwrite, and archive-friendly lifecycle handling.
+4. Reduce the amount of manual memory-file maintenance users need to do.
+
+These goals now take priority over documenting the project only as a narrow migration seam.
 
 ## Core capabilities
 
 | Capability | What it means |
 | :-- | :-- |
-| Automatic post-session sync | extracts stable knowledge from Codex rollout JSONL and writes it back into Markdown memory |
-| Markdown-first memory | `MEMORY.md` and topic files are the product surface, not hidden cache |
-| Compact startup injection | injects only the quoted `MEMORY.md` startup files that actually enter the payload, plus on-demand topic refs, instead of eager topic loading |
+| Automatic post-session sync | extracts stable knowledge from Codex rollout JSONL and writes it back into durable Markdown memory |
+| Automatic startup recall | compiles compact startup memory so durable knowledge can re-enter later sessions automatically |
+| Markdown-first memory | `MEMORY.md` and topic files remain the product surface, not a hidden cache layer |
+| Lifecycle-aware updates | supports explicit correction, dedupe, overwrite, delete, and reviewer-visible conflict suppression |
+| Formal retrieval MCP surface | `cam mcp serve` exposes `search_memories`, `timeline_memories`, and `get_memory_details` as a read-only stdio retrieval plane |
+| Project-scoped MCP install surface | `cam mcp install --host <codex|claude|gemini>` writes the recommended project-scoped host wiring for `codex_auto_memory` without changing the retrieval contract itself |
 | Worktree-aware storage | shares project memory across worktrees while keeping local continuity isolated |
 | Optional session continuity | separates temporary working state from durable memory |
-| Reviewer surfaces | exposes `cam memory`, `cam session`, and `cam audit` for review and debugging |
+| Integration-aware evolution | keeps the current wrapper flow while moving toward hook, skill, and MCP-friendly surfaces |
+| Reviewer surfaces | exposes `cam memory`, `cam session`, `cam recall`, and `cam audit` for review and debugging |
 
 ## Capability matrix
 
 | Capability | Claude Code | Codex today | Codex Auto Memory |
 | :-- | :-- | :-- | :-- |
-| Automatic memory writing | Built in | No complete public contract | Yes, via companion sync flow |
+| Automatic memory writing | Built in | No complete public contract | Yes, via rollout-driven sync |
 | Local Markdown memory | Built in | No complete public contract | Yes |
 | `MEMORY.md` startup entrypoint | Built in | No | Yes |
 | 200-line startup budget | Built in | No | Yes |
 | Topic files on demand | Built in | No | Partial: startup exposes structured topic refs for later on-demand reads |
-| Session continuity | Community patterns | No complete public contract | Yes, as a separate companion layer |
+| Session continuity | Community patterns | No complete public contract | Yes, as a separate layer |
 | Worktree-shared project memory | Built in | No public contract | Yes |
 | Inspect / audit memory | `/memory` | No equivalent | `cam memory` |
-| Native hooks / memory integration | Built in | Experimental / under development | Compatibility seam only |
+| Skill / hook / MCP-aware evolution | Built in or strong host surfaces | Emerging / uneven | Now an explicit repository direction |
 
-`cam memory` is intentionally an inspection and audit surface. It exposes the quoted startup files that actually made it into the startup payload, currently the scoped `MEMORY.md` / index content, plus the startup budget, on-demand topic refs, edit paths, and recent durable sync audit events behind `--recent [count]`. Those topic refs are lookup pointers, not proof that topic bodies were eagerly loaded at startup.
-Recent durable sync audit events now also surface conservatively suppressed conflict candidates so contradictory rollout output does not silently merge into durable memory.
-Those recent sync events come from `~/.codex-auto-memory/projects/<project-id>/audit/sync-log.jsonl` and only cover sync-flow `applied`, `no-op`, and `skipped` events. Manual `cam remember` / `cam forget` updates stay outside that audit stream by design.
-When primary memory files were written but the reviewer sidecar did not complete, `cam memory` will try to expose a pending sync recovery marker so reviewers can see that partial-success state explicitly; that marker is only cleared when the same rollout/session later completes successfully, not by an unrelated successful sync.
-Explicit updates still happen through `cam remember`, `cam forget`, or direct Markdown edits rather than a `/memory`-style in-command editor.
+`cam memory` remains intentionally reviewer-oriented. It shows the quoted startup files that actually entered the startup payload, the startup budget, on-demand topic refs, edit paths, and recent sync audit entries behind `--recent [count]`.
+
+Those recent audit entries now explicitly surface conservatively suppressed conflict candidates so contradictory rollout output does not silently merge into durable memory. Explicit updates still happen through `cam remember`, `cam forget`, or direct Markdown edits. Future lower-friction integration paths should preserve that same auditable memory contract instead of replacing it.
+
+Duplicate writes against unchanged active memory, plus delete/archive requests that do not hit an active record, now surface as explicit `noop` reviewer results. They do not rewrite Markdown or append lifecycle history.
 
 ## Quick start
 
@@ -148,23 +165,33 @@ cam init
 
 This creates `codex-auto-memory.json` in your project root (committed to Git) and `.codex-auto-memory.local.json` locally (gitignored by default).
 
-### 4. Launch Codex through the wrapper (memory starts working)
+### 4. Launch Codex through the wrapper
 
 ```bash
 cam run
 ```
 
-After each session ends, `cam` automatically extracts knowledge from the Codex rollout log and writes it into the memory files.
+This is still the most mature end-to-end path today. After each session ends, `cam` can extract knowledge from the Codex rollout log and write it into the memory files automatically.
 
-### 5. Inspect your memory
+### 5. Inspect or correct memory
 
 ```bash
-cam memory          # show active memory files and startup budget
-cam session status  # show session continuity state
-cam session refresh # regenerate continuity from provenance and replace the selected scope
-cam remember "Always use pnpm instead of npm"   # manually record a preference
-cam forget "old debug note"                     # remove a stale entry
-cam audit           # check the repository for unexpected sensitive content
+cam memory
+cam recall search pnpm --state auto
+cam mcp serve
+cam integrations install --host codex
+cam integrations apply --host codex
+cam integrations doctor --host codex
+cam mcp install --host codex
+cam mcp print-config --host codex
+cam mcp apply-guidance --host codex
+cam mcp doctor
+cam session status
+cam session refresh
+cam remember "Always use pnpm instead of npm"
+cam forget "old debug note"
+cam forget "old debug note" --archive
+cam audit
 ```
 
 ## Common commands
@@ -173,24 +200,24 @@ cam audit           # check the repository for unexpected sensitive content
 | :-- | :-- |
 | `cam run` / `cam exec` / `cam resume` | compile startup memory and launch Codex through the wrapper |
 | `cam sync` | manually sync the latest rollout into durable memory |
-| `cam memory` | inspect the quoted startup files that actually entered the payload, on-demand topic refs, startup budget, edit paths, and durable sync audit events plus suppressed conflict candidates via `--recent [count]` |
-| `cam remember` / `cam forget` | explicitly add or remove durable memory |
-| `cam session save` | merge / incremental save; append rollout-derived continuity without cleaning stale state immediately |
-| `cam session refresh` | replace / clean regeneration; rebuild continuity from the selected provenance and replace the selected scope |
-| `cam session load` / `status` | continuity reviewer surface for the latest continuity diagnostics, including `confidence` / warnings when present, plus the latest audit drill-down, compact prior preview, and any pending continuity recovery marker |
-| `cam session clear` / `open` | clear active continuity files or open the local continuity directory |
-| `cam audit` | run privacy and secret-hygiene checks against the repository |
-| `cam doctor` | inspect local companion wiring and native-readiness posture |
-
-## Audit Surface Map
-
-- `cam audit`: repository-level privacy and secret-hygiene audit.
-- `cam memory --recent [count]`: durable sync audit for recent `applied`, `no-op`, and `skipped` sync events, without mixing in manual `remember` / `forget`; suppressed conflict candidates stay reviewer-visible here instead of silently merging.
-- `cam session save`: the merge path for the continuity audit surface. It records the latest diagnostics, latest rollout, and latest audit drill-down, but it remains an incremental save and does not immediately clean polluted state.
-- `cam session refresh`: the replace path for the continuity audit surface. It regenerates continuity from selected provenance and replaces the selected scope; `--json` additionally exposes `action`, `writeMode`, and `rolloutSelection`.
-- `cam session load|status`: reviewer surface for the latest continuity diagnostics, latest rollout, latest audit drill-down, and a compact prior audit preview sourced from the continuity audit log that excludes the latest entry, coalesces consecutive repeats, and is not a full prior-history replay. Their `--json` output continues to expose raw recent audit entries, plus continuity `confidence` and warnings for conservative summaries.
-- continuity reviewer warnings still belong to the audit/reviewer surface rather than the continuity body; the current implementation applies a minimal deterministic scrub so obvious reviewer warning prose is not written back into continuity Markdown.
-- `pending continuity recovery marker`: a visible warning that continuity Markdown was written but the audit sidecar failed. It is not a general repair mechanism and is not equivalent to `cam session refresh`.
+| `cam memory` | inspect startup files, topic refs, startup budget, edit paths, and recent durable sync audit events plus suppressed conflict candidates |
+| `cam remember` / `cam forget` | explicitly add or remove durable memory; `cam forget --archive` moves matching entries into the archive layer |
+| `cam recall search` / `timeline` / `details` | progressively retrieve durable memory through a search -> timeline -> details workflow; `search` now defaults to `state=auto, limit=8`, so active memory is checked before archived fallback while staying read-only |
+| `cam mcp serve` | start a read-only retrieval MCP server that exposes the same workflow through `search_memories`, `timeline_memories`, and `get_memory_details` |
+| `cam integrations install --host codex` | install the recommended Codex integration stack in one explicit step by writing project-scoped MCP wiring and refreshing the hook bridge bundle plus Codex skill assets; it defaults to the runtime skill target, but also accepts `--skill-surface runtime|official-user|official-project`; stays idempotent, Codex-only, and does not touch the Markdown memory store |
+| `cam integrations apply --host codex` | explicitly apply the full Codex integration state: it keeps `integrations install` unchanged, but also orchestrates `cam mcp apply-guidance --host codex`; it defaults to the runtime skill target, but also accepts `--skill-surface runtime|official-user|official-project`; if `AGENTS.md` cannot be updated safely, the command returns `blocked` and preserves the additive fail-closed boundary |
+| `cam integrations doctor --host codex` | inspect the current Codex integration stack through a thin read-only aggregation surface that reports the recommended route, recommended preset, subchecks, and minimum next steps; it now recommends `cam integrations apply --host codex` when multiple Codex stack surfaces are still missing, and keeps `cam mcp apply-guidance --host codex` as the precise next step when only the managed `AGENTS.md` block is missing or outdated |
+| `cam mcp install --host <codex|claude|gemini>` | explicitly write the recommended project-scoped host config for `codex_auto_memory`; only that server entry is replaced, hooks/skills stay opt-in, and `generic` remains manual-only |
+| `cam mcp print-config --host <codex|claude|gemini|generic>` | print a ready-to-paste host snippet so the read-only retrieval plane can be wired into an existing MCP client with less manual setup; for `--host codex`, it also prints a recommended `AGENTS.md` snippet that teaches future Codex agents to prefer MCP and fall back to `cam recall` only when needed |
+| `cam mcp apply-guidance --host codex` | create or update the Codex Auto Memory managed block inside the repository-level `AGENTS.md` through an additive, auditable, fail-closed flow; it only appends a new block or replaces the same marker block, and returns `blocked` if it cannot locate that block safely |
+| `cam mcp doctor` | inspect the recommended project-scoped retrieval MCP wiring, project pinning, and hook/skill fallback assets; it now also adds a `codexStack` readiness summary for the recommended route, executable bits, shared asset version, and workflow consistency without modifying host config files |
+| `cam session save` | merge / incremental save for continuity |
+| `cam session refresh` | replace / clean regeneration for continuity |
+| `cam session load` / `status` | inspect the continuity reviewer surface |
+| `cam hooks` | manage the current local bridge / fallback recall bundle, including `memory-recall.sh`, compatibility wrappers, and `recall-bridge.md`; it is not an official Codex hook surface, and the bundle's recommended search preset is `state=auto`, `limit=8` |
+| `cam skills` | install Codex skill assets with `cam skills install`; the default target remains the runtime surface, while `--surface runtime|official-user|official-project` enables explicit migration-prep copies on official `.agents/skills` paths; all surfaces teach the same MCP-first, CLI-fallback progressive durable-memory retrieval workflow and the same recommended search preset: `state=auto`, `limit=8` |
+| `cam audit` | run privacy and secret-hygiene checks |
+| `cam doctor` | inspect local wiring and native-readiness posture |
 
 ## How it works
 
@@ -198,8 +225,9 @@ cam audit           # check the repository for unexpected sensitive content
 
 - `local-first and auditable`
 - `Markdown files are the product surface`
-- `companion-first, with a narrow compatibility seam`
-- `session continuity` stays separate from durable memory
+- `Codex-first hybrid runtime`
+- `durable memory and session continuity remain separate`
+- `wrapper-first today, integration-aware tomorrow`
 
 ### Runtime flow
 
@@ -217,11 +245,13 @@ flowchart TD
     G --> K[Update shared and local continuity files]
 ```
 
-### Why the project does not switch to native memory yet
+### Why the project does not switch to a native-first path yet
 
-- public Codex docs still do not define a full, stable native memory contract equivalent to Claude Code, and local `cam doctor --json` continues to treat `memories` / `codex_hooks` only as readiness signals rather than a trusted primary path
-- local source inspection is useful when re-evaluating the compatibility seam, but not a stable product contract
-- the repository therefore stays companion-first until public docs, runtime behavior, and CI-verifiable stability all improve together
+- public Codex docs still do not define a Claude-equivalent native memory contract
+- local `cam doctor --json` still exposes `memories` / `codex_hooks` more as readiness signals than as a stable primary implementation path
+- the repository therefore continues to treat the wrapper flow as the strongest current implementation
+
+The difference is product direction: this repository is no longer documenting hooks, skills, and MCP as mere distant future ideas. They are now part of the planned integration surface, provided they keep the same Markdown-first and auditable behavior contract.
 
 ## Storage layout
 
@@ -247,7 +277,14 @@ Session continuity:
 <project-root>/.codex-auto-memory/sessions/active.md
 ```
 
-See the architecture docs for the full storage and boundary breakdown.
+If retrieval indexes are added later:
+
+- Markdown remains canonical.
+- `cam recall` and `cam mcp serve` both stay read-only retrieval planes, not a second source of truth.
+- `cam mcp serve` stays a read-only retrieval plane, not a second source of truth.
+- SQLite / FTS / vector / graph layers remain sidecars only.
+
+See the architecture docs for the full boundary breakdown.
 
 ## Documentation hub
 
@@ -260,6 +297,8 @@ See the architecture docs for the full storage and boundary breakdown.
 
 - [Claude reference contract (中文)](docs/claude-reference.md) | [English](docs/claude-reference.en.md)
 - [Architecture (中文)](docs/architecture.md) | [English](docs/architecture.en.md)
+- [Integration strategy (中文)](docs/integration-strategy.md)
+- [Host surfaces (中文)](docs/host-surfaces.md)
 - [Native migration strategy (中文)](docs/native-migration.md) | [English](docs/native-migration.en.md)
 
 ### Maintainer and reviewer docs
@@ -272,11 +311,12 @@ See the architecture docs for the full storage and boundary breakdown.
 
 Current public-ready status:
 
-- durable memory companion path: available
-- topic-aware startup lookup: available
-- session continuity companion layer: available
+- durable memory path: available
+- startup recall path: available
 - reviewer audit surfaces: available
-- tagged GitHub Releases: the release workflow is defined with tarball artifacts as the target; before pushing the first real tag, confirm that the default branch exposes and activates that workflow; npm publish remains manual
+- session continuity layer: available
+- wrapper-driven Codex flow: available
+- hook / skill / MCP-aware evolution: now part of the documented direction, but not yet the primary end-user path
 - native memory / native hooks primary path: not enabled and not trusted as the main implementation path
 
 ## Roadmap
@@ -291,15 +331,16 @@ Current public-ready status:
 
 ### v0.2
 
-- stronger contradiction handling
+- complete the issue-level memory goals, including the first shipped archive path through `cam forget --archive`
 - clearer `cam memory` and `cam session` reviewer UX
-- tighter continuity diagnostics and reviewer packets, with explicit confidence and warning surfaces
-- tighter release-facing verification through tarball install smoke so the `.tgz`-installed `cam` bin shim is exercised directly
-- keep a compatibility seam for future hook surfaces
+- stronger contradiction handling and explicit memory lifecycle documentation
+- define and document hook, skill, and MCP-friendly integration surfaces without replacing the current Markdown-first contract
+- ship the first progressive-disclosure retrieval surface through `cam recall search / timeline / details`
 
 ### v0.3+
 
-- continue tracking official Codex memory and hook surfaces without implying a primary-path change
+- expand the Codex-first hybrid path on top of the new recall and archive-ready foundation
+- evaluate which integration pieces should stay in this repo versus move into a host-adaptable shared runtime later
 - optional GUI or TUI browser
 - stronger cross-session diagnostics and confidence surfaces
 
@@ -308,7 +349,7 @@ Current public-ready status:
 - Contribution guide: [CONTRIBUTING.md](./CONTRIBUTING.md)
 - License: [Apache-2.0](./LICENSE)
 
-If you ever find a mismatch between the README, official docs, and local runtime observations, prefer:
+If you find a mismatch between the README, official docs, and local runtime observations, prefer:
 
 1. official product documentation
 2. verified local behavior
