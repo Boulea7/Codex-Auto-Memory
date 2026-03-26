@@ -5,6 +5,7 @@ import {
   READ_ONLY_RETRIEVAL_NOTE,
   type CodexAgentsGuidance
 } from "./codex-stack.js";
+import { buildWorkflowContract } from "./retrieval-contract.js";
 import {
   buildMcpHostSnippet,
   getMcpHostDefinition,
@@ -25,6 +26,7 @@ export interface McpHostConfigSnippet {
   snippetFormat: "toml" | "json";
   snippet: string;
   notes: string[];
+  workflowContract: ReturnType<typeof buildWorkflowContract>;
   agentsGuidance?: CodexAgentsGuidance;
 }
 
@@ -46,6 +48,9 @@ export function buildMcpHostConfigSnippet(host: McpHost, projectRoot: string): M
     snippetFormat: definition.snippetFormat,
     snippet: buildMcpHostSnippet(host, projectRoot),
     notes: [...definition.notes],
+    workflowContract: buildWorkflowContract({
+      cwd: projectRoot
+    }),
     ...(host === "codex" ? { agentsGuidance: buildCodexAgentsGuidance() } : {})
   };
 }

@@ -83,14 +83,14 @@
 - `cam mcp serve` 会暴露 `search_memories`、`timeline_memories`、`get_memory_details`
 - `search_memories` 与 `cam recall search` 现在共享 active-first、archived-fallback 的默认检索语义
 - 当前推荐的渐进式检索 preset 统一为：`state=auto`、`limit=8`
-- `cam mcp install --host <codex|claude|gemini>` 会显式写入推荐的 project-scoped 宿主配置，继续降低接线摩擦，但不改变 retrieval 的只读语义
+- `cam mcp install --host <codex|claude|gemini>` 会显式写入推荐的 project-scoped 宿主配置，继续降低接线摩擦，但不改变 retrieval 的只读语义；若已有 `codex_auto_memory` entry 带有非 canonical 自定义字段，会在安全前提下保留它们
 - `generic` host 仍然保持 manual-only：不提供自动写入的 install 分支，只通过 `cam mcp print-config --host generic` 暴露 ready-to-paste snippet
-- `cam mcp print-config --host ...` 会打印 ready-to-paste 宿主接入片段；其中 `--host codex` 现在还会额外打印推荐的 `AGENTS.md` snippet，把 durable memory workflow 正式接到 Codex 当前公开稳定 surface 上
+- `cam mcp print-config --host ...` 会打印 ready-to-paste 宿主接入片段；其中 `--host codex` 现在还会额外打印推荐的 `AGENTS.md` snippet，并在 JSON 输出里附带共享 `workflowContract`，把 durable memory workflow 正式接到 Codex 当前公开稳定 surface 上
 - `cam mcp apply-guidance --host codex` 会以 additive、可审计、fail-closed 的方式创建或更新 repo 根 `AGENTS.md` 中由本仓维护的 guidance block，继续降低手工粘贴成本
 - `cam integrations install --host codex` 现在提供显式的一次性 stack install 入口：统一编排 project-scoped MCP wiring、hooks 与 skills，但不触碰 `AGENTS.md`
-- `cam integrations apply --host codex` 现在提供显式的一次性 Codex stack apply 入口：在不改变 `integrations install` 边界的前提下，额外统一编排 managed `AGENTS.md` guidance block；其中 skills 默认仍走 runtime target，但也支持显式 `--skill-surface runtime|official-user|official-project`
-- `cam mcp doctor` 会只读检查推荐的 project-scoped MCP 接线、project pinning 与 shared fallback bridge assets
-- `cam integrations doctor --host codex` 会只读汇总推荐路由、推荐 preset、subchecks 与 next steps，继续保持 inspect-only 边界
+- `cam integrations apply --host codex` 现在提供显式的一次性 Codex stack apply 入口：在不改变 `integrations install` 边界的前提下，额外统一编排 managed `AGENTS.md` guidance block；其中 skills 默认仍走 runtime target，但也支持显式 `--skill-surface runtime|official-user|official-project`；若 `AGENTS.md` managed block unsafe，会在任何 stack 写入之前 preflight `blocked`
+- `cam mcp doctor` 会只读检查推荐的 project-scoped MCP 接线、project pinning 与 shared fallback bridge assets；若检测到 alternate global wiring，也会继续强调“推荐路径未完成”与“已存在非推荐路径”是两回事
+- `cam integrations doctor --host codex` 会只读汇总推荐路由、推荐 preset、结构化 `workflowContract`、`applyReadiness`、subchecks 与 next steps；当 `AGENTS.md` managed block unsafe 时，会先提示修复该 block，而不是直接推荐 `cam integrations apply --host codex`
 - 它仍然是只读 retrieval plane，不是新的 canonical store
 
 目标状态：

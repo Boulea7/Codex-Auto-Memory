@@ -1,3 +1,4 @@
+import os from "node:os";
 import fs from "node:fs/promises";
 import path from "node:path";
 
@@ -19,6 +20,7 @@ export interface McpHostDefinition {
   snippetFormat: "toml" | "json";
   pinning: McpHostPinningMode;
   projectConfigRelativePath?: string;
+  userConfigHomeRelativePath?: string;
   notes: string[];
 }
 
@@ -54,6 +56,7 @@ const HOST_DEFINITIONS: Record<McpHost, McpHostDefinition> = {
     snippetFormat: "toml",
     pinning: "cwd-field",
     projectConfigRelativePath: path.join(".codex", "config.toml"),
+    userConfigHomeRelativePath: path.join(".codex", "config.toml"),
     notes: [
       "Paste this into a project-scoped .codex/config.toml file. ~/.codex/config.toml also works if you want the same server across repositories.",
       "This MCP surface only exposes search_memories, timeline_memories, and get_memory_details."
@@ -76,6 +79,7 @@ const HOST_DEFINITIONS: Record<McpHost, McpHostDefinition> = {
     snippetFormat: "json",
     pinning: "cwd-field",
     projectConfigRelativePath: path.join(".gemini", "settings.json"),
+    userConfigHomeRelativePath: path.join(".gemini", "settings.json"),
     notes: [
       "Paste this into .gemini/settings.json or ~/.gemini/settings.json.",
       "The snippet leaves trust set to false so tool confirmations stay host-controlled."
@@ -207,6 +211,14 @@ export function resolveMcpHostProjectConfigPath(
 ): string | null {
   const relativePath = getMcpHostDefinition(host).projectConfigRelativePath;
   return relativePath ? path.join(projectRoot, relativePath) : null;
+}
+
+export function resolveMcpHostUserConfigPath(
+  host: McpHost,
+  homeDir = os.homedir()
+): string | null {
+  const relativePath = getMcpHostDefinition(host).userConfigHomeRelativePath;
+  return relativePath ? path.join(homeDir, relativePath) : null;
 }
 
 export function buildCanonicalMcpServerConfig(

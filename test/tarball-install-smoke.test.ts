@@ -2,6 +2,7 @@ import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
+import * as toml from "smol-toml";
 import { runCommandCapture } from "../src/lib/util/process.js";
 
 const tempDirs: string[] = [];
@@ -120,18 +121,94 @@ describe("tarball install smoke", () => {
       envWithBin
     );
     expect(codexPrintConfigResult.exitCode).toBe(0);
-    expect(JSON.parse(codexPrintConfigResult.stdout)).toMatchObject({
+    const codexPrintConfigPayload = JSON.parse(codexPrintConfigResult.stdout) as {
+      host: string;
+      serverName: string;
+      targetFileHint: string;
+      workflowContract: {
+        recommendedPreset: string;
+        routePreference: {
+          preferredRoute: string;
+        };
+        cliFallback: {
+          searchCommand: string;
+        };
+      };
+      agentsGuidance: {
+        targetFileHint: string;
+        snippetFormat: string;
+        snippet: string;
+      };
+    };
+    expect(codexPrintConfigPayload).toMatchObject({
       host: "codex",
       serverName: "codex_auto_memory",
       targetFileHint: ".codex/config.toml",
+      workflowContract: {
+        recommendedPreset: "state=auto, limit=8",
+        routePreference: {
+          preferredRoute: "mcp-first"
+        },
+        cliFallback: {
+          searchCommand: `cam recall search "<query>" --state auto --limit 8 --cwd ${JSON.stringify(realInstallDir)}`
+        }
+      },
       agentsGuidance: {
         targetFileHint: "AGENTS.md",
         snippetFormat: "markdown"
       }
     });
-    const codexPrintConfigPayload = JSON.parse(codexPrintConfigResult.stdout) as {
-      agentsGuidance: { snippet: string };
-    };
+    const claudePrintConfigResult = runCommandCapture(
+      camBinaryPath(installDir),
+      ["mcp", "print-config", "--host", "claude", "--json"],
+      installDir,
+      envWithBin
+    );
+    expect(claudePrintConfigResult.exitCode).toBe(0);
+    expect(JSON.parse(claudePrintConfigResult.stdout)).toMatchObject({
+      host: "claude",
+      targetFileHint: ".mcp.json",
+      workflowContract: {
+        recommendedPreset: "state=auto, limit=8",
+        cliFallback: {
+          searchCommand: `cam recall search "<query>" --state auto --limit 8 --cwd ${JSON.stringify(realInstallDir)}`
+        }
+      }
+    });
+    const geminiPrintConfigResult = runCommandCapture(
+      camBinaryPath(installDir),
+      ["mcp", "print-config", "--host", "gemini", "--json"],
+      installDir,
+      envWithBin
+    );
+    expect(geminiPrintConfigResult.exitCode).toBe(0);
+    expect(JSON.parse(geminiPrintConfigResult.stdout)).toMatchObject({
+      host: "gemini",
+      targetFileHint: ".gemini/settings.json",
+      workflowContract: {
+        recommendedPreset: "state=auto, limit=8",
+        cliFallback: {
+          searchCommand: `cam recall search "<query>" --state auto --limit 8 --cwd ${JSON.stringify(realInstallDir)}`
+        }
+      }
+    });
+    const genericPrintConfigResult = runCommandCapture(
+      camBinaryPath(installDir),
+      ["mcp", "print-config", "--host", "generic", "--json"],
+      installDir,
+      envWithBin
+    );
+    expect(genericPrintConfigResult.exitCode).toBe(0);
+    expect(JSON.parse(genericPrintConfigResult.stdout)).toMatchObject({
+      host: "generic",
+      targetFileHint: "Your MCP client's stdio server config",
+      workflowContract: {
+        recommendedPreset: "state=auto, limit=8",
+        cliFallback: {
+          searchCommand: `cam recall search "<query>" --state auto --limit 8 --cwd ${JSON.stringify(realInstallDir)}`
+        }
+      }
+    });
     const applyGuidanceResult = runCommandCapture(
       camBinaryPath(installDir),
       ["mcp", "apply-guidance", "--host", "codex", "--json"],
@@ -195,46 +272,6 @@ describe("tarball install smoke", () => {
     expect(JSON.parse(cwdIntegrationsResult.stdout)).toMatchObject({
       host: "codex",
       projectRoot: realProjectWithSpacesDir
-    });
-
-    const claudePrintConfigResult = runCommandCapture(
-      camBinaryPath(installDir),
-      ["mcp", "print-config", "--host", "claude", "--json"],
-      installDir,
-      envWithBin
-    );
-    expect(claudePrintConfigResult.exitCode).toBe(0);
-    expect(JSON.parse(claudePrintConfigResult.stdout)).toMatchObject({
-      host: "claude",
-      serverName: "codex_auto_memory",
-      targetFileHint: ".mcp.json"
-    });
-
-    const geminiPrintConfigResult = runCommandCapture(
-      camBinaryPath(installDir),
-      ["mcp", "print-config", "--host", "gemini", "--json"],
-      installDir,
-      envWithBin
-    );
-    expect(geminiPrintConfigResult.exitCode).toBe(0);
-    expect(JSON.parse(geminiPrintConfigResult.stdout)).toMatchObject({
-      host: "gemini",
-      serverName: "codex_auto_memory",
-      targetFileHint: ".gemini/settings.json"
-    });
-
-    const genericPrintConfigResult = runCommandCapture(
-      camBinaryPath(installDir),
-      ["mcp", "print-config", "--host", "generic", "--json"],
-      installDir,
-      envWithBin
-    );
-    expect(genericPrintConfigResult.exitCode).toBe(0);
-    expect(JSON.parse(genericPrintConfigResult.stdout)).toMatchObject({
-      host: "generic",
-      serverName: "codex_auto_memory",
-      targetFileHint: "Your MCP client's stdio server config",
-      snippetFormat: "json"
     });
 
     const genericInstallResult = runCommandCapture(
@@ -494,6 +531,9 @@ describe("tarball install smoke", () => {
       status: "ok",
       recommendedRoute: "mcp",
       recommendedPreset: "state=auto, limit=8",
+      applyReadiness: {
+        status: "safe"
+      },
       workflowContract: {
         version: expect.any(String),
         postWorkSyncReview: {
@@ -526,7 +566,12 @@ describe("tarball install smoke", () => {
     expect(JSON.parse(mcpDoctorResult.stdout)).toMatchObject({
       readOnlyRetrieval: true,
       fallbackAssets: {
-        postWorkReviewInstalled: true
+        runtimeSkillPresent: true,
+        postWorkReviewInstalled: true,
+        anySkillSurfaceInstalled: true,
+        anySkillSurfaceReady: true,
+        officialUserSkillMatchesCanonical: true,
+        officialProjectSkillMatchesCanonical: true
       },
       workflowContract: {
         version: expect.any(String),
@@ -580,11 +625,49 @@ describe("tarball install smoke", () => {
       host: "codex",
       projectRoot: realBlockedProjectDir,
       stackAction: "blocked",
+      preflightBlocked: true,
+      blockedStage: "agents-guidance-preflight",
       subactions: {
+        mcp: {
+          action: "unchanged",
+          attempted: false,
+          skipped: true,
+          skipReason: expect.stringContaining("preflight")
+        },
         agents: {
           status: "blocked",
-          action: "blocked"
+          action: "blocked",
+          attempted: true
+        },
+        hooks: {
+          action: "unchanged",
+          attempted: false,
+          skipped: true,
+          skipReason: expect.stringContaining("preflight")
+        },
+        skills: {
+          action: "unchanged",
+          attempted: false,
+          skipped: true,
+          skipReason: expect.stringContaining("preflight")
         }
+      }
+    });
+
+    const blockedIntegrationsDoctorResult = runCommandCapture(
+      camBinaryPath(installDir),
+      ["integrations", "doctor", "--host", "codex", "--json"],
+      blockedProjectDir,
+      envWithBin
+    );
+    expect(blockedIntegrationsDoctorResult.exitCode).toBe(0);
+    expect(JSON.parse(blockedIntegrationsDoctorResult.stdout)).toMatchObject({
+      host: "codex",
+      projectRoot: realBlockedProjectDir,
+      applyReadiness: {
+        status: "blocked",
+        reason: expect.stringContaining("managed guidance block"),
+        recommendedFix: expect.stringContaining("cam mcp apply-guidance --host codex")
       }
     });
 
@@ -700,5 +783,78 @@ describe("tarball install smoke", () => {
       /Inspect the current Codex integration stack without mutating memory or host\s+config/
     );
     expect(integrationsDoctorHelpResult.stdout).toContain("Target host: codex");
+  }, 60_000);
+
+  it("preserves custom fields on the codex_auto_memory install entry from the packed tarball", async () => {
+    const homeDir = await tempDir("cam-tarball-preserve-home-");
+    const packDir = await tempDir("cam-tarball-preserve-pack-");
+    const installDir = await tempDir("cam-tarball-preserve-install-");
+    const realInstallDir = await fs.realpath(installDir);
+    const env = isolatedEnv(homeDir);
+
+    const packResult = runCommandCapture(
+      npmCommand(),
+      ["pack", "--pack-destination", packDir],
+      process.cwd(),
+      env
+    );
+    expect(packResult.exitCode).toBe(0);
+
+    const tarballName = packResult.stdout.trim().split(/\r?\n/).at(-1);
+    expect(tarballName).toBeTruthy();
+    const tarballPath = path.join(packDir, tarballName!);
+
+    expect(runCommandCapture(npmCommand(), ["init", "-y"], installDir, env).exitCode).toBe(0);
+    expect(
+      runCommandCapture(
+        npmCommand(),
+        ["install", "--no-package-lock", tarballPath],
+        installDir,
+        env
+      ).exitCode
+    ).toBe(0);
+
+    const envWithBin = {
+      ...env,
+      PATH: `${path.join(installDir, "node_modules", ".bin")}${path.delimiter}${env.PATH ?? ""}`
+    };
+
+    await fs.mkdir(path.join(installDir, ".codex"), { recursive: true });
+    await fs.writeFile(
+      path.join(installDir, ".codex", "config.toml"),
+      [
+        "[mcp_servers.codex_auto_memory]",
+        'command = "cam"',
+        'args = ["mcp", "serve"]',
+        `cwd = ${JSON.stringify(realInstallDir)}`,
+        'label = "keep-me"'
+      ].join("\n"),
+      "utf8"
+    );
+
+    const result = runCommandCapture(
+      camBinaryPath(installDir),
+      ["mcp", "install", "--host", "codex", "--json"],
+      installDir,
+      envWithBin
+    );
+    expect(result.exitCode).toBe(0);
+    expect(JSON.parse(result.stdout)).toMatchObject({
+      host: "codex",
+      action: "unchanged",
+      preservedCustomFields: ["label"]
+    });
+    expect(
+      toml.parse(await fs.readFile(path.join(installDir, ".codex", "config.toml"), "utf8"))
+    ).toMatchObject({
+      mcp_servers: {
+        codex_auto_memory: {
+          command: "cam",
+          args: ["mcp", "serve"],
+          cwd: realInstallDir,
+          label: "keep-me"
+        }
+      }
+    });
   }, 60_000);
 });

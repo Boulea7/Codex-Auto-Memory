@@ -421,6 +421,113 @@ describe("mcp command", () => {
     );
   });
 
+  it("preserves non-canonical custom fields on an existing codex_auto_memory entry", async () => {
+    const homeDir = await tempDir("cam-mcp-install-preserve-home-");
+    const projectDir = await tempDir("cam-mcp-install-preserve-project-");
+    const realProjectDir = await fs.realpath(projectDir);
+    process.env.HOME = homeDir;
+
+    await fs.mkdir(path.join(projectDir, ".codex"), { recursive: true });
+    await fs.mkdir(path.join(projectDir, ".gemini"), { recursive: true });
+    await fs.writeFile(
+      path.join(projectDir, ".codex", "config.toml"),
+      [
+        "[mcp_servers.codex_auto_memory]",
+        'command = "cam"',
+        'args = ["mcp", "serve"]',
+        `cwd = ${JSON.stringify(realProjectDir)}`,
+        'label = "keep-me"'
+      ].join("\n"),
+      "utf8"
+    );
+    await fs.writeFile(
+      path.join(projectDir, ".mcp.json"),
+      JSON.stringify(
+        {
+          mcpServers: {
+            codex_auto_memory: {
+              command: "cam",
+              args: ["mcp", "serve", "--cwd", realProjectDir],
+              env: {},
+              label: "keep-me"
+            }
+          }
+        },
+        null,
+        2
+      ),
+      "utf8"
+    );
+    await fs.writeFile(
+      path.join(projectDir, ".gemini", "settings.json"),
+      JSON.stringify(
+        {
+          mcpServers: {
+            codex_auto_memory: {
+              command: "cam",
+              args: ["mcp", "serve"],
+              cwd: realProjectDir,
+              trust: false,
+              label: "keep-me"
+            }
+          }
+        },
+        null,
+        2
+      ),
+      "utf8"
+    );
+
+    for (const host of ["codex", "claude", "gemini"] as const) {
+      const result = runCli(projectDir, ["mcp", "install", "--host", host, "--json"], {
+        env: { HOME: homeDir }
+      });
+      expect(result.exitCode, result.stderr).toBe(0);
+      expect(JSON.parse(result.stdout)).toMatchObject({
+        host,
+        action: "unchanged",
+        preservedCustomFields: ["label"]
+      });
+    }
+
+    const codexConfig = await readTomlFile(path.join(projectDir, ".codex", "config.toml"));
+    expect(codexConfig).toMatchObject({
+      mcp_servers: {
+        codex_auto_memory: {
+          command: "cam",
+          args: ["mcp", "serve"],
+          cwd: realProjectDir,
+          label: "keep-me"
+        }
+      }
+    });
+
+    const claudeConfig = await readJsonFile(path.join(projectDir, ".mcp.json"));
+    expect(claudeConfig).toMatchObject({
+      mcpServers: {
+        codex_auto_memory: {
+          command: "cam",
+          args: ["mcp", "serve", "--cwd", realProjectDir],
+          env: {},
+          label: "keep-me"
+        }
+      }
+    });
+
+    const geminiConfig = await readJsonFile(path.join(projectDir, ".gemini", "settings.json"));
+    expect(geminiConfig).toMatchObject({
+      mcpServers: {
+        codex_auto_memory: {
+          command: "cam",
+          args: ["mcp", "serve"],
+          cwd: realProjectDir,
+          trust: false,
+          label: "keep-me"
+        }
+      }
+    });
+  });
+
   it("supports install --cwd for writing another project's host config", async () => {
     const homeDir = await tempDir("cam-mcp-install-cwd-home-");
     const projectDir = await tempDir("cam-mcp-install-cwd-project-");
@@ -554,6 +661,19 @@ describe("mcp command", () => {
         snippet: string;
         notes: string[];
       };
+      workflowContract?: {
+        recommendedPreset: string;
+        routePreference: {
+          preferredRoute: string;
+        };
+        recallWorkflow: {
+          recallFirst: string;
+          progressiveDisclosure: string;
+        };
+        cliFallback: {
+          searchCommand: string;
+        };
+      };
     };
 
     expect(payload).toMatchObject({
@@ -566,6 +686,19 @@ describe("mcp command", () => {
     });
     expect(payload.snippet).toContain('[mcp_servers.codex_auto_memory]');
     expect(payload.notes).toHaveLength(2);
+    expect(payload.workflowContract).toMatchObject({
+      recommendedPreset: "state=auto, limit=8",
+      routePreference: {
+        preferredRoute: "mcp-first"
+      },
+      recallWorkflow: {
+        recallFirst: expect.stringContaining("recall durable memory first"),
+        progressiveDisclosure: "Use progressive disclosure: search -> timeline -> details."
+      },
+      cliFallback: {
+        searchCommand: `cam recall search "<query>" --state auto --limit 8 --cwd ${JSON.stringify(realProjectDir)}`
+      }
+    });
     expect(payload.agentsGuidance).toMatchObject({
       targetFileHint: "AGENTS.md",
       snippetFormat: "markdown"
@@ -1010,7 +1143,7 @@ describe("mcp command", () => {
     );
   });
 
-  it("supports print-config --cwd for generating snippets from another directory", async () => {
+  it("supports print-config --cwd for generating pinned snippets and workflow commands from another directory", async () => {
     const homeDir = await tempDir("cam-mcp-print-cwd-home-");
     const projectDir = await tempDir("cam-mcp-print-cwd-project-");
     const callerDir = await tempDir("cam-mcp-print-cwd-caller-");
@@ -1030,12 +1163,24 @@ describe("mcp command", () => {
       host: string;
       projectRoot: string;
       snippet: string;
+      workflowContract: {
+        cliFallback: {
+          searchCommand: string;
+          timelineCommand: string;
+          detailsCommand: string;
+        };
+      };
     };
     expect(payload).toMatchObject({
       host: "generic",
       projectRoot: realProjectDir
     });
     expect(payload.snippet).toContain(realProjectDir);
+    expect(payload.workflowContract.cliFallback).toMatchObject({
+      searchCommand: `cam recall search "<query>" --state auto --limit 8 --cwd ${JSON.stringify(realProjectDir)}`,
+      timelineCommand: `cam recall timeline "<ref>" --cwd ${JSON.stringify(realProjectDir)}`,
+      detailsCommand: `cam recall details "<ref>" --cwd ${JSON.stringify(realProjectDir)}`
+    });
   });
 
   it("pins the recommended skill install command to the inspected project when mcp doctor uses --cwd", async () => {
@@ -1341,6 +1486,190 @@ describe("mcp command", () => {
     );
   });
 
+  it("reports alternate global wiring separately from the recommended project-scoped route", async () => {
+    const homeDir = await tempDir("cam-mcp-doctor-global-home-");
+    const projectDir = await tempDir("cam-mcp-doctor-global-project-");
+    const realProjectDir = await fs.realpath(projectDir);
+    process.env.HOME = homeDir;
+
+    await fs.mkdir(path.join(homeDir, ".codex"), { recursive: true });
+    await fs.writeFile(
+      path.join(homeDir, ".codex", "config.toml"),
+      [
+        "[mcp_servers.codex_auto_memory]",
+        'command = "cam"',
+        'args = ["mcp", "serve"]',
+        `cwd = ${JSON.stringify(realProjectDir)}`
+      ].join("\n"),
+      "utf8"
+    );
+
+    const result = runCli(projectDir, ["mcp", "doctor", "--host", "codex", "--json"], {
+      env: { HOME: homeDir }
+    });
+    expect(result.exitCode, result.stderr).toBe(0);
+
+    const payload = JSON.parse(result.stdout) as {
+      hosts: Array<{
+        host: string;
+        status: string;
+        summary: string;
+        configScopeSummary?: string;
+        recommendedScope?: string;
+        detectedScopes?: string[];
+        alternateWiring?: {
+          detected: boolean;
+          valid: boolean;
+          scopes: string[];
+          issues: Array<{
+            scope: string;
+            inspection: string;
+          }>;
+        };
+        configCheck?: {
+          exists: boolean;
+        };
+        alternateConfigChecks?: Array<{
+          scope: string;
+          exists: boolean;
+          projectPinned: boolean;
+        }>;
+      }>;
+    };
+    expect(payload.hosts).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          host: "codex",
+          status: "warning",
+          summary: expect.stringContaining("global"),
+          configScopeSummary: "project-missing-global-alternate",
+          recommendedScope: "project",
+          detectedScopes: ["global"],
+          alternateWiring: {
+            detected: true,
+            valid: true,
+            scopes: ["global"],
+            issues: []
+          },
+          configCheck: expect.objectContaining({
+            exists: false
+          }),
+          alternateConfigChecks: expect.arrayContaining([
+            expect.objectContaining({
+              scope: "global",
+              exists: true,
+              projectPinned: true
+            })
+          ])
+        })
+      ])
+    );
+  });
+
+  it("does not treat malformed global config as alternate global wiring", async () => {
+    const homeDir = await tempDir("cam-mcp-doctor-global-parse-error-home-");
+    const projectDir = await tempDir("cam-mcp-doctor-global-parse-error-project-");
+    process.env.HOME = homeDir;
+
+    await fs.mkdir(path.join(homeDir, ".codex"), { recursive: true });
+    await fs.writeFile(path.join(homeDir, ".codex", "config.toml"), 'not = "valid', "utf8");
+
+    const result = runCli(projectDir, ["mcp", "doctor", "--host", "codex", "--json"], {
+      env: { HOME: homeDir }
+    });
+    expect(result.exitCode, result.stderr).toBe(0);
+
+    const payload = JSON.parse(result.stdout) as {
+      hosts: Array<{
+        host: string;
+        status: string;
+        summary: string;
+        configScopeSummary?: string;
+        recommendedScope?: string;
+        detectedScopes?: string[];
+        alternateWiring?: {
+          detected: boolean;
+          valid: boolean;
+          scopes: string[];
+          issues: Array<{
+            scope: string;
+            inspection: string;
+          }>;
+        };
+        alternateConfigChecks?: Array<{
+          scope: string;
+          exists: boolean;
+        }>;
+      }>;
+    };
+
+    expect(payload.hosts).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          host: "codex",
+          status: "warning",
+          summary: expect.stringContaining("could not be parsed"),
+          configScopeSummary: "project-missing-global-invalid",
+          recommendedScope: "project",
+          detectedScopes: [],
+          alternateWiring: expect.objectContaining({
+            detected: false,
+            valid: false,
+            scopes: [],
+            issues: expect.arrayContaining([
+              expect.objectContaining({
+                scope: "global",
+                inspection: "parse-error"
+              })
+            ])
+          })
+        })
+      ])
+    );
+    expect(
+      payload.hosts.find((host) => host.host === "codex")?.alternateConfigChecks ?? []
+    ).toEqual([]);
+  });
+
+  it("surfaces direct apply safety in mcp doctor when AGENTS guidance is unsafe", async () => {
+    const homeDir = await tempDir("cam-mcp-doctor-apply-safety-home-");
+    const projectDir = await tempDir("cam-mcp-doctor-apply-safety-project-");
+    const realProjectDir = await fs.realpath(projectDir);
+    process.env.HOME = homeDir;
+
+    await fs.writeFile(
+      path.join(realProjectDir, "AGENTS.md"),
+      [
+        "# Project Notes",
+        "",
+        "<!-- cam:codex-agents-guidance:start -->",
+        "<!-- cam:agents-guidance-version codex-agents-guidance-v0 -->",
+        "- stale guidance"
+      ].join("\n"),
+      "utf8"
+    );
+
+    const result = runCli(projectDir, ["mcp", "doctor", "--host", "codex", "--json"], {
+      env: { HOME: homeDir }
+    });
+    expect(result.exitCode, result.stderr).toBe(0);
+
+    const payload = JSON.parse(result.stdout) as {
+      applySafety: {
+        status: string;
+        targetPath: string;
+        blockedReason?: string;
+        recommendedAction: string;
+      };
+    };
+    expect(payload.applySafety).toMatchObject({
+      status: "blocked",
+      targetPath: path.join(realProjectDir, "AGENTS.md"),
+      recommendedAction: "blocked",
+      blockedReason: expect.stringContaining("managed guidance block")
+    });
+  });
+
   it("keeps mcp doctor read-only and does not create memory layout", async () => {
     const homeDir = await tempDir("cam-mcp-doctor-readonly-home-");
     const projectDir = await tempDir("cam-mcp-doctor-readonly-project-");
@@ -1396,6 +1725,7 @@ describe("mcp command", () => {
         runtimeSource: "CODEX_HOME",
         preferredInstallSurface: "runtime",
         recommendedSkillInstallCommand: "cam skills install --surface runtime",
+        runtimeSkillPresent: true,
         runtimeSkillInstalled: true,
         runtimeSkillMatchesCanonical: true,
         runtimeSkillReady: true,
@@ -1413,10 +1743,14 @@ describe("mcp command", () => {
         ),
         officialUserSkillInstalled: false,
         officialProjectSkillInstalled: false,
+        officialUserSkillMatchesCanonical: false,
+        officialProjectSkillMatchesCanonical: false,
         officialUserSkillMatchesRuntime: false,
         officialProjectSkillMatchesRuntime: false,
         officialUserSkillReady: false,
         officialProjectSkillReady: false,
+        anySkillSurfaceInstalled: true,
+        anySkillSurfaceReady: true,
         installedSkillSurfaces: ["runtime"],
         readySkillSurfaces: ["runtime"],
         skillPathDrift: true,
@@ -1447,6 +1781,7 @@ describe("mcp command", () => {
         runtimeSkillDir: path.join(homeDir, ".codex", "skills", "codex-auto-memory-recall"),
         preferredInstallSurface: "runtime",
         recommendedSkillInstallCommand: "cam skills install --surface runtime",
+        runtimeSkillPresent: false,
         runtimeSkillInstalled: false,
         runtimeSkillReady: false,
         officialUserSkillDir: path.join(
@@ -1462,12 +1797,64 @@ describe("mcp command", () => {
           "codex-auto-memory-recall"
         ),
         officialUserSkillInstalled: true,
-        officialUserSkillMatchesRuntime: true,
+        officialUserSkillMatchesCanonical: true,
+        officialUserSkillMatchesRuntime: false,
         officialUserSkillReady: true,
         officialProjectSkillInstalled: false,
+        officialProjectSkillMatchesCanonical: false,
         officialProjectSkillReady: false,
+        anySkillSurfaceInstalled: true,
+        anySkillSurfaceReady: true,
         installedSkillSurfaces: ["official-user"],
         readySkillSurfaces: ["official-user"],
+        skillInstalled: true
+      },
+      codexStack: {
+        skillReady: true
+      }
+    });
+  });
+
+  it("keeps official-project skill readiness semantics aligned with canonical and runtime state separately", async () => {
+    const homeDir = await tempDir("cam-mcp-doctor-official-project-home-");
+    const projectDir = await tempDir("cam-mcp-doctor-official-project-project-");
+    const realProjectDir = await fs.realpath(projectDir);
+    process.env.HOME = homeDir;
+
+    expect(
+      runCli(projectDir, ["skills", "install", "--surface", "official-project"], {
+        env: { HOME: homeDir }
+      }).exitCode
+    ).toBe(0);
+
+    const result = runCli(projectDir, ["mcp", "doctor", "--json"], {
+      env: { HOME: homeDir }
+    });
+    expect(result.exitCode, result.stderr).toBe(0);
+
+    expect(JSON.parse(result.stdout)).toMatchObject({
+      fallbackAssets: {
+        runtimeSkillPresent: false,
+        runtimeSkillInstalled: false,
+        runtimeSkillReady: false,
+        officialUserSkillInstalled: false,
+        officialUserSkillMatchesCanonical: false,
+        officialUserSkillMatchesRuntime: false,
+        officialUserSkillReady: false,
+        officialProjectSkillDir: path.join(
+          realProjectDir,
+          ".agents",
+          "skills",
+          "codex-auto-memory-recall"
+        ),
+        officialProjectSkillInstalled: true,
+        officialProjectSkillMatchesCanonical: true,
+        officialProjectSkillMatchesRuntime: false,
+        officialProjectSkillReady: true,
+        anySkillSurfaceInstalled: true,
+        anySkillSurfaceReady: true,
+        installedSkillSurfaces: ["official-project"],
+        readySkillSurfaces: ["official-project"],
         skillInstalled: true
       },
       codexStack: {
@@ -1526,6 +1913,8 @@ describe("mcp command", () => {
         hookHelpersInstalled: boolean;
         postWorkReviewInstalled: boolean;
         startupDoctorInstalled: boolean;
+        anySkillSurfaceInstalled: boolean;
+        anySkillSurfaceReady: boolean;
         skillInstalled: boolean;
         fallbackAvailable: boolean;
         assets: Array<{
@@ -1541,6 +1930,8 @@ describe("mcp command", () => {
       hookHelpersInstalled: false,
       postWorkReviewInstalled: false,
       startupDoctorInstalled: false,
+      anySkillSurfaceInstalled: true,
+      anySkillSurfaceReady: false,
       skillInstalled: false,
       fallbackAvailable: false
     });
@@ -1623,6 +2014,8 @@ describe("mcp command", () => {
         hookHelpersInstalled: boolean;
         postWorkReviewInstalled: boolean;
         startupDoctorInstalled: boolean;
+        anySkillSurfaceInstalled: boolean;
+        anySkillSurfaceReady: boolean;
         skillInstalled: boolean;
         fallbackAvailable: boolean;
         assets: Array<{
@@ -1638,6 +2031,8 @@ describe("mcp command", () => {
       hookHelpersInstalled: false,
       postWorkReviewInstalled: false,
       startupDoctorInstalled: false,
+      anySkillSurfaceInstalled: true,
+      anySkillSurfaceReady: false,
       skillInstalled: false,
       fallbackAvailable: false
     });
@@ -1774,6 +2169,62 @@ describe("mcp command", () => {
       mcpOperationalReady: false,
       camCommandAvailable: false
     });
+  });
+
+  it("keeps workflowContract core fields identical across print-config, mcp doctor, and integrations doctor", async () => {
+    const homeDir = await tempDir("cam-workflow-parity-home-");
+    const projectDir = await tempDir("cam-workflow-parity-project-");
+    const shellDir = await tempDir("cam-workflow-parity-shell-");
+    const realProjectDir = await fs.realpath(projectDir);
+    process.env.HOME = homeDir;
+
+    const printConfig = runCli(
+      shellDir,
+      ["mcp", "print-config", "--host", "codex", "--cwd", projectDir, "--json"],
+      { env: { HOME: homeDir } }
+    );
+    const mcpDoctor = runCli(
+      shellDir,
+      ["mcp", "doctor", "--host", "codex", "--cwd", projectDir, "--json"],
+      { env: { HOME: homeDir } }
+    );
+    const integrationsDoctor = runCli(
+      shellDir,
+      ["integrations", "doctor", "--host", "codex", "--cwd", projectDir, "--json"],
+      { env: { HOME: homeDir } }
+    );
+
+    expect(printConfig.exitCode, printConfig.stderr).toBe(0);
+    expect(mcpDoctor.exitCode, mcpDoctor.stderr).toBe(0);
+    expect(integrationsDoctor.exitCode, integrationsDoctor.stderr).toBe(0);
+
+    const printWorkflow = JSON.parse(printConfig.stdout).workflowContract;
+    const mcpWorkflow = JSON.parse(mcpDoctor.stdout).workflowContract;
+    const integrationsWorkflow = JSON.parse(integrationsDoctor.stdout).workflowContract;
+    const expectedCore = {
+      recommendedPreset: "state=auto, limit=8",
+      preferredRoute: "mcp-first",
+      routePreference: {
+        preferredRoute: "mcp-first"
+      },
+      recallWorkflow: {
+        progressiveDisclosure: "Use progressive disclosure: search -> timeline -> details."
+      },
+      cliFallback: {
+        searchCommand: `cam recall search "<query>" --state auto --limit 8 --cwd ${JSON.stringify(realProjectDir)}`,
+        timelineCommand: `cam recall timeline "<ref>" --cwd ${JSON.stringify(realProjectDir)}`,
+        detailsCommand: `cam recall details "<ref>" --cwd ${JSON.stringify(realProjectDir)}`
+      },
+      postWorkSyncReview: {
+        helperScript: "post-work-memory-review.sh",
+        syncCommand: `cam sync --cwd ${JSON.stringify(realProjectDir)}`,
+        reviewCommand: `cam memory --recent --cwd ${JSON.stringify(realProjectDir)}`
+      }
+    };
+
+    expect(printWorkflow).toMatchObject(expectedCore);
+    expect(mcpWorkflow).toMatchObject(expectedCore);
+    expect(integrationsWorkflow).toMatchObject(expectedCore);
   });
 
   it("reports an operational MCP route once cam is available on PATH", async () => {
