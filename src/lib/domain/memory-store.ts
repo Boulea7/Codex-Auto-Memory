@@ -65,6 +65,26 @@ interface SearchMatch {
   score: number;
 }
 
+interface RetrievalIndexEntry {
+  ref: string;
+  scope: MemoryScope;
+  state: MemoryRecordState;
+  topic: string;
+  id: string;
+  summary: string;
+  updatedAt: string;
+  approxReadCost: number;
+  summaryText: string;
+  detailsText: string;
+}
+
+interface RetrievalIndexPayload {
+  version: 1;
+  scope: MemoryScope;
+  state: MemoryRecordState;
+  entries: RetrievalIndexEntry[];
+}
+
 interface PlannedFileChange {
   path: string;
   contents: string | null;
@@ -98,6 +118,7 @@ interface MemoryStoreFileOps {
 }
 
 const topicNamePattern = /^[a-z0-9]+(?:-[a-z0-9]+)*$/u;
+const retrievalIndexVersion = 1 as const;
 
 function topicTitle(topic: string): string {
   return topic
@@ -298,6 +319,40 @@ function buildArchiveIndexContents(scope: MemoryScope, entries: MemoryEntry[]): 
   return `${lines.join("\n")}\n`;
 }
 
+function buildRetrievalIndexEntries(
+  scope: MemoryScope,
+  state: MemoryRecordState,
+  entries: MemoryEntry[]
+): RetrievalIndexEntry[] {
+  return sortEntriesByUpdatedAt(entries).map((entry) => ({
+    ref: buildMemoryRef(scope, state, entry.topic, entry.id),
+    scope,
+    state,
+    topic: entry.topic,
+    id: entry.id,
+    summary: entry.summary,
+    updatedAt: entry.updatedAt,
+    approxReadCost: entry.details.length + 4,
+    summaryText: entry.summary.toLowerCase(),
+    detailsText: entry.details.join("\n").toLowerCase()
+  }));
+}
+
+function buildRetrievalIndexContents(
+  scope: MemoryScope,
+  state: MemoryRecordState,
+  entries: MemoryEntry[]
+): string {
+  const payload: RetrievalIndexPayload = {
+    version: retrievalIndexVersion,
+    scope,
+    state,
+    entries: buildRetrievalIndexEntries(scope, state, entries)
+  };
+
+  return `${JSON.stringify(payload, null, 2)}\n`;
+}
+
 function appendJsonlContents(existingContents: string | null, values: unknown[]): string {
   const prefix =
     existingContents && existingContents.length > 0
@@ -384,7 +439,45 @@ function isTimelineEvent(value: unknown): value is MemoryTimelineEvent {
   );
 }
 
-function findSearchMatch(entry: MemoryEntry, query: string): SearchMatch | null {
+function isRetrievalIndexEntry(value: unknown): value is RetrievalIndexEntry {
+  if (!value || typeof value !== "object") {
+    return false;
+  }
+
+  const entry = value as Record<string, unknown>;
+  return (
+    typeof entry.ref === "string" &&
+    isMemoryScope(entry.scope) &&
+    (entry.state === "active" || entry.state === "archived") &&
+    typeof entry.topic === "string" &&
+    typeof entry.id === "string" &&
+    typeof entry.summary === "string" &&
+    typeof entry.updatedAt === "string" &&
+    typeof entry.approxReadCost === "number" &&
+    typeof entry.summaryText === "string" &&
+    typeof entry.detailsText === "string"
+  );
+}
+
+function isRetrievalIndexPayload(value: unknown): value is RetrievalIndexPayload {
+  if (!value || typeof value !== "object") {
+    return false;
+  }
+
+  const payload = value as Record<string, unknown>;
+  return (
+    payload.version === retrievalIndexVersion &&
+    isMemoryScope(payload.scope) &&
+    (payload.state === "active" || payload.state === "archived") &&
+    Array.isArray(payload.entries) &&
+    payload.entries.every((entry) => isRetrievalIndexEntry(entry))
+  );
+}
+
+function findSearchMatch(
+  fields: ReadonlyArray<readonly [field: string, value: string]>,
+  query: string
+): SearchMatch | null {
   const normalizedTerms = query
     .trim()
     .toLowerCase()
@@ -396,14 +489,8 @@ function findSearchMatch(entry: MemoryEntry, query: string): SearchMatch | null 
 
   const matchedFields: string[] = [];
   let score = 0;
-  const fieldChecks = [
-    ["id", entry.id],
-    ["topic", entry.topic],
-    ["summary", entry.summary],
-    ["details", entry.details.join("\n")]
-  ] as const;
 
-  for (const [field, value] of fieldChecks) {
+  for (const [field, value] of fields) {
     const haystack = value.toLowerCase();
     if (!normalizedTerms.every((term) => haystack.includes(term))) {
       continue;
@@ -420,6 +507,33 @@ function findSearchMatch(entry: MemoryEntry, query: string): SearchMatch | null 
     matchedFields,
     score
   };
+}
+
+function findEntrySearchMatch(entry: MemoryEntry, query: string): SearchMatch | null {
+  return findSearchMatch(
+    [
+      ["id", entry.id],
+      ["topic", entry.topic],
+      ["summary", entry.summary],
+      ["details", entry.details.join("\n")]
+    ],
+    query
+  );
+}
+
+function findRetrievalIndexSearchMatch(
+  entry: RetrievalIndexEntry,
+  query: string
+): SearchMatch | null {
+  return findSearchMatch(
+    [
+      ["id", entry.id],
+      ["topic", entry.topic],
+      ["summary", entry.summaryText],
+      ["details", entry.detailsText]
+    ],
+    query
+  );
 }
 
 function isProcessedRolloutRecord(value: unknown): value is ProcessedRolloutRecord {
@@ -579,6 +693,16 @@ export class MemoryStore {
     return path.join(this.getScopeDir(scope), "memory-history.jsonl");
   }
 
+  public getRetrievalIndexFile(
+    scope: MemoryScope,
+    state: MemoryRecordState = "active"
+  ): string {
+    return path.join(
+      state === "active" ? this.getScopeDir(scope) : this.getArchiveDir(scope),
+      "retrieval-index.json"
+    );
+  }
+
   public getSyncAuditPath(): string {
     return path.join(this.paths.auditDir, "sync-log.jsonl");
   }
@@ -593,6 +717,67 @@ export class MemoryStore {
     state: MemoryRecordState
   ): string {
     return state === "active" ? this.getTopicFile(scope, topic) : this.getArchiveTopicFile(scope, topic);
+  }
+
+  private async readRetrievalIndex(
+    scope: MemoryScope,
+    state: MemoryRecordState
+  ): Promise<RetrievalIndexPayload | null> {
+    const retrievalIndexPath = this.getRetrievalIndexFile(scope, state);
+    if (!(await fileExists(retrievalIndexPath))) {
+      return null;
+    }
+
+    let payload: unknown;
+    try {
+      payload = JSON.parse(await readTextFile(retrievalIndexPath)) as unknown;
+    } catch {
+      return null;
+    }
+
+    if (!isRetrievalIndexPayload(payload)) {
+      return null;
+    }
+
+    if (payload.scope !== scope || payload.state !== state) {
+      return null;
+    }
+
+    if (await this.isRetrievalIndexStale(scope, state, retrievalIndexPath)) {
+      return null;
+    }
+
+    return payload;
+  }
+
+  private async isRetrievalIndexStale(
+    scope: MemoryScope,
+    state: MemoryRecordState,
+    retrievalIndexPath: string
+  ): Promise<boolean> {
+    const baseDir = state === "active" ? this.getScopeDir(scope) : this.getArchiveDir(scope);
+    if (!(await fileExists(baseDir))) {
+      return false;
+    }
+
+    const indexStats = await fs.stat(retrievalIndexPath);
+    const files = await fs.readdir(baseDir);
+    for (const fileName of files) {
+      if (
+        !fileName.endsWith(".md") ||
+        fileName === "MEMORY.md" ||
+        fileName === "ARCHIVE.md"
+      ) {
+        continue;
+      }
+
+      const stats = await fs.stat(path.join(baseDir, fileName));
+      if (stats.mtimeMs > indexStats.mtimeMs) {
+        return true;
+      }
+    }
+
+    return false;
   }
 
   private async readTopicFileParse(
@@ -690,6 +875,22 @@ export class MemoryStore {
       if (!(await fileExists(archiveIndexFile))) {
         await this.rebuildArchiveIndex(scope);
       }
+
+      const activeRetrievalIndexFile = this.getRetrievalIndexFile(scope, "active");
+      if (
+        !(await fileExists(activeRetrievalIndexFile)) ||
+        (await this.readRetrievalIndex(scope, "active")) === null
+      ) {
+        await this.rebuildRetrievalIndex(scope, "active");
+      }
+
+      const archivedRetrievalIndexFile = this.getRetrievalIndexFile(scope, "archived");
+      if (
+        !(await fileExists(archivedRetrievalIndexFile)) ||
+        (await this.readRetrievalIndex(scope, "archived")) === null
+      ) {
+        await this.rebuildRetrievalIndex(scope, "archived");
+      }
     }
   }
 
@@ -770,6 +971,17 @@ export class MemoryStore {
     );
   }
 
+  public async rebuildRetrievalIndex(
+    scope: MemoryScope,
+    state: MemoryRecordState = "active"
+  ): Promise<void> {
+    const entries = await this.listEntries(scope, state);
+    await this.fileOps.writeTextFile(
+      this.getRetrievalIndexFile(scope, state),
+      buildRetrievalIndexContents(scope, state, entries)
+    );
+  }
+
   public async getEntryByRef(ref: string): Promise<MemoryDetailsResult | null> {
     const parsed = parseMemoryRef(ref);
     if (!parsed) {
@@ -812,9 +1024,33 @@ export class MemoryStore {
 
     for (const scope of scopes) {
       for (const state of states) {
+        const retrievalIndex = await this.readRetrievalIndex(scope, state);
+        if (retrievalIndex) {
+          for (const entry of retrievalIndex.entries) {
+            const match = findRetrievalIndexSearchMatch(entry, query);
+            if (!match) {
+              continue;
+            }
+
+            results.push({
+              ref: entry.ref,
+              scope: entry.scope,
+              state: entry.state,
+              topic: entry.topic,
+              id: entry.id,
+              summary: entry.summary,
+              updatedAt: entry.updatedAt,
+              matchedFields: match.matchedFields,
+              approxReadCost: entry.approxReadCost,
+              score: match.score
+            });
+          }
+          continue;
+        }
+
         const entries = await this.listEntries(scope, state);
         for (const entry of entries) {
-          const match = findSearchMatch(entry, query);
+          const match = findEntrySearchMatch(entry, query);
           if (!match) {
             continue;
           }
@@ -909,7 +1145,10 @@ export class MemoryStore {
   }
 
   private async buildMutationCommitPlan(
-    mutations: MemoryMutation[]
+    mutations: MemoryMutation[],
+    options: {
+      sessionId?: string;
+    } = {}
   ): Promise<MutationCommitPlan> {
     const applied: MemoryApplyRecord[] = [];
     const scopeStates = new Map<MemoryScope, ScopeMutationState>();
@@ -1038,6 +1277,7 @@ export class MemoryStore {
           summary: entry.summary,
           reason: mutation.reason,
           source: mutation.sources?.[0],
+          sessionId: options.sessionId,
           rolloutPath: mutation.sources?.find((source) => source.endsWith(".jsonl"))
         });
         continue;
@@ -1110,6 +1350,7 @@ export class MemoryStore {
           summary: archivedEntry.summary,
           reason: appliedOperation.reason,
           source: appliedOperation.sources?.[0],
+          sessionId: options.sessionId,
           rolloutPath: appliedOperation.sources?.find((source) => source.endsWith(".jsonl"))
         });
         continue;
@@ -1164,6 +1405,7 @@ export class MemoryStore {
         summary: existingActive.summary,
         reason: appliedOperation.reason,
         source: appliedOperation.sources?.[0],
+        sessionId: options.sessionId,
         rolloutPath: appliedOperation.sources?.find((source) => source.endsWith(".jsonl"))
       });
     }
@@ -1192,12 +1434,20 @@ export class MemoryStore {
           path: this.getMemoryFile(scope),
           contents: buildIndexContents(scope, scopeState.activeEntries)
         });
+        fileChanges.push({
+          path: this.getRetrievalIndexFile(scope, "active"),
+          contents: buildRetrievalIndexContents(scope, "active", scopeState.activeEntries)
+        });
       }
 
       if (scopeState.archiveIndexTouched) {
         fileChanges.push({
           path: this.getArchiveIndexFile(scope),
           contents: buildArchiveIndexContents(scope, scopeState.archivedEntries)
+        });
+        fileChanges.push({
+          path: this.getRetrievalIndexFile(scope, "archived"),
+          contents: buildRetrievalIndexContents(scope, "archived", scopeState.archivedEntries)
         });
       }
 
@@ -1298,17 +1548,27 @@ export class MemoryStore {
     }
   }
 
-  public async applyOperations(operations: MemoryOperation[]): Promise<MemoryOperation[]> {
-    const applied = await this.applyMutations(operations);
+  public async applyOperations(
+    operations: MemoryOperation[],
+    options: {
+      sessionId?: string;
+    } = {}
+  ): Promise<MemoryOperation[]> {
+    const applied = await this.applyMutations(operations, options);
     return applied.flatMap((record) => {
       const operation = toAppliedOperation(record);
       return operation ? [operation] : [];
     });
   }
 
-  public async applyMutations(mutations: MemoryMutation[]): Promise<MemoryApplyRecord[]> {
+  public async applyMutations(
+    mutations: MemoryMutation[],
+    options: {
+      sessionId?: string;
+    } = {}
+  ): Promise<MemoryApplyRecord[]> {
     await this.ensureLayout();
-    const plan = await this.buildMutationCommitPlan(mutations);
+    const plan = await this.buildMutationCommitPlan(mutations, options);
     await this.commitPlannedFileChanges(plan.fileChanges, plan.expectedSnapshots);
     return plan.applied;
   }

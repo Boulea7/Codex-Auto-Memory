@@ -2,6 +2,7 @@ import os from "node:os";
 import path from "node:path";
 import {
   ARCHIVE_BOUNDARY,
+  appendCliCwdFlag,
   buildCliSearchCommand,
   buildMarkdownAssetVersionComment,
   buildRecommendedCliSearchCommand,
@@ -97,11 +98,17 @@ function resolveInstallDir(
   return surface === "hooks" ? context.hookDir : context.skillDir;
 }
 
-function buildRecallDispatcherScript(): string {
+function buildPinnedProjectRootBlock(projectRoot: string): string {
+  return `PROJECT_ROOT=${JSON.stringify(projectRoot)}
+`;
+}
+
+function buildRecallDispatcherScript(projectRoot: string): string {
   return `#!/bin/sh
 ${buildShellAssetVersionComment()}
 # Dispatch recall lookups through a single host-agnostic bridge helper.
 
+${buildPinnedProjectRootBlock(projectRoot)}
 ACTION="$1"
 if [ "$#" -gt 0 ]; then
   shift
@@ -122,6 +129,9 @@ contains_flag() {
 
 case "$ACTION" in
   search)
+    if ! contains_flag "--cwd" "$@"; then
+      set -- "$@" "--cwd" "$PROJECT_ROOT"
+    fi
     if ! contains_flag "--state" "$@"; then
       set -- "$@" "--state" "${RECOMMENDED_RETRIEVAL_STATE}"
     fi
@@ -131,9 +141,15 @@ case "$ACTION" in
     exec cam recall search "$@"
     ;;
   timeline)
+    if ! contains_flag "--cwd" "$@"; then
+      set -- "$@" "--cwd" "$PROJECT_ROOT"
+    fi
     exec cam recall timeline "$@"
     ;;
   details)
+    if ! contains_flag "--cwd" "$@"; then
+      set -- "$@" "--cwd" "$PROJECT_ROOT"
+    fi
     exec cam recall details "$@"
     ;;
   *)
@@ -153,7 +169,7 @@ exec "$SCRIPT_DIR/memory-recall.sh" ${action} "$@"
 `;
 }
 
-function buildRecallBridgeGuideMarkdown(): string {
+function buildRecallBridgeGuideMarkdown(projectRoot: string): string {
   return `# Codex Auto Memory Recall Bridge
 
 ${buildMarkdownAssetVersionComment()}
@@ -173,7 +189,7 @@ This bundle keeps durable-memory recall host-agnostic.
 
 - ${CLI_FALLBACK_RECALL_WORKFLOW}
 - Search example: \`memory-recall.sh search "pnpm"\`
-- CLI equivalent: \`${buildRecommendedCliSearchCommand("\"pnpm\"")}\`
+- CLI equivalent: \`${buildRecommendedCliSearchCommand("\"pnpm\"", { cwd: projectRoot })}\`
 - Timeline example: \`memory-recall.sh timeline "project:active:workflow:prefer-pnpm"\`
 - Details example: \`memory-recall.sh details "project:active:workflow:prefer-pnpm"\`
 - Compatibility wrappers \`memory-search.sh\`, \`memory-timeline.sh\`, and \`memory-details.sh\` call the same dispatcher.
@@ -195,12 +211,12 @@ ${buildSharedWorkflowDisciplineLines()
 `;
 }
 
-function buildPostWorkMemoryReviewScript(): string {
+function buildPostWorkMemoryReviewScript(projectRoot: string): string {
   return `#!/bin/sh
 ${buildShellAssetVersionComment()}
 # Sync the latest durable memory updates, then show the recent audit surface for review.
-${buildPostWorkSyncCommand()} "$@" || exit $?
-exec ${buildPostWorkRecentReviewCommand()}
+${buildPostWorkSyncCommand({ cwd: projectRoot })} "$@" || exit $?
+exec ${buildPostWorkRecentReviewCommand({ cwd: projectRoot })}
 `;
 }
 
@@ -275,12 +291,12 @@ const INTEGRATION_ASSET_DEFINITIONS: readonly IntegrationAssetDefinition[] = [
     executable: true,
     role: "capture-helper",
     doctorVisible: true,
-    doctorSignatures: ['cam sync "$@"'],
-    renderContents: () =>
+    doctorSignatures: ["cam sync --cwd"],
+    renderContents: (context) =>
       `#!/bin/sh
 ${buildShellAssetVersionComment()}
 # Sync the latest rollout for the current project.
-cam sync "$@"
+${appendCliCwdFlag("cam sync", context.projectRoot)} "$@"
 `
   },
   {
@@ -291,12 +307,12 @@ cam sync "$@"
     executable: true,
     role: "capture-helper",
     doctorVisible: true,
-    doctorSignatures: ['cam doctor "$@"'],
-    renderContents: () =>
+    doctorSignatures: ["cam doctor --cwd"],
+    renderContents: (context) =>
       `#!/bin/sh
 ${buildShellAssetVersionComment()}
 # Print diagnostic information at session start.
-cam doctor "$@"
+${appendCliCwdFlag("cam doctor", context.projectRoot)} "$@"
 `
   },
   {
@@ -307,8 +323,8 @@ cam doctor "$@"
     executable: true,
     role: "capture-helper",
     doctorVisible: true,
-    doctorSignatures: ['cam sync "$@"', "cam memory --recent"],
-    renderContents: () => buildPostWorkMemoryReviewScript()
+    doctorSignatures: ["cam sync --cwd", "cam memory --recent --cwd"],
+    renderContents: (context) => buildPostWorkMemoryReviewScript(context.projectRoot)
   },
   {
     id: "memory-recall",
@@ -319,11 +335,12 @@ cam doctor "$@"
     role: "recall-helper",
     doctorVisible: true,
     doctorSignatures: [
+      "PROJECT_ROOT=",
       'exec cam recall search "$@"',
       'exec cam recall timeline "$@"',
       'exec cam recall details "$@"'
     ],
-    renderContents: () => buildRecallDispatcherScript()
+    renderContents: (context) => buildRecallDispatcherScript(context.projectRoot)
   },
   {
     id: "memory-search",
@@ -370,7 +387,7 @@ cam doctor "$@"
       'memory-recall.sh search "pnpm"',
       "Workflow discipline"
     ],
-    renderContents: () => buildRecallBridgeGuideMarkdown()
+    renderContents: (context) => buildRecallBridgeGuideMarkdown(context.projectRoot)
   },
   {
     id: "codex-memory-skill",
@@ -411,8 +428,11 @@ export function codexOfficialProjectSkillAssetDir(projectRoot: string): string {
   return resolveCodexSkillPaths(projectRoot).officialProjectSkillDir;
 }
 
-export function buildHookAssets(homeDir = os.homedir()): GeneratedAsset[] {
-  return listIntegrationAssets(homeDir, "hooks").map((asset) => ({
+export function buildHookAssets(
+  homeDir = os.homedir(),
+  projectRoot = process.cwd()
+): GeneratedAsset[] {
+  return listIntegrationAssets(homeDir, "hooks", { projectRoot }).map((asset) => ({
     relativePath: asset.relativePath,
     contents: asset.contents,
     executable: asset.executableExpected
@@ -458,9 +478,13 @@ export function listIntegrationAssets(
 }
 
 export function listDoctorVisibleIntegrationAssets(
-  homeDir = os.homedir()
+  homeDir = os.homedir(),
+  options: {
+    projectRoot?: string;
+    skillSurface?: CodexSkillInstallSurface;
+  } = {}
 ): InstalledIntegrationAssetDescriptor[] {
-  return listIntegrationAssets(homeDir).filter((asset) => asset.doctorVisible);
+  return listIntegrationAssets(homeDir, undefined, options).filter((asset) => asset.doctorVisible);
 }
 
 export function buildRecallBridgeSummaryLines(): string[] {

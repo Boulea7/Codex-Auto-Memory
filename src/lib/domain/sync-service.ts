@@ -143,7 +143,9 @@ export class SyncService {
       filterMemoryOperations(extraction.operations),
       existingEntries
     );
-    const applyRecords = await this.store.applyMutations(reviewedOperations.operations);
+    const applyRecords = await this.store.applyMutations(reviewedOperations.operations, {
+      sessionId: evidence.sessionId
+    });
     const applied = applyRecords.flatMap((record) => {
       const operation = toAppliedOperation(record);
       return operation ? [operation] : [];

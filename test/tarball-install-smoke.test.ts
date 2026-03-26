@@ -239,8 +239,25 @@ describe("tarball install smoke", () => {
           "SKILL.md"
         ),
         "utf8"
-      )
+    )
     ).toContain("cam:asset-version");
+
+    const cwdHooksResult = runCommandCapture(
+      camBinaryPath(installDir),
+      ["hooks", "install", "--cwd", projectWithSpacesDir],
+      shellDir,
+      envWithBin
+    );
+    expect(cwdHooksResult.exitCode).toBe(0);
+    expect(
+      await fs.readFile(path.join(homeDir, ".codex-auto-memory", "hooks", "memory-recall.sh"), "utf8")
+    ).toContain(`PROJECT_ROOT=${JSON.stringify(realProjectWithSpacesDir)}`);
+    expect(
+      await fs.readFile(
+        path.join(homeDir, ".codex-auto-memory", "hooks", "post-work-memory-review.sh"),
+        "utf8"
+      )
+    ).toContain(`cam sync --cwd ${JSON.stringify(realProjectWithSpacesDir)} "$@"`);
 
     const cwdApplyGuidanceResult = runCommandCapture(
       camBinaryPath(installDir),

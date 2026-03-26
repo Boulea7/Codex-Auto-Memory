@@ -424,6 +424,90 @@ describe("MemoryStore", () => {
     expect(timeline.map((event) => event.action)).toEqual(["archive", "add"]);
   });
 
+  it("maintains thin retrieval sidecar indexes and falls back safely when one is invalid", async () => {
+    const projectDir = await tempDir("cam-store-retrieval-index-project-");
+    const memoryRoot = await tempDir("cam-store-retrieval-index-memory-");
+    const config: AppConfig = {
+      autoMemoryEnabled: true,
+      autoMemoryDirectory: memoryRoot,
+      extractorMode: "heuristic",
+      defaultScope: "project",
+      maxStartupLines: 200,
+      sessionContinuityAutoLoad: false,
+      sessionContinuityAutoSave: false,
+      sessionContinuityLocalPathStyle: "codex",
+      maxSessionContinuityLines: 60,
+      codexBinary: "codex"
+    };
+    const store = new MemoryStore(detectProjectContext(projectDir), config);
+    await store.ensureLayout();
+
+    await store.remember(
+      "project",
+      "workflow",
+      "prefer-pnpm",
+      "Prefer pnpm in this repository.",
+      ["Use pnpm instead of npm in this repository."],
+      "Manual note."
+    );
+    await store.remember(
+      "project",
+      "workflow",
+      "historical-note",
+      "Historical pnpm migration note.",
+      ["Old pnpm migration note kept for history."],
+      "Manual note."
+    );
+    await store.forget("project", "historical", { archive: true });
+
+    const activeIndexPath = store.getRetrievalIndexFile("project", "active");
+    const archivedIndexPath = store.getRetrievalIndexFile("project", "archived");
+    expect(JSON.parse(await fs.readFile(activeIndexPath, "utf8"))).toMatchObject({
+      version: 1,
+      scope: "project",
+      state: "active",
+      entries: [
+        expect.objectContaining({
+          ref: "project:active:workflow:prefer-pnpm",
+          summary: "Prefer pnpm in this repository."
+        })
+      ]
+    });
+    expect(JSON.parse(await fs.readFile(archivedIndexPath, "utf8"))).toMatchObject({
+      version: 1,
+      scope: "project",
+      state: "archived",
+      entries: [
+        expect.objectContaining({
+          ref: "project:archived:workflow:historical-note",
+          summary: "Historical pnpm migration note."
+        })
+      ]
+    });
+
+    await fs.writeFile(activeIndexPath, "{not-json", "utf8");
+    const fallbackResults = await store.searchEntries("prefer pnpm", {
+      scope: "project",
+      state: "active"
+    });
+    expect(fallbackResults).toEqual([
+      expect.objectContaining({
+        ref: "project:active:workflow:prefer-pnpm"
+      })
+    ]);
+
+    await fs.rm(archivedIndexPath, { force: true });
+    await store.ensureLayout();
+    expect(JSON.parse(await fs.readFile(activeIndexPath, "utf8"))).toMatchObject({
+      version: 1,
+      state: "active"
+    });
+    expect(JSON.parse(await fs.readFile(archivedIndexPath, "utf8"))).toMatchObject({
+      version: 1,
+      state: "archived"
+    });
+  });
+
   it("fails closed across all scopes when all-scope archive forget hits an unsafe topic file", async () => {
     const projectDir = await tempDir("cam-store-unsafe-all-archive-project-");
     const memoryRoot = await tempDir("cam-store-unsafe-all-archive-memory-");

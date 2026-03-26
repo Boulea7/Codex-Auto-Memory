@@ -122,7 +122,8 @@ function registerHookCommands(program: Command): void {
   hooksCommand
     .command("install")
     .description("Generate the local recall bridge bundle plus startup and post-session helper scripts")
-    .action(withStdout(async () => installHooks()));
+    .option("--cwd <path>", "Project directory to anchor generated hook helpers to")
+    .action(withStdout(async (options) => installHooks(options)));
 
   hooksCommand
     .command("remove")

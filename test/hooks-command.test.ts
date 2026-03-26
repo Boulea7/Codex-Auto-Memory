@@ -39,6 +39,79 @@ afterEach(async () => {
 });
 
 describe("hooks command", () => {
+  it("supports --cwd and pins generated hook helpers to the targeted project root", async () => {
+    const homeDir = await tempDir("cam-hooks-cwd-home-");
+    const projectParentDir = await tempDir("cam-hooks-cwd-parent-");
+    const projectDir = path.join(projectParentDir, "project with spaces");
+    const shellDir = await tempDir("cam-hooks-cwd-shell-");
+    const memoryRoot = await tempDir("cam-hooks-cwd-memory-");
+    const binDir = await tempDir("cam-hooks-cwd-bin-");
+    process.env.HOME = homeDir;
+
+    await fs.mkdir(projectDir, { recursive: true });
+    await writeCamConfig(projectDir, makeAppConfig(), {
+      autoMemoryDirectory: memoryRoot
+    });
+
+    const store = new MemoryStore(detectProjectContext(projectDir), {
+      ...makeAppConfig(),
+      autoMemoryDirectory: memoryRoot
+    });
+    await store.ensureLayout();
+    await store.remember(
+      "project",
+      "workflow",
+      "prefer-pnpm",
+      "Prefer pnpm in this repository.",
+      ["Use pnpm instead of npm in this repository."],
+      "Manual note."
+    );
+
+    const installResult = runCli(
+      shellDir,
+      ["hooks", "install", "--cwd", projectDir],
+      { env: { HOME: homeDir } }
+    );
+    expect(installResult.exitCode, installResult.stderr).toBe(0);
+
+    await writeCamShim(binDir);
+    const hooksDir = path.join(homeDir, ".codex-auto-memory", "hooks");
+    const recallScriptPath = path.join(hooksDir, "memory-recall.sh");
+    const postWorkReviewScriptPath = path.join(hooksDir, "post-work-memory-review.sh");
+    const env = {
+      ...process.env,
+      HOME: homeDir,
+      PATH: `${binDir}:${process.env.PATH ?? ""}`
+    };
+
+    const searchResult = runCommandCapture(
+      recallScriptPath,
+      ["search", "pnpm", "--json"],
+      shellDir,
+      env
+    );
+    expect(searchResult.exitCode, searchResult.stderr).toBe(0);
+    expect(JSON.parse(searchResult.stdout)).toMatchObject({
+      results: [
+        expect.objectContaining({
+          ref: "project:active:workflow:prefer-pnpm"
+        })
+      ]
+    });
+
+    const recallScript = await fs.readFile(recallScriptPath, "utf8");
+    const postWorkReviewScript = await fs.readFile(postWorkReviewScriptPath, "utf8");
+    expect(recallScript).toContain(
+      `PROJECT_ROOT=${JSON.stringify(await fs.realpath(projectDir))}`
+    );
+    expect(postWorkReviewScript).toContain(
+      `cam sync --cwd ${JSON.stringify(await fs.realpath(projectDir))}`
+    );
+    expect(postWorkReviewScript).toContain(
+      `exec cam memory --recent --cwd ${JSON.stringify(await fs.realpath(projectDir))}`
+    );
+  });
+
   it("generates recall helper assets for hook and skill bridge flows", async () => {
     const homeDir = await tempDir("cam-hooks-home-");
     const projectDir = await tempDir("cam-hooks-project-");
@@ -75,8 +148,10 @@ describe("hooks command", () => {
       "utf8"
     );
     const recallGuide = await fs.readFile(path.join(hooksDir, "recall-bridge.md"), "utf8");
+    const realProjectDir = await fs.realpath(projectDir);
 
     expect(recallScript).toContain('exec cam recall search "$@"');
+    expect(recallScript).toContain(`PROJECT_ROOT=${JSON.stringify(realProjectDir)}`);
     expect(recallScript).toContain("--state");
     expect(recallScript).toContain("auto");
     expect(recallScript).toContain("--limit");
@@ -84,10 +159,17 @@ describe("hooks command", () => {
     expect(searchScript).toContain('exec "$SCRIPT_DIR/memory-recall.sh" search "$@"');
     expect(timelineScript).toContain('exec "$SCRIPT_DIR/memory-recall.sh" timeline "$@"');
     expect(detailsScript).toContain('exec "$SCRIPT_DIR/memory-recall.sh" details "$@"');
-    expect(postWorkReviewScript).toContain('cam sync "$@"');
-    expect(postWorkReviewScript).toContain("cam memory --recent");
+    expect(postWorkReviewScript).toContain(
+      `cam sync --cwd ${JSON.stringify(realProjectDir)} "$@"`
+    );
+    expect(postWorkReviewScript).toContain(
+      `exec cam memory --recent --cwd ${JSON.stringify(realProjectDir)}`
+    );
     expect(recallGuide).toContain("search_memories");
     expect(recallGuide).toContain("memory-recall.sh search");
+    expect(recallGuide).toContain(
+      `cam recall search "pnpm" --state auto --limit 8 --cwd ${JSON.stringify(realProjectDir)}`
+    );
     expect(recallGuide).toContain("cam memory");
     expect(recallGuide).toContain("cam session");
     expect(recallGuide).toContain("local bridge");

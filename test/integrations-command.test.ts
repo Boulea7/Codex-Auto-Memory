@@ -326,6 +326,56 @@ describe("integrations command", () => {
         )
       ])
     );
+    expect(payload.nextSteps).not.toEqual(
+      expect.arrayContaining([expect.stringContaining("cam hooks install")])
+    );
+    expect(payload.nextSteps).not.toEqual(
+      expect.arrayContaining([expect.stringContaining("cam skills install")])
+    );
+  });
+
+  it("suggests a project-pinned hooks install command when hook helpers are missing", async () => {
+    const homeDir = await tempDir("cam-integrations-doctor-hooks-home-");
+    const projectDir = await tempDir("cam-integrations-doctor-hooks-project-");
+    const shellDir = await tempDir("cam-integrations-doctor-hooks-shell-");
+    const binDir = await tempDir("cam-integrations-doctor-hooks-bin-");
+    process.env.HOME = homeDir;
+
+    await writeCamShim(binDir);
+    const env = {
+      HOME: homeDir,
+      PATH: `${binDir}${path.delimiter}${process.env.PATH ?? ""}`
+    };
+
+    const installResult = runCli(
+      projectDir,
+      ["integrations", "install", "--host", "codex", "--json"],
+      { env }
+    );
+    expect(installResult.exitCode, installResult.stderr).toBe(0);
+
+    await fs.rm(path.join(homeDir, ".codex-auto-memory", "hooks"), {
+      recursive: true,
+      force: true
+    });
+
+    const result = runCli(
+      shellDir,
+      ["integrations", "doctor", "--host", "codex", "--cwd", projectDir, "--json"],
+      { env }
+    );
+    expect(result.exitCode, result.stderr).toBe(0);
+    const payload = JSON.parse(result.stdout) as {
+      projectRoot: string;
+      nextSteps: string[];
+    };
+    expect(payload.nextSteps).toEqual(
+      expect.arrayContaining([
+        expect.stringContaining(
+          `cam hooks install --cwd ${JSON.stringify(payload.projectRoot)}`
+        )
+      ])
+    );
   });
 
   it("surfaces a ready Codex integration stack through integrations doctor", async () => {
