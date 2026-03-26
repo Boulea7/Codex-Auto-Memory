@@ -7,6 +7,7 @@ Use this checklist before cutting any alpha or beta release of `codex-auto-memor
 - Confirm the README still matches current CLI behavior.
 - Confirm the paired Chinese and English public docs still describe the same product boundary and command surface:
   - `README.md` and `README.en.md`
+  - `README.zh-TW.md` and `README.ja.md`
   - `docs/README.md` and `docs/README.en.md`
   - `docs/claude-reference.md` and `docs/claude-reference.en.md`
   - `docs/architecture.md` and `docs/architecture.en.md`
@@ -51,10 +52,13 @@ Use this checklist before cutting any alpha or beta release of `codex-auto-memor
 - Run `node dist/cli.js mcp print-config --host <codex|claude|gemini|generic> --json` for each public host and confirm the snippet contract includes `serverName`, `targetFileHint`, and a project-pinned retrieval command without writing host config files.
 - For `node dist/cli.js mcp print-config --host codex --json`, also confirm the payload includes an additive AGENTS.md snippet / guidance block that teaches MCP-first, `cam recall`-fallback durable memory usage.
 - Run `node dist/cli.js mcp apply-guidance --host codex --json` and confirm it reports `created`, `updated`, `unchanged`, or `blocked` without overwriting unrelated AGENTS.md content outside the managed block.
+- Run `node dist/cli.js mcp apply-guidance --host codex --cwd <path> --json` from another working directory and confirm the managed AGENTS block is written inside the targeted project root.
 - Confirm `node dist/cli.js mcp apply-guidance --host codex --json` ignores fenced-code examples of the managed markers, and that `node dist/cli.js mcp doctor --json` does not treat fenced examples as installed guidance.
 - Run `node dist/cli.js mcp doctor --json` and confirm it reports project-scoped host wiring, project pinning, and hook / skill fallback assets without creating memory layout or mutating host config files.
+- Run `node dist/cli.js skills install --surface official-project --cwd <path>` from another working directory and confirm the explicit project-scoped `.agents/skills` copy is written inside the targeted repository.
 - Run `node dist/cli.js integrations install --host codex --json` and confirm it orchestrates the existing Codex MCP wiring, hook bundle, and skill assets without touching the Markdown memory store.
 - Run `node dist/cli.js integrations apply --host codex --json` and confirm it orchestrates MCP wiring, managed AGENTS guidance, hook assets, and skill assets while keeping `integrations install --host codex` non-mutating for AGENTS.md.
+- Run `node dist/cli.js integrations apply --host codex --cwd <path> --json` from another working directory and confirm the stack still project-pins all subactions to the targeted repository.
 - Run `node dist/cli.js skills install --surface official-user` and confirm the explicit official `.agents/skills` copy is written without changing the runtime default target.
 - Run `node dist/cli.js integrations install --host codex --skill-surface official-user --json` and confirm the skill subaction reports the selected surface while MCP and AGENTS boundaries stay unchanged.
 - Run `node dist/cli.js integrations apply --host codex --skill-surface official-user --json` and confirm the selected skill surface passes through while the AGENTS mutation boundary remains exclusive to `apply`.
@@ -66,6 +70,7 @@ Use this checklist before cutting any alpha or beta release of `codex-auto-memor
   - `node dist/cli.js mcp install --help` should keep the supported install-host list at `codex, claude, or gemini`, leaving `generic` out of the install branch.
   - `node dist/cli.js mcp print-config --help` should keep the supported snippet-host list at `codex, claude, gemini, or generic`.
   - `node dist/cli.js mcp apply-guidance --help` should stay Codex-only and describe managed `AGENTS.md` updates.
+  - `node dist/cli.js mcp doctor --help` should stay inspect-only and keep the host selection list at `codex, claude, gemini, generic, or all`.
   - `node dist/cli.js skills install --help` should keep the public skill surfaces aligned at `runtime, official-user, or official-project`.
   - `node dist/cli.js integrations install --help` should describe stack install without managed `AGENTS.md` mutation.
   - `node dist/cli.js integrations apply --help` should explicitly add the managed `AGENTS.md` guidance flow on top of install.

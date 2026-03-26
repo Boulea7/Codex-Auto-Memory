@@ -160,6 +160,7 @@ export interface McpDoctorReport {
     install: true;
     serve: true;
     printConfig: true;
+    applyGuidance: true;
     doctor: true;
   };
   agentsGuidance: CodexAgentsGuidanceInspection;
@@ -675,6 +676,7 @@ export async function inspectMcpDoctor(options: {
       install: true,
       serve: true,
       printConfig: true,
+      applyGuidance: true,
       doctor: true
     },
     agentsGuidance,
@@ -692,7 +694,7 @@ export function formatMcpDoctorReport(report: McpDoctorReport): string {
     `Inside project root: ${report.cwdWithinProjectRoot ? "yes" : "no"}`,
     `Server name: ${report.serverName}`,
     "Retrieval plane: read-only",
-    "Command surface: cam mcp install, cam mcp serve, cam mcp print-config, cam mcp doctor",
+    "Command surface: cam mcp install, cam mcp serve, cam mcp print-config, cam mcp apply-guidance, cam mcp doctor",
     "",
     "Host checks:"
   ];

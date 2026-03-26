@@ -8,6 +8,7 @@ import {
   buildRecommendedSearchPresetGuidance,
   buildRecommendedMcpSearchInstruction,
   buildRecommendedRetrievalSummaryLines,
+  buildSharedWorkflowDisciplineLines,
   buildShellAssetVersionComment,
   CLI_FALLBACK_RECALL_WORKFLOW,
   MCP_DOCTOR_GUIDANCE,
@@ -177,16 +178,17 @@ This bundle keeps durable-memory recall host-agnostic.
 
 ## Boundaries
 
-- ${MEMORY_AUDIT_BOUNDARY}
-- ${SESSION_CONTINUITY_BOUNDARY}
-- ${ARCHIVE_BOUNDARY}
+${buildSharedWorkflowDisciplineLines()
+  .slice(2)
+  .map((line) => `- ${line}`)
+  .join("\n")}
 
 ## Workflow discipline
 
 1. Search first.
 2. Inspect timeline only for promising refs.
 3. Fetch full details only when you still need the full Markdown body.
-4. After finishing work that should update durable memory, run \`cam sync\` or review \`cam memory --recent\`.
+4. ${buildSharedWorkflowDisciplineLines()[2]}
 `;
 }
 

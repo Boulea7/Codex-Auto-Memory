@@ -454,6 +454,31 @@ describe("mcp command", () => {
     });
   });
 
+  it("supports apply-guidance --cwd for updating another project's AGENTS guidance", async () => {
+    const homeDir = await tempDir("cam-mcp-apply-guidance-cwd-home-");
+    const projectDir = await tempDir("cam-mcp-apply-guidance-cwd-project-");
+    const callerDir = await tempDir("cam-mcp-apply-guidance-cwd-caller-");
+    const realProjectDir = await fs.realpath(projectDir);
+    process.env.HOME = homeDir;
+
+    const result = runCli(
+      callerDir,
+      ["mcp", "apply-guidance", "--host", "codex", "--cwd", projectDir, "--json"],
+      { env: { HOME: homeDir } }
+    );
+
+    expect(result.exitCode, result.stderr).toBe(0);
+    expect(JSON.parse(result.stdout)).toMatchObject({
+      host: "codex",
+      action: "created",
+      targetPath: path.join(realProjectDir, "AGENTS.md")
+    });
+
+    const agentsContents = await fs.readFile(path.join(realProjectDir, "AGENTS.md"), "utf8");
+    expect(agentsContents).toContain("search_memories");
+    expect(agentsContents).toContain("cam sync");
+  });
+
   it("prints ready-to-paste host snippets without mutating host config files", async () => {
     const homeDir = await tempDir("cam-mcp-print-home-");
     const projectDir = await tempDir("cam-mcp-print-project-");
@@ -1097,6 +1122,7 @@ describe("mcp command", () => {
         install: boolean;
         serve: boolean;
         printConfig: boolean;
+        applyGuidance: boolean;
         doctor: boolean;
       };
       fallbackAssets: {
@@ -1143,6 +1169,7 @@ describe("mcp command", () => {
       install: true,
       serve: true,
       printConfig: true,
+      applyGuidance: true,
       doctor: true
     });
     expect(payload.fallbackAssets).toMatchObject({
