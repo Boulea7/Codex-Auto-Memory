@@ -74,13 +74,18 @@ function isMemoryConflictCandidate(value: unknown): value is MemoryConflictCandi
 function summaryForStatus(
   status: MemorySyncAuditStatus,
   appliedCount: number,
+  noopOperationCount: number,
   skipReason?: MemorySyncAuditSkipReason
 ): string {
   switch (status) {
     case "applied":
-      return `${appliedCount} operation(s) applied`;
+      return noopOperationCount > 0
+        ? `${appliedCount} operation(s) applied, ${noopOperationCount} no-op`
+        : `${appliedCount} operation(s) applied`;
     case "no-op":
-      return "0 operations applied";
+      return noopOperationCount > 0
+        ? `0 operations applied, ${noopOperationCount} no-op`
+        : "0 operations applied";
     case "skipped":
       return skipReason === "already-processed"
         ? "Skipped rollout; it was already processed"
@@ -103,6 +108,8 @@ export function parseMemorySyncAuditEntry(value: unknown): MemorySyncAuditEntry 
         isMemoryConflictCandidate(candidate)
       )
     : [];
+  const noopOperationCount =
+    typeof entry.noopOperationCount === "number" ? entry.noopOperationCount : 0;
   const suppressedOperationCount =
     typeof entry.suppressedOperationCount === "number" ? entry.suppressedOperationCount : 0;
 
@@ -120,6 +127,7 @@ export function parseMemorySyncAuditEntry(value: unknown): MemorySyncAuditEntry 
     !isMemorySyncAuditStatus(entry.status) ||
     !isMemorySyncAuditSkipReason(entry.skipReason) ||
     typeof entry.appliedCount !== "number" ||
+    noopOperationCount < 0 ||
     suppressedOperationCount < 0 ||
     !Array.isArray(entry.scopesTouched) ||
     !entry.scopesTouched.every((scope) => isMemoryScope(scope)) ||
@@ -147,6 +155,7 @@ export function parseMemorySyncAuditEntry(value: unknown): MemorySyncAuditEntry 
     skipReason: entry.status === "skipped" ? entry.skipReason : undefined,
     ...(entry.isRecovery === true ? { isRecovery: true } : {}),
     appliedCount: entry.appliedCount,
+    noopOperationCount,
     suppressedOperationCount,
     scopesTouched: entry.scopesTouched,
     resultSummary: entry.resultSummary,
@@ -172,6 +181,7 @@ interface BuildMemorySyncAuditEntryOptions {
   sessionId?: string;
   skipReason?: MemorySyncAuditSkipReason;
   isRecovery?: boolean;
+  noopOperationCount?: number;
   suppressedOperationCount?: number;
   conflicts?: MemoryConflictCandidate[];
   operations?: MemoryOperation[];
@@ -184,6 +194,7 @@ export function buildMemorySyncAuditEntry(
   const conflicts = options.conflicts ?? [];
   const scopesTouched = Array.from(new Set(operations.map((operation) => operation.scope)));
   const appliedCount = operations.length;
+  const noopOperationCount = options.noopOperationCount ?? 0;
 
   return {
     appliedAt: options.appliedAt ?? new Date().toISOString(),
@@ -202,9 +213,15 @@ export function buildMemorySyncAuditEntry(
     skipReason: options.status === "skipped" ? options.skipReason : undefined,
     ...(options.isRecovery ? { isRecovery: true } : {}),
     appliedCount,
+    noopOperationCount,
     suppressedOperationCount: options.suppressedOperationCount ?? 0,
     scopesTouched,
-    resultSummary: summaryForStatus(options.status, appliedCount, options.skipReason),
+    resultSummary: summaryForStatus(
+      options.status,
+      appliedCount,
+      noopOperationCount,
+      options.skipReason
+    ),
     conflicts,
     operations
   };
@@ -214,7 +231,7 @@ export function formatMemorySyncAuditEntry(entry: MemorySyncAuditEntry): string[
   const lines = [
     `- ${entry.appliedAt}: [${entry.status}]${entry.isRecovery ? ' [recovery]' : ''} ${entry.resultSummary}`,
     `  Session: ${entry.sessionId ?? "unknown"} | Extractor: ${entry.actualExtractorName || entry.actualExtractorMode}`,
-    `  Applied: ${entry.appliedCount} | Suppressed: ${entry.suppressedOperationCount ?? 0} | Scopes: ${entry.scopesTouched.length ? entry.scopesTouched.join(", ") : "none"}`
+    `  Applied: ${entry.appliedCount} | No-op: ${entry.noopOperationCount ?? 0} | Suppressed: ${entry.suppressedOperationCount ?? 0} | Scopes: ${entry.scopesTouched.length ? entry.scopesTouched.join(", ") : "none"}`
   ];
 
   if (

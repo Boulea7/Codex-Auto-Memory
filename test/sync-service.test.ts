@@ -222,6 +222,71 @@ describe("SyncService", () => {
     expect(auditEntries[0]?.operations).toEqual([]);
   });
 
+  it("treats source-only extracted changes as applied updates instead of noop", async () => {
+    const projectDir = await tempDir("cam-sync-dedupe-noop-project-");
+    const memoryRoot = await tempDir("cam-sync-dedupe-noop-memory-");
+    const rolloutPath = path.join(projectDir, "dedupe-noop-rollout.jsonl");
+    await fs.writeFile(rolloutPath, rolloutFixture(projectDir, "session-dedupe-noop"), "utf8");
+
+    const service = new SyncService(
+      detectProjectContext(projectDir),
+      {
+        ...baseConfig(memoryRoot),
+        extractorMode: "codex"
+      },
+      path.resolve("schemas/memory-operations.schema.json")
+    );
+    await service.memoryStore.remember(
+      "project",
+      "workflow",
+      "prefer-pnpm",
+      "Prefer pnpm in this repository.",
+      ["Use pnpm instead of npm in this repository."],
+      "Manual note."
+    );
+
+    const primaryExtractor = (service as unknown as {
+      primaryExtractor: { extract: () => Promise<MemoryOperation[] | null> };
+    }).primaryExtractor;
+    vi.spyOn(primaryExtractor, "extract").mockResolvedValueOnce([
+      {
+        action: "upsert",
+        scope: "project",
+        topic: "workflow",
+        id: "prefer-pnpm",
+        summary: "Prefer pnpm in this repository.",
+        details: ["Use pnpm instead of npm in this repository."],
+        sources: [rolloutPath],
+        reason: "Manual note."
+      }
+    ]);
+
+    const result = await service.syncRollout(rolloutPath, true);
+    const auditEntries = await service.memoryStore.readRecentSyncAuditEntries(5);
+    const history = await service.memoryStore.readHistory("project");
+
+    expect(result.applied).toEqual([
+      expect.objectContaining({
+        action: "upsert",
+        scope: "project",
+        topic: "workflow",
+        id: "prefer-pnpm",
+        sources: [rolloutPath]
+      })
+    ]);
+    expect(result.skipped).toBe(false);
+    expect(auditEntries[0]).toMatchObject({
+      rolloutPath,
+      sessionId: "session-dedupe-noop",
+      status: "applied",
+      appliedCount: 1,
+      noopOperationCount: 0,
+      scopesTouched: ["project"]
+    });
+    expect(history).toHaveLength(2);
+    expect(history[0]?.action).toBe("update");
+  });
+
   it("suppresses conflicting preference candidates from the same rollout and records reviewer conflicts", async () => {
     const projectDir = await tempDir("cam-sync-within-conflict-project-");
     const memoryRoot = await tempDir("cam-sync-within-conflict-memory-");
@@ -466,7 +531,7 @@ describe("SyncService", () => {
     );
   });
 
-  it("ignores a corrupted processed state file and still syncs successfully", async () => {
+  it("fails closed when the processed state file is corrupted", async () => {
     const projectDir = await tempDir("cam-sync-corrupt-state-project-");
     const memoryRoot = await tempDir("cam-sync-corrupt-state-memory-");
     const rolloutPath = path.join(projectDir, "rollout.jsonl");
@@ -480,11 +545,7 @@ describe("SyncService", () => {
     await service.memoryStore.ensureLayout();
     await fs.writeFile(service.memoryStore.paths.stateFile, "{\"broken\":\n", "utf8");
 
-    const result = await service.syncRollout(rolloutPath, false);
-    const identity = await processedIdentity(service, rolloutPath, "session-corrupt-state");
-
-    expect(result.skipped).toBe(false);
-    expect(await service.memoryStore.hasProcessedRollout(identity)).toBe(true);
+    await expect(service.syncRollout(rolloutPath, false)).rejects.toThrow(/Unexpected end of JSON input/);
   });
 
   it("records actual heuristic execution when codex mode falls back during durable sync extraction", async () => {
@@ -566,6 +627,83 @@ describe("SyncService", () => {
       extractorName: "codex-ephemeral",
       appliedCount: 1
     });
+  });
+
+  it("classifies add, update, and delete lifecycle events during sync application", async () => {
+    const projectDir = await tempDir("cam-sync-lifecycle-project-");
+    const memoryRoot = await tempDir("cam-sync-lifecycle-memory-");
+    const rolloutOnePath = path.join(projectDir, "rollout-one.jsonl");
+    const rolloutTwoPath = path.join(projectDir, "rollout-two.jsonl");
+    const rolloutThreePath = path.join(projectDir, "rollout-three.jsonl");
+    await fs.writeFile(rolloutOnePath, rolloutFixture(projectDir, "session-lifecycle-1"), "utf8");
+    await fs.writeFile(rolloutTwoPath, rolloutFixture(projectDir, "session-lifecycle-2"), "utf8");
+    await fs.writeFile(rolloutThreePath, rolloutFixture(projectDir, "session-lifecycle-3"), "utf8");
+
+    const service = new SyncService(
+      detectProjectContext(projectDir),
+      {
+        ...baseConfig(memoryRoot),
+        extractorMode: "codex"
+      },
+      path.resolve("schemas/memory-operations.schema.json")
+    );
+    const primaryExtractor = (service as unknown as {
+      primaryExtractor: { extract: () => Promise<MemoryOperation[] | null> };
+    }).primaryExtractor;
+    vi.spyOn(primaryExtractor, "extract")
+      .mockResolvedValueOnce([
+        {
+          action: "upsert",
+          scope: "project",
+          topic: "workflow",
+          id: "prefer-pnpm",
+          summary: "Prefer pnpm in this repository.",
+          details: ["Use pnpm instead of npm in this repository."],
+          sources: ["rollout-one.jsonl"]
+        }
+      ])
+      .mockResolvedValueOnce([
+        {
+          action: "upsert",
+          scope: "project",
+          topic: "workflow",
+          id: "prefer-pnpm",
+          summary: "Prefer pnpm for every repository task.",
+          details: ["Keep pnpm as the canonical package manager."],
+          sources: ["rollout-two.jsonl"]
+        }
+      ])
+      .mockResolvedValueOnce([
+        {
+          action: "delete",
+          scope: "project",
+          topic: "workflow",
+          id: "prefer-pnpm",
+          sources: ["rollout-three.jsonl"],
+          reason: "The preference was explicitly revoked."
+        }
+      ]);
+
+    await service.syncRollout(rolloutOnePath, true);
+    await service.syncRollout(rolloutTwoPath, true);
+    await service.syncRollout(rolloutThreePath, true);
+
+    const history = await service.memoryStore.readHistory("project");
+
+    expect(history.slice(0, 3).map((entry) => entry.action)).toEqual(["delete", "update", "add"]);
+    expect(history[0]).toMatchObject({
+      state: "deleted",
+      summary: "Prefer pnpm for every repository task."
+    });
+    expect(history[1]).toMatchObject({
+      state: "active",
+      summary: "Prefer pnpm for every repository task."
+    });
+    expect(history[2]).toMatchObject({
+      state: "active",
+      summary: "Prefer pnpm in this repository."
+    });
+    expect(await service.memoryStore.listEntries("project")).toEqual([]);
   });
 
   it("does not mark a rollout as processed when sync audit persistence fails", async () => {
