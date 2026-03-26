@@ -10,6 +10,8 @@ import type {
   MemoryMutation,
   MemoryOperation,
   MemoryRecordState,
+  MemoryRetrievalFallbackReason,
+  MemoryRetrievalMode,
   MemorySearchResult,
   MemoryScope,
   MemorySyncAuditEntry,
@@ -82,7 +84,21 @@ interface RetrievalIndexPayload {
   version: 1;
   scope: MemoryScope;
   state: MemoryRecordState;
+  generatedAt: string;
+  topicFiles: string[];
+  topicFileCount: number;
   entries: RetrievalIndexEntry[];
+}
+
+interface RetrievalIndexInspection {
+  payload: RetrievalIndexPayload | null;
+  fallbackReason?: MemoryRetrievalFallbackReason;
+}
+
+interface MemorySearchExecution {
+  results: MemorySearchResult[];
+  retrievalMode: MemoryRetrievalMode;
+  retrievalFallbackReason?: MemoryRetrievalFallbackReason;
 }
 
 interface PlannedFileChange {
@@ -343,10 +359,16 @@ function buildRetrievalIndexContents(
   state: MemoryRecordState,
   entries: MemoryEntry[]
 ): string {
+  const topicFiles = Array.from(
+    new Set(entries.map((entry) => `${entry.topic}.md`))
+  ).sort((left, right) => left.localeCompare(right));
   const payload: RetrievalIndexPayload = {
     version: retrievalIndexVersion,
     scope,
     state,
+    generatedAt: new Date().toISOString(),
+    topicFiles,
+    topicFileCount: topicFiles.length,
     entries: buildRetrievalIndexEntries(scope, state, entries)
   };
 
@@ -469,6 +491,10 @@ function isRetrievalIndexPayload(value: unknown): value is RetrievalIndexPayload
     payload.version === retrievalIndexVersion &&
     isMemoryScope(payload.scope) &&
     (payload.state === "active" || payload.state === "archived") &&
+    typeof payload.generatedAt === "string" &&
+    isStringArray(payload.topicFiles) &&
+    typeof payload.topicFileCount === "number" &&
+    payload.topicFileCount === payload.topicFiles.length &&
     Array.isArray(payload.entries) &&
     payload.entries.every((entry) => isRetrievalIndexEntry(entry))
   );
@@ -614,6 +640,22 @@ function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
 
+function fileChangePriority(change: PlannedFileChange): number {
+  if (change.path.endsWith("retrieval-index.json")) {
+    return 3;
+  }
+
+  if (change.path.endsWith("memory-history.jsonl")) {
+    return 2;
+  }
+
+  if (change.path.endsWith("MEMORY.md") || change.path.endsWith("ARCHIVE.md")) {
+    return 1;
+  }
+
+  return 0;
+}
+
 const defaultMemoryStoreFileOps: MemoryStoreFileOps = {
   writeTextFile: writeTextFileAtomic,
   async deleteFile(filePath: string): Promise<void> {
@@ -719,58 +761,98 @@ export class MemoryStore {
     return state === "active" ? this.getTopicFile(scope, topic) : this.getArchiveTopicFile(scope, topic);
   }
 
-  private async readRetrievalIndex(
+  private async listTopicMarkdownFiles(
     scope: MemoryScope,
     state: MemoryRecordState
-  ): Promise<RetrievalIndexPayload | null> {
+  ): Promise<string[]> {
+    const baseDir = state === "active" ? this.getScopeDir(scope) : this.getArchiveDir(scope);
+    if (!(await fileExists(baseDir))) {
+      return [];
+    }
+
+    return (await fs.readdir(baseDir))
+      .filter(
+        (fileName) =>
+          fileName.endsWith(".md") &&
+          fileName !== "MEMORY.md" &&
+          fileName !== "ARCHIVE.md"
+      )
+      .filter((fileName) => topicNamePattern.test(fileName.replace(/\.md$/u, "")))
+      .sort((left, right) => left.localeCompare(right));
+  }
+
+  private async inspectRetrievalIndex(
+    scope: MemoryScope,
+    state: MemoryRecordState
+  ): Promise<RetrievalIndexInspection> {
     const retrievalIndexPath = this.getRetrievalIndexFile(scope, state);
     if (!(await fileExists(retrievalIndexPath))) {
-      return null;
+      return {
+        payload: null,
+        fallbackReason: "missing"
+      };
     }
 
     let payload: unknown;
     try {
       payload = JSON.parse(await readTextFile(retrievalIndexPath)) as unknown;
     } catch {
-      return null;
+      return {
+        payload: null,
+        fallbackReason: "invalid"
+      };
     }
 
     if (!isRetrievalIndexPayload(payload)) {
-      return null;
+      return {
+        payload: null,
+        fallbackReason: "invalid"
+      };
     }
 
     if (payload.scope !== scope || payload.state !== state) {
-      return null;
+      return {
+        payload: null,
+        fallbackReason: "invalid"
+      };
     }
 
-    if (await this.isRetrievalIndexStale(scope, state, retrievalIndexPath)) {
-      return null;
+    if (await this.isRetrievalIndexStale(scope, state, retrievalIndexPath, payload)) {
+      return {
+        payload: null,
+        fallbackReason: "stale"
+      };
     }
 
-    return payload;
+    return {
+      payload
+    };
+  }
+
+  private async readRetrievalIndex(
+    scope: MemoryScope,
+    state: MemoryRecordState
+  ): Promise<RetrievalIndexPayload | null> {
+    return (await this.inspectRetrievalIndex(scope, state)).payload;
   }
 
   private async isRetrievalIndexStale(
     scope: MemoryScope,
     state: MemoryRecordState,
-    retrievalIndexPath: string
+    retrievalIndexPath: string,
+    payload: RetrievalIndexPayload
   ): Promise<boolean> {
-    const baseDir = state === "active" ? this.getScopeDir(scope) : this.getArchiveDir(scope);
-    if (!(await fileExists(baseDir))) {
-      return false;
+    const topicFiles = await this.listTopicMarkdownFiles(scope, state);
+    if (
+      payload.topicFileCount !== topicFiles.length ||
+      JSON.stringify(payload.topicFiles) !== JSON.stringify(topicFiles)
+    ) {
+      return true;
     }
 
     const indexStats = await fs.stat(retrievalIndexPath);
-    const files = await fs.readdir(baseDir);
-    for (const fileName of files) {
-      if (
-        !fileName.endsWith(".md") ||
-        fileName === "MEMORY.md" ||
-        fileName === "ARCHIVE.md"
-      ) {
-        continue;
-      }
-
+    const baseDir = state === "active" ? this.getScopeDir(scope) : this.getArchiveDir(scope);
+    for (const fileName of topicFiles) {
       const stats = await fs.stat(path.join(baseDir, fileName));
       if (stats.mtimeMs > indexStats.mtimeMs) {
         return true;
@@ -993,6 +1075,7 @@ export class MemoryStore {
       return null;
     }
 
+    const latestEvent = (await this.readTimeline(ref))[0] ?? null;
     return {
       ...parsed,
       entry,
@@ -1000,18 +1083,22 @@ export class MemoryStore {
         parsed.state === "active"
           ? this.getTopicFile(parsed.scope, parsed.topic)
           : this.getArchiveTopicFile(parsed.scope, parsed.topic),
-      approxReadCost: entry.details.length + 4
+      approxReadCost: entry.details.length + 4,
+      latestLifecycleAction: latestEvent?.action ?? null,
+      latestSessionId: latestEvent?.sessionId ?? null,
+      latestRolloutPath: latestEvent?.rolloutPath ?? null,
+      historyPath: this.getHistoryPath(parsed.scope)
     };
   }
 
-  public async searchEntries(
+  public async searchEntriesWithDiagnostics(
     query: string,
     options: {
       scope?: MemoryScope | "all";
       state?: MemoryRecordState | "all";
       limit?: number;
     } = {}
-  ): Promise<MemorySearchResult[]> {
+  ): Promise<MemorySearchExecution> {
     const scopes: MemoryScope[] =
       options.scope && options.scope !== "all"
         ? [options.scope]
@@ -1021,12 +1108,16 @@ export class MemoryStore {
         ? ["active", "archived"]
         : [options.state ?? "active"];
     const results: Array<MemorySearchResult & { score: number }> = [];
+    let usedFallback = false;
+    let fallbackReason: MemoryRetrievalFallbackReason | undefined;
+    let matchedViaIndex = false;
+    let matchedViaFallback = false;
 
     for (const scope of scopes) {
       for (const state of states) {
-        const retrievalIndex = await this.readRetrievalIndex(scope, state);
-        if (retrievalIndex) {
-          for (const entry of retrievalIndex.entries) {
+        const retrievalIndex = await this.inspectRetrievalIndex(scope, state);
+        if (retrievalIndex.payload) {
+          for (const entry of retrievalIndex.payload.entries) {
             const match = findRetrievalIndexSearchMatch(entry, query);
             if (!match) {
               continue;
@@ -1044,10 +1135,13 @@ export class MemoryStore {
               approxReadCost: entry.approxReadCost,
               score: match.score
             });
+            matchedViaIndex = true;
           }
           continue;
         }
 
+        usedFallback = true;
+        fallbackReason ??= retrievalIndex.fallbackReason ?? "missing";
         const entries = await this.listEntries(scope, state);
         for (const entry of entries) {
           const match = findEntrySearchMatch(entry, query);
@@ -1067,11 +1161,12 @@ export class MemoryStore {
             approxReadCost: entry.details.length + 4,
             score: match.score
           });
+          matchedViaFallback = true;
         }
       }
     }
 
-    return results
+    const normalizedResults = results
       .sort((left, right) => {
         if (right.score !== left.score) {
           return right.score - left.score;
@@ -1080,6 +1175,27 @@ export class MemoryStore {
       })
       .slice(0, options.limit ?? 10)
       .map(({ score: _score, ...result }) => result);
+
+    return {
+      results: normalizedResults,
+      retrievalMode:
+        matchedViaFallback || (!matchedViaIndex && usedFallback)
+          ? "markdown-fallback"
+          : "index",
+      retrievalFallbackReason:
+        matchedViaFallback || (!matchedViaIndex && usedFallback) ? fallbackReason : undefined
+    };
+  }
+
+  public async searchEntries(
+    query: string,
+    options: {
+      scope?: MemoryScope | "all";
+      state?: MemoryRecordState | "all";
+      limit?: number;
+    } = {}
+  ): Promise<MemorySearchResult[]> {
+    return (await this.searchEntriesWithDiagnostics(query, options)).results;
   }
 
   public async readTimeline(ref: string): Promise<MemoryTimelineEvent[]> {
@@ -1148,6 +1264,7 @@ export class MemoryStore {
     mutations: MemoryMutation[],
     options: {
       sessionId?: string;
+      rolloutPath?: string;
     } = {}
   ): Promise<MutationCommitPlan> {
     const applied: MemoryApplyRecord[] = [];
@@ -1278,7 +1395,9 @@ export class MemoryStore {
           reason: mutation.reason,
           source: mutation.sources?.[0],
           sessionId: options.sessionId,
-          rolloutPath: mutation.sources?.find((source) => source.endsWith(".jsonl"))
+          rolloutPath:
+            options.rolloutPath ??
+            mutation.sources?.find((source) => source.endsWith(".jsonl"))
         });
         continue;
       }
@@ -1351,7 +1470,9 @@ export class MemoryStore {
           reason: appliedOperation.reason,
           source: appliedOperation.sources?.[0],
           sessionId: options.sessionId,
-          rolloutPath: appliedOperation.sources?.find((source) => source.endsWith(".jsonl"))
+          rolloutPath:
+            options.rolloutPath ??
+            appliedOperation.sources?.find((source) => source.endsWith(".jsonl"))
         });
         continue;
       }
@@ -1406,7 +1527,9 @@ export class MemoryStore {
         reason: appliedOperation.reason,
         source: appliedOperation.sources?.[0],
         sessionId: options.sessionId,
-        rolloutPath: appliedOperation.sources?.find((source) => source.endsWith(".jsonl"))
+        rolloutPath:
+          options.rolloutPath ??
+          appliedOperation.sources?.find((source) => source.endsWith(".jsonl"))
       });
     }
 
@@ -1523,7 +1646,13 @@ export class MemoryStore {
     const snapshots = await this.captureFileSnapshots(fileChanges);
     const writes = fileChanges
       .filter((change): change is PlannedFileChange & { contents: string } => change.contents !== null)
-      .sort((left, right) => left.path.localeCompare(right.path));
+      .sort((left, right) => {
+        const priorityDifference = fileChangePriority(left) - fileChangePriority(right);
+        if (priorityDifference !== 0) {
+          return priorityDifference;
+        }
+        return left.path.localeCompare(right.path);
+      });
     const deletes = fileChanges
       .filter((change) => change.contents === null)
       .sort((left, right) => left.path.localeCompare(right.path));
@@ -1552,6 +1681,7 @@ export class MemoryStore {
     operations: MemoryOperation[],
     options: {
       sessionId?: string;
+      rolloutPath?: string;
     } = {}
   ): Promise<MemoryOperation[]> {
     const applied = await this.applyMutations(operations, options);
@@ -1565,6 +1695,7 @@ export class MemoryStore {
     mutations: MemoryMutation[],
     options: {
       sessionId?: string;
+      rolloutPath?: string;
     } = {}
   ): Promise<MemoryApplyRecord[]> {
     await this.ensureLayout();

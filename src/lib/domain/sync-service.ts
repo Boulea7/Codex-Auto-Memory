@@ -144,7 +144,8 @@ export class SyncService {
       existingEntries
     );
     const applyRecords = await this.store.applyMutations(reviewedOperations.operations, {
-      sessionId: evidence.sessionId
+      sessionId: evidence.sessionId,
+      rolloutPath: evidence.rolloutPath
     });
     const applied = applyRecords.flatMap((record) => {
       const operation = toAppliedOperation(record);

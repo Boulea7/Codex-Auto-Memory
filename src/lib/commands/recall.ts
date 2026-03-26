@@ -29,7 +29,8 @@ function formatSearchResults(response: MemorySearchResponse): string {
     "Codex Auto Memory Recall Search",
     `Query: ${response.query}`,
     `Scope: ${response.scope} | Requested state: ${response.state} | Resolved state: ${response.resolvedState} | Results: ${response.results.length}`,
-    `Archived fallback used: ${response.fallbackUsed ? "yes" : "no"}`
+    `Archived fallback used: ${response.fallbackUsed ? "yes" : "no"}`,
+    `Retrieval mode: ${response.retrievalMode}${response.retrievalFallbackReason ? ` (${response.retrievalFallbackReason})` : ""}`
   ];
 
   if (response.results.length === 0) {
@@ -72,6 +73,9 @@ function formatTimeline(ref: string, timeline: MemoryTimelineEvent[]): string {
     if (event.source) {
       lines.push(`  Source: ${event.source}`);
     }
+    if (event.sessionId) {
+      lines.push(`  Session: ${event.sessionId}`);
+    }
     if (event.rolloutPath) {
       lines.push(`  Rollout: ${event.rolloutPath}`);
     }
@@ -85,12 +89,22 @@ function formatDetails(details: MemoryDetailsResult): string {
     "Codex Auto Memory Recall Details",
     `Ref: ${details.ref}`,
     `Path: ${details.path}`,
+    `History: ${details.historyPath}`,
     `Scope: ${details.scope} | State: ${details.state} | Topic: ${details.topic}`,
     `Updated: ${details.entry.updatedAt}`,
+    `Latest lifecycle action: ${details.latestLifecycleAction ?? "unknown"}`,
     `Summary: ${details.entry.summary}`,
     "Details:",
     ...details.entry.details.map((detail) => `- ${detail}`)
   ];
+
+  if (details.latestSessionId) {
+    lines.push(`Latest session: ${details.latestSessionId}`);
+  }
+
+  if (details.latestRolloutPath) {
+    lines.push(`Latest rollout: ${details.latestRolloutPath}`);
+  }
 
   if (details.entry.sources.length > 0) {
     lines.push("Sources:", ...details.entry.sources.map((source) => `- ${source}`));

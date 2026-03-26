@@ -28,32 +28,59 @@ export class MemoryRetrievalService {
     const limit = options.limit ?? DEFAULT_MEMORY_RETRIEVAL_LIMIT;
 
     if (state === "auto") {
-      const activeResults = await this.memoryStore.searchEntries(query, {
+      const activeSearch = await this.memoryStore.searchEntriesWithDiagnostics(query, {
         scope,
         state: "active",
         limit
       });
 
-      if (activeResults.length > 0) {
-        return buildMemorySearchResponse(query, scope, state, "active", false, activeResults);
+      if (activeSearch.results.length > 0) {
+        return buildMemorySearchResponse(
+          query,
+          scope,
+          state,
+          "active",
+          false,
+          activeSearch.retrievalMode,
+          activeSearch.retrievalFallbackReason,
+          activeSearch.results
+        );
       }
 
-      const archivedResults = await this.memoryStore.searchEntries(query, {
+      const archivedSearch = await this.memoryStore.searchEntriesWithDiagnostics(query, {
         scope,
         state: "archived",
         limit
       });
 
-      return buildMemorySearchResponse(query, scope, state, "archived", true, archivedResults);
+      return buildMemorySearchResponse(
+        query,
+        scope,
+        state,
+        "archived",
+        true,
+        archivedSearch.retrievalMode,
+        archivedSearch.retrievalFallbackReason,
+        archivedSearch.results
+      );
     }
 
-    const results = await this.memoryStore.searchEntries(query, {
+    const search = await this.memoryStore.searchEntriesWithDiagnostics(query, {
       scope,
       state,
       limit
     });
 
-    return buildMemorySearchResponse(query, scope, state, state, false, results);
+    return buildMemorySearchResponse(
+      query,
+      scope,
+      state,
+      state,
+      false,
+      search.retrievalMode,
+      search.retrievalFallbackReason,
+      search.results
+    );
   }
 
   public async timelineMemories(ref: string): Promise<MemoryTimelineEvent[]> {

@@ -1,5 +1,7 @@
 import type {
   MemoryDetailsResult,
+  MemoryRetrievalFallbackReason,
+  MemoryRetrievalMode,
   MemoryRecordState,
   MemoryRetrievalResolvedState,
   MemoryRetrievalScope,
@@ -71,6 +73,8 @@ export function buildMemorySearchResponse(
   state: MemoryRetrievalStateFilter,
   resolvedState: MemoryRetrievalResolvedState,
   fallbackUsed: boolean,
+  retrievalMode: MemoryRetrievalMode,
+  retrievalFallbackReason: MemoryRetrievalFallbackReason | undefined,
   results: MemorySearchResult[]
 ): MemorySearchResponse {
   return {
@@ -79,6 +83,8 @@ export function buildMemorySearchResponse(
     state,
     resolvedState,
     fallbackUsed,
+    retrievalMode,
+    retrievalFallbackReason,
     results
   };
 }

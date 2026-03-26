@@ -44,8 +44,11 @@ Use this checklist before cutting any alpha or beta release of `codex-auto-memor
 - Run `node dist/cli.js session status --json` and confirm the latest explicit audit drill-down matches the newest audit-log entry when present.
 - Run `node dist/cli.js memory --recent --json` and confirm suppressed conflict candidates remain reviewer-visible instead of being silently merged.
 - Run `node dist/cli.js recall search pnpm --json` and confirm the default search contract stays aligned at `state=auto, limit=8`, returning compact refs before any full detail fetch.
+- Confirm `node dist/cli.js recall search pnpm --json` now also reports whether the search used the retrieval sidecar or fell back to Markdown scan through additive `retrievalMode` / `retrievalFallbackReason` fields.
 - Run `node dist/cli.js recall details <ref> --json` for one returned ref and confirm the path resolves to Markdown-backed memory, including archived refs when relevant.
+- Confirm `node dist/cli.js recall details <ref> --json` now also exposes additive provenance summary fields such as `latestLifecycleAction`, `latestSessionId`, `latestRolloutPath`, and `historyPath`.
 - Run a local MCP smoke against `node dist/cli.js mcp serve` and confirm `search_memories`, `timeline_memories`, and `get_memory_details` are exposed as a read-only retrieval plane.
+- Confirm `search_memories` mirrors the CLI retrieval diagnostics through additive `retrievalMode` / `retrievalFallbackReason` fields, and `timeline_memories` / `get_memory_details` keep lifecycle provenance aligned with the CLI retrieval surface.
 - Run `node dist/cli.js mcp install --host <codex|claude|gemini> --json` and confirm the result contract includes `host`, `serverName`, `projectRoot`, `targetPath`, `action`, `projectPinned`, and `readOnlyRetrieval`.
 - Re-run the same `node dist/cli.js mcp install --host <codex|claude|gemini> --json` command once and confirm it returns `action: "unchanged"` when the target host config is already canonical.
 - Confirm `node dist/cli.js mcp install --host <codex|claude|gemini> --json` preserves non-canonical custom fields already attached to the `codex_auto_memory` entry instead of dropping them silently.
@@ -78,6 +81,7 @@ Use this checklist before cutting any alpha or beta release of `codex-auto-memor
 - Run `node dist/cli.js integrations apply --host codex --skill-surface official-project --json` and confirm the selected project-scoped skill surface still flows through the full apply path.
 - Run `node dist/cli.js integrations doctor --host codex --json` and confirm it reports the thin Codex-only stack readiness view with `recommendedRoute`, `recommendedPreset`, `subchecks`, and `nextSteps`.
 - Confirm `node dist/cli.js integrations doctor --host codex --json` also exposes the shared structured `workflowContract`, including the post-work sync/review helper semantics, and now reports `applyReadiness` so unsafe AGENTS managed blocks are diagnosed before recommending `cam integrations apply --host codex`.
+- Confirm `workflowConsistency` wording in doctor surfaces now explicitly treats repo-level `AGENTS.md` guidance as part of the shared retrieval workflow contract, not just hooks/skills text.
 - Treat key `--help` output as release-facing contract, not incidental CLI text:
   - `node dist/cli.js mcp install --help` should keep the supported install-host list at `codex, claude, or gemini`, leaving `generic` out of the install branch.
   - `node dist/cli.js mcp print-config --help` should keep the supported snippet-host list at `codex, claude, gemini, or generic`.

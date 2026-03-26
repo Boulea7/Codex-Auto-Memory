@@ -364,20 +364,23 @@ export function buildCodexStackNotes(): string[] {
     "Run `cam mcp print-config --host codex` to inspect the recommended project-scoped MCP wiring together with an AGENTS.md snippet for Codex agents.",
     "Run `cam mcp apply-guidance --host codex` to create or update the managed Codex Auto Memory block inside the repository-level AGENTS.md.",
     "Codex skill readiness is guidance-only and does not replace executable hook fallback helpers.",
-    "Workflow consistency expects the shared search -> timeline -> details contract and the recommended preset to stay aligned across hooks and skills."
+    "Workflow consistency expects AGENTS guidance, hooks, and skills to stay aligned on the shared search -> timeline -> details contract and recommended preset."
   ];
 }
 
 export function buildCodexAgentsGuidance(): CodexAgentsGuidance {
   const workflowContract = buildWorkflowContract();
+  const sharedLines = buildSharedWorkflowDisciplineLines();
   const snippet = [
     "## Codex Auto Memory",
     "",
     `<!-- ${CODEX_AGENTS_GUIDANCE_VERSION_MARKER} ${CODEX_AGENTS_GUIDANCE_VERSION} -->`,
+    `- ${sharedLines[0]}`,
+    `- ${sharedLines[1]}`,
     `- ${workflowContract.routePreference.mcpFirst}`,
     `- ${buildRecommendedMcpSearchInstruction()}`,
-    `- If the retrieval MCP server is unavailable, fall back to \`${buildRecommendedCliSearchCommand()}\`, then \`cam recall timeline \"<ref>\"\`, then \`cam recall details \"<ref>\"\`.`,
-    ...buildSharedWorkflowDisciplineLines().slice(2).map((line) => `- ${line}`),
+    `- If the retrieval MCP server is unavailable, fall back to \`${workflowContract.cliFallback.searchCommand}\`, then \`${workflowContract.cliFallback.timelineCommand}\`, then \`${workflowContract.cliFallback.detailsCommand}\`.`,
+    ...sharedLines.slice(2).map((line) => `- ${line}`),
     `- When the local bridge bundle is installed, \`${workflowContract.postWorkSyncReview.helperScript}\` combines \`${workflowContract.postWorkSyncReview.syncCommand}\` with \`${workflowContract.postWorkSyncReview.reviewCommand}\`.`,
     `- ${LOCAL_BRIDGE_BUNDLE_NOTE}`
   ].join("\n");
@@ -508,17 +511,17 @@ export function buildCodexIntegrationSubchecks(
       ? {
           status: "ok",
           summary:
-            "Hooks and skills agree on the shared search -> timeline -> details workflow and preset."
+            "AGENTS guidance, hooks, and skills agree on the shared search -> timeline -> details workflow and preset."
         }
       : assetAvailability.hasWorkflowAssets
         ? {
             status: "warning",
             summary:
-              "Some integration assets exist, but they do not fully agree on the shared retrieval workflow yet."
+              "Some AGENTS, hook, or skill assets exist, but they do not fully agree on the shared retrieval workflow yet."
           }
         : {
             status: "missing",
-            summary: "Shared retrieval workflow assets have not been installed yet."
+            summary: "Shared AGENTS, hook, and skill workflow assets have not been installed yet."
           }
   };
 }

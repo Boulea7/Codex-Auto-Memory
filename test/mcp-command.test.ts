@@ -20,6 +20,8 @@ interface SearchMemoriesResponse {
   state: string;
   resolvedState: string;
   fallbackUsed: boolean;
+  retrievalMode: string;
+  retrievalFallbackReason?: string;
   results: Array<{
     ref: string;
     state: string;
@@ -34,12 +36,18 @@ interface TimelineMemoriesResponse {
   events: Array<{
     action: string;
     state: string;
+    sessionId?: string;
+    rolloutPath?: string;
   }>;
 }
 
 interface MemoryDetailsResponse {
   ref: string;
   path: string;
+  latestLifecycleAction: string;
+  latestSessionId: string | null;
+  latestRolloutPath: string | null;
+  historyPath: string;
   entry: {
     summary: string;
     details: string[];
@@ -1453,6 +1461,22 @@ describe("mcp command", () => {
       exists: false,
       status: "missing"
     });
+    const integrationsDoctor = runCli(
+      projectDir,
+      ["integrations", "doctor", "--host", "codex", "--json"],
+      {
+        env: { HOME: homeDir }
+      }
+    );
+    expect(integrationsDoctor.exitCode, integrationsDoctor.stderr).toBe(0);
+    expect(JSON.parse(integrationsDoctor.stdout)).toMatchObject({
+      subchecks: {
+        workflowConsistency: {
+          status: "warning",
+          summary: expect.stringContaining("AGENTS")
+        }
+      }
+    });
     expect(payload.hosts).toEqual(
       expect.arrayContaining([
         expect.objectContaining({
@@ -2440,7 +2464,8 @@ describe("mcp command", () => {
         query: "pnpm",
         state: "archived",
         resolvedState: "archived",
-        fallbackUsed: false
+        fallbackUsed: false,
+        retrievalMode: "index"
       });
       expect(searchPayload.results).toHaveLength(1);
       expect(searchPayload.results[0]).toMatchObject({
@@ -2477,6 +2502,10 @@ describe("mcp command", () => {
       expect(detailsPayload).toMatchObject({
         ref,
         path: store.getArchiveTopicFile("project", "workflow"),
+        latestLifecycleAction: "archive",
+        latestSessionId: null,
+        latestRolloutPath: null,
+        historyPath: store.getHistoryPath("project"),
         entry: {
           summary: "Prefer pnpm in this repository.",
           details: ["Use pnpm instead of npm in this repository."]
@@ -2603,7 +2632,8 @@ describe("mcp command", () => {
         query: "pnpm",
         state: "auto",
         resolvedState: "active",
-        fallbackUsed: false
+        fallbackUsed: false,
+        retrievalMode: "index"
       });
       expect(preferredPayload.results).toEqual([
         expect.objectContaining({
@@ -2628,7 +2658,8 @@ describe("mcp command", () => {
         query: "historical",
         state: "auto",
         resolvedState: "archived",
-        fallbackUsed: true
+        fallbackUsed: true,
+        retrievalMode: "index"
       });
       expect(fallbackPayload.results).toEqual([
         expect.objectContaining({
@@ -2687,7 +2718,8 @@ describe("mcp command", () => {
         query: "historical",
         state: "auto",
         resolvedState: "archived",
-        fallbackUsed: true
+        fallbackUsed: true,
+        retrievalMode: "index"
       });
       expect(payload.results).toHaveLength(8);
       expect(payload.results.every((entry) => entry.state === "archived")).toBe(true);
@@ -2788,7 +2820,11 @@ describe("mcp command", () => {
         arguments: { query: "pnpm", limit: 3 }
       });
       const payload = readStructuredContent<SearchMemoriesResponse>(result as ToolCallResultLike);
-      expect(payload.results).toEqual([]);
+      expect(payload).toMatchObject({
+        retrievalMode: "markdown-fallback",
+        retrievalFallbackReason: "missing",
+        results: []
+      });
     } finally {
       await client.close();
     }
@@ -2819,4 +2855,54 @@ describe("mcp command", () => {
     });
     expect(await pathExists(memoryRoot)).toBe(false);
   });
+
+  it("surfaces markdown fallback diagnostics for invalid retrieval sidecars over MCP", async () => {
+    const homeDir = await tempDir("cam-mcp-invalid-sidecar-home-");
+    const projectDir = await tempDir("cam-mcp-invalid-sidecar-project-");
+    const memoryRoot = await tempDir("cam-mcp-invalid-sidecar-memory-");
+    process.env.HOME = homeDir;
+
+    const projectConfig = makeAppConfig();
+    await writeCamConfig(projectDir, projectConfig, {
+      autoMemoryDirectory: memoryRoot
+    });
+
+    const store = new MemoryStore(detectProjectContext(projectDir), {
+      ...projectConfig,
+      autoMemoryDirectory: memoryRoot
+    });
+    await store.ensureLayout();
+    await store.remember(
+      "project",
+      "workflow",
+      "prefer-pnpm",
+      "Prefer pnpm in this repository.",
+      ["Use pnpm instead of npm in this repository."],
+      "Manual note."
+    );
+    await fs.writeFile(store.getRetrievalIndexFile("project", "active"), "{not-json", "utf8");
+
+    const client = await connectCliMcpClient(projectDir, {
+      env: { HOME: homeDir }
+    });
+
+    try {
+      const result = await client.callTool({
+        name: "search_memories",
+        arguments: {
+          query: "prefer pnpm",
+          state: "active",
+          limit: 5
+        }
+      });
+      const payload = readStructuredContent<SearchMemoriesResponse>(result as ToolCallResultLike);
+      expect(payload).toMatchObject({
+        retrievalMode: "markdown-fallback",
+        retrievalFallbackReason: "invalid",
+        results: [expect.objectContaining({ ref: "project:active:workflow:prefer-pnpm" })]
+      });
+    } finally {
+      await client.close();
+    }
+  }, 30_000);
 });

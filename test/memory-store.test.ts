@@ -466,6 +466,8 @@ describe("MemoryStore", () => {
       version: 1,
       scope: "project",
       state: "active",
+      topicFiles: ["workflow.md"],
+      topicFileCount: 1,
       entries: [
         expect.objectContaining({
           ref: "project:active:workflow:prefer-pnpm",
@@ -477,6 +479,8 @@ describe("MemoryStore", () => {
       version: 1,
       scope: "project",
       state: "archived",
+      topicFiles: ["workflow.md"],
+      topicFileCount: 1,
       entries: [
         expect.objectContaining({
           ref: "project:archived:workflow:historical-note",
@@ -495,6 +499,13 @@ describe("MemoryStore", () => {
         ref: "project:active:workflow:prefer-pnpm"
       })
     ]);
+
+    await fs.rm(store.getTopicFile("project", "workflow"), { force: true });
+    const staleResults = await store.searchEntries("prefer pnpm", {
+      scope: "project",
+      state: "active"
+    });
+    expect(staleResults).toEqual([]);
 
     await fs.rm(archivedIndexPath, { force: true });
     await store.ensureLayout();
