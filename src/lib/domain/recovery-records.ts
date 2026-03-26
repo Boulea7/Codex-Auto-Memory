@@ -119,6 +119,8 @@ export function isSyncRecoveryRecord(value: unknown): value is SyncRecoveryRecor
         isMemoryConflictCandidate(candidate)
       )
     : [];
+  const noopOperationCount =
+    typeof record.noopOperationCount === "number" ? record.noopOperationCount : 0;
   const suppressedOperationCount =
     typeof record.suppressedOperationCount === "number" ? record.suppressedOperationCount : 0;
   return (
@@ -133,6 +135,7 @@ export function isSyncRecoveryRecord(value: unknown): value is SyncRecoveryRecor
     typeof record.actualExtractorName === "string" &&
     (record.status === "applied" || record.status === "no-op") &&
     typeof record.appliedCount === "number" &&
+    noopOperationCount >= 0 &&
     suppressedOperationCount >= 0 &&
     Array.isArray(record.scopesTouched) &&
     record.scopesTouched.every((scope) => isMemoryScope(scope)) &&
@@ -184,6 +187,7 @@ interface BuildSyncRecoveryRecordOptions {
   actualExtractorName: string;
   status: "applied" | "no-op";
   appliedCount: number;
+  noopOperationCount?: number;
   suppressedOperationCount?: number;
   scopesTouched: MemoryScope[];
   conflicts?: MemoryConflictCandidate[];
@@ -207,6 +211,7 @@ export function buildSyncRecoveryRecord(
     actualExtractorName: options.actualExtractorName,
     status: options.status,
     appliedCount: options.appliedCount,
+    noopOperationCount: options.noopOperationCount ?? 0,
     suppressedOperationCount: options.suppressedOperationCount ?? 0,
     scopesTouched: options.scopesTouched,
     conflicts: options.conflicts ?? [],

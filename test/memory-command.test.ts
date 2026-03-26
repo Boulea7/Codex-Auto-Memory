@@ -22,6 +22,50 @@ async function tempDir(prefix: string): Promise<string> {
   return dir;
 }
 
+async function readFileIfExists(filePath: string): Promise<string | null> {
+  try {
+    return await fs.readFile(filePath, "utf8");
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") {
+      return null;
+    }
+    throw error;
+  }
+}
+
+async function snapshotFiles(filePaths: string[]): Promise<Record<string, string | null>> {
+  return Object.fromEntries(
+    await Promise.all(
+      filePaths.map(async (filePath) => [filePath, await readFileIfExists(filePath)] as const)
+    )
+  );
+}
+
+function buildUnsafeWorkflowTopicContents(entryId: string, summary: string, detail: string): string {
+  return [
+    "# Workflow",
+    "",
+    "<!-- cam:topic workflow -->",
+    "",
+    "This file is maintained by Codex Auto Memory. You may edit summaries or details directly.",
+    "",
+    "Manual note that cannot be round-tripped safely.",
+    "",
+    `## ${entryId}`,
+    `<!-- cam:entry ${JSON.stringify({ id: entryId, scope: "project", updatedAt: "2026-03-14T00:00:00.000Z" })} -->`,
+    `Summary: ${summary}`,
+    "Details:",
+    `- ${detail}`,
+    "",
+    "## malformed-entry",
+    "<!-- cam:entry THIS IS NOT JSON -->",
+    "Summary: Broken entry.",
+    "Details:",
+    "- Must not be deleted by rewrite.",
+    ""
+  ].join("\n");
+}
+
 afterEach(async () => {
   process.env.HOME = originalHome;
   await Promise.all(tempDirs.splice(0).map((dir) => fs.rm(dir, { recursive: true, force: true })));
@@ -164,7 +208,7 @@ describe("runMemory", () => {
     expect(output).toContain("[skipped] Skipped rollout; it was already processed");
     expect(output).toContain("Configured: codex-ephemeral (codex) -> Actual: heuristic (heuristic)");
     expect(output).toContain("Skip reason: already-processed");
-    expect(output).toContain("Applied: 0 | Suppressed: 0 | Scopes: none");
+    expect(output).toContain("Applied: 0 | No-op: 0 | Suppressed: 0 | Scopes: none");
     expect(output).toContain("Suppressed: 1");
     expect(output).toContain("Conflict review:");
     expect(output).toContain("[existing-memory] preferences: Maybe use bun instead of pnpm in this repository.");
@@ -827,5 +871,331 @@ describe("runMemory", () => {
       configScope: "local"
     });
     expect(enableOutput).toContain("Auto memory enabled: true");
+  });
+
+  it("fails closed at the CLI surface when remember targets an unsafe active topic file", async () => {
+    const homeDir = await tempDir("cam-remember-unsafe-active-home-");
+    const projectDir = await tempDir("cam-remember-unsafe-active-project-");
+    const memoryRoot = await tempDir("cam-remember-unsafe-active-root-");
+    process.env.HOME = homeDir;
+
+    const projectConfig = buildProjectConfig();
+    await writeProjectConfig(projectDir, projectConfig, {
+      autoMemoryDirectory: memoryRoot
+    });
+
+    const project = detectProjectContext(projectDir);
+    const store = new MemoryStore(project, {
+      ...projectConfig,
+      autoMemoryDirectory: memoryRoot
+    });
+    await store.ensureLayout();
+
+    const topicFile = store.getTopicFile("project", "workflow");
+    await fs.writeFile(
+      topicFile,
+      buildUnsafeWorkflowTopicContents(
+        "keep-entry",
+        "Keep this valid entry.",
+        "Preserve this."
+      ),
+      "utf8"
+    );
+
+    const snapshot = await snapshotFiles([
+      topicFile,
+      store.getMemoryFile("project"),
+      store.getHistoryPath("project")
+    ]);
+
+    const result = runCli(projectDir, ["remember", "Do not rewrite unsafe files"], {
+      env: { HOME: homeDir }
+    });
+
+    expect(result.exitCode).toBe(1);
+    expect(result.stderr).toContain("Cannot rewrite topic file");
+    expect(result.stdout).toBe("");
+    expect(await snapshotFiles(Object.keys(snapshot))).toEqual(snapshot);
+  });
+
+  it("fails closed at the CLI surface when forget delete targets an unsafe topic file", async () => {
+    const homeDir = await tempDir("cam-forget-unsafe-delete-home-");
+    const projectDir = await tempDir("cam-forget-unsafe-delete-project-");
+    const memoryRoot = await tempDir("cam-forget-unsafe-delete-root-");
+    process.env.HOME = homeDir;
+
+    const projectConfig = buildProjectConfig();
+    await writeProjectConfig(projectDir, projectConfig, {
+      autoMemoryDirectory: memoryRoot
+    });
+
+    const project = detectProjectContext(projectDir);
+    const store = new MemoryStore(project, {
+      ...projectConfig,
+      autoMemoryDirectory: memoryRoot
+    });
+    await store.ensureLayout();
+
+    const topicFile = store.getTopicFile("project", "workflow");
+    await fs.writeFile(
+      topicFile,
+      buildUnsafeWorkflowTopicContents(
+        "keep-entry",
+        "Keep this valid entry.",
+        "Preserve this."
+      ),
+      "utf8"
+    );
+
+    const snapshot = await snapshotFiles([
+      topicFile,
+      store.getMemoryFile("project"),
+      store.getHistoryPath("project")
+    ]);
+
+    const result = runCli(projectDir, ["forget", "keep-entry", "--scope", "project"], {
+      env: { HOME: homeDir }
+    });
+
+    expect(result.exitCode).toBe(1);
+    expect(result.stderr).toContain("Cannot rewrite topic file");
+    expect(result.stdout).toBe("");
+    expect(await snapshotFiles(Object.keys(snapshot))).toEqual(snapshot);
+  });
+
+  it("fails closed at the CLI surface when forget archive targets an unsafe topic file", async () => {
+    const homeDir = await tempDir("cam-forget-unsafe-archive-home-");
+    const projectDir = await tempDir("cam-forget-unsafe-archive-project-");
+    const memoryRoot = await tempDir("cam-forget-unsafe-archive-root-");
+    process.env.HOME = homeDir;
+
+    const projectConfig = buildProjectConfig();
+    await writeProjectConfig(projectDir, projectConfig, {
+      autoMemoryDirectory: memoryRoot
+    });
+
+    const project = detectProjectContext(projectDir);
+    const store = new MemoryStore(project, {
+      ...projectConfig,
+      autoMemoryDirectory: memoryRoot
+    });
+    await store.ensureLayout();
+
+    const topicFile = store.getTopicFile("project", "workflow");
+    await fs.writeFile(
+      topicFile,
+      buildUnsafeWorkflowTopicContents(
+        "keep-entry",
+        "Keep this valid entry.",
+        "Preserve this."
+      ),
+      "utf8"
+    );
+
+    const snapshot = await snapshotFiles([
+      topicFile,
+      store.getMemoryFile("project"),
+      store.getHistoryPath("project"),
+      store.getArchiveIndexFile("project"),
+      store.getArchiveTopicFile("project", "workflow")
+    ]);
+
+    const result = runCli(projectDir, ["forget", "keep-entry", "--scope", "project", "--archive"], {
+      env: { HOME: homeDir }
+    });
+
+    expect(result.exitCode).toBe(1);
+    expect(result.stderr).toContain("Cannot rewrite topic file");
+    expect(result.stdout).toBe("");
+    expect(await snapshotFiles(Object.keys(snapshot))).toEqual(snapshot);
+  });
+
+  it("fails closed at the CLI surface when remember would rewrite an unsafe archived topic file", async () => {
+    const homeDir = await tempDir("cam-remember-unsafe-archived-home-");
+    const projectDir = await tempDir("cam-remember-unsafe-archived-project-");
+    const memoryRoot = await tempDir("cam-remember-unsafe-archived-root-");
+    process.env.HOME = homeDir;
+
+    const projectConfig = buildProjectConfig();
+    await writeProjectConfig(projectDir, projectConfig, {
+      autoMemoryDirectory: memoryRoot
+    });
+
+    const project = detectProjectContext(projectDir);
+    const store = new MemoryStore(project, {
+      ...projectConfig,
+      autoMemoryDirectory: memoryRoot
+    });
+    await store.ensureLayout();
+
+    const archivedTopicFile = store.getArchiveTopicFile("project", "workflow");
+    await fs.writeFile(
+      archivedTopicFile,
+      buildUnsafeWorkflowTopicContents(
+        "resurrect-archived-entry",
+        "Resurrect archived entry",
+        "Keep archived note."
+      ),
+      "utf8"
+    );
+
+    const snapshot = await snapshotFiles([
+      store.getTopicFile("project", "workflow"),
+      store.getMemoryFile("project"),
+      store.getHistoryPath("project"),
+      store.getArchiveIndexFile("project"),
+      archivedTopicFile
+    ]);
+
+    const result = runCli(projectDir, ["remember", "Resurrect archived entry"], {
+      env: { HOME: homeDir }
+    });
+
+    expect(result.exitCode).toBe(1);
+    expect(result.stderr).toContain("Cannot rewrite topic file");
+    expect(result.stdout).toBe("");
+    expect(await snapshotFiles(Object.keys(snapshot))).toEqual(snapshot);
+  });
+
+  it("fails closed across all scopes when default forget hits an unsafe later scope", async () => {
+    const homeDir = await tempDir("cam-forget-all-atomic-home-");
+    const projectDir = await tempDir("cam-forget-all-atomic-project-");
+    const memoryRoot = await tempDir("cam-forget-all-atomic-root-");
+    process.env.HOME = homeDir;
+
+    const projectConfig = buildProjectConfig();
+    await writeProjectConfig(projectDir, projectConfig, {
+      autoMemoryDirectory: memoryRoot
+    });
+
+    const project = detectProjectContext(projectDir);
+    const store = new MemoryStore(project, {
+      ...projectConfig,
+      autoMemoryDirectory: memoryRoot
+    });
+    await store.ensureLayout();
+
+    await store.remember(
+      "global",
+      "workflow",
+      "global-pnpm",
+      "Global pnpm preference.",
+      ["Use pnpm globally."],
+      "Manual note."
+    );
+    const globalSnapshot = await snapshotFiles([
+      store.getTopicFile("global", "workflow"),
+      store.getMemoryFile("global"),
+      store.getHistoryPath("global"),
+      store.getArchiveIndexFile("global"),
+      store.getArchiveTopicFile("global", "workflow")
+    ]);
+    const unsafeProjectTopicFile = store.getTopicFile("project", "workflow");
+    await fs.writeFile(
+      unsafeProjectTopicFile,
+      buildUnsafeWorkflowTopicContents(
+        "project-pnpm",
+        "Project pnpm preference.",
+        "Use pnpm in this repository."
+      ),
+      "utf8"
+    );
+    const projectSnapshot = await snapshotFiles([
+      unsafeProjectTopicFile,
+      store.getMemoryFile("project"),
+      store.getHistoryPath("project"),
+      store.getArchiveIndexFile("project"),
+      store.getArchiveTopicFile("project", "workflow")
+    ]);
+    const projectLocalSnapshot = await snapshotFiles([
+      store.getTopicFile("project-local", "workflow"),
+      store.getMemoryFile("project-local"),
+      store.getHistoryPath("project-local"),
+      store.getArchiveIndexFile("project-local"),
+      store.getArchiveTopicFile("project-local", "workflow")
+    ]);
+
+    const result = runCli(projectDir, ["forget", "pnpm"], {
+      env: { HOME: homeDir }
+    });
+
+    expect(result.exitCode).toBe(1);
+    expect(result.stderr).toContain("Cannot rewrite topic file");
+    expect(await store.listEntries("global")).toHaveLength(1);
+    expect(await readFileIfExists(store.getTopicFile("global", "workflow"))).not.toBeNull();
+    expect(await snapshotFiles(Object.keys(globalSnapshot))).toEqual(globalSnapshot);
+    expect(await snapshotFiles(Object.keys(projectSnapshot))).toEqual(projectSnapshot);
+    expect(await snapshotFiles(Object.keys(projectLocalSnapshot))).toEqual(projectLocalSnapshot);
+  });
+
+  it("fails closed across all scopes when forget archive hits an unsafe later scope", async () => {
+    const homeDir = await tempDir("cam-forget-all-archive-home-");
+    const projectDir = await tempDir("cam-forget-all-archive-project-");
+    const memoryRoot = await tempDir("cam-forget-all-archive-root-");
+    process.env.HOME = homeDir;
+
+    const projectConfig = buildProjectConfig();
+    await writeProjectConfig(projectDir, projectConfig, {
+      autoMemoryDirectory: memoryRoot
+    });
+
+    const project = detectProjectContext(projectDir);
+    const store = new MemoryStore(project, {
+      ...projectConfig,
+      autoMemoryDirectory: memoryRoot
+    });
+    await store.ensureLayout();
+
+    await store.remember(
+      "global",
+      "workflow",
+      "global-pnpm",
+      "Global pnpm preference.",
+      ["Use pnpm globally."],
+      "Manual note."
+    );
+    const globalSnapshot = await snapshotFiles([
+      store.getTopicFile("global", "workflow"),
+      store.getMemoryFile("global"),
+      store.getHistoryPath("global"),
+      store.getArchiveIndexFile("global"),
+      store.getArchiveTopicFile("global", "workflow")
+    ]);
+    const unsafeProjectTopicFile = store.getTopicFile("project", "workflow");
+    await fs.writeFile(
+      unsafeProjectTopicFile,
+      buildUnsafeWorkflowTopicContents(
+        "project-pnpm",
+        "Project pnpm preference.",
+        "Use pnpm in this repository."
+      ),
+      "utf8"
+    );
+    const projectSnapshot = await snapshotFiles([
+      unsafeProjectTopicFile,
+      store.getMemoryFile("project"),
+      store.getHistoryPath("project"),
+      store.getArchiveIndexFile("project"),
+      store.getArchiveTopicFile("project", "workflow")
+    ]);
+    const projectLocalSnapshot = await snapshotFiles([
+      store.getTopicFile("project-local", "workflow"),
+      store.getMemoryFile("project-local"),
+      store.getHistoryPath("project-local"),
+      store.getArchiveIndexFile("project-local"),
+      store.getArchiveTopicFile("project-local", "workflow")
+    ]);
+
+    const result = runCli(projectDir, ["forget", "pnpm", "--archive"], {
+      env: { HOME: homeDir }
+    });
+
+    expect(result.exitCode).toBe(1);
+    expect(result.stderr).toContain("Cannot rewrite topic file");
+    expect(await store.listEntries("global")).toHaveLength(1);
+    expect(await store.listEntries("global", "archived")).toEqual([]);
+    expect(await snapshotFiles(Object.keys(globalSnapshot))).toEqual(globalSnapshot);
+    expect(await snapshotFiles(Object.keys(projectSnapshot))).toEqual(projectSnapshot);
+    expect(await snapshotFiles(Object.keys(projectLocalSnapshot))).toEqual(projectLocalSnapshot);
   });
 });

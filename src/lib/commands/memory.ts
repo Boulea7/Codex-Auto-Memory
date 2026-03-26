@@ -35,6 +35,7 @@ function formatPendingSyncRecovery(record: SyncRecoveryRecord, recoveryPath: str
     `- Rollout: ${record.rolloutPath}`,
     `- Session: ${record.sessionId ?? "unknown"}`,
     `- Status: ${record.status} (${record.appliedCount} operation${record.appliedCount === 1 ? "" : "s"})`,
+    `- No-op: ${record.noopOperationCount ?? 0}`,
     `- Suppressed: ${record.suppressedOperationCount ?? 0}`,
     `- Audit entry written: ${record.auditEntryWritten}`,
     `- Failure: ${record.failureMessage}`
@@ -62,6 +63,7 @@ function syncAuditSignature(entry: MemorySyncAuditEntry): string {
     actualExtractorMode: entry.actualExtractorMode,
     actualExtractorName: entry.actualExtractorName,
     appliedCount: entry.appliedCount,
+    noopOperationCount: entry.noopOperationCount ?? 0,
     suppressedOperationCount: entry.suppressedOperationCount ?? 0,
     scopesTouched: entry.scopesTouched,
     conflicts: entry.conflicts ?? [],
@@ -131,7 +133,14 @@ export async function runMemory(options: MemoryOptions = {}): Promise<string> {
     ? await runtime.syncService.memoryStore.readRecentSyncAuditEntries(recentCount * 2)
     : [];
   const recentSyncAudit = recentSyncAuditPreviewEntries.slice(0, recentCount);
-  const pendingSyncRecovery = await runtime.syncService.memoryStore.readSyncRecoveryRecord();
+  let pendingSyncRecovery = null;
+  try {
+    pendingSyncRecovery = await runtime.syncService.memoryStore.readSyncRecoveryRecord();
+  } catch (error) {
+    runtime.loadedConfig.warnings.push(
+      `Sync recovery record could not be read: ${error instanceof Error ? error.message : String(error)}`
+    );
+  }
   const startupFilesByScope = {
     global: startup.sourceFiles.filter(
       (filePath) => filePath === runtime.syncService.memoryStore.getMemoryFile("global")

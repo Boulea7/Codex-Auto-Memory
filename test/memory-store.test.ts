@@ -15,6 +15,56 @@ async function tempDir(prefix: string): Promise<string> {
   return dir;
 }
 
+async function readFileIfExists(filePath: string): Promise<string | null> {
+  try {
+    return await fs.readFile(filePath, "utf8");
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") {
+      return null;
+    }
+    throw error;
+  }
+}
+
+async function snapshotFiles(filePaths: string[]): Promise<Record<string, string | null>> {
+  return Object.fromEntries(
+    await Promise.all(
+      filePaths.map(async (filePath) => [filePath, await readFileIfExists(filePath)] as const)
+    )
+  );
+}
+
+function createInjectedFileOps(target: {
+  type: "write" | "delete";
+  path: string;
+  message: string;
+}): {
+  writeTextFile: (filePath: string, contents: string) => Promise<void>;
+  deleteFile: (filePath: string) => Promise<void>;
+} {
+  let failed = false;
+
+  return {
+    async writeTextFile(filePath: string, contents: string): Promise<void> {
+      if (!failed && target.type === "write" && filePath === target.path) {
+        failed = true;
+        throw new Error(target.message);
+      }
+
+      await fs.mkdir(path.dirname(filePath), { recursive: true });
+      await fs.writeFile(filePath, contents, "utf8");
+    },
+    async deleteFile(filePath: string): Promise<void> {
+      if (!failed && target.type === "delete" && filePath === target.path) {
+        failed = true;
+        throw new Error(target.message);
+      }
+
+      await fs.rm(filePath, { force: true });
+    }
+  };
+}
+
 afterEach(async () => {
   await Promise.all(tempDirs.splice(0).map((dir) => fs.rm(dir, { recursive: true, force: true })));
 });
@@ -316,6 +366,576 @@ describe("MemoryStore", () => {
     expect(startup.topicFiles).toHaveLength(topicLines.length);
   });
 
+  it("archives entries outside startup recall and exposes archived refs for retrieval", async () => {
+    const projectDir = await tempDir("cam-store-archive-project-");
+    const memoryRoot = await tempDir("cam-store-archive-memory-");
+    const config: AppConfig = {
+      autoMemoryEnabled: true,
+      autoMemoryDirectory: memoryRoot,
+      extractorMode: "heuristic",
+      defaultScope: "project",
+      maxStartupLines: 200,
+      sessionContinuityAutoLoad: false,
+      sessionContinuityAutoSave: false,
+      sessionContinuityLocalPathStyle: "codex",
+      maxSessionContinuityLines: 60,
+      codexBinary: "codex"
+    };
+    const store = new MemoryStore(detectProjectContext(projectDir), config);
+    await store.ensureLayout();
+
+    await store.remember(
+      "project",
+      "workflow",
+      "prefer-pnpm",
+      "Prefer pnpm in this repository.",
+      ["Use pnpm instead of npm in this repository."],
+      "Manual note."
+    );
+
+    const archived = await store.forget("project", "pnpm", { archive: true });
+    const startup = await compileStartupMemory(store, 200);
+    const archivedResults = await store.searchEntries("pnpm", {
+      scope: "project",
+      state: "archived"
+    });
+
+    expect(archived).toHaveLength(1);
+    expect(await store.listEntries("project")).toEqual([]);
+    expect(await store.listEntries("project", "archived")).toHaveLength(1);
+    expect(await store.readMemoryFile("project", "archived")).toContain("workflow.md");
+    expect(startup.text).not.toContain(store.getArchiveTopicFile("project", "workflow"));
+    expect(startup.text).not.toContain("Prefer pnpm in this repository.");
+    expect(await store.searchEntries("pnpm", { scope: "project" })).toEqual([]);
+    expect(archivedResults).toHaveLength(1);
+    expect(archivedResults[0]).toMatchObject({
+      ref: "project:archived:workflow:prefer-pnpm",
+      state: "archived",
+      topic: "workflow"
+    });
+
+    const details = await store.getEntryByRef(archivedResults[0]!.ref);
+    const timeline = await store.readTimeline(archivedResults[0]!.ref);
+
+    expect(details).toMatchObject({
+      ref: "project:archived:workflow:prefer-pnpm",
+      path: store.getArchiveTopicFile("project", "workflow")
+    });
+    expect(timeline.map((event) => event.action)).toEqual(["archive", "add"]);
+  });
+
+  it("fails closed across all scopes when all-scope archive forget hits an unsafe topic file", async () => {
+    const projectDir = await tempDir("cam-store-unsafe-all-archive-project-");
+    const memoryRoot = await tempDir("cam-store-unsafe-all-archive-memory-");
+    const config: AppConfig = {
+      autoMemoryEnabled: true,
+      autoMemoryDirectory: memoryRoot,
+      extractorMode: "heuristic",
+      defaultScope: "project",
+      maxStartupLines: 200,
+      sessionContinuityAutoLoad: false,
+      sessionContinuityAutoSave: false,
+      sessionContinuityLocalPathStyle: "codex",
+      maxSessionContinuityLines: 60,
+      codexBinary: "codex"
+    };
+    const store = new MemoryStore(detectProjectContext(projectDir), config);
+    await store.ensureLayout();
+
+    await store.remember(
+      "global",
+      "workflow",
+      "global-pnpm",
+      "Global pnpm preference.",
+      ["Use pnpm globally."],
+      "Manual note."
+    );
+
+    const globalSnapshot = await snapshotFiles([
+      store.getTopicFile("global", "workflow"),
+      store.getMemoryFile("global"),
+      store.getHistoryPath("global"),
+      store.getArchiveIndexFile("global"),
+      store.getArchiveTopicFile("global", "workflow")
+    ]);
+    const unsafeProjectTopicFile = store.getTopicFile("project", "workflow");
+    const unsafeProjectContents = [
+      "# Workflow",
+      "",
+      "<!-- cam:topic workflow -->",
+      "",
+      "This file is maintained by Codex Auto Memory. You may edit summaries or details directly.",
+      "",
+      "Manual note that cannot be round-tripped safely.",
+      "",
+      "## project-pnpm",
+      "<!-- cam:entry {\"id\":\"project-pnpm\",\"scope\":\"project\",\"updatedAt\":\"2026-03-14T00:00:00.000Z\"} -->",
+      "Summary: Project pnpm preference.",
+      "Details:",
+      "- Use pnpm in this repository.",
+      "",
+      "## malformed-entry",
+      "<!-- cam:entry THIS IS NOT JSON -->",
+      "Summary: Broken entry.",
+      "Details:",
+      "- Must not be deleted by rewrite.",
+      ""
+    ].join("\n");
+    await fs.writeFile(unsafeProjectTopicFile, unsafeProjectContents, "utf8");
+    const projectSnapshot = await snapshotFiles([
+      unsafeProjectTopicFile,
+      store.getMemoryFile("project"),
+      store.getHistoryPath("project"),
+      store.getArchiveIndexFile("project"),
+      store.getArchiveTopicFile("project", "workflow")
+    ]);
+    const projectLocalSnapshot = await snapshotFiles([
+      store.getTopicFile("project-local", "workflow"),
+      store.getMemoryFile("project-local"),
+      store.getHistoryPath("project-local"),
+      store.getArchiveIndexFile("project-local"),
+      store.getArchiveTopicFile("project-local", "workflow")
+    ]);
+
+    await expect(store.forget("all", "pnpm", { archive: true })).rejects.toThrow(
+      /Cannot rewrite topic file/
+    );
+
+    expect(await store.listEntries("global")).toHaveLength(1);
+    expect(await store.listEntries("global", "archived")).toEqual([]);
+    expect(await snapshotFiles(Object.keys(globalSnapshot))).toEqual(globalSnapshot);
+    expect(await snapshotFiles(Object.keys(projectSnapshot))).toEqual(projectSnapshot);
+    expect(await snapshotFiles(Object.keys(projectLocalSnapshot))).toEqual(projectLocalSnapshot);
+  });
+
+  it("rolls back archive changes when commit fails while deleting the active topic file", async () => {
+    const projectDir = await tempDir("cam-store-archive-rollback-project-");
+    const memoryRoot = await tempDir("cam-store-archive-rollback-memory-");
+    const config: AppConfig = {
+      autoMemoryEnabled: true,
+      autoMemoryDirectory: memoryRoot,
+      extractorMode: "heuristic",
+      defaultScope: "project",
+      maxStartupLines: 200,
+      sessionContinuityAutoLoad: false,
+      sessionContinuityAutoSave: false,
+      sessionContinuityLocalPathStyle: "codex",
+      maxSessionContinuityLines: 60,
+      codexBinary: "codex"
+    };
+    const baselineStore = new MemoryStore(detectProjectContext(projectDir), config);
+    await baselineStore.ensureLayout();
+    await baselineStore.remember(
+      "project",
+      "workflow",
+      "prefer-pnpm",
+      "Prefer pnpm in this repository.",
+      ["Use pnpm instead of npm in this repository."],
+      "Manual note."
+    );
+
+    const snapshot = await snapshotFiles([
+      baselineStore.getTopicFile("project", "workflow"),
+      baselineStore.getMemoryFile("project"),
+      baselineStore.getHistoryPath("project"),
+      baselineStore.getArchiveIndexFile("project"),
+      baselineStore.getArchiveTopicFile("project", "workflow")
+    ]);
+
+    const injectedStore = new MemoryStore(
+      detectProjectContext(projectDir),
+      config,
+      createInjectedFileOps({
+        type: "delete",
+        path: baselineStore.getTopicFile("project", "workflow"),
+        message: "Injected active delete failure"
+      })
+    );
+
+    await expect(injectedStore.forget("project", "pnpm", { archive: true })).rejects.toThrow(
+      /Injected active delete failure/
+    );
+    expect(await snapshotFiles(Object.keys(snapshot))).toEqual(snapshot);
+  });
+
+  it("rolls back resurrecting an archived entry when commit fails while deleting the archived topic file", async () => {
+    const projectDir = await tempDir("cam-store-upsert-rollback-project-");
+    const memoryRoot = await tempDir("cam-store-upsert-rollback-memory-");
+    const config: AppConfig = {
+      autoMemoryEnabled: true,
+      autoMemoryDirectory: memoryRoot,
+      extractorMode: "heuristic",
+      defaultScope: "project",
+      maxStartupLines: 200,
+      sessionContinuityAutoLoad: false,
+      sessionContinuityAutoSave: false,
+      sessionContinuityLocalPathStyle: "codex",
+      maxSessionContinuityLines: 60,
+      codexBinary: "codex"
+    };
+    const baselineStore = new MemoryStore(detectProjectContext(projectDir), config);
+    await baselineStore.ensureLayout();
+    await baselineStore.remember(
+      "project",
+      "workflow",
+      "prefer-pnpm",
+      "Prefer pnpm in this repository.",
+      ["Use pnpm instead of npm in this repository."],
+      "Manual note."
+    );
+    await baselineStore.forget("project", "pnpm", { archive: true });
+
+    const snapshot = await snapshotFiles([
+      baselineStore.getTopicFile("project", "workflow"),
+      baselineStore.getMemoryFile("project"),
+      baselineStore.getHistoryPath("project"),
+      baselineStore.getArchiveIndexFile("project"),
+      baselineStore.getArchiveTopicFile("project", "workflow")
+    ]);
+
+    const injectedStore = new MemoryStore(
+      detectProjectContext(projectDir),
+      config,
+      createInjectedFileOps({
+        type: "delete",
+        path: baselineStore.getArchiveTopicFile("project", "workflow"),
+        message: "Injected archived delete failure"
+      })
+    );
+
+    await expect(
+      injectedStore.applyMutations([
+        {
+          action: "upsert",
+          scope: "project",
+          topic: "workflow",
+          id: "prefer-pnpm",
+          summary: "Prefer pnpm in this repository.",
+          details: ["Use pnpm instead of npm in this repository."],
+          sources: ["manual"],
+          reason: "Manual note."
+        }
+      ])
+    ).rejects.toThrow(/Injected archived delete failure/);
+    expect(await snapshotFiles(Object.keys(snapshot))).toEqual(snapshot);
+  });
+
+  it("rolls back earlier scope writes when a later scope delete fails in the same batch", async () => {
+    const projectDir = await tempDir("cam-store-batch-rollback-project-");
+    const memoryRoot = await tempDir("cam-store-batch-rollback-memory-");
+    const config: AppConfig = {
+      autoMemoryEnabled: true,
+      autoMemoryDirectory: memoryRoot,
+      extractorMode: "heuristic",
+      defaultScope: "project",
+      maxStartupLines: 200,
+      sessionContinuityAutoLoad: false,
+      sessionContinuityAutoSave: false,
+      sessionContinuityLocalPathStyle: "codex",
+      maxSessionContinuityLines: 60,
+      codexBinary: "codex"
+    };
+    const baselineStore = new MemoryStore(detectProjectContext(projectDir), config);
+    await baselineStore.ensureLayout();
+    await baselineStore.remember(
+      "global",
+      "workflow",
+      "global-pnpm",
+      "Global pnpm preference.",
+      ["Use pnpm globally."],
+      "Manual note."
+    );
+    await baselineStore.remember(
+      "project",
+      "workflow",
+      "project-pnpm",
+      "Project pnpm preference.",
+      ["Use pnpm in this repository."],
+      "Manual note."
+    );
+
+    const snapshot = await snapshotFiles([
+      baselineStore.getTopicFile("global", "workflow"),
+      baselineStore.getMemoryFile("global"),
+      baselineStore.getHistoryPath("global"),
+      baselineStore.getTopicFile("project", "workflow"),
+      baselineStore.getMemoryFile("project"),
+      baselineStore.getHistoryPath("project")
+    ]);
+
+    const injectedStore = new MemoryStore(
+      detectProjectContext(projectDir),
+      config,
+      createInjectedFileOps({
+        type: "delete",
+        path: baselineStore.getTopicFile("project", "workflow"),
+        message: "Injected later scope delete failure"
+      })
+    );
+
+    await expect(
+      injectedStore.applyMutations([
+        {
+          action: "delete",
+          scope: "global",
+          topic: "workflow",
+          id: "global-pnpm",
+          sources: ["manual"],
+          reason: "Delete request."
+        },
+        {
+          action: "delete",
+          scope: "project",
+          topic: "workflow",
+          id: "project-pnpm",
+          sources: ["manual"],
+          reason: "Delete request."
+        }
+      ])
+    ).rejects.toThrow(/Injected later scope delete failure/);
+    expect(await snapshotFiles(Object.keys(snapshot))).toEqual(snapshot);
+  });
+
+  it("returns explicit noop lifecycle records for identical upserts and missing active deletes", async () => {
+    const projectDir = await tempDir("cam-store-noop-project-");
+    const memoryRoot = await tempDir("cam-store-noop-memory-");
+    const config: AppConfig = {
+      autoMemoryEnabled: true,
+      autoMemoryDirectory: memoryRoot,
+      extractorMode: "heuristic",
+      defaultScope: "project",
+      maxStartupLines: 200,
+      sessionContinuityAutoLoad: false,
+      sessionContinuityAutoSave: false,
+      sessionContinuityLocalPathStyle: "codex",
+      maxSessionContinuityLines: 60,
+      codexBinary: "codex"
+    };
+    const store = new MemoryStore(detectProjectContext(projectDir), config);
+    await store.ensureLayout();
+
+    await store.remember(
+      "project",
+      "workflow",
+      "prefer-pnpm",
+      "Prefer pnpm in this repository.",
+      ["Use pnpm instead of npm in this repository."],
+      "Manual note."
+    );
+
+    const identicalUpsert = await store.applyMutations([
+      {
+        action: "upsert",
+        scope: "project",
+        topic: "workflow",
+        id: "prefer-pnpm",
+        summary: "Prefer pnpm in this repository.",
+        details: ["Use pnpm instead of npm in this repository."],
+        sources: ["manual"],
+        reason: "Manual note."
+      }
+    ]);
+    const missingDelete = await store.applyMutations([
+      {
+        action: "delete",
+        scope: "project",
+        topic: "workflow",
+        id: "missing-memory",
+        sources: ["manual"],
+        reason: "Explicit delete request."
+      }
+    ]);
+    const history = await store.readHistory("project");
+
+    expect(identicalUpsert).toHaveLength(1);
+    expect(identicalUpsert[0]).toMatchObject({
+      lifecycleAction: "noop",
+      previousState: "active",
+      nextState: "active"
+    });
+    expect(missingDelete).toHaveLength(1);
+    expect(missingDelete[0]).toMatchObject({
+      lifecycleAction: "noop",
+      previousState: undefined,
+      nextState: undefined
+    });
+    expect(history).toHaveLength(1);
+    expect(history[0]?.action).toBe("add");
+  });
+
+  it("fails closed when a topic file contains unsupported manual or malformed content during upsert", async () => {
+    const projectDir = await tempDir("cam-store-unsafe-upsert-project-");
+    const memoryRoot = await tempDir("cam-store-unsafe-upsert-memory-");
+    const config: AppConfig = {
+      autoMemoryEnabled: true,
+      autoMemoryDirectory: memoryRoot,
+      extractorMode: "heuristic",
+      defaultScope: "project",
+      maxStartupLines: 200,
+      sessionContinuityAutoLoad: false,
+      sessionContinuityAutoSave: false,
+      sessionContinuityLocalPathStyle: "codex",
+      maxSessionContinuityLines: 60,
+      codexBinary: "codex"
+    };
+    const store = new MemoryStore(detectProjectContext(projectDir), config);
+    await store.ensureLayout();
+
+    const topicFile = store.getTopicFile("project", "workflow");
+    const originalContents = [
+      "# Workflow",
+      "",
+      "<!-- cam:topic workflow -->",
+      "",
+      "This file is maintained by Codex Auto Memory. You may edit summaries or details directly.",
+      "",
+      "Manual note that cannot be round-tripped safely.",
+      "",
+      "## keep-entry",
+      "<!-- cam:entry {\"id\":\"keep-entry\",\"scope\":\"project\",\"updatedAt\":\"2026-03-14T00:00:00.000Z\"} -->",
+      "Summary: Keep this valid entry.",
+      "Details:",
+      "- Preserve this.",
+      "",
+      "## malformed-entry",
+      "<!-- cam:entry THIS IS NOT JSON -->",
+      "Summary: Broken entry.",
+      "Details:",
+      "- Must not be deleted by rewrite.",
+      ""
+    ].join("\n");
+    await fs.writeFile(topicFile, originalContents, "utf8");
+
+    await expect(
+      store.applyMutations([
+        {
+          action: "upsert",
+          scope: "project",
+          topic: "workflow",
+          id: "new-entry",
+          summary: "Do not rewrite unsafe files.",
+          details: ["Unsafe file should stay untouched."],
+          sources: ["manual"],
+          reason: "Manual note."
+        }
+      ])
+    ).rejects.toThrow(/Cannot rewrite topic file/);
+
+    expect(await fs.readFile(topicFile, "utf8")).toBe(originalContents);
+  });
+
+  it("fails closed when a topic file contains unsupported manual or malformed content during delete", async () => {
+    const projectDir = await tempDir("cam-store-unsafe-delete-project-");
+    const memoryRoot = await tempDir("cam-store-unsafe-delete-memory-");
+    const config: AppConfig = {
+      autoMemoryEnabled: true,
+      autoMemoryDirectory: memoryRoot,
+      extractorMode: "heuristic",
+      defaultScope: "project",
+      maxStartupLines: 200,
+      sessionContinuityAutoLoad: false,
+      sessionContinuityAutoSave: false,
+      sessionContinuityLocalPathStyle: "codex",
+      maxSessionContinuityLines: 60,
+      codexBinary: "codex"
+    };
+    const store = new MemoryStore(detectProjectContext(projectDir), config);
+    await store.ensureLayout();
+
+    const topicFile = store.getTopicFile("project", "workflow");
+    const originalContents = [
+      "# Workflow",
+      "",
+      "<!-- cam:topic workflow -->",
+      "",
+      "This file is maintained by Codex Auto Memory. You may edit summaries or details directly.",
+      "",
+      "## keep-entry",
+      "<!-- cam:entry {\"id\":\"keep-entry\",\"scope\":\"project\",\"updatedAt\":\"2026-03-14T00:00:00.000Z\"} -->",
+      "Summary: Keep this valid entry.",
+      "Details:",
+      "- Preserve this.",
+      "",
+      "## malformed-entry",
+      "<!-- cam:entry THIS IS NOT JSON -->",
+      "Summary: Broken entry.",
+      "Details:",
+      "- Must not be deleted by rewrite.",
+      ""
+    ].join("\n");
+    await fs.writeFile(topicFile, originalContents, "utf8");
+
+    await expect(
+      store.applyMutations([
+        {
+          action: "delete",
+          scope: "project",
+          topic: "workflow",
+          id: "keep-entry",
+          sources: ["manual"],
+          reason: "Delete request."
+        }
+      ])
+    ).rejects.toThrow(/Cannot rewrite topic file/);
+
+    expect(await fs.readFile(topicFile, "utf8")).toBe(originalContents);
+  });
+
+  it("treats source-only or reason-only changes as updates instead of noop", async () => {
+    const projectDir = await tempDir("cam-store-metadata-update-project-");
+    const memoryRoot = await tempDir("cam-store-metadata-update-memory-");
+    const config: AppConfig = {
+      autoMemoryEnabled: true,
+      autoMemoryDirectory: memoryRoot,
+      extractorMode: "heuristic",
+      defaultScope: "project",
+      maxStartupLines: 200,
+      sessionContinuityAutoLoad: false,
+      sessionContinuityAutoSave: false,
+      sessionContinuityLocalPathStyle: "codex",
+      maxSessionContinuityLines: 60,
+      codexBinary: "codex"
+    };
+    const store = new MemoryStore(detectProjectContext(projectDir), config);
+    await store.ensureLayout();
+    await store.remember(
+      "project",
+      "workflow",
+      "prefer-pnpm",
+      "Prefer pnpm in this repository.",
+      ["Use pnpm instead of npm in this repository."],
+      "Manual note."
+    );
+
+    const updated = await store.applyMutations([
+      {
+        action: "upsert",
+        scope: "project",
+        topic: "workflow",
+        id: "prefer-pnpm",
+        summary: "Prefer pnpm in this repository.",
+        details: ["Use pnpm instead of npm in this repository."],
+        sources: ["/tmp/rollout-source-update.jsonl"],
+        reason: "Updated provenance."
+      }
+    ]);
+    const details = await store.getEntryByRef("project:active:workflow:prefer-pnpm");
+    const history = await store.readHistory("project");
+
+    expect(updated).toHaveLength(1);
+    expect(updated[0]).toMatchObject({
+      lifecycleAction: "update",
+      previousState: "active",
+      nextState: "active"
+    });
+    expect(details?.entry.sources).toEqual(["/tmp/rollout-source-update.jsonl"]);
+    expect(details?.entry.reason).toBe("Updated provenance.");
+    expect(await fs.readFile(store.getTopicFile("project", "workflow"), "utf8")).toContain(
+      "/tmp/rollout-source-update.jsonl"
+    );
+    expect(history.slice(0, 2).map((event) => event.action)).toEqual(["update", "add"]);
+  });
+
   it("rejects topic traversal, skips invalid sync audit lines, and normalizes legacy audit entries", async () => {
     const projectDir = await tempDir("cam-store-guardrails-");
     const memoryRoot = await tempDir("cam-store-guardrails-mem-");
@@ -451,5 +1071,31 @@ describe("MemoryStore", () => {
 
     expect(await store.readMemoryFile("project")).not.toContain("## Highlights");
     expect(await store.readMemoryFile("project-local")).toContain("Custom note.");
+  });
+
+  it("fails closed when sync state or recovery records are malformed", async () => {
+    const projectDir = await tempDir("cam-store-invalid-state-project-");
+    const memoryRoot = await tempDir("cam-store-invalid-state-memory-");
+    const config: AppConfig = {
+      autoMemoryEnabled: true,
+      autoMemoryDirectory: memoryRoot,
+      extractorMode: "heuristic",
+      defaultScope: "project",
+      maxStartupLines: 200,
+      sessionContinuityAutoLoad: false,
+      sessionContinuityAutoSave: false,
+      sessionContinuityLocalPathStyle: "codex",
+      maxSessionContinuityLines: 60,
+      codexBinary: "codex"
+    };
+    const store = new MemoryStore(detectProjectContext(projectDir), config);
+    await store.ensureLayout();
+
+    await fs.writeFile(store.paths.stateFile, '{"processedRollouts":["wrong-shape"]}', "utf8");
+    await expect(store.getSyncState()).rejects.toThrow(/Invalid sync state file/);
+
+    await fs.mkdir(path.dirname(store.getSyncRecoveryPath()), { recursive: true });
+    await fs.writeFile(store.getSyncRecoveryPath(), '{"recordedAt":123}', "utf8");
+    await expect(store.readSyncRecoveryRecord()).rejects.toThrow(/Invalid sync recovery record/);
   });
 });

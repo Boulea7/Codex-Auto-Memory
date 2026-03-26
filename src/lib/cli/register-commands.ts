@@ -143,6 +143,7 @@ export function registerCommands(program: Command): void {
     .description("Delete matching memory entries")
     .argument("<query>", "Search query used to find memory entries")
     .option("--scope <scope>", "Specific scope to target, or all")
+    .option("--archive", "Move matching entries into archive instead of deleting them")
     .action(withStdout(async (query, options) => runForget(query, options)));
 
   program

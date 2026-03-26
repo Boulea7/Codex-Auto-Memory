@@ -19,7 +19,7 @@ export async function runRemember(
   const details = options.detail?.length ? options.detail : [text];
   const id = slugify(text);
 
-  await runtime.syncService.memoryStore.remember(
+  const record = await runtime.syncService.memoryStore.remember(
     scope,
     topic,
     id,
@@ -27,6 +27,10 @@ export async function runRemember(
     details,
     "Manual remember request."
   );
+
+  if (record?.lifecycleAction === "noop") {
+    return `Memory ${scope}/${topic}/${id} is already up to date.`;
+  }
 
   return `Saved memory to ${scope}/${topic} with id ${id}.`;
 }

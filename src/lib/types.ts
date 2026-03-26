@@ -1,4 +1,10 @@
 export type MemoryScope = "global" | "project" | "project-local";
+export type MemoryRecordState = "active" | "archived";
+export type MemoryHistoryRecordState = MemoryRecordState | "deleted";
+export type MemoryLifecycleAction = "add" | "update" | "delete" | "archive" | "noop";
+export type MemoryRetrievalScope = MemoryScope | "all";
+export type MemoryRetrievalResolvedState = MemoryRecordState | "all";
+export type MemoryRetrievalStateFilter = MemoryRetrievalResolvedState | "auto";
 export type SessionContinuityScope = "project" | "project-local";
 export type SessionContinuityLocalPathStyle = "codex" | "claude";
 export type SessionContinuityWriteMode = "merge" | "replace";
@@ -27,6 +33,74 @@ export interface MemoryOperation {
   details?: string[];
   sources?: string[];
   reason?: string;
+}
+
+export interface MemoryMutation {
+  action: "upsert" | "delete" | "archive";
+  scope: MemoryScope;
+  topic: string;
+  id: string;
+  summary?: string;
+  details?: string[];
+  sources?: string[];
+  reason?: string;
+}
+
+export interface MemoryRef {
+  ref: string;
+  scope: MemoryScope;
+  state: MemoryRecordState;
+  topic: string;
+  id: string;
+}
+
+export interface MemorySearchResult extends MemoryRef {
+  summary: string;
+  updatedAt: string;
+  matchedFields: string[];
+  approxReadCost: number;
+}
+
+export interface MemorySearchResponse {
+  query: string;
+  scope: MemoryRetrievalScope;
+  state: MemoryRetrievalStateFilter;
+  resolvedState: MemoryRetrievalResolvedState;
+  fallbackUsed: boolean;
+  results: MemorySearchResult[];
+}
+
+export interface MemoryTimelineEvent {
+  at: string;
+  action: Exclude<MemoryLifecycleAction, "noop">;
+  scope: MemoryScope;
+  state: MemoryHistoryRecordState;
+  topic: string;
+  id: string;
+  ref?: string;
+  summary: string;
+  reason?: string;
+  source?: string;
+  sessionId?: string;
+  rolloutPath?: string;
+}
+
+export interface MemoryTimelineResponse {
+  ref: string;
+  events: MemoryTimelineEvent[];
+}
+
+export interface MemoryDetailsResult extends MemoryRef {
+  entry: MemoryEntry;
+  path: string;
+  approxReadCost: number;
+}
+
+export interface MemoryApplyRecord {
+  operation: MemoryMutation;
+  lifecycleAction: MemoryLifecycleAction;
+  previousState?: MemoryRecordState;
+  nextState?: MemoryHistoryRecordState;
 }
 
 export type MemoryConflictSource = "within-rollout" | "existing-memory";
@@ -263,6 +337,7 @@ export interface MemorySyncAuditEntry {
   skipReason?: MemorySyncAuditSkipReason;
   isRecovery?: boolean;
   appliedCount: number;
+  noopOperationCount?: number;
   suppressedOperationCount?: number;
   scopesTouched: MemoryScope[];
   resultSummary: string;
@@ -284,6 +359,7 @@ export interface SyncRecoveryRecord {
   actualExtractorName: string;
   status: "applied" | "no-op";
   appliedCount: number;
+  noopOperationCount?: number;
   suppressedOperationCount?: number;
   scopesTouched: MemoryScope[];
   conflicts?: MemoryConflictCandidate[];

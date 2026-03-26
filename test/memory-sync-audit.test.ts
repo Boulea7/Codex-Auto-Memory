@@ -17,6 +17,7 @@ describe("memory-sync-audit", () => {
       sessionSource: "rollout-jsonl",
       status: "no-op",
       appliedCount: 0,
+      noopOperationCount: 0,
       scopesTouched: [],
       resultSummary: "0 operations applied",
       operations: []
@@ -57,6 +58,7 @@ describe("memory-sync-audit", () => {
       actualExtractorName: "heuristic",
       sessionSource: "rollout-jsonl",
       status: "applied",
+      noopOperationCount: 1,
       operations: [
         {
           action: "upsert",
@@ -75,8 +77,9 @@ describe("memory-sync-audit", () => {
 
     expect(entry.skipReason).toBeUndefined();
     expect(entry.appliedCount).toBe(2);
+    expect(entry.noopOperationCount).toBe(1);
     expect(entry.scopesTouched).toEqual(["project"]);
-    expect(entry.resultSummary).toBe("2 operation(s) applied");
+    expect(entry.resultSummary).toBe("2 operation(s) applied, 1 no-op");
   });
 
   it("formats reviewer text with recovery badge, unknown session, and configured extractor diff", () => {
@@ -96,6 +99,7 @@ describe("memory-sync-audit", () => {
       skipReason: "already-processed",
       isRecovery: true,
       appliedCount: 0,
+      noopOperationCount: 0,
       scopesTouched: [],
       resultSummary: "Skipped rollout; it was already processed",
       operations: []
@@ -103,7 +107,7 @@ describe("memory-sync-audit", () => {
 
     expect(lines[0]).toContain("[skipped] [recovery]");
     expect(lines[1]).toContain("Session: unknown");
-    expect(lines[2]).toContain("Applied: 0 | Suppressed: 0 | Scopes: none");
+    expect(lines[2]).toContain("Applied: 0 | No-op: 0 | Suppressed: 0 | Scopes: none");
     expect(lines).toContain(
       "  Configured: codex-ephemeral (codex) -> Actual: heuristic (heuristic)"
     );
@@ -127,6 +131,7 @@ describe("memory-sync-audit", () => {
       sessionSource: "rollout-jsonl",
       status: "no-op",
       appliedCount: 0,
+      noopOperationCount: 0,
       scopesTouched: [],
       resultSummary: "0 operations applied",
       operations: []
