@@ -516,6 +516,7 @@ describe("dist cli smoke", () => {
         install: true,
         serve: true,
         printConfig: true,
+        applyGuidance: true,
         doctor: true
       },
       hosts: [
@@ -1013,6 +1014,16 @@ fs.writeFileSync(${JSON.stringify(capturedArgsPath)}, JSON.stringify(process.arg
     );
     expect(mcpApplyGuidanceHelp.stdout).toContain("Target host: codex");
 
+    const mcpDoctorHelp = runCli(projectDir, ["mcp", "doctor", "--help"], {
+      entrypoint: "dist",
+      env
+    });
+    expect(mcpDoctorHelp.exitCode, mcpDoctorHelp.stderr).toBe(0);
+    expect(mcpDoctorHelp.stdout).toContain(
+      "Inspect the recommended project-scoped MCP wiring without writing host config"
+    );
+    expect(mcpDoctorHelp.stdout).toContain("Target host: codex, claude, gemini, generic, or all");
+
     const skillsHelp = runCli(projectDir, ["skills", "install", "--help"], {
       entrypoint: "dist",
       env
@@ -1058,5 +1069,60 @@ fs.writeFileSync(${JSON.stringify(capturedArgsPath)}, JSON.stringify(process.arg
       /Inspect the current Codex integration stack without mutating memory or host\s+config/
     );
     expect(integrationsDoctorHelp.stdout).toContain("Target host: codex");
+  });
+
+  it("keeps key compiled --cwd command surfaces working across project boundaries", async () => {
+    const homeDir = await tempDir("cam-dist-cwd-home-");
+    const projectParentDir = await tempDir("cam-dist-cwd-project-parent-");
+    const projectDir = path.join(projectParentDir, "project with spaces");
+    const callerDir = await tempDir("cam-dist-cwd-caller-");
+    const env = { HOME: homeDir };
+
+    await fs.mkdir(projectDir, { recursive: true });
+    const realProjectDir = await fs.realpath(projectDir);
+
+    const skillResult = runCli(
+      callerDir,
+      ["skills", "install", "--surface", "official-project", "--cwd", projectDir],
+      {
+        entrypoint: "dist",
+        env
+      }
+    );
+    expect(skillResult.exitCode, skillResult.stderr).toBe(0);
+    expect(
+      await fs.readFile(
+        path.join(realProjectDir, ".agents", "skills", "codex-auto-memory-recall", "SKILL.md"),
+        "utf8"
+      )
+    ).toContain("cam:asset-version");
+
+    const guidanceResult = runCli(
+      callerDir,
+      ["mcp", "apply-guidance", "--host", "codex", "--cwd", projectDir, "--json"],
+      {
+        entrypoint: "dist",
+        env
+      }
+    );
+    expect(guidanceResult.exitCode, guidanceResult.stderr).toBe(0);
+    expect(JSON.parse(guidanceResult.stdout)).toMatchObject({
+      host: "codex",
+      targetPath: path.join(realProjectDir, "AGENTS.md")
+    });
+
+    const integrationsResult = runCli(
+      callerDir,
+      ["integrations", "apply", "--host", "codex", "--cwd", projectDir, "--json"],
+      {
+        entrypoint: "dist",
+        env
+      }
+    );
+    expect(integrationsResult.exitCode, integrationsResult.stderr).toBe(0);
+    expect(JSON.parse(integrationsResult.stdout)).toMatchObject({
+      host: "codex",
+      projectRoot: realProjectDir
+    });
   });
 });

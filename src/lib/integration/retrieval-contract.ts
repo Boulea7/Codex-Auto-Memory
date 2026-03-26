@@ -17,6 +17,10 @@ export const RETRIEVAL_CLI_SEARCH_COMMAND = "cam recall search";
 export const RETRIEVAL_CLI_TIMELINE_COMMAND = "cam recall timeline";
 export const RETRIEVAL_CLI_DETAILS_COMMAND = "cam recall details";
 
+export const RECALL_FIRST_GUIDANCE =
+  "Before repeating prior work or repo-specific decisions, recall durable memory first.";
+export const PROGRESSIVE_DISCLOSURE_GUIDANCE =
+  "Use progressive disclosure: search -> timeline -> details.";
 export const MCP_FIRST_RECALL_WORKFLOW =
   `Prefer retrieval MCP when it is already wired in: ${RETRIEVAL_MCP_SEARCH_TOOL} -> ${RETRIEVAL_MCP_TIMELINE_TOOL} -> ${RETRIEVAL_MCP_DETAILS_TOOL}.`;
 export const CLI_FALLBACK_RECALL_WORKFLOW =
@@ -33,6 +37,17 @@ export const ARCHIVE_BOUNDARY =
   "Treat archived memory as historical context that does not participate in default startup recall.";
 export const DURABLE_MEMORY_SYNC_GUIDANCE =
   "After finishing work that should affect durable memory, run cam sync or review cam memory --recent instead of assuming temporary continuity already updated Markdown memory.";
+
+export function buildSharedWorkflowDisciplineLines(): string[] {
+  return [
+    RECALL_FIRST_GUIDANCE,
+    PROGRESSIVE_DISCLOSURE_GUIDANCE,
+    DURABLE_MEMORY_SYNC_GUIDANCE,
+    MEMORY_AUDIT_BOUNDARY,
+    SESSION_CONTINUITY_BOUNDARY,
+    ARCHIVE_BOUNDARY
+  ];
+}
 
 export function formatRecommendedRetrievalPreset(): string {
   return `state=${RECOMMENDED_RETRIEVAL_STATE}, limit=${RECOMMENDED_RETRIEVAL_LIMIT}`;
@@ -103,8 +118,8 @@ export function buildRecommendedSearchPresetGuidance(): string {
 
 export function buildRecommendedRetrievalSummaryLines(): string[] {
   return [
-    "Before repeating prior work or repo-specific decisions, recall durable memory first.",
-    "Use progressive disclosure: search -> timeline -> details.",
+    RECALL_FIRST_GUIDANCE,
+    PROGRESSIVE_DISCLOSURE_GUIDANCE,
     "Use this workflow when a host or skill needs read-only retrieval without reading full topic files up front.",
     MCP_FIRST_RECALL_WORKFLOW,
     buildRecommendedMcpSearchInstruction(),
@@ -112,10 +127,7 @@ export function buildRecommendedRetrievalSummaryLines(): string[] {
     CLI_FALLBACK_RECALL_WORKFLOW,
     buildRecommendedSearchPresetGuidance(),
     MCP_DOCTOR_GUIDANCE,
-    DURABLE_MEMORY_SYNC_GUIDANCE,
-    MEMORY_AUDIT_BOUNDARY,
-    SESSION_CONTINUITY_BOUNDARY,
-    ARCHIVE_BOUNDARY
+    ...buildSharedWorkflowDisciplineLines().slice(2)
   ];
 }
 

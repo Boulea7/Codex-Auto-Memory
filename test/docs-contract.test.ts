@@ -181,12 +181,18 @@ describe("docs contract", () => {
     expect(releaseChecklist).toContain("node dist/cli.js mcp install --help");
     expect(releaseChecklist).toContain("node dist/cli.js mcp print-config --help");
     expect(releaseChecklist).toContain("node dist/cli.js mcp apply-guidance --help");
+    expect(releaseChecklist).toContain("node dist/cli.js mcp doctor --help");
     expect(releaseChecklist).toContain("node dist/cli.js skills install --help");
     expect(releaseChecklist).toContain("node dist/cli.js integrations install --help");
     expect(releaseChecklist).toContain("node dist/cli.js integrations apply --help");
     expect(releaseChecklist).toContain("node dist/cli.js integrations doctor --help");
+    expect(releaseChecklist).toContain("node dist/cli.js skills install --surface official-project --cwd <path>");
+    expect(releaseChecklist).toContain("node dist/cli.js mcp apply-guidance --host codex --cwd <path> --json");
+    expect(releaseChecklist).toContain("node dist/cli.js integrations apply --host codex --cwd <path> --json");
     expect(releaseChecklist).toContain("codex, claude, gemini, or generic");
     expect(releaseChecklist).toContain("leaving `generic` out of the install branch");
+    expect(releaseChecklist).toContain("README.zh-TW.md");
+    expect(releaseChecklist).toContain("README.ja.md");
     expect(releaseChecklist).toContain("search_memories");
     expect(contributing).toContain("reviewer-only warnings");
     expect(contributing).toContain("pnpm test:docs-contract");
@@ -210,7 +216,7 @@ describe("docs contract", () => {
       "vitest run test/tarball-install-smoke.test.ts"
     );
     expect(packageJson.description).toBe(
-      "A Markdown-first, local-first memory runtime for Codex with wrapper, MCP, skill, and AGENTS integration surfaces."
+      "A Markdown-first, local-first memory runtime for Codex with wrapper, hook, MCP, skill, and AGENTS integration surfaces."
     );
     expect(packageJson.bin.cam).toBe("dist/cli.js");
     expect(packageJson.files).toEqual(

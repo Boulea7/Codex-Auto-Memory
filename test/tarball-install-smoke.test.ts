@@ -148,6 +148,55 @@ describe("tarball install smoke", () => {
       await fs.readFile(path.join(installDir, "AGENTS.md"), "utf8")
     ).toContain(codexPrintConfigPayload.agentsGuidance.snippet);
 
+    const shellDir = await tempDir("cam-tarball-shell-");
+    const projectWithSpacesDir = path.join(shellDir, "project with spaces");
+    await fs.mkdir(projectWithSpacesDir, { recursive: true });
+    const realProjectWithSpacesDir = await fs.realpath(projectWithSpacesDir);
+
+    const cwdSkillResult = runCommandCapture(
+      camBinaryPath(installDir),
+      ["skills", "install", "--surface", "official-project", "--cwd", projectWithSpacesDir],
+      shellDir,
+      envWithBin
+    );
+    expect(cwdSkillResult.exitCode).toBe(0);
+    expect(
+      await fs.readFile(
+        path.join(
+          realProjectWithSpacesDir,
+          ".agents",
+          "skills",
+          "codex-auto-memory-recall",
+          "SKILL.md"
+        ),
+        "utf8"
+      )
+    ).toContain("cam:asset-version");
+
+    const cwdApplyGuidanceResult = runCommandCapture(
+      camBinaryPath(installDir),
+      ["mcp", "apply-guidance", "--host", "codex", "--cwd", projectWithSpacesDir, "--json"],
+      shellDir,
+      envWithBin
+    );
+    expect(cwdApplyGuidanceResult.exitCode).toBe(0);
+    expect(JSON.parse(cwdApplyGuidanceResult.stdout)).toMatchObject({
+      host: "codex",
+      targetPath: path.join(realProjectWithSpacesDir, "AGENTS.md")
+    });
+
+    const cwdIntegrationsResult = runCommandCapture(
+      camBinaryPath(installDir),
+      ["integrations", "apply", "--host", "codex", "--cwd", projectWithSpacesDir, "--json"],
+      shellDir,
+      envWithBin
+    );
+    expect(cwdIntegrationsResult.exitCode).toBe(0);
+    expect(JSON.parse(cwdIntegrationsResult.stdout)).toMatchObject({
+      host: "codex",
+      projectRoot: realProjectWithSpacesDir
+    });
+
     const claudePrintConfigResult = runCommandCapture(
       camBinaryPath(installDir),
       ["mcp", "print-config", "--host", "claude", "--json"],
@@ -484,6 +533,20 @@ describe("tarball install smoke", () => {
       "Safely create or update the managed Codex Auto Memory block inside AGENTS.md"
     );
     expect(mcpApplyGuidanceHelpResult.stdout).toContain("Target host: codex");
+
+    const mcpDoctorHelpResult = runCommandCapture(
+      camBinaryPath(installDir),
+      ["mcp", "doctor", "--help"],
+      installDir,
+      envWithBin
+    );
+    expect(mcpDoctorHelpResult.exitCode).toBe(0);
+    expect(mcpDoctorHelpResult.stdout).toContain(
+      "Inspect the recommended project-scoped MCP wiring without writing host config"
+    );
+    expect(mcpDoctorHelpResult.stdout).toContain(
+      "Target host: codex, claude, gemini, generic, or all"
+    );
 
     const skillsHelpResult = runCommandCapture(
       camBinaryPath(installDir),
