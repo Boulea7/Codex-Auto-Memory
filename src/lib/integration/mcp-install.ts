@@ -6,7 +6,8 @@ import {
   buildCanonicalMcpServerConfig,
   MEMORY_RETRIEVAL_MCP_SERVER_NAME,
   resolveMcpHostProjectConfigPath,
-  type McpHost
+  type McpHost,
+  type McpServerConfigShape
 } from "./mcp-hosts.js";
 
 export interface McpInstallResult {
@@ -17,6 +18,7 @@ export interface McpInstallResult {
   action: "created" | "updated" | "unchanged";
   projectPinned: true;
   readOnlyRetrieval: true;
+  preservedCustomFields: string[];
   notes: string[];
 }
 
@@ -24,13 +26,7 @@ interface RecordLike {
   [key: string]: unknown;
 }
 
-interface McpServerRecord extends RecordLike {
-  command: string;
-  args: string[];
-  cwd?: string;
-  env?: Record<string, string>;
-  trust?: boolean;
-}
+const MANAGED_MCP_SERVER_KEYS = new Set(["command", "args", "cwd", "env", "trust"]);
 
 const PROJECT_SCOPED_PINNING_NOTE =
   "This install is project-scoped and keeps codex_auto_memory pinned to the current project root.";
@@ -43,25 +39,6 @@ const SKILLS_FALLBACK_NOTE =
 
 function isRecordLike(value: unknown): value is RecordLike {
   return Boolean(value) && typeof value === "object" && !Array.isArray(value);
-}
-
-function isStringArray(value: unknown): value is string[] {
-  return Array.isArray(value) && value.every((item) => typeof item === "string");
-}
-
-function isStringRecord(value: unknown): value is Record<string, string> {
-  return isRecordLike(value) && Object.values(value).every((item) => typeof item === "string");
-}
-
-function isMcpServerRecord(value: unknown): value is McpServerRecord {
-  return (
-    isRecordLike(value) &&
-    typeof value.command === "string" &&
-    isStringArray(value.args) &&
-    (value.cwd === undefined || typeof value.cwd === "string") &&
-    (value.env === undefined || isStringRecord(value.env)) &&
-    (value.trust === undefined || typeof value.trust === "boolean")
-  );
 }
 
 function deepEqual(left: unknown, right: unknown): boolean {
@@ -107,14 +84,45 @@ function ensureRecordProperty(
   return current;
 }
 
-function buildInstallNotes(): string[] {
+function buildInstallNotes(preservedCustomFields: string[] = []): string[] {
   return [
     READ_ONLY_RETRIEVAL_NOTE,
     PROJECT_SCOPED_PINNING_NOTE,
     SINGLE_ENTRY_NOTE,
     HOOKS_FALLBACK_NOTE,
-    SKILLS_FALLBACK_NOTE
+    SKILLS_FALLBACK_NOTE,
+    ...(preservedCustomFields.length > 0
+      ? [
+          `Preserved non-canonical fields on the existing codex_auto_memory entry: ${preservedCustomFields.join(", ")}.`
+        ]
+      : [])
   ];
+}
+
+function buildInstalledServerRecord(
+  existingServer: unknown,
+  canonicalServer: McpServerConfigShape
+): { nextServer: RecordLike; preservedCustomFields: string[] } {
+  if (!isRecordLike(existingServer)) {
+    return {
+      nextServer: {
+        ...canonicalServer
+      },
+      preservedCustomFields: []
+    };
+  }
+
+  const preservedEntries = Object.entries(existingServer).filter(
+    ([key]) => !MANAGED_MCP_SERVER_KEYS.has(key)
+  );
+
+  return {
+    nextServer: {
+      ...Object.fromEntries(preservedEntries),
+      ...canonicalServer
+    },
+    preservedCustomFields: preservedEntries.map(([key]) => key).sort()
+  };
 }
 
 async function writeConfigIfChanged(
@@ -146,15 +154,16 @@ async function installCodexProjectConfig(projectRoot: string): Promise<McpInstal
   const mcpServers = ensureRecordProperty(parsed, "mcp_servers", ".codex/config.toml[mcp_servers]");
   const canonicalServer = buildCanonicalMcpServerConfig("codex", projectRoot);
   const existingServer = mcpServers[MEMORY_RETRIEVAL_MCP_SERVER_NAME];
+  const { nextServer, preservedCustomFields } = buildInstalledServerRecord(existingServer, canonicalServer);
   const hadServer = Object.hasOwn(mcpServers, MEMORY_RETRIEVAL_MCP_SERVER_NAME);
   const action: McpInstallResult["action"] = !hadServer
     ? "created"
-    : isMcpServerRecord(existingServer) && deepEqual(existingServer, canonicalServer)
+    : isRecordLike(existingServer) && deepEqual(existingServer, nextServer)
       ? "unchanged"
       : "updated";
 
   if (action !== "unchanged") {
-    mcpServers[MEMORY_RETRIEVAL_MCP_SERVER_NAME] = canonicalServer;
+    mcpServers[MEMORY_RETRIEVAL_MCP_SERVER_NAME] = nextServer;
   }
 
   await writeConfigIfChanged(targetPath, toml.stringify(parsed), action);
@@ -167,7 +176,8 @@ async function installCodexProjectConfig(projectRoot: string): Promise<McpInstal
     action,
     projectPinned: true,
     readOnlyRetrieval: true,
-    notes: buildInstallNotes()
+    preservedCustomFields,
+    notes: buildInstallNotes(preservedCustomFields)
   };
 }
 
@@ -190,15 +200,16 @@ async function installJsonProjectConfig(
   const mcpServers = ensureRecordProperty(parsed, "mcpServers", `${targetPath}#mcpServers`);
   const canonicalServer = buildCanonicalMcpServerConfig(host, projectRoot);
   const existingServer = mcpServers[MEMORY_RETRIEVAL_MCP_SERVER_NAME];
+  const { nextServer, preservedCustomFields } = buildInstalledServerRecord(existingServer, canonicalServer);
   const hadServer = Object.hasOwn(mcpServers, MEMORY_RETRIEVAL_MCP_SERVER_NAME);
   const action: McpInstallResult["action"] = !hadServer
     ? "created"
-    : isMcpServerRecord(existingServer) && deepEqual(existingServer, canonicalServer)
+    : isRecordLike(existingServer) && deepEqual(existingServer, nextServer)
       ? "unchanged"
       : "updated";
 
   if (action !== "unchanged") {
-    mcpServers[MEMORY_RETRIEVAL_MCP_SERVER_NAME] = canonicalServer;
+    mcpServers[MEMORY_RETRIEVAL_MCP_SERVER_NAME] = nextServer;
   }
 
   await writeConfigIfChanged(targetPath, JSON.stringify(parsed, null, 2), action);
@@ -211,7 +222,8 @@ async function installJsonProjectConfig(
     action,
     projectPinned: true,
     readOnlyRetrieval: true,
-    notes: buildInstallNotes()
+    preservedCustomFields,
+    notes: buildInstallNotes(preservedCustomFields)
   };
 }
 

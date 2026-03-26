@@ -540,6 +540,9 @@ describe("integrations command", () => {
     const homeDir = await tempDir("cam-integrations-apply-blocked-home-");
     const projectDir = await tempDir("cam-integrations-apply-blocked-project-");
     const realProjectDir = await fs.realpath(projectDir);
+    const configPath = path.join(realProjectDir, ".codex", "config.toml");
+    const hooksDir = path.join(homeDir, ".codex-auto-memory", "hooks");
+    const skillDir = path.join(homeDir, ".codex", "skills", "codex-auto-memory-recall");
     process.env.HOME = homeDir;
 
     await fs.writeFile(
@@ -565,27 +568,97 @@ describe("integrations command", () => {
       host: "codex",
       projectRoot: realProjectDir,
       stackAction: "blocked",
+      preflightBlocked: true,
+      blockedStage: "agents-guidance-preflight",
       subactions: {
         mcp: {
-          status: "ok"
+          status: "ok",
+          action: "unchanged",
+          attempted: false,
+          skipped: true,
+          skipReason: expect.stringContaining("preflight")
         },
         agents: {
           status: "blocked",
           action: "blocked",
+          attempted: true,
           targetPath: path.join(realProjectDir, "AGENTS.md")
         },
         hooks: {
           status: "ok",
-          action: "created"
+          action: "unchanged",
+          attempted: false,
+          skipped: true,
+          skipReason: expect.stringContaining("preflight")
         },
         skills: {
           status: "ok",
-          action: "created",
+          action: "unchanged",
+          attempted: false,
+          skipped: true,
+          skipReason: expect.stringContaining("preflight"),
           surface: "runtime"
         }
       }
     });
     expect(await fs.readFile(path.join(realProjectDir, "AGENTS.md"), "utf8")).toBe(before);
+    expect(await pathExists(configPath)).toBe(false);
+    expect(await pathExists(hooksDir)).toBe(false);
+    expect(await pathExists(skillDir)).toBe(false);
+  });
+
+  it("withholds integrations apply from doctor next steps when AGENTS guidance is unsafe", async () => {
+    const homeDir = await tempDir("cam-integrations-doctor-blocked-home-");
+    const projectDir = await tempDir("cam-integrations-doctor-blocked-project-");
+    const shellDir = await tempDir("cam-integrations-doctor-blocked-shell-");
+    const realProjectDir = await fs.realpath(projectDir);
+    process.env.HOME = homeDir;
+
+    await fs.writeFile(
+      path.join(realProjectDir, "AGENTS.md"),
+      [
+        "# Project Notes",
+        "",
+        "<!-- cam:codex-agents-guidance:start -->",
+        "<!-- cam:agents-guidance-version codex-agents-guidance-v0 -->",
+        "- stale guidance"
+      ].join("\n"),
+      "utf8"
+    );
+
+    const result = runCli(
+      shellDir,
+      ["integrations", "doctor", "--host", "codex", "--cwd", projectDir, "--json"],
+      { env: { HOME: homeDir } }
+    );
+    expect(result.exitCode, result.stderr).toBe(0);
+
+    const payload = JSON.parse(result.stdout) as {
+      applyReadiness: {
+        status: string;
+        reason: string;
+        recommendedFix: string;
+      };
+      nextSteps: string[];
+    };
+    expect(payload.applyReadiness).toMatchObject({
+      status: "blocked",
+      reason: expect.stringContaining("managed guidance block"),
+      recommendedFix: expect.stringContaining("Repair")
+    });
+    expect(payload.applyReadiness.recommendedFix).toContain(
+      `cam mcp apply-guidance --host codex --cwd ${JSON.stringify(realProjectDir)}`
+    );
+    expect(payload.nextSteps).not.toEqual(
+      expect.arrayContaining([expect.stringContaining("cam integrations apply --host codex")])
+    );
+    expect(payload.nextSteps).toEqual(
+      expect.arrayContaining([
+        expect.stringContaining(
+          `cam mcp apply-guidance --host codex --cwd ${JSON.stringify(realProjectDir)}`
+        )
+      ])
+    );
   });
 
   it("keeps integrations install non-mutating for AGENTS.md while integrations apply writes it", async () => {

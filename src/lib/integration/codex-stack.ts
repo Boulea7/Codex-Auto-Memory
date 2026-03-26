@@ -352,13 +352,14 @@ export function summarizeCodexIntegrationStatus(
 }
 
 export function buildCodexStackNotes(): string[] {
+  const workflowContract = buildWorkflowContract();
   return [
     READ_ONLY_RETRIEVAL_NOTE,
     LOCAL_BRIDGE_BUNDLE_NOTE,
     "Recommended route prefers project-scoped MCP, then local bridge recall helpers, then direct cam recall CLI usage.",
-    `Recommended retrieval preset: ${formatRecommendedRetrievalPreset()}.`,
+    `Recommended retrieval preset: ${workflowContract.recommendedPreset}.`,
     ...buildSharedWorkflowDisciplineLines().slice(2),
-    `When the local bridge bundle is installed, prefer \`post-work-memory-review.sh\` to combine \`${buildPostWorkSyncCommand()}\` with \`${buildPostWorkRecentReviewCommand()}\`.`,
+    `When the local bridge bundle is installed, prefer \`${workflowContract.postWorkSyncReview.helperScript}\` to combine \`${buildPostWorkSyncCommand()}\` with \`${buildPostWorkRecentReviewCommand()}\`.`,
     "Run `cam mcp print-config --host codex` to inspect the recommended project-scoped MCP wiring together with an AGENTS.md snippet for Codex agents.",
     "Run `cam mcp apply-guidance --host codex` to create or update the managed Codex Auto Memory block inside the repository-level AGENTS.md.",
     "Codex skill readiness is guidance-only and does not replace executable hook fallback helpers.",
@@ -372,7 +373,7 @@ export function buildCodexAgentsGuidance(): CodexAgentsGuidance {
     "## Codex Auto Memory",
     "",
     `<!-- ${CODEX_AGENTS_GUIDANCE_VERSION_MARKER} ${CODEX_AGENTS_GUIDANCE_VERSION} -->`,
-    `- When durable memory may help, prefer the retrieval MCP workflow: \`${RETRIEVAL_MCP_SEARCH_TOOL}\` -> \`${RETRIEVAL_MCP_TIMELINE_TOOL}\` -> \`${RETRIEVAL_MCP_DETAILS_TOOL}\`.`,
+    `- ${workflowContract.routePreference.mcpFirst}`,
     `- ${buildRecommendedMcpSearchInstruction()}`,
     `- If the retrieval MCP server is unavailable, fall back to \`${buildRecommendedCliSearchCommand()}\`, then \`cam recall timeline \"<ref>\"\`, then \`cam recall details \"<ref>\"\`.`,
     ...buildSharedWorkflowDisciplineLines().slice(2).map((line) => `- ${line}`),

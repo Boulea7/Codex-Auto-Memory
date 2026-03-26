@@ -10,7 +10,10 @@ import {
   summarizeCodexIntegrationStatus,
   type CodexIntegrationStatus
 } from "../integration/codex-stack.js";
-import { applyCodexAgentsGuidance } from "../integration/agents-guidance.js";
+import {
+  applyCodexAgentsGuidance,
+  inspectCodexAgentsGuidanceApplySafety
+} from "../integration/agents-guidance.js";
 import { installIntegrationAssets } from "../integration/install-assets.js";
 import { installMcpProjectConfig, type McpInstallResult } from "../integration/mcp-install.js";
 import { normalizeMcpHost } from "../integration/mcp-config.js";
@@ -50,6 +53,9 @@ interface IntegrationsDoctorOptions {
 interface IntegrationSubactionResult {
   status: IntegrationSubactionStatus;
   action: IntegrationStackAction;
+  attempted?: boolean;
+  skipped?: boolean;
+  skipReason?: string;
   targetPath?: string;
   targetDir?: string;
   surface?: CodexSkillInstallSurface;
@@ -76,6 +82,8 @@ interface IntegrationStackApplyResult {
   host: "codex";
   projectRoot: string;
   stackAction: IntegrationStackAction;
+  preflightBlocked?: boolean;
+  blockedStage?: "agents-guidance-preflight";
   skillsSurface: CodexSkillInstallSurface;
   readOnlyRetrieval: true;
   subactions: {
@@ -100,6 +108,11 @@ interface IntegrationDoctorResult {
   recommendedRoute: McpDoctorReport["codexStack"]["recommendedRoute"];
   recommendedPreset: string;
   workflowContract: McpDoctorReport["workflowContract"];
+  applyReadiness: {
+    status: "safe" | "blocked";
+    reason?: string;
+    recommendedFix?: string;
+  };
   preferredSkillSurface: CodexSkillInstallSurface;
   recommendedSkillInstallCommand: string;
   installedSkillSurfaces: CodexSkillInstallSurface[];
@@ -170,7 +183,7 @@ function normalizeIntegrationsHost(
 
 function formatIntegrationApplyHeadline(action: IntegrationStackAction): string {
   if (action === "blocked") {
-    return "Codex integration apply was partially blocked.";
+    return "Codex integration apply was blocked.";
   }
 
   return formatIntegrationActionHeadline(action, "Codex integration apply");
@@ -189,6 +202,7 @@ function buildIntegrationsDoctorResult(
     explicitCwd?: boolean;
   } = {}
 ): IntegrationDoctorResult {
+  const pinnedProjectRoot = options.explicitCwd ? report.projectRoot : undefined;
   const codexHost = report.hosts.find((host) => host.host === "codex");
   if (!codexHost) {
     throw new Error("Codex host inspection is required for integrations doctor.");
@@ -249,6 +263,21 @@ function buildIntegrationsDoctorResult(
     ...buildCodexStackNotes(),
     "AGENTS guidance is inspected read-only and is never auto-written by integrations doctor."
   ];
+  const applySafetyStatus = report.applySafety.status;
+  const applyReadiness =
+    applySafetyStatus === "blocked"
+      ? {
+          status: "blocked" as const,
+          reason: report.applySafety.blockedReason,
+          recommendedFix:
+            `Repair the existing AGENTS.md managed guidance block so its markers are balanced outside fenced code blocks, then re-run ${appendCliCwdFlag(
+              "cam mcp apply-guidance --host codex",
+              pinnedProjectRoot
+            )}.`
+        }
+      : {
+          status: "safe" as const
+        };
   const nextSteps = buildCodexIntegrationNextSteps({
     mcpReady: report.codexStack.mcpReady,
     mcpOperationalReady: report.codexStack.mcpOperationalReady,
@@ -259,7 +288,7 @@ function buildIntegrationsDoctorResult(
     workflowConsistent: report.codexStack.workflowConsistent
   }, {
     skillInstallCommand: report.fallbackAssets.recommendedSkillInstallCommand,
-    projectRoot: options.explicitCwd ? report.projectRoot : undefined
+    projectRoot: pinnedProjectRoot
   });
   const needsAgents = report.agentsGuidance.status !== "ok";
   const needsOtherStackSurface =
@@ -267,18 +296,20 @@ function buildIntegrationsDoctorResult(
     !report.codexStack.hookCaptureReady ||
     !report.codexStack.hookRecallReady ||
     !report.codexStack.skillReady;
-  if (needsAgents && needsOtherStackSurface) {
+  if (applyReadiness.status === "blocked") {
+    nextSteps.unshift(applyReadiness.recommendedFix);
+  } else if (needsAgents && needsOtherStackSurface) {
     nextSteps.unshift(
-      `Run \`${appendCliCwdFlag(
-        `cam integrations apply --host codex --skill-surface ${report.fallbackAssets.preferredInstallSurface}`,
-        options.explicitCwd ? report.projectRoot : undefined
-      )}\` to install project-scoped MCP wiring, refresh hook and skill assets, and safely apply the managed Codex Auto Memory AGENTS.md block in one step.`
+        `Run \`${appendCliCwdFlag(
+          `cam integrations apply --host codex --skill-surface ${report.fallbackAssets.preferredInstallSurface}`,
+          pinnedProjectRoot
+        )}\` to install project-scoped MCP wiring, refresh hook and skill assets, and safely apply the managed Codex Auto Memory AGENTS.md block in one step.`
     );
   } else if (needsAgents) {
     nextSteps.push(
       `Run \`${appendCliCwdFlag(
         "cam mcp apply-guidance --host codex",
-        options.explicitCwd ? report.projectRoot : undefined
+        pinnedProjectRoot
       )}\` to create or update the managed Codex Auto Memory block in the repository-level AGENTS.md.`
     );
   }
@@ -291,6 +322,7 @@ function buildIntegrationsDoctorResult(
     recommendedRoute: report.codexStack.recommendedRoute,
     recommendedPreset: report.codexStack.preset,
     workflowContract: report.workflowContract,
+    applyReadiness,
     preferredSkillSurface: report.fallbackAssets.preferredInstallSurface,
     recommendedSkillInstallCommand: report.fallbackAssets.recommendedSkillInstallCommand,
     installedSkillSurfaces: [...report.fallbackAssets.installedSkillSurfaces],
@@ -310,6 +342,7 @@ function formatIntegrationsDoctorResult(result: IntegrationDoctorResult): string
     `Status: ${result.status}`,
     `Recommended route: ${result.recommendedRoute}`,
     `Recommended preset: ${result.recommendedPreset}`,
+    `Apply readiness: ${result.applyReadiness.status}${result.applyReadiness.reason ? ` (${result.applyReadiness.reason})` : ""}`,
     `Preferred skill surface: ${formatCodexSkillInstallSurface(result.preferredSkillSurface)}`,
     `Recommended skill install command: ${result.recommendedSkillInstallCommand}`,
     `Installed skill surfaces: ${result.installedSkillSurfaces.length > 0 ? result.installedSkillSurfaces.join(", ") : "none"}`,
@@ -412,6 +445,79 @@ export async function runIntegrationsApply(
 
   const projectRoot = resolveMcpProjectRoot(options.cwd);
   const skillSurface = normalizeCodexSkillInstallSurface(options.skillSurface);
+  const applySafety = await inspectCodexAgentsGuidanceApplySafety(projectRoot);
+  if (applySafety.status === "blocked") {
+    const skipReason =
+      "Skipped because integrations apply was blocked during AGENTS guidance preflight.";
+    const result: IntegrationStackApplyResult = {
+      host: "codex",
+      projectRoot,
+      stackAction: "blocked",
+      preflightBlocked: true,
+      blockedStage: "agents-guidance-preflight",
+      skillsSurface: skillSurface,
+      readOnlyRetrieval: true,
+      subactions: {
+        mcp: {
+          status: "ok",
+          action: "unchanged",
+          attempted: false,
+          skipped: true,
+          skipReason,
+          readOnlyRetrieval: true,
+          notes: [skipReason]
+        },
+        agents: {
+          status: "blocked",
+          action: "blocked",
+          attempted: true,
+          targetPath: applySafety.targetPath,
+          readOnlyRetrieval: true,
+          notes: [...applySafety.notes]
+        },
+        hooks: {
+          status: "ok",
+          action: "unchanged",
+          attempted: false,
+          skipped: true,
+          skipReason,
+          readOnlyRetrieval: true,
+          notes: [skipReason]
+        },
+        skills: {
+          status: "ok",
+          action: "unchanged",
+          attempted: false,
+          skipped: true,
+          skipReason,
+          targetDir: undefined,
+          surface: skillSurface,
+          readOnlyRetrieval: true,
+          notes: [skipReason]
+        }
+      },
+      notes: [
+        "This orchestration surface is Codex-only and explicit.",
+        "Integrations apply was blocked during AGENTS guidance preflight, so no project-scoped MCP wiring, hook assets, or skill assets were written.",
+        ...(applySafety.blockedReason ? [`Reason: ${applySafety.blockedReason}`] : [])
+      ]
+    };
+
+    if (options.json) {
+      return JSON.stringify(result, null, 2);
+    }
+
+    return [
+      formatIntegrationApplyHeadline(result.stackAction),
+      `Host: ${result.host}`,
+      `Project root: ${result.projectRoot}`,
+      `Stack action: ${result.stackAction}`,
+      "Blocked stage: agents-guidance-preflight",
+      "",
+      "Notes:",
+      ...result.notes.map((note) => `- ${note}`)
+    ].join("\n");
+  }
   const mcpResult = await installMcpProjectConfig("codex", projectRoot);
   const agentsResult = await applyCodexAgentsGuidance(projectRoot);
   const hooksResult = await installIntegrationAssets("hooks", {
@@ -432,12 +538,16 @@ export async function runIntegrationsApply(
       hooksResult.action,
       skillsResult.action
     ]),
-    readOnlyRetrieval: true,
-    subactions: {
-      mcp: toMcpSubaction(mcpResult),
-      agents: {
-        status: agentsResult.action === "blocked" ? "blocked" : "ok",
-        action: agentsResult.action,
+      readOnlyRetrieval: true,
+      subactions: {
+        mcp: {
+          ...toMcpSubaction(mcpResult),
+          attempted: true
+        },
+        agents: {
+          status: agentsResult.action === "blocked" ? "blocked" : "ok",
+          action: agentsResult.action,
+        attempted: true,
         targetPath: agentsResult.targetPath,
         readOnlyRetrieval: true,
         notes: [...agentsResult.notes]
@@ -445,6 +555,7 @@ export async function runIntegrationsApply(
       hooks: {
         status: "ok",
         action: hooksResult.action,
+        attempted: true,
         targetDir: hooksResult.targetDir,
         readOnlyRetrieval: hooksResult.readOnlyRetrieval,
         notes: [...hooksResult.notes]
@@ -452,6 +563,7 @@ export async function runIntegrationsApply(
       skills: {
         status: "ok",
         action: skillsResult.action,
+        attempted: true,
         targetDir: skillsResult.targetDir,
         surface: skillSurface,
         readOnlyRetrieval: skillsResult.readOnlyRetrieval,

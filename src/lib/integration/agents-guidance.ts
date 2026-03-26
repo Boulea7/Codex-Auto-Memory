@@ -7,6 +7,17 @@ import {
 import { fileExists, readTextFile, writeTextFileAtomic } from "../util/fs.js";
 
 export type CodexAgentsGuidanceApplyAction = "created" | "updated" | "unchanged" | "blocked";
+export type CodexAgentsGuidanceApplySafetyStatus = "safe" | "blocked";
+
+export interface CodexAgentsGuidanceApplySafetyResult {
+  host: "codex";
+  projectRoot: string;
+  targetPath: string;
+  status: CodexAgentsGuidanceApplySafetyStatus;
+  blockedReason?: string;
+  recommendedAction: "create" | "append" | "replace" | "unchanged" | "blocked";
+  notes: string[];
+}
 
 export interface CodexAgentsGuidanceApplyResult {
   host: "codex";
@@ -63,15 +74,111 @@ function buildNotes(): string[] {
   ];
 }
 
-export async function applyCodexAgentsGuidance(
+interface CodexAgentsGuidanceApplyInspection {
+  targetPath: string;
+  notes: string[];
+  exists: boolean;
+  currentContents: string | null;
+  managedBlock: string;
+  lineEnding: "\n" | "\r\n" | "\r";
+  unsafeManagedBlock: boolean;
+  unsafeReason?: string;
+  hasManagedBlock: boolean;
+  alreadyCurrent: boolean;
+  managedBlockRange: { startIndex: number; endIndex: number } | null;
+}
+
+async function inspectCodexAgentsGuidanceApply(
   projectRoot: string
-): Promise<CodexAgentsGuidanceApplyResult> {
+): Promise<CodexAgentsGuidanceApplyInspection> {
   const targetPath = path.join(projectRoot, "AGENTS.md");
   const notes = buildNotes();
   const exists = await fileExists(targetPath);
 
   if (!exists) {
-    await writeTextFileAtomic(targetPath, `${buildCodexAgentsManagedBlock()}\n`);
+    return {
+      targetPath,
+      notes,
+      exists,
+      currentContents: null,
+      managedBlock: buildCodexAgentsManagedBlock(),
+      lineEnding: "\n",
+      unsafeManagedBlock: false,
+      hasManagedBlock: false,
+      alreadyCurrent: false,
+      managedBlockRange: null
+    };
+  }
+
+  const currentContents = await readTextFile(targetPath);
+  const parsed = parseCodexAgentsGuidanceContents(currentContents);
+  const managedBlock = buildCodexAgentsManagedBlock(parsed.lineEnding);
+  const alreadyCurrent =
+    parsed.managedBlock !== null &&
+    normalizeManagedBlockForComparison(parsed.managedBlock.contents) ===
+      normalizeManagedBlockForComparison(managedBlock);
+
+  return {
+    targetPath,
+    notes,
+    exists,
+    currentContents,
+    managedBlock,
+    lineEnding: parsed.lineEnding,
+    unsafeManagedBlock: parsed.unsafeManagedBlock,
+    unsafeReason: parsed.unsafeReason,
+    hasManagedBlock: parsed.managedBlock !== null,
+    alreadyCurrent,
+    managedBlockRange: parsed.managedBlock
+      ? {
+          startIndex: parsed.managedBlock.startIndex,
+          endIndex: parsed.managedBlock.endIndex
+        }
+      : null
+  };
+}
+
+export async function inspectCodexAgentsGuidanceApplySafety(
+  projectRoot: string
+): Promise<CodexAgentsGuidanceApplySafetyResult> {
+  const inspection = await inspectCodexAgentsGuidanceApply(projectRoot);
+
+  if (inspection.unsafeManagedBlock) {
+    return {
+      host: "codex",
+      projectRoot,
+      targetPath: inspection.targetPath,
+      status: "blocked",
+      blockedReason: inspection.unsafeReason,
+      recommendedAction: "blocked",
+      notes: inspection.notes
+    };
+  }
+
+  return {
+    host: "codex",
+    projectRoot,
+    targetPath: inspection.targetPath,
+    status: "safe",
+    recommendedAction: !inspection.exists
+      ? "create"
+      : !inspection.hasManagedBlock
+        ? "append"
+        : inspection.alreadyCurrent
+          ? "unchanged"
+          : "replace",
+    notes: inspection.notes
+  };
+}
+
+export async function applyCodexAgentsGuidance(
+  projectRoot: string
+): Promise<CodexAgentsGuidanceApplyResult> {
+  const inspection = await inspectCodexAgentsGuidanceApply(projectRoot);
+  const { targetPath, notes } = inspection;
+
+  if (!inspection.exists) {
+    await writeTextFileAtomic(targetPath, `${inspection.managedBlock}\n`);
     return {
       host: "codex",
       projectRoot,
@@ -83,11 +190,7 @@ export async function applyCodexAgentsGuidance(
     };
   }
 
-  const currentContents = await readTextFile(targetPath);
-  const parsed = parseCodexAgentsGuidanceContents(currentContents);
-  const managedBlock = buildCodexAgentsManagedBlock(parsed.lineEnding);
-
-  if (parsed.unsafeManagedBlock) {
+  if (inspection.unsafeManagedBlock) {
     return {
       host: "codex",
       projectRoot,
@@ -95,15 +198,15 @@ export async function applyCodexAgentsGuidance(
       action: "blocked",
       managedBlockVersion: CODEX_AGENTS_GUIDANCE_VERSION,
       createdFile: false,
-      blockedReason: parsed.unsafeReason,
+      blockedReason: inspection.unsafeReason,
       notes
     };
   }
 
-  if (!parsed.managedBlock) {
+  if (!inspection.hasManagedBlock) {
     await writeTextFileAtomic(
       targetPath,
-      appendManagedBlock(currentContents, managedBlock, parsed.lineEnding)
+      appendManagedBlock(inspection.currentContents ?? "", inspection.managedBlock, inspection.lineEnding)
     );
     return {
       host: "codex",
@@ -116,11 +219,7 @@ export async function applyCodexAgentsGuidance(
     };
   }
 
-  const currentBlock = parsed.managedBlock.contents;
-  if (
-    normalizeManagedBlockForComparison(currentBlock) ===
-    normalizeManagedBlockForComparison(managedBlock)
-  ) {
+  if (inspection.alreadyCurrent) {
     return {
       host: "codex",
       projectRoot,
@@ -134,7 +233,11 @@ export async function applyCodexAgentsGuidance(
 
   await writeTextFileAtomic(
     targetPath,
-    replaceManagedBlock(currentContents, parsed.managedBlock, managedBlock)
+    replaceManagedBlock(
+      inspection.currentContents ?? "",
+      inspection.managedBlockRange!,
+      inspection.managedBlock
+    )
   );
   return {
     host: "codex",

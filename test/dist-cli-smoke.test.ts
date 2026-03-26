@@ -273,6 +273,7 @@ describe("dist cli smoke", () => {
   it("prints host MCP config snippets from the compiled cli entrypoint", async () => {
     const homeDir = await tempDir("cam-dist-mcp-print-home-");
     const projectDir = await tempDir("cam-dist-mcp-print-project-");
+    const realProjectDir = await fs.realpath(projectDir);
 
     const result = runCli(projectDir, ["mcp", "print-config", "--host", "codex", "--json"], {
       entrypoint: "dist",
@@ -280,17 +281,45 @@ describe("dist cli smoke", () => {
     });
 
     expect(result.exitCode, result.stderr).toBe(0);
-    expect(JSON.parse(result.stdout)).toMatchObject({
+    const payload = JSON.parse(result.stdout) as {
+      host: string;
+      serverName: string;
+      targetFileHint: string;
+      workflowContract: {
+        recommendedPreset: string;
+        routePreference: {
+          preferredRoute: string;
+        };
+        cliFallback: {
+          searchCommand: string;
+        };
+      };
+      agentsGuidance: {
+        targetFileHint: string;
+        snippetFormat: string;
+        snippet: string;
+      };
+    };
+    expect(payload).toMatchObject({
       host: "codex",
       serverName: "codex_auto_memory",
       targetFileHint: ".codex/config.toml",
+      workflowContract: {
+        recommendedPreset: "state=auto, limit=8",
+        routePreference: {
+          preferredRoute: "mcp-first"
+        },
+        cliFallback: {
+          searchCommand: `cam recall search "<query>" --state auto --limit 8 --cwd ${JSON.stringify(realProjectDir)}`
+        }
+      },
       agentsGuidance: {
         targetFileHint: "AGENTS.md",
         snippetFormat: "markdown"
       }
     });
-    expect(JSON.parse(result.stdout).agentsGuidance.snippet).toContain("search_memories");
-    expect(JSON.parse(result.stdout).agentsGuidance.snippet).toContain("cam recall search");
+    expect(payload.agentsGuidance.snippet).toContain("search_memories");
+    expect(payload.agentsGuidance.snippet).toContain("cam recall search");
 
     const claudeResult = runCli(
       projectDir,
@@ -305,7 +334,13 @@ describe("dist cli smoke", () => {
     expect(JSON.parse(claudeResult.stdout)).toMatchObject({
       host: "claude",
       serverName: "codex_auto_memory",
-      targetFileHint: ".mcp.json"
+      targetFileHint: ".mcp.json",
+      workflowContract: {
+        recommendedPreset: "state=auto, limit=8",
+        cliFallback: {
+          searchCommand: `cam recall search "<query>" --state auto --limit 8 --cwd ${JSON.stringify(realProjectDir)}`
+        }
+      }
     });
 
     const geminiResult = runCli(
@@ -321,7 +356,13 @@ describe("dist cli smoke", () => {
     expect(JSON.parse(geminiResult.stdout)).toMatchObject({
       host: "gemini",
       serverName: "codex_auto_memory",
-      targetFileHint: ".gemini/settings.json"
+      targetFileHint: ".gemini/settings.json",
+      workflowContract: {
+        recommendedPreset: "state=auto, limit=8",
+        cliFallback: {
+          searchCommand: `cam recall search "<query>" --state auto --limit 8 --cwd ${JSON.stringify(realProjectDir)}`
+        }
+      }
     });
 
     const genericResult = runCli(
@@ -338,7 +379,13 @@ describe("dist cli smoke", () => {
       host: "generic",
       serverName: "codex_auto_memory",
       targetFileHint: "Your MCP client's stdio server config",
-      snippetFormat: "json"
+      snippetFormat: "json",
+      workflowContract: {
+        recommendedPreset: "state=auto, limit=8",
+        cliFallback: {
+          searchCommand: `cam recall search "<query>" --state auto --limit 8 --cwd ${JSON.stringify(realProjectDir)}`
+        }
+      }
     });
   });
 
@@ -665,6 +712,51 @@ describe("dist cli smoke", () => {
     });
   });
 
+  it("preserves custom fields on the codex_auto_memory install entry from the compiled cli entrypoint", async () => {
+    const homeDir = await tempDir("cam-dist-mcp-install-preserve-home-");
+    const projectDir = await tempDir("cam-dist-mcp-install-preserve-project-");
+    const realProjectDir = await fs.realpath(projectDir);
+
+    await fs.mkdir(path.join(projectDir, ".codex"), { recursive: true });
+    await fs.writeFile(
+      path.join(projectDir, ".codex", "config.toml"),
+      [
+        "[mcp_servers.codex_auto_memory]",
+        'command = "cam"',
+        'args = ["mcp", "serve"]',
+        `cwd = ${JSON.stringify(realProjectDir)}`,
+        'label = "keep-me"'
+      ].join("\n"),
+      "utf8"
+    );
+
+    const result = runCli(projectDir, ["mcp", "install", "--host", "codex", "--json"], {
+      entrypoint: "dist",
+      env: { HOME: homeDir }
+    });
+
+    expect(result.exitCode, result.stderr).toBe(0);
+    expect(JSON.parse(result.stdout)).toMatchObject({
+      host: "codex",
+      action: "unchanged",
+      preservedCustomFields: ["label"]
+    });
+
+    const writtenConfig = toml.parse(
+      await fs.readFile(path.join(projectDir, ".codex", "config.toml"), "utf8")
+    ) as Record<string, unknown>;
+    expect(writtenConfig).toMatchObject({
+      mcp_servers: {
+        codex_auto_memory: {
+          command: "cam",
+          args: ["mcp", "serve"],
+          cwd: realProjectDir,
+          label: "keep-me"
+        }
+      }
+    });
+  });
+
   it("installs hooks and skills from the compiled cli entrypoint", async () => {
     const homeDir = await tempDir("cam-dist-hook-skill-home-");
     const projectDir = await tempDir("cam-dist-hook-skill-project-");
@@ -774,8 +866,48 @@ describe("dist cli smoke", () => {
     expect(doctorResult.exitCode, doctorResult.stderr).toBe(0);
     expect(JSON.parse(doctorResult.stdout)).toMatchObject({
       fallbackAssets: {
+        runtimeSkillPresent: true,
         runtimeSkillDir: path.join(codexHome, "skills", "codex-auto-memory-recall"),
+        anySkillSurfaceInstalled: true,
+        anySkillSurfaceReady: true,
+        officialUserSkillMatchesCanonical: false,
+        officialProjectSkillMatchesCanonical: false,
         skillPathDrift: true
+      }
+    });
+  });
+
+  it("reports canonical and runtime skill readiness separately from the compiled cli entrypoint", async () => {
+    const homeDir = await tempDir("cam-dist-skill-doctor-home-");
+    const projectDir = await tempDir("cam-dist-skill-doctor-project-");
+
+    const env = { HOME: homeDir };
+    const skillsResult = runCli(
+      projectDir,
+      ["skills", "install", "--surface", "official-user"],
+      {
+        entrypoint: "dist",
+        env
+      }
+    );
+    expect(skillsResult.exitCode, skillsResult.stderr).toBe(0);
+
+    const doctorResult = runCli(projectDir, ["mcp", "doctor", "--json"], {
+      entrypoint: "dist",
+      env
+    });
+    expect(doctorResult.exitCode, doctorResult.stderr).toBe(0);
+    expect(JSON.parse(doctorResult.stdout)).toMatchObject({
+      fallbackAssets: {
+        runtimeSkillPresent: false,
+        runtimeSkillInstalled: false,
+        officialUserSkillInstalled: true,
+        officialUserSkillMatchesCanonical: true,
+        officialUserSkillMatchesRuntime: false,
+        anySkillSurfaceInstalled: true,
+        anySkillSurfaceReady: true,
+        installedSkillSurfaces: ["official-user"],
+        readySkillSurfaces: ["official-user"]
       }
     });
   });
@@ -879,10 +1011,31 @@ describe("dist cli smoke", () => {
       host: "codex",
       projectRoot: realProjectDir,
       stackAction: "blocked",
+      preflightBlocked: true,
+      blockedStage: "agents-guidance-preflight",
       subactions: {
+        mcp: {
+          action: "unchanged",
+          attempted: false,
+          skipped: true,
+          skipReason: expect.stringContaining("preflight")
+        },
         agents: {
           status: "blocked",
-          action: "blocked"
+          action: "blocked",
+          attempted: true
+        },
+        hooks: {
+          action: "unchanged",
+          attempted: false,
+          skipped: true,
+          skipReason: expect.stringContaining("preflight")
+        },
+        skills: {
+          action: "unchanged",
+          attempted: false,
+          skipped: true,
+          skipReason: expect.stringContaining("preflight")
         }
       }
     });
@@ -1047,6 +1200,9 @@ describe("dist cli smoke", () => {
       status: "ok",
       recommendedRoute: "mcp",
       recommendedPreset: "state=auto, limit=8",
+      applyReadiness: {
+        status: "safe"
+      },
       workflowContract: {
         version: expect.any(String),
         postWorkSyncReview: {
@@ -1062,6 +1218,43 @@ describe("dist cli smoke", () => {
         hookRecall: { status: "ok" },
         skill: { status: "ok" },
         workflowConsistency: { status: "ok" }
+      }
+    });
+  });
+
+  it("surfaces blocked apply readiness from the compiled integrations doctor", async () => {
+    const homeDir = await tempDir("cam-dist-integrations-doctor-blocked-home-");
+    const projectDir = await tempDir("cam-dist-integrations-doctor-blocked-project-");
+    const realProjectDir = await fs.realpath(projectDir);
+
+    await fs.writeFile(
+      path.join(realProjectDir, "AGENTS.md"),
+      [
+        "# Project Notes",
+        "",
+        "<!-- cam:codex-agents-guidance:start -->",
+        "<!-- cam:agents-guidance-version codex-agents-guidance-v0 -->",
+        "- stale guidance"
+      ].join("\n"),
+      "utf8"
+    );
+
+    const result = runCli(
+      projectDir,
+      ["integrations", "doctor", "--host", "codex", "--json"],
+      {
+        entrypoint: "dist",
+        env: { HOME: homeDir }
+      }
+    );
+    expect(result.exitCode, result.stderr).toBe(0);
+    expect(JSON.parse(result.stdout)).toMatchObject({
+      host: "codex",
+      projectRoot: realProjectDir,
+      applyReadiness: {
+        status: "blocked",
+        reason: expect.stringContaining("managed guidance block"),
+        recommendedFix: expect.stringContaining("cam mcp apply-guidance --host codex")
       }
     });
   });

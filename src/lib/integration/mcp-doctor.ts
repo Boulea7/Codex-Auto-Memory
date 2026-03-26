@@ -15,6 +15,7 @@ import {
   type CodexAgentsGuidanceInspection,
   type CodexIntegrationRoute
 } from "./codex-stack.js";
+import { inspectCodexAgentsGuidanceApplySafety } from "./agents-guidance.js";
 import {
   appendCliCwdFlag,
   buildWorkflowContract,
@@ -29,6 +30,7 @@ import {
   MEMORY_RETRIEVAL_MCP_SERVER_NAME,
   normalizeMcpDoctorHostSelection,
   resolveMcpHostProjectConfigPath,
+  resolveMcpHostUserConfigPath,
   type McpDoctorHostSelection,
   type McpHost,
   type McpHostPinningMode
@@ -44,14 +46,38 @@ import { resolveMcpProjectRoot } from "./mcp-config.js";
 
 type McpDoctorStatus = "ok" | "warning" | "missing" | "manual";
 type McpDoctorConfigInspection = "ok" | "missing" | "parse-error" | "shape-mismatch";
+type McpDoctorConfigScope = "project" | "global";
+type McpDoctorRecommendedScope = "project" | "manual";
+type McpDoctorConfigScopeSummary =
+  | "manual-only"
+  | "project-ready"
+  | "project-invalid"
+  | "project-shape-mismatch"
+  | "project-missing"
+  | "project-missing-global-alternate"
+  | "project-missing-global-invalid";
 
 interface McpDoctorConfigCheck {
+  scope: McpDoctorConfigScope;
   path: string;
   exists: boolean;
   hasServerName: boolean;
   hasCamCommand: boolean;
   hasServeInvocation: boolean;
   projectPinned: boolean;
+}
+
+interface McpDoctorConfigIssue {
+  scope: McpDoctorConfigScope;
+  path: string;
+  inspection: Exclude<McpDoctorConfigInspection, "ok" | "missing">;
+}
+
+interface McpDoctorAlternateWiring {
+  detected: boolean;
+  valid: boolean;
+  scopes: McpDoctorConfigScope[];
+  issues: McpDoctorConfigIssue[];
 }
 
 interface McpDoctorConfigInspectionResult {
@@ -64,9 +90,14 @@ interface McpDoctorHostReport {
   status: McpDoctorStatus;
   targetFileHint: string;
   pinning: McpHostPinningMode;
+  recommendedScope: McpDoctorRecommendedScope;
+  configScopeSummary: McpDoctorConfigScopeSummary;
+  detectedScopes: McpDoctorConfigScope[];
+  alternateWiring: McpDoctorAlternateWiring;
   summary: string;
   notes: string[];
   configCheck?: McpDoctorConfigCheck;
+  alternateConfigChecks?: McpDoctorConfigCheck[];
 }
 
 interface McpDoctorAssetCheck {
@@ -89,6 +120,7 @@ function hasExpectedAssetSignatures(contents: string, expectedSignatures: string
 
 interface SkillSurfaceInspection {
   installed: boolean;
+  contents: string | null;
   matchesCanonical: boolean;
   ready: boolean;
 }
@@ -102,6 +134,7 @@ async function inspectSkillSurfaceFile(
   if (!installed) {
     return {
       installed,
+      contents: null,
       matchesCanonical: false,
       ready: false
     };
@@ -111,6 +144,7 @@ async function inspectSkillSurfaceFile(
   const matchesCanonical = contents === canonicalContents;
   return {
     installed,
+    contents,
     matchesCanonical,
     ready:
       matchesCanonical &&
@@ -128,15 +162,20 @@ interface McpDoctorFallbackAssets {
   recommendedSkillInstallCommand: string;
   officialUserSkillDir: string;
   officialProjectSkillDir: string;
+  runtimeSkillPresent: boolean;
   runtimeSkillInstalled: boolean;
   officialUserSkillInstalled: boolean;
   officialProjectSkillInstalled: boolean;
   runtimeSkillMatchesCanonical: boolean;
+  officialUserSkillMatchesCanonical: boolean;
+  officialProjectSkillMatchesCanonical: boolean;
   officialUserSkillMatchesRuntime: boolean;
   officialProjectSkillMatchesRuntime: boolean;
   runtimeSkillReady: boolean;
   officialUserSkillReady: boolean;
   officialProjectSkillReady: boolean;
+  anySkillSurfaceInstalled: boolean;
+  anySkillSurfaceReady: boolean;
   installedSkillSurfaces: CodexSkillInstallSurface[];
   readySkillSurfaces: CodexSkillInstallSurface[];
   skillPathDrift: boolean;
@@ -166,6 +205,7 @@ export interface McpDoctorReport {
     doctor: true;
   };
   agentsGuidance: CodexAgentsGuidanceInspection;
+  applySafety: Awaited<ReturnType<typeof inspectCodexAgentsGuidanceApplySafety>>;
   fallbackAssets: McpDoctorFallbackAssets;
   workflowContract: ReturnType<typeof buildWorkflowContract>;
   hosts: McpDoctorHostReport[];
@@ -256,9 +296,10 @@ function formatPinning(pinning: McpHostPinningMode): string {
 
 async function inspectHostConfig(
   host: McpHost,
-  projectRoot: string
+  projectRoot: string,
+  configPath: string | null,
+  scope: McpDoctorConfigScope
 ): Promise<McpDoctorConfigInspectionResult> {
-  const configPath = resolveMcpHostProjectConfigPath(host, projectRoot);
   if (!configPath) {
     return {
       inspection: "missing"
@@ -270,6 +311,7 @@ async function inspectHostConfig(
     return {
       inspection: "missing",
       configCheck: {
+        scope,
         path: configPath,
         exists: false,
         hasServerName: false,
@@ -289,6 +331,7 @@ async function inspectHostConfig(
       return {
         inspection: "parse-error",
         configCheck: {
+          scope,
           path: configPath,
           exists: true,
           hasServerName: false,
@@ -314,6 +357,7 @@ async function inspectHostConfig(
         ? "ok"
         : "shape-mismatch",
       configCheck: {
+        scope,
         path: configPath,
         exists: true,
         ...configCheck
@@ -328,6 +372,7 @@ async function inspectHostConfig(
     return {
       inspection: "parse-error",
       configCheck: {
+        scope,
         path: configPath,
         exists: true,
         hasServerName: false,
@@ -358,6 +403,7 @@ async function inspectHostConfig(
       ? "ok"
       : "shape-mismatch",
     configCheck: {
+      scope,
       path: configPath,
       exists: true,
       ...configCheck
@@ -365,23 +411,72 @@ async function inspectHostConfig(
   };
 }
 
-function summarizeHostReport(
-  host: McpHost,
+function hasDetectedWiring(inspectionResult: McpDoctorConfigInspectionResult): boolean {
+  return inspectionResult.inspection === "ok";
+}
+
+function buildConfigIssue(
   inspectionResult: McpDoctorConfigInspectionResult
-): Pick<McpDoctorHostReport, "status" | "summary"> {
+): McpDoctorConfigIssue | null {
+  const configCheck = inspectionResult.configCheck;
+  if (
+    !configCheck ||
+    inspectionResult.inspection === "ok" ||
+    inspectionResult.inspection === "missing"
+  ) {
+    return null;
+  }
+
+  return {
+    scope: configCheck.scope,
+    path: configCheck.path,
+    inspection: inspectionResult.inspection
+  };
+}
+
+function summarizeHostReport(
+  inspectionResult: McpDoctorConfigInspectionResult,
+  alternateWiring: McpDoctorAlternateWiring
+): Pick<McpDoctorHostReport, "status" | "summary" | "configScopeSummary" | "recommendedScope"> {
   const { inspection, configCheck } = inspectionResult;
+  const hasValidGlobalAlternative = alternateWiring.valid;
+  const hasGlobalIssues = alternateWiring.issues.length > 0;
 
   if (!configCheck) {
     return {
       status: "manual",
+      configScopeSummary: "manual-only",
+      recommendedScope: "manual",
       summary:
         "This host has no single project-scoped config file to inspect. Use the printed snippet and verify the wiring manually."
     };
   }
 
   if (inspection === "missing" || !configCheck.exists) {
+    if (hasValidGlobalAlternative) {
+      return {
+        status: "warning",
+        configScopeSummary: "project-missing-global-alternate",
+        recommendedScope: "project",
+        summary:
+          "The recommended project-scoped config file does not exist yet, but alternate global wiring was detected."
+      };
+    }
+
+    if (hasGlobalIssues) {
+      return {
+        status: "warning",
+        configScopeSummary: "project-missing-global-invalid",
+        recommendedScope: "project",
+        summary:
+          "The recommended project-scoped config file does not exist yet, and the detected global host config could not be parsed or did not match the expected codex_auto_memory wiring."
+      };
+    }
+
     return {
       status: "missing",
+      configScopeSummary: "project-missing",
+      recommendedScope: "project",
       summary: "The recommended project-scoped config file does not exist yet."
     };
   }
@@ -389,6 +484,8 @@ function summarizeHostReport(
   if (inspection === "parse-error") {
     return {
       status: "warning",
+      configScopeSummary: "project-invalid",
+      recommendedScope: "project",
       summary:
         "A project-scoped config file exists, but it could not be parsed as valid host configuration."
     };
@@ -400,6 +497,8 @@ function summarizeHostReport(
   ) {
     return {
       status: "warning",
+      configScopeSummary: "project-shape-mismatch",
+      recommendedScope: "project",
       summary:
         "A project-scoped config file exists, but the expected codex_auto_memory stdio wiring was not detected completely."
     };
@@ -408,6 +507,8 @@ function summarizeHostReport(
   if (!configCheck.projectPinned) {
     return {
       status: "warning",
+      configScopeSummary: "project-shape-mismatch",
+      recommendedScope: "project",
       summary:
         "The config looks wired, but the retrieval server is not clearly pinned to this project root yet."
     };
@@ -415,23 +516,60 @@ function summarizeHostReport(
 
   return {
     status: "ok",
+    configScopeSummary: "project-ready",
+    recommendedScope: "project",
     summary: "The recommended project-scoped wiring looks present and pinned to this repository."
   };
 }
 
 async function inspectHost(host: McpHost, projectRoot: string): Promise<McpDoctorHostReport> {
   const definition = getMcpHostDefinition(host);
-  const inspectionResult = await inspectHostConfig(host, projectRoot);
-  const summary = summarizeHostReport(host, inspectionResult);
+  const inspectionResult = await inspectHostConfig(
+    host,
+    projectRoot,
+    resolveMcpHostProjectConfigPath(host, projectRoot),
+    "project"
+  );
+  const alternateInspectionResults = await Promise.all(
+    [resolveMcpHostUserConfigPath(host)]
+      .filter((configPath): configPath is string => Boolean(configPath))
+      .map((configPath) => inspectHostConfig(host, projectRoot, configPath, "global"))
+  );
+  const alternateConfigChecks = alternateInspectionResults
+    .filter((result) => result.inspection === "ok")
+    .flatMap((result) => (result.configCheck ? [result.configCheck] : []));
+  const alternateWiring: McpDoctorAlternateWiring = {
+    detected: alternateConfigChecks.length > 0,
+    valid: alternateConfigChecks.length > 0,
+    scopes: [...new Set(alternateConfigChecks.map((check) => check.scope))],
+    issues: alternateInspectionResults
+      .map((result) => buildConfigIssue(result))
+      .filter((issue): issue is McpDoctorConfigIssue => issue !== null)
+  };
+  const detectedScopes: McpDoctorConfigScope[] = [];
+  if (hasDetectedWiring(inspectionResult)) {
+    detectedScopes.push("project");
+  }
+  for (const scope of alternateWiring.scopes) {
+    if (!detectedScopes.includes(scope)) {
+      detectedScopes.push(scope);
+    }
+  }
+  const summary = summarizeHostReport(inspectionResult, alternateWiring);
 
   return {
     host,
     status: summary.status,
     targetFileHint: definition.targetFileHint,
     pinning: definition.pinning,
+    recommendedScope: summary.recommendedScope,
+    configScopeSummary: summary.configScopeSummary,
+    detectedScopes,
+    alternateWiring,
     summary: summary.summary,
     notes: [...definition.notes],
-    configCheck: inspectionResult.configCheck
+    configCheck: inspectionResult.configCheck,
+    alternateConfigChecks
   };
 }
 
@@ -512,6 +650,7 @@ async function inspectFallbackAssets(
   const runtimeSkillContents = runtimeSkillInstalled
     ? await readTextFile(path.join(skillDir, "SKILL.md"))
     : null;
+  const runtimeSkillPresent = runtimeSkillContents !== null;
   const runtimeSkillMatchesCanonical =
     runtimeSkillContents !== null && runtimeSkillContents === canonicalSkillContents;
   const officialUserSkillInspection = await inspectSkillSurfaceFile(
@@ -542,6 +681,8 @@ async function inspectFallbackAssets(
   if (officialProjectSkillInspection.ready) {
     readySkillSurfaces.push("official-project");
   }
+  const anySkillSurfaceInstalled = installedSkillSurfaces.length > 0;
+  const anySkillSurfaceReady = readySkillSurfaces.length > 0;
 
   return {
     hooksDir: hooksDir ? path.dirname(hooksDir) : "",
@@ -556,17 +697,24 @@ async function inspectFallbackAssets(
           projectRoot
         )
       : buildCodexSkillInstallCommand(skillPaths.preferredInstallSurface),
+    runtimeSkillPresent,
     officialUserSkillDir,
     officialProjectSkillDir,
     runtimeSkillInstalled,
     officialUserSkillInstalled: officialUserSkillInspection.installed,
     officialProjectSkillInstalled: officialProjectSkillInspection.installed,
     runtimeSkillMatchesCanonical,
-    officialUserSkillMatchesRuntime: officialUserSkillInspection.matchesCanonical,
-    officialProjectSkillMatchesRuntime: officialProjectSkillInspection.matchesCanonical,
+    officialUserSkillMatchesCanonical: officialUserSkillInspection.matchesCanonical,
+    officialProjectSkillMatchesCanonical: officialProjectSkillInspection.matchesCanonical,
+    officialUserSkillMatchesRuntime:
+      runtimeSkillContents !== null && officialUserSkillInspection.contents === runtimeSkillContents,
+    officialProjectSkillMatchesRuntime:
+      runtimeSkillContents !== null && officialProjectSkillInspection.contents === runtimeSkillContents,
     runtimeSkillReady,
     officialUserSkillReady: officialUserSkillInspection.ready,
     officialProjectSkillReady: officialProjectSkillInspection.ready,
+    anySkillSurfaceInstalled,
+    anySkillSurfaceReady,
     installedSkillSurfaces,
     readySkillSurfaces,
     skillPathDrift:
@@ -577,10 +725,10 @@ async function inspectFallbackAssets(
     captureHelpersInstalled: postSessionSyncInstalled && Boolean(startupDoctorInstalled),
     hookHelpersInstalled,
     startupDoctorInstalled,
-    skillInstalled: readySkillSurfaces.length > 0,
+    skillInstalled: anySkillSurfaceReady,
     shellFallbackAvailable: hookHelpersInstalled,
-    guidanceAvailable: readySkillSurfaces.length > 0,
-    fallbackAvailable: hookHelpersInstalled || readySkillSurfaces.length > 0,
+    guidanceAvailable: anySkillSurfaceReady,
+    fallbackAvailable: hookHelpersInstalled || anySkillSurfaceReady,
     assets
   };
 }
@@ -675,6 +823,7 @@ export async function inspectMcpDoctor(options: {
     agentsGuidancePath,
     (await fileExists(agentsGuidancePath)) ? await readTextFile(agentsGuidancePath) : null
   );
+  const applySafety = await inspectCodexAgentsGuidanceApplySafety(projectRoot);
   const workflowContract = buildWorkflowContract({
     cwd: options.explicitCwd ? projectRoot : undefined
   });
@@ -693,6 +842,7 @@ export async function inspectMcpDoctor(options: {
       doctor: true
     },
     agentsGuidance,
+    applySafety,
     fallbackAssets,
     workflowContract,
     hosts,
@@ -723,6 +873,9 @@ export function formatMcpDoctorReport(report: McpDoctorReport): string {
       `- [${host.status}] ${host.host}`,
       `  Target file hint: ${host.targetFileHint}`,
       `  Project pinning: ${formatPinning(host.pinning)}`,
+      `  Recommended scope: ${host.recommendedScope}`,
+      `  Config scope summary: ${host.configScopeSummary}`,
+      `  Detected scopes: ${host.detectedScopes.length > 0 ? host.detectedScopes.join(", ") : "none"}`,
       `  Summary: ${host.summary}`
     );
 
@@ -737,12 +890,40 @@ export function formatMcpDoctorReport(report: McpDoctorReport): string {
       );
     }
 
+    for (const alternateConfigCheck of host.alternateConfigChecks ?? []) {
+      lines.push(
+        `  Alternate ${alternateConfigCheck.scope} config path: ${alternateConfigCheck.path}`,
+        `  Alternate ${alternateConfigCheck.scope} exists: ${alternateConfigCheck.exists ? "yes" : "no"}`,
+        `  Alternate ${alternateConfigCheck.scope} contains server name: ${alternateConfigCheck.hasServerName ? "yes" : "no"}`,
+        `  Alternate ${alternateConfigCheck.scope} contains cam command: ${alternateConfigCheck.hasCamCommand ? "yes" : "no"}`,
+        `  Alternate ${alternateConfigCheck.scope} contains mcp serve invocation: ${alternateConfigCheck.hasServeInvocation ? "yes" : "no"}`,
+        `  Alternate ${alternateConfigCheck.scope} project pinned: ${alternateConfigCheck.projectPinned ? "yes" : "no"}`
+      );
+    }
+
+    lines.push(
+      `  Alternate wiring detected: ${host.alternateWiring.detected ? "yes" : "no"}`,
+      `  Alternate wiring valid: ${host.alternateWiring.valid ? "yes" : "no"}`,
+      `  Alternate wiring scopes: ${host.alternateWiring.scopes.length > 0 ? host.alternateWiring.scopes.join(", ") : "none"}`
+    );
+    for (const issue of host.alternateWiring.issues) {
+      lines.push(
+        `  Alternate ${issue.scope} issue: ${issue.inspection} (${issue.path})`
+      );
+    }
+
     for (const note of host.notes) {
       lines.push(`  Note: ${note}`);
     }
   }
 
-  lines.push("", "Fallback assets:");
+  lines.push(
+    "",
+    "Apply safety:",
+    `- AGENTS managed-block apply safety: ${report.applySafety.status}${report.applySafety.blockedReason ? ` (${report.applySafety.blockedReason})` : ""}`,
+    "",
+    "Fallback assets:"
+  );
   for (const asset of report.fallbackAssets.assets) {
     const versionInfo =
       asset.status === "ok"
@@ -761,7 +942,9 @@ export function formatMcpDoctorReport(report: McpDoctorReport): string {
     `- Capture helpers installed: ${report.fallbackAssets.captureHelpersInstalled ? "yes" : "no"}`,
     `- Hook helpers installed: ${report.fallbackAssets.hookHelpersInstalled ? "yes" : "no"}`,
     `- Startup doctor installed: ${report.fallbackAssets.startupDoctorInstalled ? "yes" : "no"}`,
-    `- Codex skill installed: ${report.fallbackAssets.skillInstalled ? "yes" : "no"}`,
+    `- Any skill surface installed: ${report.fallbackAssets.anySkillSurfaceInstalled ? "yes" : "no"}`,
+    `- Any skill surface ready: ${report.fallbackAssets.anySkillSurfaceReady ? "yes" : "no"}`,
+    `- Legacy skillInstalled compatibility flag: ${report.fallbackAssets.skillInstalled ? "yes" : "no"}`,
     `- Shell fallback available: ${report.fallbackAssets.shellFallbackAvailable ? "yes" : "no"}`,
     `- Guidance available: ${report.fallbackAssets.guidanceAvailable ? "yes" : "no"}`,
     `- Retrieval fallback available: ${report.fallbackAssets.fallbackAvailable ? "yes" : "no"}`,
@@ -770,6 +953,7 @@ export function formatMcpDoctorReport(report: McpDoctorReport): string {
     `- Runtime source: ${report.fallbackAssets.runtimeSource}`,
     `- Preferred skill surface: ${report.fallbackAssets.preferredInstallSurface}`,
     `- Recommended skill install command: ${report.fallbackAssets.recommendedSkillInstallCommand}`,
+    `- Runtime skill present: ${report.fallbackAssets.runtimeSkillPresent ? "yes" : "no"}`,
     `- Runtime skill installed: ${report.fallbackAssets.runtimeSkillInstalled ? "yes" : "no"}`,
     `- Runtime skill matches canonical: ${report.fallbackAssets.runtimeSkillMatchesCanonical ? "yes" : "no"}`,
     `- Runtime skill ready: ${report.fallbackAssets.runtimeSkillReady ? "yes" : "no"}`,
@@ -777,6 +961,8 @@ export function formatMcpDoctorReport(report: McpDoctorReport): string {
     `- Official project skill dir: ${report.fallbackAssets.officialProjectSkillDir}`,
     `- Official user skill installed: ${report.fallbackAssets.officialUserSkillInstalled ? "yes" : "no"}`,
     `- Official project skill installed: ${report.fallbackAssets.officialProjectSkillInstalled ? "yes" : "no"}`,
+    `- Official user skill matches canonical: ${report.fallbackAssets.officialUserSkillMatchesCanonical ? "yes" : "no"}`,
+    `- Official project skill matches canonical: ${report.fallbackAssets.officialProjectSkillMatchesCanonical ? "yes" : "no"}`,
     `- Official user skill matches runtime: ${report.fallbackAssets.officialUserSkillMatchesRuntime ? "yes" : "no"}`,
     `- Official project skill matches runtime: ${report.fallbackAssets.officialProjectSkillMatchesRuntime ? "yes" : "no"}`,
     `- Official user skill ready: ${report.fallbackAssets.officialUserSkillReady ? "yes" : "no"}`,

@@ -41,12 +41,27 @@ export const ARCHIVE_BOUNDARY =
 export const DURABLE_MEMORY_SYNC_GUIDANCE =
   `After finishing work that should affect durable memory, run ${DURABLE_MEMORY_SYNC_COMMAND} or review ${DURABLE_MEMORY_RECENT_REVIEW_COMMAND} instead of assuming temporary continuity already updated Markdown memory.`;
 
+export interface WorkflowRoutePreference {
+  preferredRoute: "mcp-first";
+  mcpFirst: string;
+  cliFallback: string;
+  doctor: string;
+  serve: string;
+}
+
+export interface WorkflowRecallWorkflow {
+  recallFirst: string;
+  progressiveDisclosure: string;
+}
+
 export interface WorkflowContract {
   version: string;
   preferredRoute: "mcp-first";
   recommendedPreset: string;
   recallFirst: string;
   progressiveDisclosure: string;
+  routePreference: WorkflowRoutePreference;
+  recallWorkflow: WorkflowRecallWorkflow;
   mcpTools: {
     search: string;
     timeline: string;
@@ -73,8 +88,8 @@ export interface WorkflowContract {
 export function buildSharedWorkflowDisciplineLines(): string[] {
   const workflowContract = buildWorkflowContract();
   return [
-    workflowContract.recallFirst,
-    workflowContract.progressiveDisclosure,
+    workflowContract.recallWorkflow.recallFirst,
+    workflowContract.recallWorkflow.progressiveDisclosure,
     workflowContract.postWorkSyncReview.guidance,
     workflowContract.boundaries.memoryAudit,
     workflowContract.boundaries.sessionContinuity,
@@ -162,12 +177,26 @@ export function buildWorkflowContract(
     cwd?: string;
   } = {}
 ): WorkflowContract {
+  const routePreference: WorkflowRoutePreference = {
+    preferredRoute: "mcp-first",
+    mcpFirst: MCP_FIRST_RECALL_WORKFLOW,
+    cliFallback: CLI_FALLBACK_RECALL_WORKFLOW,
+    doctor: MCP_DOCTOR_GUIDANCE,
+    serve: MCP_SERVE_GUIDANCE
+  };
+  const recallWorkflow: WorkflowRecallWorkflow = {
+    recallFirst: RECALL_FIRST_GUIDANCE,
+    progressiveDisclosure: PROGRESSIVE_DISCLOSURE_GUIDANCE
+  };
+
   return {
     version: RETRIEVAL_INTEGRATION_ASSET_VERSION,
-    preferredRoute: "mcp-first",
+    preferredRoute: routePreference.preferredRoute,
     recommendedPreset: formatRecommendedRetrievalPreset(),
-    recallFirst: RECALL_FIRST_GUIDANCE,
-    progressiveDisclosure: PROGRESSIVE_DISCLOSURE_GUIDANCE,
+    recallFirst: recallWorkflow.recallFirst,
+    progressiveDisclosure: recallWorkflow.progressiveDisclosure,
+    routePreference,
+    recallWorkflow,
     mcpTools: {
       search: RETRIEVAL_MCP_SEARCH_TOOL,
       timeline: RETRIEVAL_MCP_TIMELINE_TOOL,
@@ -201,16 +230,17 @@ export function buildRecommendedSearchPresetGuidance(): string {
 }
 
 export function buildRecommendedRetrievalSummaryLines(): string[] {
+  const workflowContract = buildWorkflowContract();
   return [
-    RECALL_FIRST_GUIDANCE,
-    PROGRESSIVE_DISCLOSURE_GUIDANCE,
+    workflowContract.recallWorkflow.recallFirst,
+    workflowContract.recallWorkflow.progressiveDisclosure,
     "Use this workflow when a host or skill needs read-only retrieval without reading full topic files up front.",
-    MCP_FIRST_RECALL_WORKFLOW,
+    workflowContract.routePreference.mcpFirst,
     buildRecommendedMcpSearchInstruction(),
-    MCP_SERVE_GUIDANCE,
-    CLI_FALLBACK_RECALL_WORKFLOW,
+    workflowContract.routePreference.serve,
+    workflowContract.routePreference.cliFallback,
     buildRecommendedSearchPresetGuidance(),
-    MCP_DOCTOR_GUIDANCE,
+    workflowContract.routePreference.doctor,
     ...buildSharedWorkflowDisciplineLines().slice(2)
   ];
 }
