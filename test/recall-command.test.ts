@@ -5,7 +5,9 @@ import { afterEach, describe, expect, it } from "vitest";
 import { detectProjectContext } from "../src/lib/domain/project-context.js";
 import { MemoryStore } from "../src/lib/domain/memory-store.js";
 import { restoreOptionalEnv } from "./helpers/env.js";
+import { SyncService } from "../src/lib/domain/sync-service.js";
 import {
+  makeRolloutFixture,
   makeAppConfig,
   writeCamConfig
 } from "./helpers/cam-test-fixtures.js";
@@ -322,6 +324,55 @@ describe("runRecall", () => {
     expect(JSON.parse(detailsResult.stdout)).toMatchObject({
       ref,
       path: store.getArchiveTopicFile("project", "workflow")
+    });
+  });
+
+  it("surfaces session provenance in timeline output after rollout sync", async () => {
+    const homeDir = await tempDir("cam-recall-provenance-home-");
+    const projectDir = await tempDir("cam-recall-provenance-project-");
+    const memoryRoot = await tempDir("cam-recall-provenance-memory-");
+    const rolloutPath = path.join(projectDir, "rollout.jsonl");
+    process.env.HOME = homeDir;
+
+    const projectConfig = makeAppConfig();
+    await writeCamConfig(projectDir, projectConfig, {
+      autoMemoryDirectory: memoryRoot
+    });
+
+    await fs.writeFile(
+      rolloutPath,
+      makeRolloutFixture(projectDir, "Remember that this repository prefers pnpm.", {
+        sessionId: "session-provenance"
+      }),
+      "utf8"
+    );
+
+    const service = new SyncService(detectProjectContext(projectDir), {
+      ...projectConfig,
+      autoMemoryDirectory: memoryRoot
+    });
+    await service.syncRollout(rolloutPath, true);
+
+    const searchResult = runCli(projectDir, ["recall", "search", "prefers pnpm", "--json"]);
+    expect(searchResult.exitCode).toBe(0);
+    const searchOutput = JSON.parse(searchResult.stdout) as {
+      results: Array<{ ref: string }>;
+    };
+    expect(searchOutput.results).toHaveLength(1);
+
+    const timelineResult = runCli(
+      projectDir,
+      ["recall", "timeline", searchOutput.results[0]!.ref, "--json"]
+    );
+    expect(timelineResult.exitCode).toBe(0);
+    expect(JSON.parse(timelineResult.stdout)).toMatchObject({
+      ref: searchOutput.results[0]!.ref,
+      events: expect.arrayContaining([
+        expect.objectContaining({
+          sessionId: "session-provenance",
+          rolloutPath
+        })
+      ])
     });
   });
 

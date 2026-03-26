@@ -4,9 +4,17 @@ import {
 } from "../integration/assets.js";
 import { LOCAL_BRIDGE_BUNDLE_NOTE } from "../integration/codex-stack.js";
 import { installIntegrationAssets } from "../integration/install-assets.js";
+import { resolveMcpProjectRoot } from "../integration/mcp-config.js";
 
-export async function installHooks(): Promise<string> {
-  const result = await installIntegrationAssets("hooks");
+interface HooksCommandOptions {
+  cwd?: string;
+}
+
+export async function installHooks(options: HooksCommandOptions = {}): Promise<string> {
+  const projectRoot = options.cwd ? resolveMcpProjectRoot(options.cwd) : undefined;
+  const result = await installIntegrationAssets("hooks", {
+    projectRoot
+  });
 
   return [
     `Generated hook bridge bundle in ${result.targetDir}`,

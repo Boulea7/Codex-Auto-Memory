@@ -220,6 +220,7 @@ export interface McpDoctorReport {
     hookCaptureReady: boolean;
     hookRecallReady: boolean;
     skillReady: boolean;
+    workflowAssetsConsistent: boolean;
     workflowConsistent: boolean;
     notes: string[];
   };
@@ -579,7 +580,9 @@ async function inspectFallbackAssets(
     explicitCwd?: boolean;
   } = {}
 ): Promise<McpDoctorFallbackAssets> {
-  const descriptors = listDoctorVisibleIntegrationAssets();
+  const descriptors = listDoctorVisibleIntegrationAssets(undefined, {
+    projectRoot
+  });
   const hooksDir = descriptors.find((asset) => asset.installSurface === "hooks")?.path;
   const skillPaths = resolveCodexSkillPaths(projectRoot);
   const skillDir = skillPaths.runtimeAssetDir;
@@ -757,13 +760,15 @@ function buildCodexStackReport(
     [...CODEX_HOOK_RECALL_ASSET_IDS]
   );
   const skillReady = fallbackAssets.readySkillSurfaces.length > 0;
-  const workflowConsistent =
+  const workflowAssetsConsistent =
     isAssetReady(
       fallbackAssets.assets,
       [...CODEX_WORKFLOW_CONSISTENCY_ASSET_IDS]
     ) &&
     fallbackAssets.postWorkReviewInstalled &&
-    skillReady &&
+    skillReady;
+  const workflowConsistent =
+    workflowAssetsConsistent &&
     agentsGuidance.status === "ok";
   const status = summarizeCodexIntegrationStatus([
     mcpOperationalReady ? "ok" : mcpReady ? "warning" : "missing",
@@ -797,6 +802,7 @@ function buildCodexStackReport(
     hookCaptureReady,
     hookRecallReady,
     skillReady,
+    workflowAssetsConsistent,
     workflowConsistent,
     notes
   };

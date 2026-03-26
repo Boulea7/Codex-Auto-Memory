@@ -29,6 +29,7 @@ export interface CodexStackReadiness {
   hookCaptureReady: boolean;
   hookRecallReady: boolean;
   skillReady: boolean;
+  workflowAssetsConsistent: boolean;
   workflowConsistent: boolean;
 }
 
@@ -599,9 +600,12 @@ export function buildCodexIntegrationNextSteps(
     );
   }
 
-  if (!readiness.workflowConsistent && (readiness.hookRecallReady || readiness.skillReady)) {
+  if (
+    !readiness.workflowAssetsConsistent &&
+    (readiness.hookRecallReady || readiness.skillReady)
+  ) {
     nextSteps.push(
-      `Re-run \`cam hooks install\` and \`${skillInstallCommand}\` to realign retrieval guidance and fallback assets.`
+      `Re-run \`${hooksInstallCommand}\` and \`${skillInstallCommand}\` to realign retrieval guidance and fallback assets.`
     );
   }
 

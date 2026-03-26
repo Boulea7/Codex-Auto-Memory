@@ -1418,6 +1418,28 @@ fs.writeFileSync(${JSON.stringify(capturedArgsPath)}, JSON.stringify(process.arg
       )
     ).toContain("cam:asset-version");
 
+    const hooksResult = runCli(
+      callerDir,
+      ["hooks", "install", "--cwd", projectDir],
+      {
+        entrypoint: "dist",
+        env
+      }
+    );
+    expect(hooksResult.exitCode, hooksResult.stderr).toBe(0);
+    expect(
+      await fs.readFile(
+        path.join(homeDir, ".codex-auto-memory", "hooks", "memory-recall.sh"),
+        "utf8"
+      )
+    ).toContain(`PROJECT_ROOT=${JSON.stringify(realProjectDir)}`);
+    expect(
+      await fs.readFile(
+        path.join(homeDir, ".codex-auto-memory", "hooks", "post-work-memory-review.sh"),
+        "utf8"
+      )
+    ).toContain(`cam sync --cwd ${JSON.stringify(realProjectDir)} "$@"`);
+
     const guidanceResult = runCli(
       callerDir,
       ["mcp", "apply-guidance", "--host", "codex", "--cwd", projectDir, "--json"],

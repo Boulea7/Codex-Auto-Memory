@@ -221,6 +221,7 @@ function buildIntegrationsDoctorResult(
       hookCaptureReady: report.codexStack.hookCaptureReady,
       hookRecallReady: report.codexStack.hookRecallReady,
       skillReady: report.codexStack.skillReady,
+      workflowAssetsConsistent: report.codexStack.workflowAssetsConsistent,
       workflowConsistent: report.codexStack.workflowConsistent
     },
     {
@@ -285,6 +286,7 @@ function buildIntegrationsDoctorResult(
     hookCaptureReady: report.codexStack.hookCaptureReady,
     hookRecallReady: report.codexStack.hookRecallReady,
     skillReady: report.codexStack.skillReady,
+    workflowAssetsConsistent: report.codexStack.workflowAssetsConsistent,
     workflowConsistent: report.codexStack.workflowConsistent
   }, {
     skillInstallCommand: report.fallbackAssets.recommendedSkillInstallCommand,
