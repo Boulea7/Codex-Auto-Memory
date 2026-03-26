@@ -38,8 +38,25 @@ export function formatRecommendedRetrievalPreset(): string {
   return `state=${RECOMMENDED_RETRIEVAL_STATE}, limit=${RECOMMENDED_RETRIEVAL_LIMIT}`;
 }
 
-export function buildRecommendedCliSearchCommand(query = "\"<query>\""): string {
-  return buildCliSearchCommand(query);
+export function hasCliCwdFlag(command: string): boolean {
+  return /(?:^|\s)--cwd(?:\s|=)/u.test(command);
+}
+
+export function appendCliCwdFlag(command: string, cwd?: string): string {
+  if (!cwd || hasCliCwdFlag(command)) {
+    return command;
+  }
+
+  return `${command} --cwd ${JSON.stringify(cwd)}`;
+}
+
+export function buildRecommendedCliSearchCommand(
+  query = "\"<query>\"",
+  options: {
+    cwd?: string;
+  } = {}
+): string {
+  return buildCliSearchCommand(query, options);
 }
 
 export function buildCliSearchCommand(
@@ -47,11 +64,33 @@ export function buildCliSearchCommand(
   options: {
     state?: MemoryRetrievalStateFilter;
     limit?: number;
+    cwd?: string;
   } = {}
 ): string {
   const state = options.state ?? RECOMMENDED_RETRIEVAL_STATE;
   const limit = options.limit ?? RECOMMENDED_RETRIEVAL_LIMIT;
-  return `${RETRIEVAL_CLI_SEARCH_COMMAND} ${query} --state ${state} --limit ${limit}`;
+  return appendCliCwdFlag(
+    `${RETRIEVAL_CLI_SEARCH_COMMAND} ${query} --state ${state} --limit ${limit}`,
+    options.cwd
+  );
+}
+
+export function buildCliTimelineCommand(
+  ref = "\"<ref>\"",
+  options: {
+    cwd?: string;
+  } = {}
+): string {
+  return appendCliCwdFlag(`${RETRIEVAL_CLI_TIMELINE_COMMAND} ${ref}`, options.cwd);
+}
+
+export function buildCliDetailsCommand(
+  ref = "\"<ref>\"",
+  options: {
+    cwd?: string;
+  } = {}
+): string {
+  return appendCliCwdFlag(`${RETRIEVAL_CLI_DETAILS_COMMAND} ${ref}`, options.cwd);
 }
 
 export function buildRecommendedMcpSearchInstruction(): string {

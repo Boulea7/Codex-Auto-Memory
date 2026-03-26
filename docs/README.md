@@ -59,7 +59,10 @@
    - issue 中的 4 项核心能力：自动提取、自动召回、更新/去重/覆盖/归档、降低手动维护成本
 3. **方向上为什么要补 hook / skill / MCP**
    - 因为当前仓库不再只服务显式 CLI 用户，而是也面向希望让代理自己自动使用记忆能力的用户
-  - 当前最新的低摩擦接入面已经分层：`cam mcp install` 负责显式写入 project-scoped host config，`cam mcp print-config` / `cam mcp doctor` 继续负责只打印 / 只检查，`cam mcp apply-guidance --host codex` 负责以 additive、fail-closed 的方式管理仓库级 `AGENTS.md` guidance block，而 `cam integrations apply --host codex` 则提供显式的一次性全栈 apply 入口
+   - 当前最新的低摩擦接入面已经分层：`cam mcp install` 负责显式写入 project-scoped host config，`cam mcp print-config` / `cam mcp doctor` 继续负责只打印 / 只检查，`cam mcp apply-guidance --host codex` 负责以 additive、fail-closed 的方式管理仓库级 `AGENTS.md` guidance block
+   - `cam integrations install --host codex` 负责编排 MCP wiring、hook bridge bundle 与 skill assets；`cam integrations apply --host codex` 在此基础上额外编排 managed `AGENTS.md` guidance；`cam integrations doctor --host codex` 则只读汇总推荐路由、推荐 preset、subchecks 与 next steps
+   - `cam skills install` 的公开 skill surface 现在固定为 `runtime|official-user|official-project`；其中 runtime 仍是默认 target，官方 `.agents/skills` 路径保持显式 opt-in
+   - `generic` host 仍然保持 manual-only：不支持 `cam mcp install --host generic`，但继续支持 `cam mcp print-config --host generic`
    - `cam recall search` 现在默认补上了 active-first、archived-fallback 的只读 retrieval 搜索面，并对齐 `state=auto`、`limit=8`
 
 ## 语言策略
@@ -76,3 +79,4 @@
 - `Markdown-first` 是文档中的最高层不变量
 - `Codex-first` 是当前仓库的宿主边界，不把主仓直接写成多宿主统一平台
 - claim-sensitive 内容必须与官方公开资料兼容
+- 关键 `--help` 文案也属于 release-facing public contract，需要与 README、架构文档和 smoke 测试一起保持同步

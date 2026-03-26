@@ -28,6 +28,8 @@
 - `cam recall` 是当前 CLI 侧的 read-only retrieval surface
 - `cam mcp serve` 是同一套 contract 的 MCP retrieval surface
 - `cam mcp install` 是显式、可选、project-scoped 的宿主接线安装面
+- `generic` host 仍然保持 manual-only，只通过 `cam mcp print-config --host generic` 暴露手动接线片段
+- `cam integrations install` / `apply` / `doctor` 把 Codex-only stack 明确拆成安装、一次性 apply 与只读检查三个公开入口
 - `cam memory` 仍是 inspect / audit surface
 - `cam session` 仍是 temporary continuity surface
 
@@ -93,7 +95,8 @@
 - Gemini 的 extension + hooks + MCP 思路
 - OpenCode 的 plugin + MCP + AGENTS 能力面
 - OpenClaw 的“统一 memory core，不统一格式”思路
-- 针对宿主差异提供清晰分层的接入面：`cam mcp install` 负责显式写入 project-scoped host config，`cam mcp print-config` / `cam mcp doctor` 继续负责只打印 / 只检查，`cam mcp apply-guidance --host codex` 负责 additive 管理 repo 级 `AGENTS.md` guidance block，而 `cam integrations apply --host codex` 负责显式收口整套 Codex stack apply；其中 skills 默认仍安装到 runtime target，但 `cam skills install --surface runtime|official-user|official-project` 与 `cam integrations install/apply --skill-surface ...` 已为官方 `.agents/skills` 路径准备显式 opt-in 兼容面；shell fallback 仍由 `cam hooks install` 提供；这条 hooks 线是本仓自带的 local bridge，不是官方 Codex hook surface
+- 针对宿主差异提供清晰分层的接入面：`cam mcp install` 负责显式写入 project-scoped host config，`cam mcp print-config` / `cam mcp doctor` 继续负责只打印 / 只检查，`cam mcp apply-guidance --host codex` 负责 additive 管理 repo 级 `AGENTS.md` guidance block，`cam integrations install --host codex` 负责编排不改写 `AGENTS.md` 的 stack install，`cam integrations apply --host codex` 负责显式收口整套 Codex stack apply，而 `cam integrations doctor --host codex` 负责只读汇总 readiness；其中 skills 默认仍安装到 runtime target，但 `cam skills install --surface runtime|official-user|official-project` 与 `cam integrations install/apply --skill-surface ...` 已为官方 `.agents/skills` 路径准备显式 opt-in 兼容面；shell fallback 仍由 `cam hooks install` 提供；这条 hooks 线是本仓自带的 local bridge，不是官方 Codex hook surface
+- release-facing `--help` 文案也视为宿主能力面的稳定公开接口，必须和上述 install / apply / doctor / manual-only 边界保持一致
 
 不应该吸收：
 

@@ -1,7 +1,7 @@
 {
   "name": "codex-auto-memory",
   "version": "0.1.0",
-  "description": "Claude-style auto memory for Codex, implemented as a local companion CLI.",
+  "description": "A Markdown-first, local-first memory runtime for Codex with wrapper, MCP, skill, and AGENTS integration surfaces.",
   "type": "module",
   "bin": {
     "cam": "dist/cli.js"

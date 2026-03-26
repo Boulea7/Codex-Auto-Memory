@@ -229,6 +229,96 @@ describe("integrations command", () => {
     expect(await pathExists(memoryRoot)).toBe(false);
   });
 
+  it("keeps doctor next steps pinned to the inspected project when --cwd targets another directory", async () => {
+    const homeDir = await tempDir("cam-integrations-doctor-cwd-home-");
+    const projectParentDir = await tempDir("cam-integrations-doctor-cwd-project-parent-");
+    const projectDir = path.join(projectParentDir, "project with spaces");
+    const shellDir = await tempDir("cam-integrations-doctor-cwd-shell-");
+    const emptyPathDir = await tempDir("cam-integrations-doctor-cwd-empty-path-");
+    process.env.HOME = homeDir;
+
+    await fs.mkdir(projectDir, { recursive: true });
+
+    const result = runCli(
+      shellDir,
+      ["integrations", "doctor", "--host", "codex", "--cwd", projectDir, "--json"],
+      {
+        env: {
+          HOME: homeDir,
+          PATH: await buildPathWithoutCam(emptyPathDir)
+        }
+      }
+    );
+    expect(result.exitCode, result.stderr).toBe(0);
+    const payload = JSON.parse(result.stdout) as {
+      projectRoot: string;
+      recommendedSkillInstallCommand: string;
+      nextSteps: string[];
+    };
+    expect(payload.projectRoot).toBe(await fs.realpath(projectDir));
+    expect(payload.recommendedSkillInstallCommand).toBe(
+      `cam skills install --surface runtime --cwd ${JSON.stringify(payload.projectRoot)}`
+    );
+    expect(payload.nextSteps).toEqual(
+      expect.arrayContaining([
+        expect.stringContaining(
+          `cam integrations apply --host codex --skill-surface runtime --cwd ${JSON.stringify(payload.projectRoot)}`
+        ),
+        expect.stringContaining(
+          `cam integrations install --host codex --cwd ${JSON.stringify(payload.projectRoot)}`
+        ),
+        expect.stringContaining(
+          `cam mcp print-config --host codex --cwd ${JSON.stringify(payload.projectRoot)}`
+        ),
+        expect.stringContaining(
+          `cam recall search "<query>" --state auto --limit 8 --cwd ${JSON.stringify(payload.projectRoot)}`
+        )
+      ])
+    );
+  });
+
+  it("keeps the AGENTS-only repair step pinned to the inspected project when --cwd targets another directory", async () => {
+    const homeDir = await tempDir("cam-integrations-doctor-agents-cwd-home-");
+    const projectDir = await tempDir("cam-integrations-doctor-agents-cwd-project-");
+    const shellDir = await tempDir("cam-integrations-doctor-agents-cwd-shell-");
+    const binDir = await tempDir("cam-integrations-doctor-agents-cwd-bin-");
+    process.env.HOME = homeDir;
+
+    await writeCamShim(binDir);
+    const env = {
+      HOME: homeDir,
+      PATH: `${binDir}${path.delimiter}${process.env.PATH ?? ""}`
+    };
+
+    const installResult = runCli(
+      projectDir,
+      ["integrations", "install", "--host", "codex", "--json"],
+      { env }
+    );
+    expect(installResult.exitCode, installResult.stderr).toBe(0);
+
+    const result = runCli(
+      shellDir,
+      ["integrations", "doctor", "--host", "codex", "--cwd", projectDir, "--json"],
+      { env }
+    );
+    expect(result.exitCode, result.stderr).toBe(0);
+    const payload = JSON.parse(result.stdout) as {
+      projectRoot: string;
+      nextSteps: string[];
+    };
+    expect(payload.nextSteps).toEqual(
+      expect.arrayContaining([
+        expect.stringContaining(
+          `cam mcp apply-guidance --host codex --cwd ${JSON.stringify(payload.projectRoot)}`
+        ),
+        expect.stringContaining(
+          `cam mcp print-config --host codex --cwd ${JSON.stringify(payload.projectRoot)}`
+        )
+      ])
+    );
+  });
+
   it("surfaces a ready Codex integration stack through integrations doctor", async () => {
     const homeDir = await tempDir("cam-integrations-doctor-ready-home-");
     const projectDir = await tempDir("cam-integrations-doctor-ready-project-");
@@ -576,6 +666,103 @@ describe("integrations command", () => {
     expect(
       await fs.readFile(
         path.join(homeDir, ".agents", "skills", "codex-auto-memory-recall", "SKILL.md"),
+        "utf8"
+      )
+    ).toContain("cam:asset-version");
+  });
+
+  it("passes through an explicit official project skill surface for integrations install and apply", async () => {
+    const homeDir = await tempDir("cam-integrations-official-project-home-");
+    const projectDir = await tempDir("cam-integrations-official-project-project-");
+    const realProjectDir = await fs.realpath(projectDir);
+    process.env.HOME = homeDir;
+
+    const installResult = runCli(
+      projectDir,
+      [
+        "integrations",
+        "install",
+        "--host",
+        "codex",
+        "--skill-surface",
+        "official-project",
+        "--json"
+      ],
+      { env: { HOME: homeDir } }
+    );
+    expect(installResult.exitCode, installResult.stderr).toBe(0);
+    const installPayload = JSON.parse(installResult.stdout) as {
+      host: string;
+      projectRoot: string;
+      skillsSurface: string;
+      subactions: {
+        skills: {
+          action: string;
+          surface: string;
+          targetDir: string;
+        };
+      };
+      notes: string[];
+    };
+    expect(installPayload).toMatchObject({
+      host: "codex",
+      projectRoot: realProjectDir,
+      skillsSurface: "official-project",
+      subactions: {
+        skills: {
+          action: "created",
+          surface: "official-project",
+          targetDir: path.join(realProjectDir, ".agents", "skills", "codex-auto-memory-recall")
+        }
+      }
+    });
+    expect(installPayload.notes).toEqual(
+      expect.arrayContaining([expect.stringContaining("project-scoped official .agents/skills copy")])
+    );
+
+    const applyResult = runCli(
+      projectDir,
+      [
+        "integrations",
+        "apply",
+        "--host",
+        "codex",
+        "--skill-surface",
+        "official-project",
+        "--json"
+      ],
+      { env: { HOME: homeDir } }
+    );
+    expect(applyResult.exitCode, applyResult.stderr).toBe(0);
+    const applyPayload = JSON.parse(applyResult.stdout) as {
+      host: string;
+      projectRoot: string;
+      skillsSurface: string;
+      subactions: {
+        skills: {
+          surface: string;
+          targetDir: string;
+        };
+      };
+      notes: string[];
+    };
+    expect(applyPayload).toMatchObject({
+      host: "codex",
+      projectRoot: realProjectDir,
+      skillsSurface: "official-project",
+      subactions: {
+        skills: {
+          surface: "official-project",
+          targetDir: path.join(realProjectDir, ".agents", "skills", "codex-auto-memory-recall")
+        }
+      }
+    });
+    expect(applyPayload.notes).toEqual(
+      expect.arrayContaining([expect.stringContaining("project-scoped official .agents/skills copy")])
+    );
+    expect(
+      await fs.readFile(
+        path.join(realProjectDir, ".agents", "skills", "codex-auto-memory-recall", "SKILL.md"),
         "utf8"
       )
     ).toContain("cam:asset-version");

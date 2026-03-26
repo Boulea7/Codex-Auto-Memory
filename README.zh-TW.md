@@ -215,6 +215,11 @@ cam audit
 | `cam audit` | 做隱私與 secret-hygiene 檢查 |
 | `cam doctor` | 檢視本地 wiring 與 native-readiness posture |
 
+補充約定：
+
+- `cam skills install` 的公開 surface 現在固定為 `runtime`、`official-user`、`official-project`；runtime 仍是預設 target，官方 `.agents/skills` 路徑維持顯式 opt-in。
+- 重要 `--help` 文案現在也視為 release-facing public contract，必須和 README、架構文檔以及 `dist` / tarball smoke 保持一致，特別是 `integrations install/apply/doctor`、`mcp install/print-config/apply-guidance`、`skills install` 這幾個面。
+
 ## 工作方式
 
 ### 設計原則

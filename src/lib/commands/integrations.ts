@@ -21,6 +21,7 @@ import {
   normalizeCodexSkillInstallSurface,
   type CodexSkillInstallSurface
 } from "../integration/skills-paths.js";
+import { appendCliCwdFlag } from "../integration/retrieval-contract.js";
 
 type IntegrationStackAction = "created" | "updated" | "unchanged" | "blocked";
 type InstallStackAction = Exclude<IntegrationStackAction, "blocked">;
@@ -114,6 +115,17 @@ interface IntegrationDoctorResult {
   nextSteps: string[];
 }
 
+function describeSkillSurfaceInstallNote(surface: CodexSkillInstallSurface): string {
+  switch (surface) {
+    case "runtime":
+      return "It writes project-scoped MCP wiring and refreshes user-scoped hook and runtime skill assets without touching Markdown memory files.";
+    case "official-user":
+      return "It writes project-scoped MCP wiring, refreshes user-scoped hook assets, and refreshes the explicit user-scoped official .agents/skills copy without touching Markdown memory files.";
+    case "official-project":
+      return "It writes project-scoped MCP wiring, refreshes user-scoped hook assets, and refreshes the project-scoped official .agents/skills copy without touching Markdown memory files.";
+  }
+}
+
 function summarizeStackAction(actions: IntegrationStackAction[]): IntegrationStackAction {
   if (actions.includes("blocked")) {
     return "blocked";
@@ -170,7 +182,12 @@ function hasAnyInstalledAsset(
   return ids.some((id) => report.fallbackAssets.assets.find((asset) => asset.id === id)?.installed);
 }
 
-function buildIntegrationsDoctorResult(report: McpDoctorReport): IntegrationDoctorResult {
+function buildIntegrationsDoctorResult(
+  report: McpDoctorReport,
+  options: {
+    explicitCwd?: boolean;
+  } = {}
+): IntegrationDoctorResult {
   const codexHost = report.hosts.find((host) => host.host === "codex");
   if (!codexHost) {
     throw new Error("Codex host inspection is required for integrations doctor.");
@@ -240,7 +257,8 @@ function buildIntegrationsDoctorResult(report: McpDoctorReport): IntegrationDoct
     skillReady: report.codexStack.skillReady,
     workflowConsistent: report.codexStack.workflowConsistent
   }, {
-    skillInstallCommand: report.fallbackAssets.recommendedSkillInstallCommand
+    skillInstallCommand: report.fallbackAssets.recommendedSkillInstallCommand,
+    projectRoot: options.explicitCwd ? report.projectRoot : undefined
   });
   const needsAgents = report.agentsGuidance.status !== "ok";
   const needsOtherStackSurface =
@@ -250,11 +268,17 @@ function buildIntegrationsDoctorResult(report: McpDoctorReport): IntegrationDoct
     !report.codexStack.skillReady;
   if (needsAgents && needsOtherStackSurface) {
     nextSteps.unshift(
-      `Run \`cam integrations apply --host codex --skill-surface ${report.fallbackAssets.preferredInstallSurface}\` to install project-scoped MCP wiring, refresh hook and skill assets, and safely apply the managed Codex Auto Memory AGENTS.md block in one step.`
+      `Run \`${appendCliCwdFlag(
+        `cam integrations apply --host codex --skill-surface ${report.fallbackAssets.preferredInstallSurface}`,
+        options.explicitCwd ? report.projectRoot : undefined
+      )}\` to install project-scoped MCP wiring, refresh hook and skill assets, and safely apply the managed Codex Auto Memory AGENTS.md block in one step.`
     );
   } else if (needsAgents) {
     nextSteps.push(
-      "Run `cam mcp apply-guidance --host codex` to create or update the managed Codex Auto Memory block in the repository-level AGENTS.md."
+      `Run \`${appendCliCwdFlag(
+        "cam mcp apply-guidance --host codex",
+        options.explicitCwd ? report.projectRoot : undefined
+      )}\` to create or update the managed Codex Auto Memory block in the repository-level AGENTS.md.`
     );
   }
 
@@ -352,7 +376,7 @@ export async function runIntegrationsInstall(
     },
     notes: [
       "This orchestration surface is Codex-only.",
-      "It writes project-scoped MCP wiring and refreshes user-scoped hook and skill assets without touching Markdown memory files.",
+      describeSkillSurfaceInstallNote(skillSurface),
       buildCodexRouteSummary("mcp"),
       `Skill surface: ${formatCodexSkillInstallSurface(skillSurface)}.`,
       `Recommended retrieval preset: ${hooksResult.recommendedPreset}.`
@@ -435,6 +459,7 @@ export async function runIntegrationsApply(
     notes: [
       "This orchestration surface is Codex-only and explicit.",
       "Unlike `cam integrations install --host codex`, this command also manages the repository-level AGENTS.md guidance block through the existing additive, marker-scoped, fail-closed flow.",
+      describeSkillSurfaceInstallNote(skillSurface),
       buildCodexRouteSummary("mcp"),
       `Skill surface: ${formatCodexSkillInstallSurface(skillSurface)}.`,
       `Recommended retrieval preset: ${hooksResult.recommendedPreset}.`
@@ -468,9 +493,12 @@ export async function runIntegrationsDoctor(
   normalizeIntegrationsHost(options.host, "doctor");
   const report = await inspectMcpDoctor({
     cwd: options.cwd,
-    host: "codex"
+    host: "codex",
+    explicitCwd: Boolean(options.cwd)
   });
-  const result = buildIntegrationsDoctorResult(report);
+  const result = buildIntegrationsDoctorResult(report, {
+    explicitCwd: Boolean(options.cwd)
+  });
 
   if (options.json) {
     return JSON.stringify(result, null, 2);

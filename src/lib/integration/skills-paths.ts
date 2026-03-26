@@ -7,6 +7,7 @@ export const CODEX_SKILL_INSTALL_SURFACES = [
   "official-user",
   "official-project"
 ] as const;
+export const DEFAULT_CODEX_SKILL_INSTALL_SURFACE: CodexSkillInstallSurface = "runtime";
 
 export type CodexSkillRuntimeSource = "CODEX_HOME" | "HOME_DOT_CODEX";
 export type CodexSkillInstallSurface = (typeof CODEX_SKILL_INSTALL_SURFACES)[number];
@@ -50,7 +51,7 @@ export function normalizeCodexSkillInstallSurface(
   surface: string | undefined
 ): CodexSkillInstallSurface {
   if (!surface) {
-    return "runtime";
+    return DEFAULT_CODEX_SKILL_INSTALL_SURFACE;
   }
 
   if (
@@ -75,8 +76,12 @@ export function formatCodexSkillInstallSurface(surface: CodexSkillInstallSurface
   }
 }
 
+export function formatCodexSkillInstallSurfaceChoices(): string {
+  return `${CODEX_SKILL_INSTALL_SURFACES[0]}, ${CODEX_SKILL_INSTALL_SURFACES[1]}, or ${CODEX_SKILL_INSTALL_SURFACES[2]}`;
+}
+
 export function buildCodexSkillInstallCommand(
-  surface: CodexSkillInstallSurface = "runtime"
+  surface: CodexSkillInstallSurface = DEFAULT_CODEX_SKILL_INSTALL_SURFACE
 ): string {
   return `cam skills install --surface ${surface}`;
 }
@@ -120,7 +125,7 @@ export function resolveCodexSkillPaths(
     runtimeAssetDir,
     officialUserSkillDir,
     officialProjectSkillDir,
-    preferredInstallSurface: "runtime",
+    preferredInstallSurface: DEFAULT_CODEX_SKILL_INSTALL_SURFACE,
     availableSurfaces: [
       {
         surface: "runtime",
