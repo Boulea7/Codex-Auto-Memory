@@ -45,6 +45,7 @@ describe("docs contract", () => {
     expect(readme).toContain("cam integrations apply --host codex");
     expect(readme).toContain("cam integrations doctor --host codex");
     expect(readme).toContain("memory-recall.sh");
+    expect(readme).toContain("post-work-memory-review.sh");
     expect(readme).toContain("limit=8");
     expect(readme).toContain("local bridge");
     expect(readme).toContain("cam mcp apply-guidance --host codex");
@@ -111,6 +112,7 @@ describe("docs contract", () => {
     expect(readmeEn).toContain("cam integrations doctor --host codex");
     expect(readmeEn).toContain("cam skills");
     expect(readmeEn).toContain("memory-recall.sh");
+    expect(readmeEn).toContain("post-work-memory-review.sh");
     expect(readmeEn).toContain("limit=8");
     expect(readmeEn).toContain("local bridge");
     expect(readmeEn).toContain("cam mcp apply-guidance --host codex");
@@ -168,9 +170,14 @@ describe("docs contract", () => {
     );
     expect(releaseChecklist).toContain("AGENTS.md snippet");
     expect(releaseChecklist).toContain("node dist/cli.js mcp apply-guidance --host codex --json");
+    expect(releaseChecklist).toContain('returns `blocked`');
     expect(releaseChecklist).toContain("node dist/cli.js mcp doctor --json");
+    expect(releaseChecklist).toContain("node dist/cli.js mcp doctor --host codex --json");
+    expect(releaseChecklist).toContain("structured `workflowContract`");
+    expect(releaseChecklist).toContain("post-work-memory-review.sh");
     expect(releaseChecklist).toContain("node dist/cli.js integrations install --host codex --json");
     expect(releaseChecklist).toContain("node dist/cli.js integrations apply --host codex --json");
+    expect(releaseChecklist).toContain('stackAction: "blocked"');
     expect(releaseChecklist).toContain("node dist/cli.js skills install --surface official-user");
     expect(releaseChecklist).toContain("node dist/cli.js integrations install --host codex --skill-surface official-user --json");
     expect(releaseChecklist).toContain("node dist/cli.js integrations apply --host codex --skill-surface official-user --json");
@@ -330,5 +337,7 @@ describe("docs contract", () => {
     expect(readmeEn).toContain("companion CLI");
     expect(readme).toContain("当前主任务");
     expect(readmeEn).toContain("Current priorities");
+    expect(readme).toContain("workflowContract");
+    expect(readmeEn).toContain("workflowContract");
   });
 });

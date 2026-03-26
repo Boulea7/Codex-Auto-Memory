@@ -51,6 +51,7 @@ describe("hooks command", () => {
     expect(result.stdout).toContain("memory-search.sh");
     expect(result.stdout).toContain("memory-timeline.sh");
     expect(result.stdout).toContain("memory-details.sh");
+    expect(result.stdout).toContain("post-work-memory-review.sh");
     expect(result.stdout).toContain("recall-bridge.md");
     expect(result.stdout).toContain("search -> timeline -> details");
     expect(result.stdout).toContain("read-only");
@@ -69,6 +70,10 @@ describe("hooks command", () => {
     const searchScript = await fs.readFile(path.join(hooksDir, "memory-search.sh"), "utf8");
     const timelineScript = await fs.readFile(path.join(hooksDir, "memory-timeline.sh"), "utf8");
     const detailsScript = await fs.readFile(path.join(hooksDir, "memory-details.sh"), "utf8");
+    const postWorkReviewScript = await fs.readFile(
+      path.join(hooksDir, "post-work-memory-review.sh"),
+      "utf8"
+    );
     const recallGuide = await fs.readFile(path.join(hooksDir, "recall-bridge.md"), "utf8");
 
     expect(recallScript).toContain('exec cam recall search "$@"');
@@ -79,6 +84,8 @@ describe("hooks command", () => {
     expect(searchScript).toContain('exec "$SCRIPT_DIR/memory-recall.sh" search "$@"');
     expect(timelineScript).toContain('exec "$SCRIPT_DIR/memory-recall.sh" timeline "$@"');
     expect(detailsScript).toContain('exec "$SCRIPT_DIR/memory-recall.sh" details "$@"');
+    expect(postWorkReviewScript).toContain('cam sync "$@"');
+    expect(postWorkReviewScript).toContain("cam memory --recent");
     expect(recallGuide).toContain("search_memories");
     expect(recallGuide).toContain("memory-recall.sh search");
     expect(recallGuide).toContain("cam memory");

@@ -8,6 +8,8 @@ import {
   buildRecommendedSearchPresetGuidance,
   buildRecommendedMcpSearchInstruction,
   buildRecommendedRetrievalSummaryLines,
+  buildPostWorkRecentReviewCommand,
+  buildPostWorkSyncCommand,
   buildSharedWorkflowDisciplineLines,
   buildShellAssetVersionComment,
   CLI_FALLBACK_RECALL_WORKFLOW,
@@ -15,6 +17,7 @@ import {
   MCP_FIRST_RECALL_WORKFLOW,
   MCP_SERVE_GUIDANCE,
   MEMORY_AUDIT_BOUNDARY,
+  POST_WORK_SYNC_REVIEW_HELPER,
   RECOMMENDED_RETRIEVAL_LIMIT,
   RECOMMENDED_RETRIEVAL_STATE,
   RETRIEVAL_INTEGRATION_ASSET_VERSION,
@@ -192,6 +195,15 @@ ${buildSharedWorkflowDisciplineLines()
 `;
 }
 
+function buildPostWorkMemoryReviewScript(): string {
+  return `#!/bin/sh
+${buildShellAssetVersionComment()}
+# Sync the latest durable memory updates, then show the recent audit surface for review.
+${buildPostWorkSyncCommand()} "$@" || exit $?
+exec ${buildPostWorkRecentReviewCommand()}
+`;
+}
+
 function buildCodexSkillMarkdown(): string {
   return `---
 name: codex-auto-memory-recall
@@ -245,6 +257,7 @@ If you need both active and archived results in one pass instead of active-first
 - \`cam mcp serve\` exposes the same retrieval contract over stdio MCP when the host can consume it.
 - If you are unsure whether retrieval MCP is wired into the current host, run \`cam mcp doctor\`.
 - If a host needs shell-based fallback assets, run \`cam hooks install\` and use the generated recall bridge bundle.
+- If available, run \`${POST_WORK_SYNC_REVIEW_HELPER}\` to combine \`${buildPostWorkSyncCommand()}\` with \`${buildPostWorkRecentReviewCommand()}\`.
 - After finishing work that should update durable memory, run \`cam sync\` or review \`cam memory --recent\`.
 - Use \`cam memory\` for inspect/audit surfaces, startup payload, and recent sync review.
 - Use \`cam session\` only for temporary continuity, not durable memory retrieval.
@@ -285,6 +298,17 @@ ${buildShellAssetVersionComment()}
 # Print diagnostic information at session start.
 cam doctor "$@"
 `
+  },
+  {
+    id: "post-work-memory-review",
+    name: POST_WORK_SYNC_REVIEW_HELPER,
+    installSurface: "hooks",
+    relativePath: POST_WORK_SYNC_REVIEW_HELPER,
+    executable: true,
+    role: "capture-helper",
+    doctorVisible: true,
+    doctorSignatures: ['cam sync "$@"', "cam memory --recent"],
+    renderContents: () => buildPostWorkMemoryReviewScript()
   },
   {
     id: "memory-recall",

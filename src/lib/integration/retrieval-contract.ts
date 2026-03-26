@@ -16,6 +16,9 @@ export const RETRIEVAL_MCP_DETAILS_TOOL = "get_memory_details";
 export const RETRIEVAL_CLI_SEARCH_COMMAND = "cam recall search";
 export const RETRIEVAL_CLI_TIMELINE_COMMAND = "cam recall timeline";
 export const RETRIEVAL_CLI_DETAILS_COMMAND = "cam recall details";
+export const DURABLE_MEMORY_SYNC_COMMAND = "cam sync";
+export const DURABLE_MEMORY_RECENT_REVIEW_COMMAND = "cam memory --recent";
+export const POST_WORK_SYNC_REVIEW_HELPER = "post-work-memory-review.sh";
 
 export const RECALL_FIRST_GUIDANCE =
   "Before repeating prior work or repo-specific decisions, recall durable memory first.";
@@ -36,16 +39,46 @@ export const SESSION_CONTINUITY_BOUNDARY =
 export const ARCHIVE_BOUNDARY =
   "Treat archived memory as historical context that does not participate in default startup recall.";
 export const DURABLE_MEMORY_SYNC_GUIDANCE =
-  "After finishing work that should affect durable memory, run cam sync or review cam memory --recent instead of assuming temporary continuity already updated Markdown memory.";
+  `After finishing work that should affect durable memory, run ${DURABLE_MEMORY_SYNC_COMMAND} or review ${DURABLE_MEMORY_RECENT_REVIEW_COMMAND} instead of assuming temporary continuity already updated Markdown memory.`;
+
+export interface WorkflowContract {
+  version: string;
+  preferredRoute: "mcp-first";
+  recommendedPreset: string;
+  recallFirst: string;
+  progressiveDisclosure: string;
+  mcpTools: {
+    search: string;
+    timeline: string;
+    details: string;
+  };
+  cliFallback: {
+    searchCommand: string;
+    timelineCommand: string;
+    detailsCommand: string;
+  };
+  postWorkSyncReview: {
+    helperScript: string;
+    syncCommand: string;
+    reviewCommand: string;
+    guidance: string;
+  };
+  boundaries: {
+    memoryAudit: string;
+    sessionContinuity: string;
+    archive: string;
+  };
+}
 
 export function buildSharedWorkflowDisciplineLines(): string[] {
+  const workflowContract = buildWorkflowContract();
   return [
-    RECALL_FIRST_GUIDANCE,
-    PROGRESSIVE_DISCLOSURE_GUIDANCE,
-    DURABLE_MEMORY_SYNC_GUIDANCE,
-    MEMORY_AUDIT_BOUNDARY,
-    SESSION_CONTINUITY_BOUNDARY,
-    ARCHIVE_BOUNDARY
+    workflowContract.recallFirst,
+    workflowContract.progressiveDisclosure,
+    workflowContract.postWorkSyncReview.guidance,
+    workflowContract.boundaries.memoryAudit,
+    workflowContract.boundaries.sessionContinuity,
+    workflowContract.boundaries.archive
   ];
 }
 
@@ -106,6 +139,57 @@ export function buildCliDetailsCommand(
   } = {}
 ): string {
   return appendCliCwdFlag(`${RETRIEVAL_CLI_DETAILS_COMMAND} ${ref}`, options.cwd);
+}
+
+export function buildPostWorkSyncCommand(
+  options: {
+    cwd?: string;
+  } = {}
+): string {
+  return appendCliCwdFlag(DURABLE_MEMORY_SYNC_COMMAND, options.cwd);
+}
+
+export function buildPostWorkRecentReviewCommand(
+  options: {
+    cwd?: string;
+  } = {}
+): string {
+  return appendCliCwdFlag(DURABLE_MEMORY_RECENT_REVIEW_COMMAND, options.cwd);
+}
+
+export function buildWorkflowContract(
+  options: {
+    cwd?: string;
+  } = {}
+): WorkflowContract {
+  return {
+    version: RETRIEVAL_INTEGRATION_ASSET_VERSION,
+    preferredRoute: "mcp-first",
+    recommendedPreset: formatRecommendedRetrievalPreset(),
+    recallFirst: RECALL_FIRST_GUIDANCE,
+    progressiveDisclosure: PROGRESSIVE_DISCLOSURE_GUIDANCE,
+    mcpTools: {
+      search: RETRIEVAL_MCP_SEARCH_TOOL,
+      timeline: RETRIEVAL_MCP_TIMELINE_TOOL,
+      details: RETRIEVAL_MCP_DETAILS_TOOL
+    },
+    cliFallback: {
+      searchCommand: buildRecommendedCliSearchCommand("\"<query>\"", options),
+      timelineCommand: buildCliTimelineCommand("\"<ref>\"", options),
+      detailsCommand: buildCliDetailsCommand("\"<ref>\"", options)
+    },
+    postWorkSyncReview: {
+      helperScript: POST_WORK_SYNC_REVIEW_HELPER,
+      syncCommand: buildPostWorkSyncCommand(options),
+      reviewCommand: buildPostWorkRecentReviewCommand(options),
+      guidance: DURABLE_MEMORY_SYNC_GUIDANCE
+    },
+    boundaries: {
+      memoryAudit: MEMORY_AUDIT_BOUNDARY,
+      sessionContinuity: SESSION_CONTINUITY_BOUNDARY,
+      archive: ARCHIVE_BOUNDARY
+    }
+  };
 }
 
 export function buildRecommendedMcpSearchInstruction(): string {

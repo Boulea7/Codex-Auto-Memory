@@ -200,15 +200,15 @@ cam audit
 | `cam mcp serve` | `search_memories` / `timeline_memories` / `get_memory_details` を通じて同じ retrieval contract を公開する read-only MCP server を起動する |
 | `cam integrations install --host codex` | 推奨される Codex integration stack を一度に導入し、project-scoped MCP wiring を書き込みつつ、hook bridge bundle と Codex skill assets を更新する。skills は runtime target が既定だが、`--skill-surface runtime|official-user|official-project` も指定できる。明示的・冪等・Codex-only を保ち、Markdown memory store には触れない |
 | `cam integrations apply --host codex` | 明示的・冪等・Codex-only のまま完全な integration state を適用する。`integrations install` の既存境界は変えず、その上で `cam mcp apply-guidance --host codex` も編成する。skills は runtime target が既定だが、`--skill-surface runtime|official-user|official-project` も指定できる。`AGENTS.md` を安全に更新できない場合は `blocked` を返し、additive / fail-closed 境界を守る |
-| `cam integrations doctor --host codex` | 現在の Codex integration stack を薄い read-only 集約面として点検し、推奨ルート、推奨 preset、サブチェック結果、次の最小アクションを返す。複数の Codex stack 面が不足しているときは `cam integrations apply --host codex` を優先し、AGENTS guidance だけが不足している場合は `cam mcp apply-guidance --host codex` を正確な次手として案内する |
+| `cam integrations doctor --host codex` | 現在の Codex integration stack を薄い read-only 集約面として点検し、推奨ルート、推奨 preset、構造化された `workflowContract`、サブチェック結果、次の最小アクションを返す。複数の Codex stack 面が不足しているときは `cam integrations apply --host codex` を優先し、AGENTS guidance だけが不足している場合は `cam mcp apply-guidance --host codex` を正確な次手として案内する |
 | `cam mcp install --host <codex|claude|gemini>` | 推奨される project-scoped 宿主設定を明示的に書き込み、`codex_auto_memory` の項目だけを更新する。hooks/skills は自動導入せず、`generic` は引き続き manual-only |
 | `cam mcp print-config --host <codex|claude|gemini|generic>` | ready-to-paste な接続スニペットを出力し、read-only retrieval plane を既存の MCP client に低摩擦で接続できるようにする。`--host codex` の場合は、将来の Codex エージェントに MCP 優先・`cam recall` フォールバックを教えるための推奨 `AGENTS.md` snippet も合わせて出力する |
 | `cam mcp apply-guidance --host codex` | repo ルートの `AGENTS.md` 内にある Codex Auto Memory 管理 block を additive・監査可能・fail-closed に作成または更新する。同じ marker block の追加または置換だけを行い、安全に特定できない場合は書き換えず `blocked` を返す |
-| `cam mcp doctor` | 推奨される project-scoped retrieval MCP の配線、project pinning、hook/skill fallback assets を read-only で点検し、さらに `codexStack` readiness によって推奨ルート、executable bit、共有 asset version、workflow consistency を要約する。ホスト設定は書き換えない |
+| `cam mcp doctor` | 推奨される project-scoped retrieval MCP の配線、project pinning、hook/skill fallback assets を read-only で点検し、さらに `codexStack` readiness と構造化された `workflowContract` によって推奨ルート、executable bit、共有 asset version、workflow consistency を要約する。ホスト設定は書き換えない |
 | `cam session save` | continuity の merge / incremental save |
 | `cam session refresh` | continuity の replace / clean regeneration |
 | `cam session load` / `status` | continuity reviewer surface を確認 |
-| `cam hooks` | 現在の local bridge / fallback recall bundle を管理し、`memory-recall.sh`、互換 wrapper、`recall-bridge.md` を通じて今後の hook / skill / MCP-aware retrieval に備える。これは公式な Codex hook surface ではなく、推奨検索 preset は `state=auto`、`limit=8` |
+| `cam hooks` | 現在の local bridge / fallback recall bundle を管理し、`memory-recall.sh`、`post-work-memory-review.sh`、互換 wrapper、`recall-bridge.md` を通じて今後の hook / skill / MCP-aware retrieval に備える。`post-work-memory-review.sh` は `cam sync` と `cam memory --recent` をまとめた収束 review helper である。これは公式な Codex hook surface ではなく、推奨検索 preset は `state=auto`、`limit=8` |
 | `cam skills` | `cam skills install` で Codex skill を導入する。既定 target は runtime のままだが、`--surface runtime|official-user|official-project` を使えば公式 `.agents/skills` 経路向けの明示的な互換コピーも置ける。どの surface でも、MCP-first / CLI-fallback の段階的 durable memory retrieval workflow と推奨検索 preset `state=auto`, `limit=8` を共有する |
 | `cam audit` | プライバシーと secret hygiene を監査 |
 | `cam doctor` | ローカル wiring と native-readiness を確認 |

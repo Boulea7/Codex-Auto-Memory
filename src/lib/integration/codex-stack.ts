@@ -1,10 +1,13 @@
 import {
   appendCliCwdFlag,
   buildCliDetailsCommand,
+  buildPostWorkRecentReviewCommand,
+  buildPostWorkSyncCommand,
   buildCliTimelineCommand,
   buildRecommendedCliSearchCommand,
   buildRecommendedMcpSearchInstruction,
   buildSharedWorkflowDisciplineLines,
+  buildWorkflowContract,
   DURABLE_MEMORY_SYNC_GUIDANCE,
   formatRecommendedRetrievalPreset
 } from "./retrieval-contract.js";
@@ -79,6 +82,7 @@ export const CODEX_HOOK_RECALL_ASSET_IDS = [
 ] as const;
 
 export const CODEX_WORKFLOW_CONSISTENCY_ASSET_IDS = [
+  "post-work-memory-review",
   ...CODEX_HOOK_RECALL_ASSET_IDS,
   "recall-bridge-guide",
   "codex-memory-skill"
@@ -98,6 +102,7 @@ export const CODEX_AGENTS_REQUIRED_SIGNATURES = [
   RETRIEVAL_MCP_TIMELINE_TOOL,
   RETRIEVAL_MCP_DETAILS_TOOL,
   "cam recall search",
+  "post-work-memory-review.sh",
   "cam memory",
   "cam session",
   LOCAL_BRIDGE_BUNDLE_NOTE
@@ -353,6 +358,7 @@ export function buildCodexStackNotes(): string[] {
     "Recommended route prefers project-scoped MCP, then local bridge recall helpers, then direct cam recall CLI usage.",
     `Recommended retrieval preset: ${formatRecommendedRetrievalPreset()}.`,
     ...buildSharedWorkflowDisciplineLines().slice(2),
+    `When the local bridge bundle is installed, prefer \`post-work-memory-review.sh\` to combine \`${buildPostWorkSyncCommand()}\` with \`${buildPostWorkRecentReviewCommand()}\`.`,
     "Run `cam mcp print-config --host codex` to inspect the recommended project-scoped MCP wiring together with an AGENTS.md snippet for Codex agents.",
     "Run `cam mcp apply-guidance --host codex` to create or update the managed Codex Auto Memory block inside the repository-level AGENTS.md.",
     "Codex skill readiness is guidance-only and does not replace executable hook fallback helpers.",
@@ -361,6 +367,7 @@ export function buildCodexStackNotes(): string[] {
 }
 
 export function buildCodexAgentsGuidance(): CodexAgentsGuidance {
+  const workflowContract = buildWorkflowContract();
   const snippet = [
     "## Codex Auto Memory",
     "",
@@ -369,6 +376,7 @@ export function buildCodexAgentsGuidance(): CodexAgentsGuidance {
     `- ${buildRecommendedMcpSearchInstruction()}`,
     `- If the retrieval MCP server is unavailable, fall back to \`${buildRecommendedCliSearchCommand()}\`, then \`cam recall timeline \"<ref>\"\`, then \`cam recall details \"<ref>\"\`.`,
     ...buildSharedWorkflowDisciplineLines().slice(2).map((line) => `- ${line}`),
+    `- When the local bridge bundle is installed, \`${workflowContract.postWorkSyncReview.helperScript}\` combines \`${workflowContract.postWorkSyncReview.syncCommand}\` with \`${workflowContract.postWorkSyncReview.reviewCommand}\`.`,
     `- ${LOCAL_BRIDGE_BUNDLE_NOTE}`
   ].join("\n");
 
