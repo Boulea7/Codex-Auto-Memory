@@ -407,4 +407,77 @@ describe("rollout helpers", () => {
     const latest = await findLatestProjectRollout(detectProjectContext(projectDir));
     expect(latest).toBe(primaryFile);
   });
+
+  it("orders mtime-fallback relevant rollouts by recency, not pathname", async () => {
+    const sessionsDir = await tempDir("cam-sessions-mtime-fallback-");
+    const dayDir = path.join(sessionsDir, "2026", "03", "14");
+    const projectDir = await tempDir("cam-rollout-mtime-fallback-project-");
+    await fs.mkdir(dayDir, { recursive: true });
+    process.env.CAM_CODEX_SESSIONS_DIR = sessionsDir;
+
+    const olderPath = path.join(dayDir, "rollout-zeta.jsonl");
+    const newerPath = path.join(dayDir, "rollout-alpha.jsonl");
+    const staleTimestamp = "2026-03-14T00:00:00.000Z";
+    await fs.writeFile(
+      olderPath,
+      JSON.stringify({
+        type: "session_meta",
+        payload: { id: "older", timestamp: staleTimestamp, cwd: projectDir, source: "cli" }
+      }),
+      "utf8"
+    );
+    await fs.writeFile(
+      newerPath,
+      JSON.stringify({
+        type: "session_meta",
+        payload: { id: "newer", timestamp: staleTimestamp, cwd: projectDir, source: "cli" }
+      }),
+      "utf8"
+    );
+
+    await fs.utimes(olderPath, new Date("2026-03-14T00:59:58.000Z"), new Date("2026-03-14T00:59:58.000Z"));
+    await fs.utimes(newerPath, new Date("2026-03-14T01:00:01.000Z"), new Date("2026-03-14T01:00:01.000Z"));
+
+    const relevant = await findRelevantRollouts(
+      detectProjectContext(projectDir),
+      [olderPath, newerPath],
+      Date.parse("2026-03-14T00:59:57.000Z"),
+      Date.parse("2026-03-14T01:00:02.000Z")
+    );
+
+    expect(relevant).toEqual([olderPath, newerPath]);
+  });
+
+  it("uses mtime as a stable tie-breaker when primary rollout timestamps match", async () => {
+    const sessionsDir = await tempDir("cam-sessions-latest-tie-");
+    const dayDir = path.join(sessionsDir, "2026", "03", "14");
+    const projectDir = await tempDir("cam-rollout-latest-tie-project-");
+    await fs.mkdir(dayDir, { recursive: true });
+    process.env.CAM_CODEX_SESSIONS_DIR = sessionsDir;
+
+    const olderPath = path.join(dayDir, "rollout-z-primary.jsonl");
+    const newerPath = path.join(dayDir, "rollout-a-primary.jsonl");
+    const tiedTimestamp = "2026-03-14T00:00:01.000Z";
+    await fs.writeFile(
+      olderPath,
+      JSON.stringify({
+        type: "session_meta",
+        payload: { id: "primary-older", timestamp: tiedTimestamp, cwd: projectDir, source: "cli" }
+      }),
+      "utf8"
+    );
+    await fs.writeFile(
+      newerPath,
+      JSON.stringify({
+        type: "session_meta",
+        payload: { id: "primary-newer", timestamp: tiedTimestamp, cwd: projectDir, source: "cli" }
+      }),
+      "utf8"
+    );
+    await fs.utimes(olderPath, new Date("2026-03-14T00:00:02.000Z"), new Date("2026-03-14T00:00:02.000Z"));
+    await fs.utimes(newerPath, new Date("2026-03-14T00:00:03.000Z"), new Date("2026-03-14T00:00:03.000Z"));
+
+    const latest = await findLatestProjectRollout(detectProjectContext(projectDir));
+    expect(latest).toBe(newerPath);
+  });
 });

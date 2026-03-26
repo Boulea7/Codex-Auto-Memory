@@ -1099,6 +1099,49 @@ describe("runSession", () => {
     );
   }, 30_000);
 
+  it("uses a deterministic tie-breaker when multiple primary rollouts share the same timestamp", async () => {
+    const repoDir = await tempDir("cam-session-latest-tie-break-repo-");
+    const memoryRoot = await tempDir("cam-session-latest-tie-break-memory-");
+    const sessionsDir = await tempDir("cam-session-latest-tie-break-sessions-");
+    const dayDir = path.join(sessionsDir, "2026", "03", "15");
+    process.env.CAM_CODEX_SESSIONS_DIR = sessionsDir;
+    await fs.mkdir(dayDir, { recursive: true });
+    await initRepo(repoDir);
+
+    await writeProjectConfig(repoDir, configJson(), { autoMemoryDirectory: memoryRoot });
+
+    const olderPrimaryRolloutPath = await writeSessionRolloutFile(
+      path.join(dayDir, "rollout-z-primary.jsonl"),
+      rolloutFixture(repoDir, "Use the older primary rollout.", {
+        sessionId: "session-primary-older",
+        timestamp: "2026-03-15T00:00:01.000Z"
+      })
+    );
+    const newerPrimaryRolloutPath = await writeSessionRolloutFile(
+      path.join(dayDir, "rollout-a-primary.jsonl"),
+      rolloutFixture(repoDir, "Use the newer primary rollout.", {
+        sessionId: "session-primary-newer",
+        timestamp: "2026-03-15T00:00:01.000Z"
+      })
+    );
+    const olderMtime = new Date("2026-03-15T00:00:02.000Z");
+    const newerMtime = new Date("2026-03-15T00:00:03.000Z");
+    await fs.utimes(olderPrimaryRolloutPath, olderMtime, olderMtime);
+    await fs.utimes(newerPrimaryRolloutPath, newerMtime, newerMtime);
+
+    const payload = JSON.parse(
+      await runSession("save", { cwd: repoDir, scope: "both", json: true })
+    ) as {
+      rolloutPath: string;
+      diagnostics: { sourceSessionId: string };
+      latestContinuityAuditEntry: { rolloutPath: string } | null;
+    };
+
+    expect(payload.rolloutPath).toBe(newerPrimaryRolloutPath);
+    expect(payload.diagnostics.sourceSessionId).toBe("session-primary-newer");
+    expect(payload.latestContinuityAuditEntry?.rolloutPath).toBe(newerPrimaryRolloutPath);
+  }, 30_000);
+
   it("keeps modern audit metadata and reviewer-noise scrub stable for a conflict-heavy rollout fixture", async () => {
     const repoDir = await tempDir("cam-session-conflict-heavy-repo-");
     const memoryRoot = await tempDir("cam-session-conflict-heavy-memory-");
