@@ -64,12 +64,15 @@ describe("runRecall", () => {
       state: string;
       resolvedState: string;
       fallbackUsed: boolean;
+      retrievalMode: string;
+      retrievalFallbackReason?: string;
       results: Array<{ ref: string; state: string; topic: string }>;
     };
     expect(output).toMatchObject({
       state: "auto",
       resolvedState: "archived",
-      fallbackUsed: true
+      fallbackUsed: true,
+      retrievalMode: "index"
     });
     expect(output.results).toHaveLength(8);
     expect(output.results.every((result) => result.state === "archived")).toBe(true);
@@ -116,12 +119,14 @@ describe("runRecall", () => {
       state: string;
       resolvedState: string;
       fallbackUsed: boolean;
+      retrievalMode: string;
       results: Array<{ ref: string; state: string; topic: string }>;
     };
     expect(output).toMatchObject({
       state: "auto",
       resolvedState: "active",
-      fallbackUsed: false
+      fallbackUsed: false,
+      retrievalMode: "index"
     });
     expect(output.results).toEqual([
       expect.objectContaining({
@@ -172,12 +177,14 @@ describe("runRecall", () => {
       state: string;
       resolvedState: string;
       fallbackUsed: boolean;
+      retrievalMode: string;
       results: Array<{ ref: string; state: string; topic: string }>;
     };
     expect(searchOutput).toMatchObject({
       state: "auto",
       resolvedState: "archived",
-      fallbackUsed: true
+      fallbackUsed: true,
+      retrievalMode: "index"
     });
     expect(searchOutput.results).toEqual([
       expect.objectContaining({
@@ -250,11 +257,19 @@ describe("runRecall", () => {
     const detailsOutput = JSON.parse(detailsResult.stdout) as {
       ref: string;
       path: string;
+      latestLifecycleAction: string;
+      latestSessionId: string | null;
+      latestRolloutPath: string | null;
+      historyPath: string;
       entry: { summary: string };
     };
     expect(detailsOutput).toMatchObject({
       ref,
       path: store.getArchiveTopicFile("project", "workflow"),
+      latestLifecycleAction: "archive",
+      latestSessionId: null,
+      latestRolloutPath: null,
+      historyPath: store.getHistoryPath("project"),
       entry: {
         summary: "Prefer pnpm in this repository."
       }
@@ -352,6 +367,7 @@ describe("runRecall", () => {
       autoMemoryDirectory: memoryRoot
     });
     await service.syncRollout(rolloutPath, true);
+    const store = service.memoryStore;
 
     const searchResult = runCli(projectDir, ["recall", "search", "prefers pnpm", "--json"]);
     expect(searchResult.exitCode).toBe(0);
@@ -374,6 +390,23 @@ describe("runRecall", () => {
         })
       ])
     });
+
+    const timelineTextResult = runCli(projectDir, ["recall", "timeline", searchOutput.results[0]!.ref]);
+    expect(timelineTextResult.exitCode).toBe(0);
+    expect(timelineTextResult.stdout).toContain("Session: session-provenance");
+    expect(timelineTextResult.stdout).toContain(`Rollout: ${rolloutPath}`);
+
+    const detailsResult = runCli(
+      projectDir,
+      ["recall", "details", searchOutput.results[0]!.ref, "--json"]
+    );
+    expect(detailsResult.exitCode).toBe(0);
+    expect(JSON.parse(detailsResult.stdout)).toMatchObject({
+      latestLifecycleAction: "add",
+      latestSessionId: "session-provenance",
+      latestRolloutPath: rolloutPath,
+      historyPath: store.getHistoryPath("project")
+    });
   });
 
   it("keeps recall search read-only and does not create memory layout on first lookup", async () => {
@@ -394,12 +427,16 @@ describe("runRecall", () => {
       state: string;
       resolvedState: string;
       fallbackUsed: boolean;
+      retrievalMode: string;
+      retrievalFallbackReason?: string;
       results: unknown[];
     };
     expect(output).toMatchObject({
       state: "auto",
       resolvedState: "archived",
       fallbackUsed: true,
+      retrievalMode: "markdown-fallback",
+      retrievalFallbackReason: "missing",
       results: []
     });
 
@@ -422,5 +459,41 @@ describe("runRecall", () => {
     });
     expect(detailsResult.exitCode).toBe(1);
     expect(detailsResult.stderr).toContain("Invalid memory ref");
+  });
+
+  it("surfaces markdown fallback diagnostics when the retrieval sidecar is invalid", async () => {
+    const homeDir = await tempDir("cam-recall-invalid-sidecar-home-");
+    const projectDir = await tempDir("cam-recall-invalid-sidecar-project-");
+    const memoryRoot = await tempDir("cam-recall-invalid-sidecar-memory-");
+    process.env.HOME = homeDir;
+
+    const projectConfig = makeAppConfig();
+    await writeCamConfig(projectDir, projectConfig, {
+      autoMemoryDirectory: memoryRoot
+    });
+
+    const store = new MemoryStore(detectProjectContext(projectDir), {
+      ...projectConfig,
+      autoMemoryDirectory: memoryRoot
+    });
+    await store.ensureLayout();
+    await store.remember(
+      "project",
+      "workflow",
+      "prefer-pnpm",
+      "Prefer pnpm in this repository.",
+      ["Use pnpm instead of npm in this repository."],
+      "Manual note."
+    );
+
+    await fs.writeFile(store.getRetrievalIndexFile("project", "active"), "{not-json", "utf8");
+
+    const result = runCli(projectDir, ["recall", "search", "prefer pnpm", "--state", "active", "--json"]);
+    expect(result.exitCode).toBe(0);
+    expect(JSON.parse(result.stdout)).toMatchObject({
+      retrievalMode: "markdown-fallback",
+      retrievalFallbackReason: "invalid",
+      results: [expect.objectContaining({ ref: "project:active:workflow:prefer-pnpm" })]
+    });
   });
 });

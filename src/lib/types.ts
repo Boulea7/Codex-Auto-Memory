@@ -5,6 +5,8 @@ export type MemoryLifecycleAction = "add" | "update" | "delete" | "archive" | "n
 export type MemoryRetrievalScope = MemoryScope | "all";
 export type MemoryRetrievalResolvedState = MemoryRecordState | "all";
 export type MemoryRetrievalStateFilter = MemoryRetrievalResolvedState | "auto";
+export type MemoryRetrievalMode = "index" | "markdown-fallback";
+export type MemoryRetrievalFallbackReason = "missing" | "invalid" | "stale";
 export type SessionContinuityScope = "project" | "project-local";
 export type SessionContinuityLocalPathStyle = "codex" | "claude";
 export type SessionContinuityWriteMode = "merge" | "replace";
@@ -67,6 +69,8 @@ export interface MemorySearchResponse {
   state: MemoryRetrievalStateFilter;
   resolvedState: MemoryRetrievalResolvedState;
   fallbackUsed: boolean;
+  retrievalMode: MemoryRetrievalMode;
+  retrievalFallbackReason?: MemoryRetrievalFallbackReason;
   results: MemorySearchResult[];
 }
 
@@ -94,6 +98,10 @@ export interface MemoryDetailsResult extends MemoryRef {
   entry: MemoryEntry;
   path: string;
   approxReadCost: number;
+  latestLifecycleAction: Exclude<MemoryLifecycleAction, "noop"> | null;
+  latestSessionId: string | null;
+  latestRolloutPath: string | null;
+  historyPath: string;
 }
 
 export interface MemoryApplyRecord {

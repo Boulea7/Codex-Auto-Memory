@@ -45,6 +45,8 @@ const memorySearchResponseSchema = z.object({
   state: retrievalStateSchema,
   resolvedState: resolvedRetrievalStateSchema,
   fallbackUsed: z.boolean(),
+  retrievalMode: z.enum(["index", "markdown-fallback"]),
+  retrievalFallbackReason: z.enum(["missing", "invalid", "stale"]).optional(),
   results: z.array(memorySearchResultSchema)
 });
 
@@ -76,6 +78,10 @@ const memoryDetailsResponseSchema = z.object({
   id: z.string(),
   path: z.string(),
   approxReadCost: z.number().int().nonnegative(),
+  latestLifecycleAction: memoryLifecycleActionSchema.nullable(),
+  latestSessionId: z.string().nullable(),
+  latestRolloutPath: z.string().nullable(),
+  historyPath: z.string(),
   entry: z.object({
     id: z.string(),
     scope: z.enum(["global", "project", "project-local"]),
