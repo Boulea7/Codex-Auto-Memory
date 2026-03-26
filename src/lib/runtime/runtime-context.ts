@@ -1,5 +1,6 @@
 import { loadConfig } from "../config/load-config.js";
 import { patchConfigFile } from "../config/write-config.js";
+import { MemoryRetrievalService } from "../domain/memory-retrieval.js";
 import { detectProjectContext } from "../domain/project-context.js";
 import { SessionContinuityStore } from "../domain/session-continuity-store.js";
 import { SyncService } from "../domain/sync-service.js";
@@ -22,15 +23,22 @@ export interface ReloadedRuntimeContext {
   configUpdatePath: string;
 }
 
+export interface RuntimeContextOptions {
+  ensureMemoryLayout?: boolean;
+}
+
 export async function buildRuntimeContext(
   cwd = process.cwd(),
-  overrides: Partial<AppConfig> = {}
+  overrides: Partial<AppConfig> = {},
+  options: RuntimeContextOptions = {}
 ): Promise<RuntimeContext> {
   const project = detectProjectContext(cwd);
   const loadedConfig = await loadConfig(project, overrides);
   const syncService = new SyncService(project, loadedConfig.config);
   const sessionContinuityStore = new SessionContinuityStore(project, loadedConfig.config);
-  await syncService.memoryStore.ensureLayout();
+  if (options.ensureMemoryLayout !== false) {
+    await syncService.memoryStore.ensureLayout();
+  }
 
   return {
     project,
@@ -38,6 +46,13 @@ export async function buildRuntimeContext(
     syncService,
     sessionContinuityStore
   };
+}
+
+export async function buildReadOnlyMemoryRetrievalService(
+  cwd = process.cwd()
+): Promise<MemoryRetrievalService> {
+  const runtime = await buildRuntimeContext(cwd, {}, { ensureMemoryLayout: false });
+  return new MemoryRetrievalService(runtime.syncService.memoryStore);
 }
 
 export async function patchConfigAndReloadRuntime(

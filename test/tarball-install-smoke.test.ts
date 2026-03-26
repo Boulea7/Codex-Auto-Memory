@@ -74,11 +74,16 @@ describe("tarball install smoke", () => {
     expect(versionResult.exitCode).toBe(0);
     expect(versionResult.stdout.trim()).toBe(packageJson.version);
 
+    const envWithBin = {
+      ...env,
+      PATH: `${path.join(installDir, "node_modules", ".bin")}${path.delimiter}${env.PATH ?? ""}`
+    };
+
     const sessionStatusResult = runCommandCapture(
       camBinaryPath(installDir),
       ["session", "status", "--json"],
       installDir,
-      env
+      envWithBin
     );
     expect(sessionStatusResult.exitCode).toBe(0);
 
@@ -90,5 +95,174 @@ describe("tarball install smoke", () => {
     expect(payload.projectLocation.exists).toBe(false);
     expect(payload.latestContinuityAuditEntry).toBeNull();
     expect(payload.pendingContinuityRecovery).toBeNull();
+
+    const mcpInstallResult = runCommandCapture(
+      camBinaryPath(installDir),
+      ["mcp", "install", "--host", "codex", "--json"],
+      installDir,
+      envWithBin
+    );
+    expect(mcpInstallResult.exitCode).toBe(0);
+    expect(JSON.parse(mcpInstallResult.stdout)).toMatchObject({
+      host: "codex",
+      action: "created",
+      readOnlyRetrieval: true
+    });
+    expect(
+      await fs.readFile(path.join(installDir, ".codex", "config.toml"), "utf8")
+    ).toContain("[mcp_servers.codex_auto_memory]");
+
+    const codexPrintConfigResult = runCommandCapture(
+      camBinaryPath(installDir),
+      ["mcp", "print-config", "--host", "codex", "--json"],
+      installDir,
+      envWithBin
+    );
+    expect(codexPrintConfigResult.exitCode).toBe(0);
+    expect(JSON.parse(codexPrintConfigResult.stdout)).toMatchObject({
+      host: "codex",
+      serverName: "codex_auto_memory",
+      targetFileHint: ".codex/config.toml",
+      agentsGuidance: {
+        targetFileHint: "AGENTS.md",
+        snippetFormat: "markdown"
+      }
+    });
+    const codexPrintConfigPayload = JSON.parse(codexPrintConfigResult.stdout) as {
+      agentsGuidance: { snippet: string };
+    };
+    const applyGuidanceResult = runCommandCapture(
+      camBinaryPath(installDir),
+      ["mcp", "apply-guidance", "--host", "codex", "--json"],
+      installDir,
+      envWithBin
+    );
+    expect(applyGuidanceResult.exitCode).toBe(0);
+    expect(JSON.parse(applyGuidanceResult.stdout)).toMatchObject({
+      host: "codex",
+      action: "created",
+      managedBlockVersion: "codex-agents-guidance-v1"
+    });
+    expect(
+      await fs.readFile(path.join(installDir, "AGENTS.md"), "utf8")
+    ).toContain(codexPrintConfigPayload.agentsGuidance.snippet);
+
+    const claudePrintConfigResult = runCommandCapture(
+      camBinaryPath(installDir),
+      ["mcp", "print-config", "--host", "claude", "--json"],
+      installDir,
+      envWithBin
+    );
+    expect(claudePrintConfigResult.exitCode).toBe(0);
+    expect(JSON.parse(claudePrintConfigResult.stdout)).toMatchObject({
+      host: "claude",
+      serverName: "codex_auto_memory",
+      targetFileHint: ".mcp.json"
+    });
+
+    const hooksResult = runCommandCapture(
+      camBinaryPath(installDir),
+      ["hooks", "install"],
+      installDir,
+      envWithBin
+    );
+    expect(hooksResult.exitCode).toBe(0);
+    expect(
+      await fs.readFile(path.join(homeDir, ".codex-auto-memory", "hooks", "memory-recall.sh"), "utf8")
+    ).toContain("cam:asset-version");
+
+    const skillsResult = runCommandCapture(
+      camBinaryPath(installDir),
+      ["skills", "install"],
+      installDir,
+      envWithBin
+    );
+    expect(skillsResult.exitCode).toBe(0);
+    expect(
+      await fs.readFile(
+        path.join(homeDir, ".codex", "skills", "codex-auto-memory-recall", "SKILL.md"),
+        "utf8"
+      )
+    ).toContain("cam:asset-version");
+
+    const officialSkillsResult = runCommandCapture(
+      camBinaryPath(installDir),
+      ["skills", "install", "--surface", "official-user"],
+      installDir,
+      envWithBin
+    );
+    expect(officialSkillsResult.exitCode).toBe(0);
+    expect(
+      await fs.readFile(
+        path.join(homeDir, ".agents", "skills", "codex-auto-memory-recall", "SKILL.md"),
+        "utf8"
+      )
+    ).toContain("cam:asset-version");
+
+    const integrationsResult = runCommandCapture(
+      camBinaryPath(installDir),
+      ["integrations", "install", "--host", "codex", "--json"],
+      installDir,
+      envWithBin
+    );
+    expect(integrationsResult.exitCode).toBe(0);
+    expect(JSON.parse(integrationsResult.stdout)).toMatchObject({
+      host: "codex",
+      stackAction: "unchanged",
+      skillsSurface: "runtime",
+      readOnlyRetrieval: true,
+      subactions: {
+        mcp: { action: "unchanged" },
+        hooks: { action: "unchanged" },
+        skills: { action: "unchanged", surface: "runtime" }
+      }
+    });
+
+    const integrationsApplyResult = runCommandCapture(
+      camBinaryPath(installDir),
+      ["integrations", "apply", "--host", "codex", "--json"],
+      installDir,
+      envWithBin
+    );
+    expect(integrationsApplyResult.exitCode).toBe(0);
+    expect(JSON.parse(integrationsApplyResult.stdout)).toMatchObject({
+      host: "codex",
+      stackAction: "unchanged",
+      skillsSurface: "runtime",
+      readOnlyRetrieval: true,
+      subactions: {
+        mcp: { action: "unchanged" },
+        agents: { action: "unchanged" },
+        hooks: { action: "unchanged" },
+        skills: { action: "unchanged", surface: "runtime" }
+      }
+    });
+
+    const integrationsDoctorResult = runCommandCapture(
+      camBinaryPath(installDir),
+      ["integrations", "doctor", "--host", "codex", "--json"],
+      installDir,
+      envWithBin
+    );
+    expect(integrationsDoctorResult.exitCode).toBe(0);
+    expect(JSON.parse(integrationsDoctorResult.stdout)).toMatchObject({
+      host: "codex",
+      readOnlyRetrieval: true,
+      status: "ok",
+      recommendedRoute: "mcp",
+      recommendedPreset: "state=auto, limit=8",
+      preferredSkillSurface: "runtime",
+      recommendedSkillInstallCommand: "cam skills install --surface runtime",
+      installedSkillSurfaces: ["runtime", "official-user"],
+      readySkillSurfaces: ["runtime", "official-user"],
+      subchecks: {
+        mcp: { status: "ok" },
+        agents: { status: "ok" },
+        hookCapture: { status: "ok" },
+        hookRecall: { status: "ok" },
+        skill: { status: "ok" },
+        workflowConsistency: { status: "ok" }
+      }
+    });
   }, 60_000);
 });

@@ -10,6 +10,22 @@ const tsxBinaryPath = path.resolve(
   process.platform === "win32" ? "node_modules/.bin/tsx.cmd" : "node_modules/.bin/tsx"
 );
 
+export function resolveCliInvocation(
+  entrypoint: CliEntrypoint = "source"
+): { command: string; args: string[] } {
+  if (entrypoint === "dist") {
+    return {
+      command: "node",
+      args: [distCliPath]
+    };
+  }
+
+  return {
+    command: tsxBinaryPath,
+    args: [sourceCliPath]
+  };
+}
+
 export function runCli(
   repoDir: string,
   args: string[],
@@ -18,11 +34,7 @@ export function runCli(
     env?: NodeJS.ProcessEnv;
   } = {}
 ): ProcessOutput {
-  const entrypoint = options.entrypoint ?? "source";
+  const invocation = resolveCliInvocation(options.entrypoint ?? "source");
   const env = options.env ? { ...process.env, ...options.env } : process.env;
-  if (entrypoint === "dist") {
-    return runCommandCapture("node", [distCliPath, ...args], repoDir, env);
-  }
-
-  return runCommandCapture(tsxBinaryPath, [sourceCliPath, ...args], repoDir, env);
+  return runCommandCapture(invocation.command, [...invocation.args, ...args], repoDir, env);
 }
