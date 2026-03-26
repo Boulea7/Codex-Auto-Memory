@@ -17,6 +17,7 @@ import {
 } from "./codex-stack.js";
 import {
   appendCliCwdFlag,
+  buildWorkflowContract,
   detectIntegrationAssetVersion,
   formatRecommendedRetrievalPreset,
   RETRIEVAL_INTEGRATION_ASSET_VERSION
@@ -140,6 +141,7 @@ interface McpDoctorFallbackAssets {
   readySkillSurfaces: CodexSkillInstallSurface[];
   skillPathDrift: boolean;
   postSessionSyncInstalled: boolean;
+  postWorkReviewInstalled: boolean;
   captureHelpersInstalled: boolean;
   hookHelpersInstalled: boolean;
   startupDoctorInstalled: boolean;
@@ -165,6 +167,7 @@ export interface McpDoctorReport {
   };
   agentsGuidance: CodexAgentsGuidanceInspection;
   fallbackAssets: McpDoctorFallbackAssets;
+  workflowContract: ReturnType<typeof buildWorkflowContract>;
   hosts: McpDoctorHostReport[];
   codexStack: {
     status: McpDoctorStatus;
@@ -487,6 +490,8 @@ async function inspectFallbackAssets(
     .map((asset) => asset.name);
   const postSessionSyncInstalled =
     assets.find((asset) => asset.id === "post-session-sync")?.status === "ok";
+  const postWorkReviewInstalled =
+    assets.find((asset) => asset.id === "post-work-memory-review")?.status === "ok";
   const hookHelpersInstalled =
     retrievalHelpers.length > 0 &&
     retrievalHelpers.every((name) =>
@@ -568,6 +573,7 @@ async function inspectFallbackAssets(
       runtimeSkillDir.length > 0 &&
       path.resolve(runtimeSkillDir) !== path.resolve(officialUserSkillDir),
     postSessionSyncInstalled,
+    postWorkReviewInstalled,
     captureHelpersInstalled: postSessionSyncInstalled && Boolean(startupDoctorInstalled),
     hookHelpersInstalled,
     startupDoctorInstalled,
@@ -589,7 +595,8 @@ function isAssetReady(
 function buildCodexStackReport(
   codexHost: McpDoctorHostReport,
   fallbackAssets: McpDoctorFallbackAssets,
-  camCommandAvailable: boolean
+  camCommandAvailable: boolean,
+  agentsGuidance: CodexAgentsGuidanceInspection
 ): McpDoctorReport["codexStack"] {
   const mcpReady = codexHost.status === "ok";
   const mcpOperationalReady = mcpReady && camCommandAvailable;
@@ -605,8 +612,11 @@ function buildCodexStackReport(
   const workflowConsistent =
     isAssetReady(
       fallbackAssets.assets,
-      [...CODEX_HOOK_RECALL_ASSET_IDS, "recall-bridge-guide"]
-    ) && skillReady;
+      [...CODEX_WORKFLOW_CONSISTENCY_ASSET_IDS]
+    ) &&
+    fallbackAssets.postWorkReviewInstalled &&
+    skillReady &&
+    agentsGuidance.status === "ok";
   const status = summarizeCodexIntegrationStatus([
     mcpOperationalReady ? "ok" : mcpReady ? "warning" : "missing",
     hookCaptureReady ? "ok" : "missing",
@@ -665,6 +675,9 @@ export async function inspectMcpDoctor(options: {
     agentsGuidancePath,
     (await fileExists(agentsGuidancePath)) ? await readTextFile(agentsGuidancePath) : null
   );
+  const workflowContract = buildWorkflowContract({
+    cwd: options.explicitCwd ? projectRoot : undefined
+  });
 
   return {
     cwd,
@@ -681,8 +694,14 @@ export async function inspectMcpDoctor(options: {
     },
     agentsGuidance,
     fallbackAssets,
+    workflowContract,
     hosts,
-    codexStack: buildCodexStackReport(codexHost, fallbackAssets, camCommandAvailable)
+    codexStack: buildCodexStackReport(
+      codexHost,
+      fallbackAssets,
+      camCommandAvailable,
+      agentsGuidance
+    )
   };
 }
 
@@ -738,6 +757,7 @@ export function formatMcpDoctorReport(report: McpDoctorReport): string {
   }
   lines.push(
     `- Post-session sync helper installed: ${report.fallbackAssets.postSessionSyncInstalled ? "yes" : "no"}`,
+    `- Post-work review helper installed: ${report.fallbackAssets.postWorkReviewInstalled ? "yes" : "no"}`,
     `- Capture helpers installed: ${report.fallbackAssets.captureHelpersInstalled ? "yes" : "no"}`,
     `- Hook helpers installed: ${report.fallbackAssets.hookHelpersInstalled ? "yes" : "no"}`,
     `- Startup doctor installed: ${report.fallbackAssets.startupDoctorInstalled ? "yes" : "no"}`,

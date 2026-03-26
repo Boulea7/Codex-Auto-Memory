@@ -99,6 +99,7 @@ interface IntegrationDoctorResult {
   status: CodexIntegrationStatus;
   recommendedRoute: McpDoctorReport["codexStack"]["recommendedRoute"];
   recommendedPreset: string;
+  workflowContract: McpDoctorReport["workflowContract"];
   preferredSkillSurface: CodexSkillInstallSurface;
   recommendedSkillInstallCommand: string;
   installedSkillSurfaces: CodexSkillInstallSurface[];
@@ -289,6 +290,7 @@ function buildIntegrationsDoctorResult(
     status,
     recommendedRoute: report.codexStack.recommendedRoute,
     recommendedPreset: report.codexStack.preset,
+    workflowContract: report.workflowContract,
     preferredSkillSurface: report.fallbackAssets.preferredInstallSurface,
     recommendedSkillInstallCommand: report.fallbackAssets.recommendedSkillInstallCommand,
     installedSkillSurfaces: [...report.fallbackAssets.installedSkillSurfaces],

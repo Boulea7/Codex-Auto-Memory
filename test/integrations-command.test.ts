@@ -253,11 +253,19 @@ describe("integrations command", () => {
     const payload = JSON.parse(result.stdout) as {
       projectRoot: string;
       recommendedSkillInstallCommand: string;
+      workflowContract: {
+        cliFallback: {
+          searchCommand: string;
+        };
+      };
       nextSteps: string[];
     };
     expect(payload.projectRoot).toBe(await fs.realpath(projectDir));
     expect(payload.recommendedSkillInstallCommand).toBe(
       `cam skills install --surface runtime --cwd ${JSON.stringify(payload.projectRoot)}`
+    );
+    expect(payload.workflowContract.cliFallback.searchCommand).toBe(
+      `cam recall search "<query>" --state auto --limit 8 --cwd ${JSON.stringify(payload.projectRoot)}`
     );
     expect(payload.nextSteps).toEqual(
       expect.arrayContaining([
@@ -373,6 +381,14 @@ describe("integrations command", () => {
       status: "ok",
       recommendedRoute: "mcp",
       recommendedPreset: "state=auto, limit=8",
+      workflowContract: {
+        version: expect.any(String),
+        postWorkSyncReview: {
+          helperScript: "post-work-memory-review.sh",
+          syncCommand: "cam sync",
+          reviewCommand: "cam memory --recent"
+        }
+      },
       subchecks: {
         mcp: {
           status: "ok"
@@ -518,6 +534,58 @@ describe("integrations command", () => {
     expect(await fs.readFile(path.join(realProjectDir, "AGENTS.md"), "utf8")).toContain(
       "cam:codex-agents-guidance:start"
     );
+  });
+
+  it("keeps integrations apply fail-closed for the AGENTS subaction when managed guidance is unsafe", async () => {
+    const homeDir = await tempDir("cam-integrations-apply-blocked-home-");
+    const projectDir = await tempDir("cam-integrations-apply-blocked-project-");
+    const realProjectDir = await fs.realpath(projectDir);
+    process.env.HOME = homeDir;
+
+    await fs.writeFile(
+      path.join(realProjectDir, "AGENTS.md"),
+      [
+        "# Project Notes",
+        "",
+        "<!-- cam:codex-agents-guidance:start -->",
+        "<!-- cam:agents-guidance-version codex-agents-guidance-v0 -->",
+        "- stale guidance"
+      ].join("\n"),
+      "utf8"
+    );
+
+    const before = await fs.readFile(path.join(realProjectDir, "AGENTS.md"), "utf8");
+    const result = runCli(
+      projectDir,
+      ["integrations", "apply", "--host", "codex", "--json"],
+      { env: { HOME: homeDir } }
+    );
+    expect(result.exitCode, result.stderr).toBe(0);
+    expect(JSON.parse(result.stdout)).toMatchObject({
+      host: "codex",
+      projectRoot: realProjectDir,
+      stackAction: "blocked",
+      subactions: {
+        mcp: {
+          status: "ok"
+        },
+        agents: {
+          status: "blocked",
+          action: "blocked",
+          targetPath: path.join(realProjectDir, "AGENTS.md")
+        },
+        hooks: {
+          status: "ok",
+          action: "created"
+        },
+        skills: {
+          status: "ok",
+          action: "created",
+          surface: "runtime"
+        }
+      }
+    });
+    expect(await fs.readFile(path.join(realProjectDir, "AGENTS.md"), "utf8")).toBe(before);
   });
 
   it("keeps integrations install non-mutating for AGENTS.md while integrations apply writes it", async () => {

@@ -417,6 +417,41 @@ describe("dist cli smoke", () => {
     expect(agentsContents).toContain("cam:codex-agents-guidance:end");
   });
 
+  it("fails closed for unsafe AGENTS guidance from the compiled cli entrypoint", async () => {
+    const homeDir = await tempDir("cam-dist-mcp-apply-guidance-blocked-home-");
+    const projectDir = await tempDir("cam-dist-mcp-apply-guidance-blocked-project-");
+    const realProjectDir = await fs.realpath(projectDir);
+
+    await fs.writeFile(
+      path.join(realProjectDir, "AGENTS.md"),
+      [
+        "# Project Notes",
+        "",
+        "<!-- cam:codex-agents-guidance:start -->",
+        "<!-- cam:agents-guidance-version codex-agents-guidance-v0 -->",
+        "- stale guidance"
+      ].join("\n"),
+      "utf8"
+    );
+
+    const before = await fs.readFile(path.join(realProjectDir, "AGENTS.md"), "utf8");
+    const result = runCli(
+      projectDir,
+      ["mcp", "apply-guidance", "--host", "codex", "--json"],
+      {
+        entrypoint: "dist",
+        env: { HOME: homeDir }
+      }
+    );
+    expect(result.exitCode, result.stderr).toBe(0);
+    expect(JSON.parse(result.stdout)).toMatchObject({
+      host: "codex",
+      projectRoot: realProjectDir,
+      action: "blocked"
+    });
+    expect(await fs.readFile(path.join(realProjectDir, "AGENTS.md"), "utf8")).toBe(before);
+  });
+
   it("does not treat fenced AGENTS examples as managed guidance from the compiled cli entrypoint", async () => {
     const homeDir = await tempDir("cam-dist-mcp-apply-guidance-fenced-home-");
     const projectDir = await tempDir("cam-dist-mcp-apply-guidance-fenced-project-");
@@ -529,6 +564,52 @@ describe("dist cli smoke", () => {
     });
   });
 
+  it("inspects codex MCP wiring and workflow contract from the compiled cli entrypoint", async () => {
+    const homeDir = await tempDir("cam-dist-mcp-doctor-codex-home-");
+    const projectDir = await tempDir("cam-dist-mcp-doctor-codex-project-");
+    const realProjectDir = await fs.realpath(projectDir);
+
+    expect(
+      runCli(projectDir, ["hooks", "install"], {
+        entrypoint: "dist",
+        env: { HOME: homeDir }
+      }).exitCode
+    ).toBe(0);
+    expect(
+      runCli(projectDir, ["skills", "install"], {
+        entrypoint: "dist",
+        env: { HOME: homeDir }
+      }).exitCode
+    ).toBe(0);
+    expect(
+      runCli(projectDir, ["mcp", "install", "--host", "codex"], {
+        entrypoint: "dist",
+        env: { HOME: homeDir }
+      }).exitCode
+    ).toBe(0);
+
+    const result = runCli(projectDir, ["mcp", "doctor", "--host", "codex", "--json"], {
+      entrypoint: "dist",
+      env: { HOME: homeDir }
+    });
+
+    expect(result.exitCode, result.stderr).toBe(0);
+    expect(JSON.parse(result.stdout)).toMatchObject({
+      projectRoot: realProjectDir,
+      workflowContract: {
+        version: expect.any(String),
+        postWorkSyncReview: {
+          helperScript: "post-work-memory-review.sh",
+          syncCommand: "cam sync",
+          reviewCommand: "cam memory --recent"
+        }
+      },
+      fallbackAssets: {
+        postWorkReviewInstalled: true
+      }
+    });
+  });
+
   it("installs project-scoped MCP wiring from the compiled cli entrypoint", async () => {
     const homeDir = await tempDir("cam-dist-mcp-install-home-");
     const projectDir = await tempDir("cam-dist-mcp-install-project-");
@@ -597,8 +678,13 @@ describe("dist cli smoke", () => {
 
     const hooksDir = path.join(homeDir, ".codex-auto-memory", "hooks");
     const recallScript = await fs.readFile(path.join(hooksDir, "memory-recall.sh"), "utf8");
+    const postWorkReviewScript = await fs.readFile(
+      path.join(hooksDir, "post-work-memory-review.sh"),
+      "utf8"
+    );
     const recallGuide = await fs.readFile(path.join(hooksDir, "recall-bridge.md"), "utf8");
     expect(recallScript).toContain("cam:asset-version");
+    expect(postWorkReviewScript).toContain("cam memory --recent");
     expect(recallGuide).toContain("cam:asset-version");
 
     const skillsResult = runCli(projectDir, ["skills", "install"], {
@@ -761,6 +847,48 @@ describe("dist cli smoke", () => {
     });
   });
 
+  it("surfaces blocked AGENTS updates from the compiled integrations apply entrypoint", async () => {
+    const homeDir = await tempDir("cam-dist-integrations-apply-blocked-home-");
+    const projectDir = await tempDir("cam-dist-integrations-apply-blocked-project-");
+    const realProjectDir = await fs.realpath(projectDir);
+
+    await fs.writeFile(
+      path.join(realProjectDir, "AGENTS.md"),
+      [
+        "# Project Notes",
+        "",
+        "<!-- cam:codex-agents-guidance:start -->",
+        "<!-- cam:agents-guidance-version codex-agents-guidance-v0 -->",
+        "- stale guidance"
+      ].join("\n"),
+      "utf8"
+    );
+
+    const before = await fs.readFile(path.join(realProjectDir, "AGENTS.md"), "utf8");
+    const result = runCli(
+      projectDir,
+      ["integrations", "apply", "--host", "codex", "--json"],
+      {
+        entrypoint: "dist",
+        env: { HOME: homeDir }
+      }
+    );
+
+    expect(result.exitCode, result.stderr).toBe(0);
+    expect(JSON.parse(result.stdout)).toMatchObject({
+      host: "codex",
+      projectRoot: realProjectDir,
+      stackAction: "blocked",
+      subactions: {
+        agents: {
+          status: "blocked",
+          action: "blocked"
+        }
+      }
+    });
+    expect(await fs.readFile(path.join(realProjectDir, "AGENTS.md"), "utf8")).toBe(before);
+  });
+
   it("supports the official-project skill surface from the compiled integrations entrypoint", async () => {
     const homeDir = await tempDir("cam-dist-integrations-official-project-home-");
     const projectDir = await tempDir("cam-dist-integrations-official-project-project-");
@@ -919,6 +1047,14 @@ describe("dist cli smoke", () => {
       status: "ok",
       recommendedRoute: "mcp",
       recommendedPreset: "state=auto, limit=8",
+      workflowContract: {
+        version: expect.any(String),
+        postWorkSyncReview: {
+          helperScript: "post-work-memory-review.sh",
+          syncCommand: "cam sync",
+          reviewCommand: "cam memory --recent"
+        }
+      },
       subchecks: {
         mcp: { status: "ok" },
         agents: { status: "ok" },

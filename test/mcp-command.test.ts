@@ -1128,6 +1128,7 @@ describe("mcp command", () => {
       fallbackAssets: {
         hookHelpersInstalled: boolean;
         startupDoctorInstalled: boolean;
+        postWorkReviewInstalled: boolean;
         skillInstalled: boolean;
         fallbackAvailable: boolean;
         assets: Array<{
@@ -1140,6 +1141,23 @@ describe("mcp command", () => {
           executableExpected: boolean;
           executableOk: boolean | null;
         }>;
+      };
+      workflowContract: {
+        version: string;
+        recommendedPreset: string;
+        preferredRoute: string;
+        recallFirst: string;
+        progressiveDisclosure: string;
+        cliFallback: {
+          searchCommand: string;
+          timelineCommand: string;
+          detailsCommand: string;
+        };
+        postWorkSyncReview: {
+          helperScript: string;
+          syncCommand: string;
+          reviewCommand: string;
+        };
       };
       codexStack: {
         status: string;
@@ -1175,6 +1193,7 @@ describe("mcp command", () => {
     expect(payload.fallbackAssets).toMatchObject({
       hookHelpersInstalled: true,
       startupDoctorInstalled: true,
+      postWorkReviewInstalled: true,
       skillInstalled: true,
       fallbackAvailable: true
     });
@@ -1183,6 +1202,16 @@ describe("mcp command", () => {
         expect.objectContaining({
           id: "post-session-sync",
           name: "post-session-sync.sh",
+          installed: true,
+          status: "ok",
+          expectedVersion: RETRIEVAL_INTEGRATION_ASSET_VERSION,
+          detectedVersion: RETRIEVAL_INTEGRATION_ASSET_VERSION,
+          executableExpected: true,
+          executableOk: true
+        }),
+        expect.objectContaining({
+          id: "post-work-memory-review",
+          name: "post-work-memory-review.sh",
           installed: true,
           status: "ok",
           expectedVersion: RETRIEVAL_INTEGRATION_ASSET_VERSION,
@@ -1246,6 +1275,23 @@ describe("mcp command", () => {
         })
       ])
     );
+    expect(payload.workflowContract).toMatchObject({
+      version: RETRIEVAL_INTEGRATION_ASSET_VERSION,
+      recommendedPreset: "state=auto, limit=8",
+      preferredRoute: "mcp-first",
+      recallFirst: expect.stringContaining("recall durable memory first"),
+      progressiveDisclosure: "Use progressive disclosure: search -> timeline -> details.",
+      cliFallback: {
+        searchCommand: `cam recall search "<query>" --state auto --limit 8 --cwd ${JSON.stringify(realProjectDir)}`,
+        timelineCommand: `cam recall timeline "<ref>" --cwd ${JSON.stringify(realProjectDir)}`,
+        detailsCommand: `cam recall details "<ref>" --cwd ${JSON.stringify(realProjectDir)}`
+      },
+      postWorkSyncReview: {
+        helperScript: "post-work-memory-review.sh",
+        syncCommand: `cam sync --cwd ${JSON.stringify(realProjectDir)}`,
+        reviewCommand: `cam memory --recent --cwd ${JSON.stringify(realProjectDir)}`
+      }
+    });
     expect(payload.codexStack).toMatchObject({
       status: "warning",
       recommendedRoute: "hooks-fallback",
@@ -1255,7 +1301,7 @@ describe("mcp command", () => {
       hookCaptureReady: true,
       hookRecallReady: true,
       skillReady: true,
-      workflowConsistent: true
+      workflowConsistent: false
     });
     expect(payload.agentsGuidance).toMatchObject({
       path: path.join(realProjectDir, "AGENTS.md"),
@@ -1478,6 +1524,7 @@ describe("mcp command", () => {
     const payload = JSON.parse(result.stdout) as {
       fallbackAssets: {
         hookHelpersInstalled: boolean;
+        postWorkReviewInstalled: boolean;
         startupDoctorInstalled: boolean;
         skillInstalled: boolean;
         fallbackAvailable: boolean;
@@ -1492,6 +1539,7 @@ describe("mcp command", () => {
     };
     expect(payload.fallbackAssets).toMatchObject({
       hookHelpersInstalled: false,
+      postWorkReviewInstalled: false,
       startupDoctorInstalled: false,
       skillInstalled: false,
       fallbackAvailable: false
@@ -1573,6 +1621,7 @@ describe("mcp command", () => {
     const payload = JSON.parse(result.stdout) as {
       fallbackAssets: {
         hookHelpersInstalled: boolean;
+        postWorkReviewInstalled: boolean;
         startupDoctorInstalled: boolean;
         skillInstalled: boolean;
         fallbackAvailable: boolean;
@@ -1587,6 +1636,7 @@ describe("mcp command", () => {
     };
     expect(payload.fallbackAssets).toMatchObject({
       hookHelpersInstalled: false,
+      postWorkReviewInstalled: false,
       startupDoctorInstalled: false,
       skillInstalled: false,
       fallbackAvailable: false

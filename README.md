@@ -118,7 +118,7 @@ Claude Code 已经公开了一套相对清晰的 auto memory 产品契约：
 | formal retrieval MCP surface | 本轮新增 | 提供 `cam mcp serve`，通过 `search_memories` / `timeline_memories` / `get_memory_details` 暴露只读 retrieval plane |
 | project-scoped MCP install surface | 本轮新增 | 提供 `cam mcp install --host <codex|claude|gemini>`，显式写入推荐的 project-scoped 宿主配置，降低 MCP 接线摩擦 |
 | noop-aware lifecycle audit | 已有首批实现 | 相同 active memory 的重复写入、以及缺失 active 目标的 delete/archive，会显式记为 `noop` reviewer 结果，而不再静默重写 Markdown |
-| hook / skill / MCP-aware integration | 已进入代码主线 | `cam hooks install` 现在会生成 recall bridge bundle（`memory-recall.sh`、兼容 wrapper 与 `recall-bridge.md`），供后续 hook / skill / MCP bridge 复用 |
+| hook / skill / MCP-aware integration | 已进入代码主线 | `cam hooks install` 现在会生成 recall bridge bundle（`memory-recall.sh`、`post-work-memory-review.sh`、兼容 wrapper 与 `recall-bridge.md`），供后续 hook / skill / MCP bridge 复用 |
 | Codex skill install surface | 已有首批实现 | `cam skills install` 默认安装 runtime 目标，并支持显式 `--surface runtime|official-user|official-project`；无论装到哪个 surface，都沿用同一套 MCP-first、CLI-fallback 的 `search -> timeline -> details` durable memory 工作流 |
 
 ## 集成方向
@@ -211,15 +211,15 @@ cam audit
 | `cam mcp serve` | 启动只读 retrieval MCP server，通过 `search_memories` / `timeline_memories` / `get_memory_details` 暴露同一套渐进式检索契约 |
 | `cam integrations install --host codex` | 一次性安装推荐的 Codex integration stack：写入 project-scoped MCP wiring，并刷新 hook bridge bundle 与 Codex skill 资产；默认使用 runtime skills target，也支持显式 `--skill-surface runtime|official-user|official-project`；保持显式、幂等、Codex-only，且不触碰 Markdown memory store |
 | `cam integrations apply --host codex` | 以显式、幂等、Codex-only 的方式应用完整 integration state：在保留 `integrations install` 旧语义不变的前提下，额外编排 `cam mcp apply-guidance --host codex`；默认使用 runtime skills target，也支持显式 `--skill-surface runtime|official-user|official-project`；若 `AGENTS.md` 无法安全更新，会返回 `blocked` 并保持 additive / fail-closed |
-| `cam integrations doctor --host codex` | 以 Codex-only、只读、薄聚合的方式汇总当前 integration stack readiness，直接给出推荐路由、推荐 preset、子检查结果与下一步最小动作；当缺多个子检查时会优先推荐 `cam integrations apply --host codex`，若只缺 AGENTS guidance 则继续精确指向 `cam mcp apply-guidance --host codex`，不会改写宿主配置或 Markdown memory store |
+| `cam integrations doctor --host codex` | 以 Codex-only、只读、薄聚合的方式汇总当前 integration stack readiness，直接给出推荐路由、推荐 preset、结构化 `workflowContract`、子检查结果与下一步最小动作；当缺多个子检查时会优先推荐 `cam integrations apply --host codex`，若只缺 AGENTS guidance 则继续精确指向 `cam mcp apply-guidance --host codex`，不会改写宿主配置或 Markdown memory store |
 | `cam mcp install --host <codex|claude|gemini>` | 显式写入推荐的 project-scoped 宿主 MCP 配置；只更新 `codex_auto_memory` 这一项，不会自动安装 hooks/skills；`generic` 继续保持 manual-only |
 | `cam mcp print-config --host <codex|claude|gemini|generic>` | 打印 ready-to-paste 的宿主接入片段，降低把 read-only retrieval plane 接进现有工作流的摩擦；其中 `--host codex` 还会额外打印推荐的 `AGENTS.md` snippet，帮助未来 Codex 代理优先走 MCP、必要时再 fallback 到 `cam recall` |
 | `cam mcp apply-guidance --host codex` | 以 additive、可审计、fail-closed 的方式创建或更新仓库根 `AGENTS.md` 中由 Codex Auto Memory 自己管理的 guidance block；只会 append 新 block 或替换同一 marker block，无法安全定位时返回 `blocked` 而不会冒险改写 |
-| `cam mcp doctor` | 只读检查当前项目的 retrieval MCP 接入状态、project pinning 与 hook/skill fallback 资产；同时追加 `codexStack` readiness 视图，用于汇总推荐路由、executable bit、共享资产版本与 workflow consistency，不会改写任何宿主配置 |
+| `cam mcp doctor` | 只读检查当前项目的 retrieval MCP 接入状态、project pinning 与 hook/skill fallback 资产；同时追加 `codexStack` readiness 视图与结构化 `workflowContract`，用于汇总推荐路由、executable bit、共享资产版本与 workflow consistency，不会改写任何宿主配置 |
 | `cam session save` | merge / incremental save；从 rollout 增量写入 continuity |
 | `cam session refresh` | replace / clean regeneration；从选定 provenance 重建 continuity |
 | `cam session load` / `status` | 查看 continuity reviewer surface 与 diagnostics |
-| `cam hooks install` | 生成本仓自带的 local bridge / fallback helper bundle，包括 `memory-recall.sh`、兼容 helper wrappers 与 `recall-bridge.md`；它不是官方 Codex hook surface，且该 bundle 的推荐检索 preset 为 `state=auto`、`limit=8` |
+| `cam hooks install` | 生成本仓自带的 local bridge / fallback helper bundle，包括 `memory-recall.sh`、`post-work-memory-review.sh`、兼容 helper wrappers 与 `recall-bridge.md`；其中 `post-work-memory-review.sh` 会把 `cam sync` 与 `cam memory --recent` 串成同一套收尾 review 动作；它不是官方 Codex hook surface，且该 bundle 的推荐检索 preset 为 `state=auto`、`limit=8` |
 | `cam skills install` | 默认安装 runtime Codex skill 资产，并支持显式 `--surface runtime|official-user|official-project`；让代理优先通过 retrieval MCP，未接线时再 fallback 到 `cam recall`，并沿用同一套推荐检索 preset：`state=auto`、`limit=8` |
 | `cam audit` | 仓库级 privacy / secret hygiene 审查 |
 | `cam doctor` | 检查当前 companion wiring、Codex feature posture 与 future integration readiness |

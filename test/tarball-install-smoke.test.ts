@@ -261,6 +261,20 @@ describe("tarball install smoke", () => {
       readOnlyRetrieval: true
     });
 
+    const claudeInstallResult = runCommandCapture(
+      camBinaryPath(installDir),
+      ["mcp", "install", "--host", "claude", "--json"],
+      installDir,
+      envWithBin
+    );
+    expect(claudeInstallResult.exitCode).toBe(0);
+    expect(JSON.parse(claudeInstallResult.stdout)).toMatchObject({
+      host: "claude",
+      action: "created",
+      targetPath: path.join(realInstallDir, ".mcp.json"),
+      readOnlyRetrieval: true
+    });
+
     const hooksResult = runCommandCapture(
       camBinaryPath(installDir),
       ["hooks", "install"],
@@ -271,6 +285,12 @@ describe("tarball install smoke", () => {
     expect(
       await fs.readFile(path.join(homeDir, ".codex-auto-memory", "hooks", "memory-recall.sh"), "utf8")
     ).toContain("cam:asset-version");
+    expect(
+      await fs.readFile(
+        path.join(homeDir, ".codex-auto-memory", "hooks", "post-work-memory-review.sh"),
+        "utf8"
+      )
+    ).toContain("cam memory --recent");
 
     const skillsResult = runCommandCapture(
       camBinaryPath(installDir),
@@ -474,6 +494,14 @@ describe("tarball install smoke", () => {
       status: "ok",
       recommendedRoute: "mcp",
       recommendedPreset: "state=auto, limit=8",
+      workflowContract: {
+        version: expect.any(String),
+        postWorkSyncReview: {
+          helperScript: "post-work-memory-review.sh",
+          syncCommand: "cam sync",
+          reviewCommand: "cam memory --recent"
+        }
+      },
       preferredSkillSurface: "runtime",
       recommendedSkillInstallCommand: "cam skills install --surface runtime",
       installedSkillSurfaces: ["runtime", "official-user", "official-project"],
@@ -485,6 +513,78 @@ describe("tarball install smoke", () => {
         hookRecall: { status: "ok" },
         skill: { status: "ok" },
         workflowConsistency: { status: "ok" }
+      }
+    });
+
+    const mcpDoctorResult = runCommandCapture(
+      camBinaryPath(installDir),
+      ["mcp", "doctor", "--host", "codex", "--json"],
+      installDir,
+      envWithBin
+    );
+    expect(mcpDoctorResult.exitCode).toBe(0);
+    expect(JSON.parse(mcpDoctorResult.stdout)).toMatchObject({
+      readOnlyRetrieval: true,
+      fallbackAssets: {
+        postWorkReviewInstalled: true
+      },
+      workflowContract: {
+        version: expect.any(String),
+        postWorkSyncReview: {
+          helperScript: "post-work-memory-review.sh",
+          syncCommand: "cam sync",
+          reviewCommand: "cam memory --recent"
+        }
+      }
+    });
+
+    const blockedProjectDir = await tempDir("cam-tarball-blocked-project-");
+    const realBlockedProjectDir = await fs.realpath(blockedProjectDir);
+    await fs.writeFile(
+      path.join(realBlockedProjectDir, "AGENTS.md"),
+      [
+        "# Project Notes",
+        "",
+        "<!-- cam:codex-agents-guidance:start -->",
+        "<!-- cam:agents-guidance-version codex-agents-guidance-v0 -->",
+        "- stale guidance"
+      ].join("\n"),
+      "utf8"
+    );
+    const blockedBefore = await fs.readFile(path.join(realBlockedProjectDir, "AGENTS.md"), "utf8");
+
+    const blockedApplyGuidanceResult = runCommandCapture(
+      camBinaryPath(installDir),
+      ["mcp", "apply-guidance", "--host", "codex", "--json"],
+      blockedProjectDir,
+      envWithBin
+    );
+    expect(blockedApplyGuidanceResult.exitCode).toBe(0);
+    expect(JSON.parse(blockedApplyGuidanceResult.stdout)).toMatchObject({
+      host: "codex",
+      projectRoot: realBlockedProjectDir,
+      action: "blocked"
+    });
+    expect(await fs.readFile(path.join(realBlockedProjectDir, "AGENTS.md"), "utf8")).toBe(
+      blockedBefore
+    );
+
+    const blockedIntegrationsResult = runCommandCapture(
+      camBinaryPath(installDir),
+      ["integrations", "apply", "--host", "codex", "--json"],
+      blockedProjectDir,
+      envWithBin
+    );
+    expect(blockedIntegrationsResult.exitCode).toBe(0);
+    expect(JSON.parse(blockedIntegrationsResult.stdout)).toMatchObject({
+      host: "codex",
+      projectRoot: realBlockedProjectDir,
+      stackAction: "blocked",
+      subactions: {
+        agents: {
+          status: "blocked",
+          action: "blocked"
+        }
       }
     });
 

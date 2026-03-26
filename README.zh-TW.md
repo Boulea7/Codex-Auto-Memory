@@ -202,15 +202,15 @@ cam audit
 | `cam mcp serve` | 啟動只讀 retrieval MCP server，以 `search_memories` / `timeline_memories` / `get_memory_details` 暴露同一套漸進式檢索契約 |
 | `cam integrations install --host codex` | 一次性安裝推薦的 Codex integration stack：寫入 project-scoped MCP wiring，並刷新 hook bridge bundle 與 Codex skill 資產；預設使用 runtime skills target，也支援顯式 `--skill-surface runtime|official-user|official-project`；保持顯式、幂等、Codex-only，且不碰 Markdown memory store |
 | `cam integrations apply --host codex` | 以顯式、幂等、Codex-only 的方式套用完整 integration state：在保留 `integrations install` 舊語義不變的前提下，額外編排 `cam mcp apply-guidance --host codex`；預設使用 runtime skills target，也支援顯式 `--skill-surface runtime|official-user|official-project`；若 `AGENTS.md` 無法安全更新，會回傳 `blocked` 並維持 additive / fail-closed 邊界 |
-| `cam integrations doctor --host codex` | 以 Codex-only、只讀、薄聚合的方式彙總目前 integration stack readiness，直接給出推薦路由、推薦 preset、子檢查結果與下一步最小動作；當缺多個子檢查時會優先推薦 `cam integrations apply --host codex`，若只缺 AGENTS guidance 則繼續精準指向 `cam mcp apply-guidance --host codex`，不會改寫宿主設定或 Markdown memory store |
+| `cam integrations doctor --host codex` | 以 Codex-only、只讀、薄聚合的方式彙總目前 integration stack readiness，直接給出推薦路由、推薦 preset、結構化 `workflowContract`、子檢查結果與下一步最小動作；當缺多個子檢查時會優先推薦 `cam integrations apply --host codex`，若只缺 AGENTS guidance 則繼續精準指向 `cam mcp apply-guidance --host codex`，不會改寫宿主設定或 Markdown memory store |
 | `cam mcp install --host <codex|claude|gemini>` | 顯式寫入推薦的 project-scoped 宿主 MCP 配置；只更新 `codex_auto_memory` 這一項，不會自動安裝 hooks/skills；`generic` 仍維持 manual-only |
 | `cam mcp print-config --host <codex|claude|gemini|generic>` | 列印 ready-to-paste 的宿主接入片段，降低把 read-only retrieval plane 接進既有 MCP workflow 的手動成本；其中 `--host codex` 還會額外列印推薦的 `AGENTS.md` snippet，幫助未來 Codex 代理優先走 MCP、必要時再 fallback 到 `cam recall` |
 | `cam mcp apply-guidance --host codex` | 以 additive、可審計、fail-closed 的方式建立或更新 repo 根 `AGENTS.md` 中由 Codex Auto Memory 自己管理的 guidance block；只會 append 新 block 或替換同一 marker block，若無法安全定位則回傳 `blocked` 而不會冒險改寫 |
-| `cam mcp doctor` | 只讀檢查目前專案的 retrieval MCP 接線、project pinning 與 hook/skill fallback assets；現在也會追加 `codexStack` readiness 視圖，用來彙總推薦路由、executable bit、共享資產版本與 workflow consistency，不會改寫任何宿主設定 |
+| `cam mcp doctor` | 只讀檢查目前專案的 retrieval MCP 接線、project pinning 與 hook/skill fallback assets；現在也會追加 `codexStack` readiness 視圖與結構化 `workflowContract`，用來彙總推薦路由、executable bit、共享資產版本與 workflow consistency，不會改寫任何宿主設定 |
 | `cam session save` | merge / incremental save；增量寫入 continuity |
 | `cam session refresh` | replace / clean regeneration；重建 continuity |
 | `cam session load` / `status` | continuity reviewer surface |
-| `cam hooks` | 管理目前的 local bridge / fallback recall bundle，包括 `memory-recall.sh`、相容 helper wrappers 與 `recall-bridge.md`；它不是官方 Codex hook surface，且該 bundle 的推薦檢索 preset 為 `state=auto`、`limit=8` |
+| `cam hooks` | 管理目前的 local bridge / fallback recall bundle，包括 `memory-recall.sh`、`post-work-memory-review.sh`、相容 helper wrappers 與 `recall-bridge.md`；其中 `post-work-memory-review.sh` 會把 `cam sync` 與 `cam memory --recent` 串成同一套收尾 review 動作；它不是官方 Codex hook surface，且該 bundle 的推薦檢索 preset 為 `state=auto`、`limit=8` |
 | `cam skills` | 以 `cam skills install` 安裝 Codex skill；預設 target 仍是 runtime，也支援顯式 `--surface runtime|official-user|official-project` 為官方 `.agents/skills` 路徑準備相容副本；所有 surface 都沿用同一套 MCP-first、CLI-fallback 漸進式 durable memory 檢索工作流與推薦 preset：`state=auto`、`limit=8` |
 | `cam audit` | 做隱私與 secret-hygiene 檢查 |
 | `cam doctor` | 檢視本地 wiring 與 native-readiness posture |
