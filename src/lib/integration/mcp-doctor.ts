@@ -16,6 +16,7 @@ import {
   type CodexIntegrationRoute
 } from "./codex-stack.js";
 import {
+  appendCliCwdFlag,
   detectIntegrationAssetVersion,
   formatRecommendedRetrievalPreset,
   RETRIEVAL_INTEGRATION_ASSET_VERSION
@@ -430,7 +431,12 @@ async function inspectHost(host: McpHost, projectRoot: string): Promise<McpDocto
   };
 }
 
-async function inspectFallbackAssets(projectRoot: string): Promise<McpDoctorFallbackAssets> {
+async function inspectFallbackAssets(
+  projectRoot: string,
+  options: {
+    explicitCwd?: boolean;
+  } = {}
+): Promise<McpDoctorFallbackAssets> {
   const descriptors = listDoctorVisibleIntegrationAssets();
   const hooksDir = descriptors.find((asset) => asset.installSurface === "hooks")?.path;
   const skillPaths = resolveCodexSkillPaths(projectRoot);
@@ -538,9 +544,12 @@ async function inspectFallbackAssets(projectRoot: string): Promise<McpDoctorFall
     runtimeAssetDir: skillDir,
     runtimeSource: skillPaths.runtimeSource,
     preferredInstallSurface: skillPaths.preferredInstallSurface,
-    recommendedSkillInstallCommand: buildCodexSkillInstallCommand(
-      skillPaths.preferredInstallSurface
-    ),
+    recommendedSkillInstallCommand: options.explicitCwd
+      ? appendCliCwdFlag(
+          buildCodexSkillInstallCommand(skillPaths.preferredInstallSurface),
+          projectRoot
+        )
+      : buildCodexSkillInstallCommand(skillPaths.preferredInstallSurface),
     officialUserSkillDir,
     officialProjectSkillDir,
     runtimeSkillInstalled,
@@ -637,6 +646,7 @@ function buildCodexStackReport(
 export async function inspectMcpDoctor(options: {
   cwd?: string;
   host?: string;
+  explicitCwd?: boolean;
 } = {}): Promise<McpDoctorReport> {
   const cwd = await normalizeComparablePath(options.cwd ?? process.cwd());
   const projectRoot = resolveMcpProjectRoot(cwd);
@@ -645,7 +655,9 @@ export async function inspectMcpDoctor(options: {
   const hosts = await Promise.all(
     listMcpHosts(hostSelection).map((host) => inspectHost(host, projectRoot))
   );
-  const fallbackAssets = await inspectFallbackAssets(projectRoot);
+  const fallbackAssets = await inspectFallbackAssets(projectRoot, {
+    explicitCwd: options.explicitCwd ?? false
+  });
   const camCommandAvailable = await isCommandAvailableInPath("cam");
   const codexHost = hosts.find((host) => host.host === "codex") ?? (await inspectHost("codex", projectRoot));
   const agentsGuidance = inspectCodexAgentsGuidance(

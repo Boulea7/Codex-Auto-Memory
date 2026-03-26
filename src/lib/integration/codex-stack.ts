@@ -1,4 +1,7 @@
 import {
+  appendCliCwdFlag,
+  buildCliDetailsCommand,
+  buildCliTimelineCommand,
   buildRecommendedCliSearchCommand,
   buildRecommendedMcpSearchInstruction,
   DURABLE_MEMORY_SYNC_GUIDANCE,
@@ -522,14 +525,35 @@ export function buildCodexRouteSummary(route: CodexIntegrationRoute): string {
   }
 }
 
+function appendProjectRootFlag(command: string, projectRoot?: string): string {
+  return appendCliCwdFlag(command, projectRoot);
+}
+
 export function buildCodexIntegrationNextSteps(
   readiness: CodexStackReadiness,
   options: {
     skillInstallCommand?: string;
+    projectRoot?: string;
   } = {}
 ): string[] {
   const route = resolveCodexIntegrationRoute(readiness);
-  const skillInstallCommand = options.skillInstallCommand ?? "cam skills install";
+  const skillInstallCommand = appendProjectRootFlag(
+    options.skillInstallCommand ?? "cam skills install",
+    options.projectRoot
+  );
+  const integrationsInstallCommand = appendProjectRootFlag(
+    "cam integrations install --host codex",
+    options.projectRoot
+  );
+  const mcpInstallCommand = appendProjectRootFlag(
+    "cam mcp install --host codex",
+    options.projectRoot
+  );
+  const mcpPrintConfigCommand = appendProjectRootFlag(
+    "cam mcp print-config --host codex",
+    options.projectRoot
+  );
+  const hooksInstallCommand = appendProjectRootFlag("cam hooks install", options.projectRoot);
   const nextSteps: string[] = [];
 
   if (
@@ -539,15 +563,15 @@ export function buildCodexIntegrationNextSteps(
     !readiness.skillReady
   ) {
     return [
-      "Run `cam integrations install --host codex` to install the recommended Codex integration stack in one step.",
-      `Until the stack is installed, use \`${buildRecommendedCliSearchCommand()}\` directly.`,
-      "Run `cam mcp print-config --host codex` to print the recommended project-scoped MCP wiring and AGENTS.md snippet."
+      `Run \`${integrationsInstallCommand}\` to install the recommended Codex integration stack in one step.`,
+      `Until the stack is installed, use \`${buildRecommendedCliSearchCommand("\"<query>\"", { cwd: options.projectRoot })}\` directly.`,
+      `Run \`${mcpPrintConfigCommand}\` to print the recommended project-scoped MCP wiring and AGENTS.md snippet.`
     ];
   }
 
   if (!readiness.mcpReady) {
     nextSteps.push(
-      "Run `cam mcp install --host codex` to write the recommended project-scoped retrieval MCP wiring."
+      `Run \`${mcpInstallCommand}\` to write the recommended project-scoped retrieval MCP wiring.`
     );
   } else if (!readiness.camCommandAvailable) {
     nextSteps.push(
@@ -557,7 +581,7 @@ export function buildCodexIntegrationNextSteps(
 
   if (!readiness.hookCaptureReady || !readiness.hookRecallReady) {
     nextSteps.push(
-      "Run `cam hooks install` to refresh the shared hook helper bundle for capture and recall."
+      `Run \`${hooksInstallCommand}\` to refresh the shared hook helper bundle for capture and recall.`
     );
   }
 
@@ -583,12 +607,18 @@ export function buildCodexIntegrationNextSteps(
     );
   } else {
     nextSteps.push(
-      `Use \`${buildRecommendedCliSearchCommand()}\` directly until a richer integration route becomes ready.`
+      `Use \`${buildRecommendedCliSearchCommand("\"<query>\"", { cwd: options.projectRoot })}\` directly until a richer integration route becomes ready.`
+    );
+  }
+
+  if (route !== "mcp") {
+    nextSteps.push(
+      `Follow progressive disclosure when using the CLI fallback: \`${buildRecommendedCliSearchCommand("\"<query>\"", { cwd: options.projectRoot })}\`, then \`${buildCliTimelineCommand("\"<ref>\"", { cwd: options.projectRoot })}\`, then \`${buildCliDetailsCommand("\"<ref>\"", { cwd: options.projectRoot })}\`.`
     );
   }
 
   nextSteps.push(
-    "Run `cam mcp print-config --host codex` to print the recommended project-scoped MCP wiring and AGENTS.md snippet."
+    `Run \`${mcpPrintConfigCommand}\` to print the recommended project-scoped MCP wiring and AGENTS.md snippet.`
   );
   nextSteps.push(DURABLE_MEMORY_SYNC_GUIDANCE);
 

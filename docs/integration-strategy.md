@@ -64,7 +64,7 @@
 - 已进入代码主线
 - 当前仓库已经提供 `cam recall search` / `timeline` / `details` 作为 retrieval workflow 的当前 CLI surface
 - `cam recall search` 现在默认已经对齐推荐 preset：`state=auto`、`limit=8`，会先查 active，未命中再回退 archived，继续降低代理手动 widened search 的摩擦
-- `cam skills install` 现在默认安装 runtime Codex skill，并支持显式 `--surface runtime|official-user|official-project`；无论安装到哪个 surface，都复用同一套 MCP-first、CLI-fallback 的 retrieval guidance 与推荐检索 preset：`state=auto`、`limit=8`
+- `cam skills install` 现在默认安装 runtime Codex skill，并支持显式 `--surface runtime|official-user|official-project`；其中 `official-user` 是 user-scoped 官方 `.agents/skills` copy，`official-project` 是 project-scoped 官方 `.agents/skills` copy；无论安装到哪个 surface，都复用同一套 MCP-first、CLI-fallback 的 retrieval guidance 与推荐检索 preset：`state=auto`、`limit=8`
 
 目标状态：
 
@@ -84,10 +84,13 @@
 - `search_memories` 与 `cam recall search` 现在共享 active-first、archived-fallback 的默认检索语义
 - 当前推荐的渐进式检索 preset 统一为：`state=auto`、`limit=8`
 - `cam mcp install --host <codex|claude|gemini>` 会显式写入推荐的 project-scoped 宿主配置，继续降低接线摩擦，但不改变 retrieval 的只读语义
+- `generic` host 仍然保持 manual-only：不提供自动写入的 install 分支，只通过 `cam mcp print-config --host generic` 暴露 ready-to-paste snippet
 - `cam mcp print-config --host ...` 会打印 ready-to-paste 宿主接入片段；其中 `--host codex` 现在还会额外打印推荐的 `AGENTS.md` snippet，把 durable memory workflow 正式接到 Codex 当前公开稳定 surface 上
 - `cam mcp apply-guidance --host codex` 会以 additive、可审计、fail-closed 的方式创建或更新 repo 根 `AGENTS.md` 中由本仓维护的 guidance block，继续降低手工粘贴成本
-- `cam integrations apply --host codex` 现在提供显式的一次性 Codex stack apply 入口：在不改变 `integrations install` 边界的前提下，统一编排 project-scoped MCP wiring、managed `AGENTS.md` guidance block、hooks 与 skills；其中 skills 默认仍走 runtime target，但也支持显式 `--skill-surface runtime|official-user|official-project`
+- `cam integrations install --host codex` 现在提供显式的一次性 stack install 入口：统一编排 project-scoped MCP wiring、hooks 与 skills，但不触碰 `AGENTS.md`
+- `cam integrations apply --host codex` 现在提供显式的一次性 Codex stack apply 入口：在不改变 `integrations install` 边界的前提下，额外统一编排 managed `AGENTS.md` guidance block；其中 skills 默认仍走 runtime target，但也支持显式 `--skill-surface runtime|official-user|official-project`
 - `cam mcp doctor` 会只读检查推荐的 project-scoped MCP 接线、project pinning 与 shared fallback bridge assets
+- `cam integrations doctor --host codex` 会只读汇总推荐路由、推荐 preset、subchecks 与 next steps，继续保持 inspect-only 边界
 - 它仍然是只读 retrieval plane，不是新的 canonical store
 
 目标状态：
@@ -99,6 +102,7 @@
 - hooks 解决“**什么时候触发**”
 - skills 解决“**模型怎么使用**”
 - MCP 解决“**模型具体能调用什么**”
+- release-facing `--help` 文案负责把这些边界稳定暴露给用户与 smoke tests
 
 三者都不应该直接拥有 canonical memory。
 

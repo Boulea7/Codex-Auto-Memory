@@ -62,7 +62,8 @@ export async function runMcpPrintConfig(options: McpPrintConfigOptions = {}): Pr
 export async function runMcpDoctor(options: McpDoctorOptions = {}): Promise<string> {
   const report = await inspectMcpDoctor({
     cwd: resolveCommandCwd(options.cwd),
-    host: options.host
+    host: options.host,
+    explicitCwd: Boolean(options.cwd)
   });
 
   if (options.json) {

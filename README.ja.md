@@ -213,6 +213,11 @@ cam audit
 | `cam audit` | プライバシーと secret hygiene を監査 |
 | `cam doctor` | ローカル wiring と native-readiness を確認 |
 
+補足:
+
+- `cam skills install` の公開 surface は `runtime`、`official-user`、`official-project` に固定された。runtime が既定 target のままで、公式 `.agents/skills` 経路は明示的な opt-in install として扱う。
+- 主要な `--help` 文言も release-facing public contract の一部として扱う。特に `integrations install/apply/doctor`、`mcp install/print-config/apply-guidance`、`skills install` は README、アーキテクチャ文書、dist/tarball smoke と同じ境界説明を維持する必要がある。
+
 ## 動作の仕組み
 
 ### 設計原則

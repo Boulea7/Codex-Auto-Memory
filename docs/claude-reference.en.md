@@ -20,6 +20,7 @@
 | topic files are read on demand | startup should not eagerly load topic bodies |
 | worktrees share project memory | project identity cannot be derived only from the cwd |
 | `/memory` exposes audit and edit controls | the project needs real inspect and edit paths, even if it does not fully clone Claude `/memory` |
+| `autoMemoryDirectory` should not be redirectable by shared project config | config boundaries should prevent a shared repository from hijacking a user-level memory path |
 | the host may expose hooks, skills, and subagent memory | the repository should treat those as real integration targets when the host supports them |
 
 ## Core public contract
@@ -92,6 +93,16 @@ This repository still does not claim full `/memory` interaction parity, but it m
 - users can modify memory through Markdown files or explicit commands
 
 ### 6. Host integration surfaces matter, but should not replace the core contract
+
+Claude-style public configuration boundaries also imply that a shared project should not be able to silently redirect another user's durable-memory storage.
+
+For `codex-auto-memory`, that means:
+
+- user, local, and managed config can control the memory directory
+- shared project config must not be able to hijack a user-level memory path through `autoMemoryDirectory`
+- host convenience should not weaken the repository's local-first safety boundary
+
+### 7. Host integration surfaces matter, but should not replace the core contract
 
 Claude Code also exposes stronger host-native surfaces around memory:
 

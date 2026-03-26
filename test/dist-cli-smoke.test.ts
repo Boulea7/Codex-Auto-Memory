@@ -307,6 +307,73 @@ describe("dist cli smoke", () => {
       serverName: "codex_auto_memory",
       targetFileHint: ".mcp.json"
     });
+
+    const geminiResult = runCli(
+      projectDir,
+      ["mcp", "print-config", "--host", "gemini", "--json"],
+      {
+        entrypoint: "dist",
+        env: { HOME: homeDir }
+      }
+    );
+
+    expect(geminiResult.exitCode, geminiResult.stderr).toBe(0);
+    expect(JSON.parse(geminiResult.stdout)).toMatchObject({
+      host: "gemini",
+      serverName: "codex_auto_memory",
+      targetFileHint: ".gemini/settings.json"
+    });
+
+    const genericResult = runCli(
+      projectDir,
+      ["mcp", "print-config", "--host", "generic", "--json"],
+      {
+        entrypoint: "dist",
+        env: { HOME: homeDir }
+      }
+    );
+
+    expect(genericResult.exitCode, genericResult.stderr).toBe(0);
+    expect(JSON.parse(genericResult.stdout)).toMatchObject({
+      host: "generic",
+      serverName: "codex_auto_memory",
+      targetFileHint: "Your MCP client's stdio server config",
+      snippetFormat: "json"
+    });
+  });
+
+  it("rejects generic MCP install from the compiled cli entrypoint because wiring stays manual-only", async () => {
+    const homeDir = await tempDir("cam-dist-mcp-install-generic-home-");
+    const projectDir = await tempDir("cam-dist-mcp-install-generic-project-");
+
+    const result = runCli(projectDir, ["mcp", "install", "--host", "generic"], {
+      entrypoint: "dist",
+      env: { HOME: homeDir }
+    });
+
+    expect(result.exitCode).toBe(1);
+    expect(result.stderr).toContain("generic");
+    expect(result.stderr).toContain("manual-only");
+  });
+
+  it("installs gemini MCP wiring from the compiled cli entrypoint", async () => {
+    const homeDir = await tempDir("cam-dist-mcp-install-gemini-home-");
+    const projectDir = await tempDir("cam-dist-mcp-install-gemini-project-");
+    const realProjectDir = await fs.realpath(projectDir);
+
+    const result = runCli(projectDir, ["mcp", "install", "--host", "gemini", "--json"], {
+      entrypoint: "dist",
+      env: { HOME: homeDir }
+    });
+
+    expect(result.exitCode, result.stderr).toBe(0);
+    expect(JSON.parse(result.stdout)).toMatchObject({
+      host: "gemini",
+      action: "created",
+      projectRoot: realProjectDir,
+      targetPath: path.join(realProjectDir, ".gemini", "settings.json"),
+      readOnlyRetrieval: true
+    });
   });
 
   it("applies the Codex AGENTS guidance from the compiled cli entrypoint", async () => {
@@ -571,6 +638,30 @@ describe("dist cli smoke", () => {
     expect(skillFile).toContain("search_memories");
   });
 
+  it("installs an explicit official project skill surface from the compiled cli entrypoint", async () => {
+    const homeDir = await tempDir("cam-dist-skill-official-project-home-");
+    const projectDir = await tempDir("cam-dist-skill-official-project-project-");
+
+    const env = { HOME: homeDir };
+    const skillsResult = runCli(
+      projectDir,
+      ["skills", "install", "--surface", "official-project"],
+      {
+        entrypoint: "dist",
+        env
+      }
+    );
+    expect(skillsResult.exitCode, skillsResult.stderr).toBe(0);
+    expect(skillsResult.stdout).toContain("Skill surface: official-project");
+
+    const skillFile = await fs.readFile(
+      path.join(projectDir, ".agents", "skills", "codex-auto-memory-recall", "SKILL.md"),
+      "utf8"
+    );
+    expect(skillFile).toContain("cam:asset-version");
+    expect(skillFile).toContain("search_memories");
+  });
+
   it("installs skills under CODEX_HOME from the compiled cli entrypoint", async () => {
     const homeDir = await tempDir("cam-dist-skill-codex-home-home-");
     const codexHome = await tempDir("cam-dist-skill-codex-home-codex-home-");
@@ -665,6 +756,108 @@ describe("dist cli smoke", () => {
         agents: { action: "created" },
         hooks: { action: "created" },
         skills: { action: "created" }
+      }
+    });
+  });
+
+  it("supports the official-project skill surface from the compiled integrations entrypoint", async () => {
+    const homeDir = await tempDir("cam-dist-integrations-official-project-home-");
+    const projectDir = await tempDir("cam-dist-integrations-official-project-project-");
+    const realProjectDir = await fs.realpath(projectDir);
+
+    const installResult = runCli(
+      projectDir,
+      ["integrations", "install", "--host", "codex", "--skill-surface", "official-project", "--json"],
+      {
+        entrypoint: "dist",
+        env: { HOME: homeDir }
+      }
+    );
+
+    expect(installResult.exitCode, installResult.stderr).toBe(0);
+    expect(JSON.parse(installResult.stdout)).toMatchObject({
+      host: "codex",
+      projectRoot: realProjectDir,
+      skillsSurface: "official-project",
+      subactions: {
+        skills: {
+          action: "created",
+          surface: "official-project",
+          targetDir: path.join(realProjectDir, ".agents", "skills", "codex-auto-memory-recall")
+        }
+      }
+    });
+
+    const applyResult = runCli(
+      projectDir,
+      ["integrations", "apply", "--host", "codex", "--skill-surface", "official-project", "--json"],
+      {
+        entrypoint: "dist",
+        env: { HOME: homeDir }
+      }
+    );
+
+    expect(applyResult.exitCode, applyResult.stderr).toBe(0);
+    expect(JSON.parse(applyResult.stdout)).toMatchObject({
+      host: "codex",
+      projectRoot: realProjectDir,
+      skillsSurface: "official-project",
+      subactions: {
+        skills: {
+          surface: "official-project",
+          targetDir: path.join(realProjectDir, ".agents", "skills", "codex-auto-memory-recall")
+        }
+      }
+    });
+  });
+
+  it("supports the official-user skill surface from the compiled integrations entrypoint", async () => {
+    const homeDir = await tempDir("cam-dist-integrations-official-user-home-");
+    const projectDir = await tempDir("cam-dist-integrations-official-user-project-");
+    const realProjectDir = await fs.realpath(projectDir);
+
+    const installResult = runCli(
+      projectDir,
+      ["integrations", "install", "--host", "codex", "--skill-surface", "official-user", "--json"],
+      {
+        entrypoint: "dist",
+        env: { HOME: homeDir }
+      }
+    );
+
+    expect(installResult.exitCode, installResult.stderr).toBe(0);
+    expect(JSON.parse(installResult.stdout)).toMatchObject({
+      host: "codex",
+      projectRoot: realProjectDir,
+      skillsSurface: "official-user",
+      subactions: {
+        skills: {
+          action: "created",
+          surface: "official-user",
+          targetDir: path.join(homeDir, ".agents", "skills", "codex-auto-memory-recall")
+        }
+      }
+    });
+
+    const applyResult = runCli(
+      projectDir,
+      ["integrations", "apply", "--host", "codex", "--skill-surface", "official-user", "--json"],
+      {
+        entrypoint: "dist",
+        env: { HOME: homeDir }
+      }
+    );
+
+    expect(applyResult.exitCode, applyResult.stderr).toBe(0);
+    expect(JSON.parse(applyResult.stdout)).toMatchObject({
+      host: "codex",
+      projectRoot: realProjectDir,
+      skillsSurface: "official-user",
+      subactions: {
+        skills: {
+          surface: "official-user",
+          targetDir: path.join(homeDir, ".agents", "skills", "codex-auto-memory-recall")
+        }
       }
     });
   });
@@ -778,4 +971,92 @@ fs.writeFileSync(${JSON.stringify(capturedArgsPath)}, JSON.stringify(process.arg
     expect(capturedArgs).toContain("continue");
     expect(capturedArgs.some((value) => value.startsWith("base_instructions="))).toBe(true);
   }, 30_000);
+
+  it("keeps key compiled help surfaces aligned with the release-facing command contract", async () => {
+    const projectDir = await tempDir("cam-dist-help-project-");
+    const homeDir = await tempDir("cam-dist-help-home-");
+    const env = { HOME: homeDir };
+
+    const recallHelp = runCli(projectDir, ["recall", "search", "--help"], {
+      entrypoint: "dist",
+      env
+    });
+    expect(recallHelp.exitCode, recallHelp.stderr).toBe(0);
+    expect(recallHelp.stdout).toContain("Search compact memory candidates without loading full details");
+    expect(recallHelp.stdout).toContain("Limit memory state: active, archived, all, or auto");
+
+    const mcpHelp = runCli(projectDir, ["mcp", "print-config", "--help"], {
+      entrypoint: "dist",
+      env
+    });
+    expect(mcpHelp.exitCode, mcpHelp.stderr).toBe(0);
+    expect(mcpHelp.stdout).toContain("Print a ready-to-paste MCP config snippet for a supported host");
+    expect(mcpHelp.stdout).toContain("Target host: codex, claude, gemini, or generic");
+
+    const mcpInstallHelp = runCli(projectDir, ["mcp", "install", "--help"], {
+      entrypoint: "dist",
+      env
+    });
+    expect(mcpInstallHelp.exitCode, mcpInstallHelp.stderr).toBe(0);
+    expect(mcpInstallHelp.stdout).toContain(
+      "Install the recommended project-scoped MCP wiring for a supported host"
+    );
+    expect(mcpInstallHelp.stdout).toContain("Target host: codex, claude, or gemini");
+
+    const mcpApplyGuidanceHelp = runCli(projectDir, ["mcp", "apply-guidance", "--help"], {
+      entrypoint: "dist",
+      env
+    });
+    expect(mcpApplyGuidanceHelp.exitCode, mcpApplyGuidanceHelp.stderr).toBe(0);
+    expect(mcpApplyGuidanceHelp.stdout).toContain(
+      "Safely create or update the managed Codex Auto Memory block inside AGENTS.md"
+    );
+    expect(mcpApplyGuidanceHelp.stdout).toContain("Target host: codex");
+
+    const skillsHelp = runCli(projectDir, ["skills", "install", "--help"], {
+      entrypoint: "dist",
+      env
+    });
+    expect(skillsHelp.exitCode, skillsHelp.stderr).toBe(0);
+    expect(skillsHelp.stdout).toMatch(
+      /Install a Codex skill that teaches search -> timeline -> details memory\s+retrieval/
+    );
+    expect(skillsHelp.stdout).toMatch(
+      /Skill install surface: runtime, official-user, or\s+official-project/
+    );
+
+    const integrationsHelp = runCli(projectDir, ["integrations", "install", "--help"], {
+      entrypoint: "dist",
+      env
+    });
+    expect(integrationsHelp.exitCode, integrationsHelp.stderr).toBe(0);
+    expect(integrationsHelp.stdout).toContain("Install the recommended project-scoped Codex integration stack");
+    expect(integrationsHelp.stdout).toContain("Target host: codex");
+    expect(integrationsHelp.stdout).toMatch(
+      /Skill install surface: runtime, official-user, or\s+official-project/
+    );
+
+    const integrationsApplyHelp = runCli(projectDir, ["integrations", "apply", "--help"], {
+      entrypoint: "dist",
+      env
+    });
+    expect(integrationsApplyHelp.exitCode, integrationsApplyHelp.stderr).toBe(0);
+    expect(integrationsApplyHelp.stdout).toMatch(
+      /Install the recommended Codex integration stack and safely apply the managed\s+AGENTS guidance block/
+    );
+    expect(integrationsApplyHelp.stdout).toContain("Target host: codex");
+    expect(integrationsApplyHelp.stdout).toMatch(
+      /Skill install surface: runtime, official-user, or\s+official-project/
+    );
+
+    const integrationsDoctorHelp = runCli(projectDir, ["integrations", "doctor", "--help"], {
+      entrypoint: "dist",
+      env
+    });
+    expect(integrationsDoctorHelp.exitCode, integrationsDoctorHelp.stderr).toBe(0);
+    expect(integrationsDoctorHelp.stdout).toMatch(
+      /Inspect the current Codex integration stack without mutating memory or host\s+config/
+    );
+    expect(integrationsDoctorHelp.stdout).toContain("Target host: codex");
+  });
 });

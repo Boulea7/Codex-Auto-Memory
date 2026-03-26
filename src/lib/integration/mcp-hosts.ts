@@ -31,11 +31,20 @@ export interface McpCanonicalConfigInspection {
 
 export const MEMORY_RETRIEVAL_MCP_SERVER_NAME = "codex_auto_memory";
 
+export const SUPPORTED_MCP_INSTALL_HOSTS: readonly Exclude<McpHost, "generic">[] = [
+  "codex",
+  "claude",
+  "gemini"
+] as const;
 export const SUPPORTED_MCP_HOSTS: readonly McpHost[] = [
   "codex",
   "claude",
   "gemini",
   "generic"
+] as const;
+export const SUPPORTED_MCP_DOCTOR_HOST_SELECTIONS: readonly McpDoctorHostSelection[] = [
+  ...SUPPORTED_MCP_HOSTS,
+  "all"
 ] as const;
 
 const HOST_DEFINITIONS: Record<McpHost, McpHostDefinition> = {
@@ -142,6 +151,22 @@ function hasExpectedServeInvocation(
 
 function toTomlArray(values: string[]): string {
   return `[${values.map((value) => toTomlString(value)).join(", ")}]`;
+}
+
+export function formatMcpHostChoices(hosts: readonly string[]): string {
+  if (hosts.length === 0) {
+    return "";
+  }
+
+  if (hosts.length === 1) {
+    return hosts[0] ?? "";
+  }
+
+  if (hosts.length === 2) {
+    return `${hosts[0]} or ${hosts[1]}`;
+  }
+
+  return `${hosts.slice(0, -1).join(", ")}, or ${hosts.at(-1)}`;
 }
 
 export function normalizeMcpHost(host: string | undefined): McpHost {

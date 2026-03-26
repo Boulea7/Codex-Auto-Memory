@@ -57,9 +57,13 @@
 - core product boundaries belong in the README and architecture docs
 - claim-sensitive wording must stay aligned with official public documentation
 - the repository now documents both present behavior and deliberate evolution toward hook, skill, and MCP-aware surfaces
-- the latest low-friction MCP wiring surface is now layered: `cam mcp install` writes the recommended project-scoped host config, `cam mcp print-config` and `cam mcp doctor` stay print-only and inspect-only, `cam mcp apply-guidance --host codex` manages the repository-level `AGENTS.md` guidance block through an additive fail-closed flow, and `cam integrations apply --host codex` provides an explicit one-shot Codex stack apply entrypoint
+- the latest low-friction MCP wiring surface is now layered: `cam mcp install` writes the recommended project-scoped host config, `cam mcp print-config` and `cam mcp doctor` stay print-only and inspect-only, and `cam mcp apply-guidance --host codex` manages the repository-level `AGENTS.md` guidance block through an additive fail-closed flow
+- `cam integrations install --host codex` orchestrates MCP wiring plus hook and skill assets, `cam integrations apply --host codex` adds the managed `AGENTS.md` guidance flow on top, and `cam integrations doctor --host codex` remains the thin read-only readiness view
+- `cam skills install` now has three public surfaces: `runtime`, `official-user`, and `official-project`; runtime stays the default target, while the official `.agents/skills` copies remain explicit opt-in installs
+- the `generic` host remains manual-only: it is supported by `cam mcp print-config --host generic`, but intentionally rejected by `cam mcp install --host generic`
 - `cam recall search` now defaults to the active-first, archived-fallback read-only retrieval path with `state=auto, limit=8`
 - maintainers should avoid reverting to the older “companion-only and future-seam-only” wording unless the implementation direction changes again
+- key `--help` text is part of the release-facing public contract and should stay aligned with the README, architecture docs, and release-facing smoke coverage
 
 ## Language policy
 

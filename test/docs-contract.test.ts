@@ -3,6 +3,7 @@ import path from "node:path";
 import { describe, expect, it } from "vitest";
 
 interface PackageJsonContract {
+  description: string;
   bin: {
     cam: string;
   };
@@ -20,6 +21,11 @@ describe("docs contract", () => {
     const readmeTw = await readDoc("README.zh-TW.md");
     const readmeEn = await readDoc("README.en.md");
     const readmeJa = await readDoc("README.ja.md");
+    const docsReadme = await readDoc("docs/README.md");
+    const docsReadmeEn = await readDoc("docs/README.en.md");
+    const claudeReference = await readDoc("docs/claude-reference.md");
+    const claudeReferenceEn = await readDoc("docs/claude-reference.en.md");
+    const nativeMigrationEn = await readDoc("docs/native-migration.en.md");
     const releaseChecklist = await readDoc("docs/release-checklist.md");
     const contributing = await readDoc("CONTRIBUTING.md");
     const ciWorkflow = await readDoc(".github/workflows/ci.yml");
@@ -67,7 +73,10 @@ describe("docs contract", () => {
     expect(readmeTw).toContain("cam mcp doctor");
     expect(readmeTw).toContain("--state auto");
     expect(readmeTw).toContain("local bridge");
+    expect(readmeTw).toContain("manual-only");
     expect(readmeTw).toContain("--surface runtime|official-user|official-project");
+    expect(readmeTw).toContain("重要 `--help` 文案");
+    expect(readmeTw).toContain("release-facing public contract");
     expect(readmeJa).toContain("README.md");
     expect(readmeJa).toContain("README.en.md");
     expect(readmeJa).toContain("memory-recall.sh");
@@ -81,7 +90,10 @@ describe("docs contract", () => {
     expect(readmeJa).toContain("cam mcp doctor");
     expect(readmeJa).toContain("--state auto");
     expect(readmeJa).toContain("local bridge");
+    expect(readmeJa).toContain("manual-only");
     expect(readmeJa).toContain("--surface runtime|official-user|official-project");
+    expect(readmeJa).toContain("主要な `--help` 文言");
+    expect(readmeJa).toContain("release-facing public contract");
     expect(readmeEn).toContain("cam memory");
     expect(readmeEn).toContain("cam session status");
     expect(readmeEn).toContain("cam recall search");
@@ -108,6 +120,29 @@ describe("docs contract", () => {
     expect(readmeEn).toContain("cam mcp doctor");
     expect(readmeEn).toContain("manual-only");
     expect(readmeEn).toContain("--surface runtime|official-user|official-project");
+    expect(docsReadme).toContain("Codex-first Hybrid");
+    expect(docsReadme).toContain("cam mcp apply-guidance --host codex");
+    expect(docsReadme).toContain("cam integrations apply --host codex");
+    expect(docsReadme).toContain("cam integrations doctor --host codex");
+    expect(docsReadme).toContain("runtime|official-user|official-project");
+    expect(docsReadme).toContain("manual-only");
+    expect(docsReadme).toContain("`--help` 文案");
+    expect(docsReadme).toContain("state=auto");
+    expect(docsReadmeEn).toContain("Codex-first Hybrid");
+    expect(docsReadmeEn).toContain("cam mcp apply-guidance --host codex");
+    expect(docsReadmeEn).toContain("cam integrations apply --host codex");
+    expect(docsReadmeEn).toContain("cam integrations doctor --host codex");
+    expect(docsReadmeEn).toContain("runtime`, `official-user`, and `official-project");
+    expect(docsReadmeEn).toContain("manual-only");
+    expect(docsReadmeEn).toContain("`--help` text is part of the release-facing public contract");
+    expect(docsReadmeEn).toContain("state=auto, limit=8");
+    expect(claudeReference).toContain("autoMemoryDirectory");
+    expect(claudeReference).toContain("共享项目劫持用户 memory 路径");
+    expect(claudeReferenceEn).toContain("autoMemoryDirectory");
+    expect(claudeReferenceEn).toContain("shared project config");
+    expect(claudeReferenceEn).toContain("user-level memory path");
+    expect(nativeMigrationEn).toContain("native Codex memory and hooks are still not ready");
+    expect(nativeMigrationEn).toContain("allow non-native integration expansion");
     expect(releaseChecklist).toContain("pnpm test:dist-cli-smoke");
     expect(releaseChecklist).toContain("pnpm test:tarball-install-smoke");
     expect(releaseChecklist).toContain("node dist/cli.js --version");
@@ -138,7 +173,20 @@ describe("docs contract", () => {
     expect(releaseChecklist).toContain("node dist/cli.js integrations apply --host codex --json");
     expect(releaseChecklist).toContain("node dist/cli.js skills install --surface official-user");
     expect(releaseChecklist).toContain("node dist/cli.js integrations install --host codex --skill-surface official-user --json");
+    expect(releaseChecklist).toContain("node dist/cli.js integrations apply --host codex --skill-surface official-user --json");
+    expect(releaseChecklist).toContain("node dist/cli.js skills install --surface official-project");
+    expect(releaseChecklist).toContain("node dist/cli.js integrations install --host codex --skill-surface official-project --json");
+    expect(releaseChecklist).toContain("node dist/cli.js integrations apply --host codex --skill-surface official-project --json");
     expect(releaseChecklist).toContain("node dist/cli.js integrations doctor --host codex --json");
+    expect(releaseChecklist).toContain("node dist/cli.js mcp install --help");
+    expect(releaseChecklist).toContain("node dist/cli.js mcp print-config --help");
+    expect(releaseChecklist).toContain("node dist/cli.js mcp apply-guidance --help");
+    expect(releaseChecklist).toContain("node dist/cli.js skills install --help");
+    expect(releaseChecklist).toContain("node dist/cli.js integrations install --help");
+    expect(releaseChecklist).toContain("node dist/cli.js integrations apply --help");
+    expect(releaseChecklist).toContain("node dist/cli.js integrations doctor --help");
+    expect(releaseChecklist).toContain("codex, claude, gemini, or generic");
+    expect(releaseChecklist).toContain("leaving `generic` out of the install branch");
     expect(releaseChecklist).toContain("search_memories");
     expect(contributing).toContain("reviewer-only warnings");
     expect(contributing).toContain("pnpm test:docs-contract");
@@ -160,6 +208,9 @@ describe("docs contract", () => {
     expect(packageJson.scripts["test:dist-cli-smoke"]).toBe("vitest run test/dist-cli-smoke.test.ts");
     expect(packageJson.scripts["test:tarball-install-smoke"]).toBe(
       "vitest run test/tarball-install-smoke.test.ts"
+    );
+    expect(packageJson.description).toBe(
+      "A Markdown-first, local-first memory runtime for Codex with wrapper, MCP, skill, and AGENTS integration surfaces."
     );
     expect(packageJson.bin.cam).toBe("dist/cli.js");
     expect(packageJson.files).toEqual(
@@ -213,10 +264,17 @@ describe("docs contract", () => {
     expect(architecture).toContain("memory-recall.sh");
     expect(architecture).toContain("cam mcp serve");
     expect(architecture).toContain("cam mcp install");
+    expect(architecture).toContain("--surface runtime|official-user|official-project");
+    expect(architecture).toContain("manual-only");
+    expect(architecture).toContain("cam mcp apply-guidance");
+    expect(architecture).toContain("cam integrations install --host codex");
+    expect(architecture).toContain("cam integrations apply --host codex");
+    expect(architecture).toContain("cam integrations doctor --host codex");
     expect(architecture).toContain("state=auto");
     expect(architecture).toContain("local bridge / fallback recall bundle");
     expect(architecture).toContain("cam mcp print-config");
     expect(architecture).toContain("cam mcp doctor");
+    expect(architecture).toContain("release-facing `--help` surfaces");
     expect(architecture).toContain("Codex-first Hybrid");
     expect(architectureEn).toContain("reviewer warnings and confidence remain audit-side metadata");
     expect(architectureEn).toContain("cam recall timeline");
@@ -242,6 +300,10 @@ describe("docs contract", () => {
     expect(integrationStrategy).toContain("cam mcp print-config");
     expect(integrationStrategy).toContain("AGENTS.md");
     expect(integrationStrategy).toContain("cam mcp doctor");
+    expect(integrationStrategy).toContain("manual-only");
+    expect(integrationStrategy).toContain("cam integrations install --host codex");
+    expect(integrationStrategy).toContain("cam integrations doctor --host codex");
+    expect(integrationStrategy).toContain("release-facing `--help` 文案");
     expect(integrationStrategy).toContain("cam skills install");
     expect(integrationStrategy).toContain("--surface runtime|official-user|official-project");
     expect(hostSurfaces).toContain("Codex-first Hybrid memory system");
@@ -251,9 +313,13 @@ describe("docs contract", () => {
     expect(hostSurfaces).toContain("local bridge");
     expect(hostSurfaces).toContain("read-only retrieval surface");
     expect(hostSurfaces).toContain("cam mcp install");
+    expect(hostSurfaces).toContain("manual-only");
     expect(hostSurfaces).toContain("cam mcp apply-guidance");
     expect(hostSurfaces).toContain("AGENTS.md");
     expect(hostSurfaces).toContain("cam mcp doctor");
+    expect(hostSurfaces).toContain("cam integrations install");
+    expect(hostSurfaces).toContain("cam integrations doctor");
+    expect(hostSurfaces).toContain("release-facing `--help` 文案");
     expect(readme).toContain("companion-first");
     expect(readmeEn).toContain("companion CLI");
     expect(readme).toContain("当前主任务");

@@ -57,7 +57,19 @@ Use this checklist before cutting any alpha or beta release of `codex-auto-memor
 - Run `node dist/cli.js integrations apply --host codex --json` and confirm it orchestrates MCP wiring, managed AGENTS guidance, hook assets, and skill assets while keeping `integrations install --host codex` non-mutating for AGENTS.md.
 - Run `node dist/cli.js skills install --surface official-user` and confirm the explicit official `.agents/skills` copy is written without changing the runtime default target.
 - Run `node dist/cli.js integrations install --host codex --skill-surface official-user --json` and confirm the skill subaction reports the selected surface while MCP and AGENTS boundaries stay unchanged.
+- Run `node dist/cli.js integrations apply --host codex --skill-surface official-user --json` and confirm the selected skill surface passes through while the AGENTS mutation boundary remains exclusive to `apply`.
+- Run `node dist/cli.js skills install --surface official-project` and confirm the explicit project-scoped `.agents/skills` copy is written inside the repository without changing the runtime default target.
+- Run `node dist/cli.js integrations install --host codex --skill-surface official-project --json` and confirm the skill subaction reports the selected project-scoped surface while MCP and AGENTS boundaries stay unchanged.
+- Run `node dist/cli.js integrations apply --host codex --skill-surface official-project --json` and confirm the selected project-scoped skill surface still flows through the full apply path.
 - Run `node dist/cli.js integrations doctor --host codex --json` and confirm it reports the thin Codex-only stack readiness view with `recommendedRoute`, `recommendedPreset`, `subchecks`, and `nextSteps`.
+- Treat key `--help` output as release-facing contract, not incidental CLI text:
+  - `node dist/cli.js mcp install --help` should keep the supported install-host list at `codex, claude, or gemini`, leaving `generic` out of the install branch.
+  - `node dist/cli.js mcp print-config --help` should keep the supported snippet-host list at `codex, claude, gemini, or generic`.
+  - `node dist/cli.js mcp apply-guidance --help` should stay Codex-only and describe managed `AGENTS.md` updates.
+  - `node dist/cli.js skills install --help` should keep the public skill surfaces aligned at `runtime, official-user, or official-project`.
+  - `node dist/cli.js integrations install --help` should describe stack install without managed `AGENTS.md` mutation.
+  - `node dist/cli.js integrations apply --help` should explicitly add the managed `AGENTS.md` guidance flow on top of install.
+  - `node dist/cli.js integrations doctor --help` should stay inspect-only and Codex-only.
 - Confirm `node dist/cli.js session load --json` / `status --json` still expose `confidence` and warnings when the rollout required a conservative continuity summary.
 - Confirm continuity reviewer warnings stay in diagnostics / audit surfaces and are not written into continuity Markdown body text.
 - Run a local smoke flow:

@@ -258,6 +258,72 @@ describe("runRecall", () => {
     });
   });
 
+  it("supports --cwd so recall can target another project directory from the current shell", async () => {
+    const homeDir = await tempDir("cam-recall-cwd-home-");
+    const projectParentDir = await tempDir("cam-recall-cwd-parent-");
+    const projectDir = path.join(projectParentDir, "project with spaces");
+    const shellDir = await tempDir("cam-recall-cwd-shell-");
+    const memoryRoot = await tempDir("cam-recall-cwd-memory-");
+    process.env.HOME = homeDir;
+
+    await fs.mkdir(projectDir, { recursive: true });
+
+    const projectConfig = makeAppConfig();
+    await writeCamConfig(projectDir, projectConfig, {
+      autoMemoryDirectory: memoryRoot
+    });
+
+    const store = new MemoryStore(detectProjectContext(projectDir), {
+      ...projectConfig,
+      autoMemoryDirectory: memoryRoot
+    });
+    await store.ensureLayout();
+    await store.remember(
+      "project",
+      "workflow",
+      "prefer-pnpm",
+      "Prefer pnpm in this repository.",
+      ["Use pnpm instead of npm in this repository."],
+      "Manual note."
+    );
+    await store.forget("project", "pnpm", { archive: true });
+
+    const searchResult = runCli(
+      shellDir,
+      ["recall", "search", "pnpm", "--cwd", projectDir, "--state", "archived", "--json"],
+      { env: { HOME: homeDir } }
+    );
+    expect(searchResult.exitCode).toBe(0);
+
+    const searchOutput = JSON.parse(searchResult.stdout) as {
+      results: Array<{ ref: string }>;
+    };
+    expect(searchOutput.results).toHaveLength(1);
+
+    const ref = searchOutput.results[0]!.ref;
+    const timelineResult = runCli(
+      shellDir,
+      ["recall", "timeline", ref, "--cwd", projectDir, "--json"],
+      { env: { HOME: homeDir } }
+    );
+    expect(timelineResult.exitCode).toBe(0);
+    expect(JSON.parse(timelineResult.stdout)).toMatchObject({
+      ref,
+      events: expect.arrayContaining([expect.objectContaining({ action: "archive" })])
+    });
+
+    const detailsResult = runCli(
+      shellDir,
+      ["recall", "details", ref, "--cwd", projectDir, "--json"],
+      { env: { HOME: homeDir } }
+    );
+    expect(detailsResult.exitCode).toBe(0);
+    expect(JSON.parse(detailsResult.stdout)).toMatchObject({
+      ref,
+      path: store.getArchiveTopicFile("project", "workflow")
+    });
+  });
+
   it("keeps recall search read-only and does not create memory layout on first lookup", async () => {
     const homeDir = await tempDir("cam-recall-readonly-home-");
     const projectDir = await tempDir("cam-recall-readonly-project-");

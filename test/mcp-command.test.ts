@@ -1013,6 +1013,36 @@ describe("mcp command", () => {
     expect(payload.snippet).toContain(realProjectDir);
   });
 
+  it("pins the recommended skill install command to the inspected project when mcp doctor uses --cwd", async () => {
+    const homeDir = await tempDir("cam-mcp-doctor-cwd-home-");
+    const projectParentDir = await tempDir("cam-mcp-doctor-cwd-parent-");
+    const projectDir = path.join(projectParentDir, "project with spaces");
+    const shellDir = await tempDir("cam-mcp-doctor-cwd-shell-");
+    process.env.HOME = homeDir;
+
+    await fs.mkdir(projectDir, { recursive: true });
+
+    const result = runCli(
+      shellDir,
+      ["mcp", "doctor", "--host", "codex", "--cwd", projectDir, "--json"],
+      {
+        env: { HOME: homeDir }
+      }
+    );
+    expect(result.exitCode, result.stderr).toBe(0);
+
+    const payload = JSON.parse(result.stdout) as {
+      projectRoot: string;
+      fallbackAssets: {
+        recommendedSkillInstallCommand: string;
+      };
+    };
+    expect(payload.projectRoot).toBe(await fs.realpath(projectDir));
+    expect(payload.fallbackAssets.recommendedSkillInstallCommand).toBe(
+      `cam skills install --surface runtime --cwd ${JSON.stringify(payload.projectRoot)}`
+    );
+  });
+
   it("inspects project-scoped MCP wiring and fallback bridge assets", async () => {
     const homeDir = await tempDir("cam-mcp-doctor-home-");
     const projectDir = await tempDir("cam-mcp-doctor-project-");

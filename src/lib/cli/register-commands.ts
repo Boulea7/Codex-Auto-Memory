@@ -22,6 +22,16 @@ import { runRemember } from "../commands/remember.js";
 import { runSession } from "../commands/session.js";
 import { installSkills, removeSkills } from "../commands/skills.js";
 import { runSync } from "../commands/sync.js";
+import {
+  formatMcpHostChoices,
+  SUPPORTED_MCP_DOCTOR_HOST_SELECTIONS,
+  SUPPORTED_MCP_HOSTS,
+  SUPPORTED_MCP_INSTALL_HOSTS
+} from "../integration/mcp-hosts.js";
+import {
+  DEFAULT_CODEX_SKILL_INSTALL_SURFACE,
+  formatCodexSkillInstallSurfaceChoices
+} from "../integration/skills-paths.js";
 
 type AsyncCommandHandler<Args extends unknown[]> = (...args: Args) => Promise<string>;
 
@@ -121,6 +131,7 @@ function registerHookCommands(program: Command): void {
 }
 
 function registerSkillCommands(program: Command): void {
+  const skillSurfaceChoices = formatCodexSkillInstallSurfaceChoices();
   const skillsCommand = program
     .command("skills")
     .description("Manage Codex skill assets for MCP-first and CLI-fallback durable memory retrieval");
@@ -130,8 +141,8 @@ function registerSkillCommands(program: Command): void {
     .description("Install a Codex skill that teaches search -> timeline -> details memory retrieval")
     .option(
       "--surface <surface>",
-      "Skill install surface: runtime, official-user, or official-project",
-      "runtime"
+      `Skill install surface: ${skillSurfaceChoices}`,
+      DEFAULT_CODEX_SKILL_INSTALL_SURFACE
     )
     .option("--cwd <path>", "Project directory to anchor project-scoped skill installs to")
     .action(withStdout(async (options) => installSkills(options)));
@@ -141,8 +152,8 @@ function registerSkillCommands(program: Command): void {
     .description("Describe how to remove the installed Codex skill assets")
     .option(
       "--surface <surface>",
-      "Skill surface to remove: runtime, official-user, or official-project",
-      "runtime"
+      `Skill surface to remove: ${skillSurfaceChoices}`,
+      DEFAULT_CODEX_SKILL_INSTALL_SURFACE
     )
     .option("--cwd <path>", "Project directory to anchor project-scoped skill installs to")
     .action(withStdout(async (options) => removeSkills(options)));
@@ -165,6 +176,7 @@ function registerRecallCommands(program: Command): void {
         "auto"
       )
       .option("--limit <count>", "Maximum number of results to return", "8")
+      .option("--cwd <path>", "Project directory to anchor recall to")
   ).action(withStdout(async (query, options) => runRecall("search", query, options)));
 
   addJsonOption(
@@ -172,6 +184,7 @@ function registerRecallCommands(program: Command): void {
       .command("timeline")
       .description("Show the recorded lifecycle timeline for a specific memory ref")
       .argument("<ref>", "Memory ref from recall search")
+      .option("--cwd <path>", "Project directory to anchor recall to")
   ).action(withStdout(async (ref, options) => runRecall("timeline", ref, options)));
 
   addJsonOption(
@@ -179,10 +192,14 @@ function registerRecallCommands(program: Command): void {
       .command("details")
       .description("Fetch full Markdown-backed details for a specific memory ref")
       .argument("<ref>", "Memory ref from recall search")
+      .option("--cwd <path>", "Project directory to anchor recall to")
   ).action(withStdout(async (ref, options) => runRecall("details", ref, options)));
 }
 
 function registerMcpCommands(program: Command): void {
+  const supportedInstallHosts = formatMcpHostChoices(SUPPORTED_MCP_INSTALL_HOSTS);
+  const supportedSnippetHosts = formatMcpHostChoices(SUPPORTED_MCP_HOSTS);
+  const supportedDoctorHosts = formatMcpHostChoices(SUPPORTED_MCP_DOCTOR_HOST_SELECTIONS);
   const mcpCommand = program
     .command("mcp")
     .description(
@@ -203,7 +220,7 @@ function registerMcpCommands(program: Command): void {
     mcpCommand
       .command("install")
       .description("Install the recommended project-scoped MCP wiring for a supported host")
-      .requiredOption("--host <host>", "Target host: codex, claude, or gemini")
+      .requiredOption("--host <host>", `Target host: ${supportedInstallHosts}`)
       .option("--cwd <path>", "Project directory to write host wiring for")
   ).action(withStdout(async (options) => runMcpInstall(options)));
 
@@ -211,7 +228,7 @@ function registerMcpCommands(program: Command): void {
     mcpCommand
       .command("print-config")
       .description("Print a ready-to-paste MCP config snippet for a supported host")
-      .requiredOption("--host <host>", "Target host: codex, claude, gemini, or generic")
+      .requiredOption("--host <host>", `Target host: ${supportedSnippetHosts}`)
       .option("--cwd <path>", "Project directory to render the snippet for")
   ).action(withStdout(async (options) => runMcpPrintConfig(options)));
 
@@ -219,7 +236,7 @@ function registerMcpCommands(program: Command): void {
     mcpCommand
       .command("apply-guidance")
       .description("Safely create or update the managed Codex Auto Memory block inside AGENTS.md")
-      .requiredOption("--host <host>", "Target host: codex")
+      .requiredOption("--host <host>", `Target host: ${formatMcpHostChoices(["codex"])}`)
       .option("--cwd <path>", "Project directory whose AGENTS.md should be updated")
   ).action(withStdout(async (options) => runMcpApplyGuidance(options)));
 
@@ -227,12 +244,13 @@ function registerMcpCommands(program: Command): void {
     mcpCommand
       .command("doctor")
       .description("Inspect the recommended project-scoped MCP wiring without writing host config")
-      .option("--host <host>", "Target host: codex, claude, gemini, generic, or all", "all")
+      .option("--host <host>", `Target host: ${supportedDoctorHosts}`, "all")
       .option("--cwd <path>", "Project directory to inspect")
   ).action(withStdout(async (options) => runMcpDoctor(options)));
 }
 
 function registerIntegrationCommands(program: Command): void {
+  const skillSurfaceChoices = formatCodexSkillInstallSurfaceChoices();
   const integrationsCommand = program
     .command("integrations")
     .description("Install the recommended Codex integration stack on top of existing hook, skill, and MCP surfaces");
@@ -241,11 +259,11 @@ function registerIntegrationCommands(program: Command): void {
     integrationsCommand
       .command("apply")
       .description("Install the recommended Codex integration stack and safely apply the managed AGENTS guidance block")
-      .requiredOption("--host <host>", "Target host: codex")
+      .requiredOption("--host <host>", `Target host: ${formatMcpHostChoices(["codex"])}`)
       .option(
         "--skill-surface <surface>",
-        "Skill install surface: runtime, official-user, or official-project",
-        "runtime"
+        `Skill install surface: ${skillSurfaceChoices}`,
+        DEFAULT_CODEX_SKILL_INSTALL_SURFACE
       )
       .option("--cwd <path>", "Project directory to write host wiring for")
   ).action(withStdout(async (options) => runIntegrationsApply(options)));
@@ -254,11 +272,11 @@ function registerIntegrationCommands(program: Command): void {
     integrationsCommand
       .command("install")
       .description("Install the recommended project-scoped Codex integration stack")
-      .requiredOption("--host <host>", "Target host: codex")
+      .requiredOption("--host <host>", `Target host: ${formatMcpHostChoices(["codex"])}`)
       .option(
         "--skill-surface <surface>",
-        "Skill install surface: runtime, official-user, or official-project",
-        "runtime"
+        `Skill install surface: ${skillSurfaceChoices}`,
+        DEFAULT_CODEX_SKILL_INSTALL_SURFACE
       )
       .option("--cwd <path>", "Project directory to write host wiring for")
   ).action(withStdout(async (options) => runIntegrationsInstall(options)));
@@ -267,7 +285,7 @@ function registerIntegrationCommands(program: Command): void {
     integrationsCommand
       .command("doctor")
       .description("Inspect the current Codex integration stack without mutating memory or host config")
-      .requiredOption("--host <host>", "Target host: codex")
+      .requiredOption("--host <host>", `Target host: ${formatMcpHostChoices(["codex"])}`)
       .option("--cwd <path>", "Project directory to inspect")
   ).action(withStdout(async (options) => runIntegrationsDoctor(options)));
 }
