@@ -25,9 +25,13 @@ interface SearchMemoriesResponse {
   state: string;
   resolvedState: string;
   fallbackUsed: boolean;
+  stateFallbackUsed?: boolean;
+  markdownFallbackUsed?: boolean;
   retrievalMode: string;
   retrievalFallbackReason?: string;
   diagnostics?: {
+    anyMarkdownFallback?: boolean;
+    fallbackReasons?: string[];
     checkedPaths: Array<{
       scope: string;
       state: string;
@@ -707,6 +711,7 @@ describe("mcp command", () => {
     expect(result.exitCode, result.stderr).toBe(0);
     const payload = JSON.parse(result.stdout) as {
       host: string;
+      readOnlyRetrieval: boolean;
       serverName: string;
       transport: string;
       targetFileHint: string;
@@ -737,6 +742,7 @@ describe("mcp command", () => {
 
     expect(payload).toMatchObject({
       host: "codex",
+      readOnlyRetrieval: true,
       serverName: "codex_auto_memory",
       transport: "stdio",
       targetFileHint: ".codex/config.toml",
@@ -1221,6 +1227,7 @@ describe("mcp command", () => {
     const payload = JSON.parse(result.stdout) as {
       host: string;
       projectRoot: string;
+      readOnlyRetrieval: boolean;
       snippet: string;
       workflowContract: {
         cliFallback: {
@@ -1232,7 +1239,8 @@ describe("mcp command", () => {
     };
     expect(payload).toMatchObject({
       host: "generic",
-      projectRoot: realProjectDir
+      projectRoot: realProjectDir,
+      readOnlyRetrieval: true
     });
     expect(payload.snippet).toContain(realProjectDir);
     expect(payload.workflowContract).toBeUndefined();
@@ -2602,6 +2610,8 @@ describe("mcp command", () => {
         state: "archived",
         resolvedState: "archived",
         fallbackUsed: false,
+        stateFallbackUsed: false,
+        markdownFallbackUsed: false,
         retrievalMode: "index"
       });
       expect(searchPayload.results).toHaveLength(1);
@@ -2878,6 +2888,8 @@ describe("mcp command", () => {
         state: "auto",
         resolvedState: "archived",
         fallbackUsed: true,
+        stateFallbackUsed: true,
+        markdownFallbackUsed: false,
         retrievalMode: "index"
       });
       expect(payload.results).toHaveLength(8);
@@ -2980,9 +2992,14 @@ describe("mcp command", () => {
       });
       const payload = readStructuredContent<SearchMemoriesResponse>(result as ToolCallResultLike);
       expect(payload).toMatchObject({
+        fallbackUsed: true,
+        stateFallbackUsed: true,
+        markdownFallbackUsed: true,
         retrievalMode: "markdown-fallback",
         retrievalFallbackReason: "missing",
         diagnostics: {
+          anyMarkdownFallback: true,
+          fallbackReasons: ["missing"],
           checkedPaths: expect.arrayContaining([
             expect.objectContaining({
               scope: "project",

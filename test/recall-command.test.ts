@@ -28,6 +28,8 @@ afterEach(async () => {
 });
 
 interface RecallSearchDiagnostics {
+  anyMarkdownFallback: boolean;
+  fallbackReasons: string[];
   checkedPaths: Array<{
     scope: string;
     state: string;
@@ -76,6 +78,8 @@ describe("runRecall", () => {
       state: string;
       resolvedState: string;
       fallbackUsed: boolean;
+      stateFallbackUsed: boolean;
+      markdownFallbackUsed: boolean;
       retrievalMode: string;
       retrievalFallbackReason?: string;
       diagnostics: RecallSearchDiagnostics;
@@ -85,7 +89,13 @@ describe("runRecall", () => {
       state: "auto",
       resolvedState: "archived",
       fallbackUsed: true,
+      stateFallbackUsed: true,
+      markdownFallbackUsed: false,
       retrievalMode: "index"
+    });
+    expect(output.diagnostics).toMatchObject({
+      anyMarkdownFallback: false,
+      fallbackReasons: []
     });
     expect(output.diagnostics.checkedPaths).toEqual(
       expect.arrayContaining([
@@ -144,6 +154,8 @@ describe("runRecall", () => {
       state: string;
       resolvedState: string;
       fallbackUsed: boolean;
+      stateFallbackUsed: boolean;
+      markdownFallbackUsed: boolean;
       retrievalMode: string;
       results: Array<{ ref: string; state: string; topic: string }>;
     };
@@ -151,6 +163,8 @@ describe("runRecall", () => {
       state: "auto",
       resolvedState: "active",
       fallbackUsed: false,
+      stateFallbackUsed: false,
+      markdownFallbackUsed: false,
       retrievalMode: "index"
     });
     expect(output.results).toEqual([
@@ -202,6 +216,8 @@ describe("runRecall", () => {
       state: string;
       resolvedState: string;
       fallbackUsed: boolean;
+      stateFallbackUsed: boolean;
+      markdownFallbackUsed: boolean;
       retrievalMode: string;
       results: Array<{ ref: string; state: string; topic: string }>;
     };
@@ -209,6 +225,8 @@ describe("runRecall", () => {
       state: "auto",
       resolvedState: "archived",
       fallbackUsed: true,
+      stateFallbackUsed: true,
+      markdownFallbackUsed: false,
       retrievalMode: "index"
     });
     expect(searchOutput.results).toEqual([
@@ -604,6 +622,8 @@ describe("runRecall", () => {
       state: string;
       resolvedState: string;
       fallbackUsed: boolean;
+      stateFallbackUsed: boolean;
+      markdownFallbackUsed: boolean;
       retrievalMode: string;
       retrievalFallbackReason?: string;
       diagnostics: RecallSearchDiagnostics;
@@ -613,9 +633,15 @@ describe("runRecall", () => {
       state: "auto",
       resolvedState: "archived",
       fallbackUsed: true,
+      stateFallbackUsed: true,
+      markdownFallbackUsed: true,
       retrievalMode: "markdown-fallback",
       retrievalFallbackReason: "missing",
       results: []
+    });
+    expect(output.diagnostics).toMatchObject({
+      anyMarkdownFallback: true,
+      fallbackReasons: ["missing"]
     });
     expect(output.diagnostics.checkedPaths).toEqual(
       expect.arrayContaining([

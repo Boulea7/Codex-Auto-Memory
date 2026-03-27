@@ -46,6 +46,7 @@ import {
   nextHistoryStateForLifecycle,
   parseMemoryRef
 } from "./memory-lifecycle.js";
+import { normalizeMemorySearchDiagnostics } from "./memory-retrieval-contract.js";
 import { getDefaultMemoryDirectory } from "./project-context.js";
 import { isSyncRecoveryRecord } from "./recovery-records.js";
 
@@ -1448,9 +1449,7 @@ export class MemoryStore {
           : "index",
       retrievalFallbackReason:
         matchedViaFallback || (!matchedViaIndex && usedFallback) ? fallbackReason : undefined,
-      diagnostics: {
-        checkedPaths: diagnostics
-      }
+      diagnostics: normalizeMemorySearchDiagnostics(diagnostics)
     };
   }
 

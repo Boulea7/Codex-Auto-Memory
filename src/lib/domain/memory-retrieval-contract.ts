@@ -1,5 +1,6 @@
 import type {
   MemoryDetailsResult,
+  MemorySearchDiagnosticPath,
   MemorySearchDiagnostics,
   MemoryRetrievalFallbackReason,
   MemoryRetrievalMode,
@@ -79,16 +80,39 @@ export function buildMemorySearchResponse(
   diagnostics: MemorySearchDiagnostics,
   results: MemorySearchResult[]
 ): MemorySearchResponse {
+  const normalizedDiagnostics = normalizeMemorySearchDiagnostics(diagnostics.checkedPaths);
   return {
     query,
     scope,
     state,
     resolvedState,
     fallbackUsed,
+    stateFallbackUsed: fallbackUsed,
+    markdownFallbackUsed: normalizedDiagnostics.anyMarkdownFallback,
     retrievalMode,
     retrievalFallbackReason,
-    diagnostics,
+    diagnostics: normalizedDiagnostics,
     results
+  };
+}
+
+export function normalizeMemorySearchDiagnostics(
+  checkedPaths: MemorySearchDiagnosticPath[]
+): MemorySearchDiagnostics {
+  const fallbackReasons = Array.from(
+    new Set(
+      checkedPaths
+        .map((check) => check.retrievalFallbackReason)
+        .filter((reason): reason is MemoryRetrievalFallbackReason => reason !== undefined)
+    )
+  );
+
+  return {
+    anyMarkdownFallback: checkedPaths.some(
+      (check) => check.retrievalMode === "markdown-fallback"
+    ),
+    fallbackReasons,
+    checkedPaths
   };
 }
 

@@ -39,9 +39,14 @@ function formatSearchResults(response: MemorySearchResponse): string {
     `Query: ${response.query}`,
     `Scope: ${response.scope} | Requested state: ${response.state} | Resolved state: ${response.resolvedState} | Results: ${response.results.length}`,
     `Archived fallback used: ${response.fallbackUsed ? "yes" : "no"}`,
+    `Markdown fallback used: ${response.markdownFallbackUsed ? "yes" : "no"}`,
     `Retrieval mode: ${response.retrievalMode}${response.retrievalFallbackReason ? ` (${response.retrievalFallbackReason})` : ""}`,
     `Diagnostics: ${diagnosticsSummary}`
   ];
+
+  if (response.diagnostics.fallbackReasons.length > 0) {
+    lines.push(`Fallback reasons: ${response.diagnostics.fallbackReasons.join(", ")}`);
+  }
 
   if (response.results.length === 0) {
     lines.push("", "No memory results matched this query.");

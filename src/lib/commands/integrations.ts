@@ -24,7 +24,10 @@ import {
   normalizeCodexSkillInstallSurface,
   type CodexSkillInstallSurface
 } from "../integration/skills-paths.js";
-import { appendCliCwdFlag } from "../integration/retrieval-contract.js";
+import {
+  appendCliCwdFlag,
+  buildWorkflowContract
+} from "../integration/retrieval-contract.js";
 
 type IntegrationStackAction = "created" | "updated" | "unchanged" | "blocked";
 type InstallStackAction = Exclude<IntegrationStackAction, "blocked">;
@@ -70,6 +73,7 @@ interface IntegrationStackInstallResult {
   stackAction: InstallStackAction;
   skillsSurface: CodexSkillInstallSurface;
   readOnlyRetrieval: true;
+  workflowContract: ReturnType<typeof buildWorkflowContract>;
   subactions: {
     mcp: IntegrationSubactionResult;
     hooks: IntegrationSubactionResult;
@@ -86,6 +90,7 @@ interface IntegrationStackApplyResult {
   blockedStage?: "agents-guidance-preflight";
   skillsSurface: CodexSkillInstallSurface;
   readOnlyRetrieval: true;
+  workflowContract: ReturnType<typeof buildWorkflowContract>;
   subactions: {
     mcp: IntegrationSubactionResult;
     agents: IntegrationSubactionResult;
@@ -404,6 +409,9 @@ export async function runIntegrationsInstall(
     stackAction,
     skillsSurface: skillSurface,
     readOnlyRetrieval: true,
+    workflowContract: buildWorkflowContract({
+      cwd: projectRoot
+    }),
     subactions: {
       mcp: toMcpSubaction(mcpResult),
       hooks: {
@@ -470,6 +478,9 @@ export async function runIntegrationsApply(
       blockedStage: "agents-guidance-preflight",
       skillsSurface: skillSurface,
       readOnlyRetrieval: true,
+      workflowContract: buildWorkflowContract({
+        cwd: projectRoot
+      }),
       subactions: {
         mcp: {
           status: "ok",
@@ -541,6 +552,9 @@ export async function runIntegrationsApply(
       stackAction: "blocked",
       skillsSurface: skillSurface,
       readOnlyRetrieval: true,
+      workflowContract: buildWorkflowContract({
+        cwd: projectRoot
+      }),
       subactions: {
         mcp: {
           status: "ok",
@@ -621,6 +635,9 @@ export async function runIntegrationsApply(
       skillsResult.action
     ]),
     readOnlyRetrieval: true,
+    workflowContract: buildWorkflowContract({
+      cwd: projectRoot
+    }),
     subactions: {
       mcp: {
         ...toMcpSubaction(mcpResult),

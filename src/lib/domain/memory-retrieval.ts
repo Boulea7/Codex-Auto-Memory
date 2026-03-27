@@ -8,7 +8,8 @@ import type {
 import {
   buildMemorySearchResponse,
   DEFAULT_MEMORY_RETRIEVAL_LIMIT,
-  DEFAULT_MEMORY_RETRIEVAL_STATE
+  DEFAULT_MEMORY_RETRIEVAL_STATE,
+  normalizeMemorySearchDiagnostics
 } from "./memory-retrieval-contract.js";
 import { MemoryStore } from "./memory-store.js";
 
@@ -62,12 +63,10 @@ export class MemoryRetrievalService {
         true,
         archivedSearch.retrievalMode,
         archivedSearch.retrievalFallbackReason,
-        {
-          checkedPaths: [
-            ...activeSearch.diagnostics.checkedPaths,
-            ...archivedSearch.diagnostics.checkedPaths
-          ]
-        },
+        normalizeMemorySearchDiagnostics([
+          ...activeSearch.diagnostics.checkedPaths,
+          ...archivedSearch.diagnostics.checkedPaths
+        ]),
         archivedSearch.results
       );
     }
