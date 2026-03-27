@@ -74,6 +74,8 @@ export interface MemorySearchDiagnosticPath {
 }
 
 export interface MemorySearchDiagnostics {
+  anyMarkdownFallback: boolean;
+  fallbackReasons: MemoryRetrievalFallbackReason[];
   checkedPaths: MemorySearchDiagnosticPath[];
 }
 
@@ -83,6 +85,8 @@ export interface MemorySearchResponse {
   state: MemoryRetrievalStateFilter;
   resolvedState: MemoryRetrievalResolvedState;
   fallbackUsed: boolean;
+  stateFallbackUsed: boolean;
+  markdownFallbackUsed: boolean;
   retrievalMode: MemoryRetrievalMode;
   retrievalFallbackReason?: MemoryRetrievalFallbackReason;
   diagnostics: MemorySearchDiagnostics;

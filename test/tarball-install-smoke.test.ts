@@ -167,8 +167,12 @@ describe("tarball install smoke", () => {
       state: "active",
       resolvedState: "active",
       fallbackUsed: false,
+      stateFallbackUsed: false,
+      markdownFallbackUsed: false,
       retrievalMode: "index",
       diagnostics: {
+        anyMarkdownFallback: false,
+        fallbackReasons: [],
         checkedPaths: expect.arrayContaining([
           expect.objectContaining({
             scope: "project",
@@ -243,6 +247,7 @@ describe("tarball install smoke", () => {
     expect(codexPrintConfigResult.exitCode).toBe(0);
     const codexPrintConfigPayload = JSON.parse(codexPrintConfigResult.stdout) as {
       host: string;
+      readOnlyRetrieval: boolean;
       serverName: string;
       targetFileHint: string;
       workflowContract: {
@@ -262,6 +267,7 @@ describe("tarball install smoke", () => {
     };
     expect(codexPrintConfigPayload).toMatchObject({
       host: "codex",
+      readOnlyRetrieval: true,
       serverName: "codex_auto_memory",
       targetFileHint: ".codex/config.toml",
       workflowContract: {
@@ -508,6 +514,12 @@ describe("tarball install smoke", () => {
       stackAction: "unchanged",
       skillsSurface: "runtime",
       readOnlyRetrieval: true,
+      workflowContract: {
+        recommendedPreset: "state=auto, limit=8",
+        cliFallback: {
+          searchCommand: `cam recall search "<query>" --state auto --limit 8 --cwd ${JSON.stringify(realInstallDir)}`
+        }
+      },
       subactions: {
         mcp: { action: "unchanged" },
         hooks: { action: "unchanged" },
@@ -527,6 +539,12 @@ describe("tarball install smoke", () => {
       stackAction: "unchanged",
       skillsSurface: "runtime",
       readOnlyRetrieval: true,
+      workflowContract: {
+        recommendedPreset: "state=auto, limit=8",
+        cliFallback: {
+          searchCommand: `cam recall search "<query>" --state auto --limit 8 --cwd ${JSON.stringify(realInstallDir)}`
+        }
+      },
       subactions: {
         mcp: { action: "unchanged" },
         agents: { action: "unchanged" },

@@ -1,6 +1,6 @@
 <div align="center">
   <h1>Codex Auto Memory</h1>
-  <p><strong>Markdown-first のローカル memory runtime。Codex を主軸に、companion CLI から hook / skill / MCP-aware なハイブリッド運用へ進化中</strong></p>
+  <p><strong>Codex 向けの Markdown-first ローカル memory runtime。companion CLI から Codex-first Hybrid memory system へ進化中</strong></p>
   <p>
     <a href="./README.md">简体中文</a> |
     <a href="./README.zh-TW.md">繁體中文</a> |
@@ -34,7 +34,7 @@
 
 1. **何をするか**: Codex セッションから将来も使える知識を抽出し、ローカル Markdown に保存し、次回以降の会話で再利用します。
 2. **どう保存するか**: `MEMORY.md` と topic files を中心とした Markdown が主表面であり、隠れた DB やキャッシュを主真相にはしません。
-3. **どこへ向かうか**: 現在も Codex-first ですが、今後は companion CLI に閉じず、hook / skill / MCP-aware なハイブリッド運用を正式な方向として扱います。
+3. **どこへ向かうか**: 現在も Codex-first ですが、今後は companion CLI に閉じず、**Codex-first Hybrid memory system** を正式な方向として扱います。
 
 ---
 
@@ -195,7 +195,7 @@ cam audit
 | :-- | :-- |
 | `cam run` / `cam exec` / `cam resume` | startup memory を生成して wrapper 経由で Codex を起動 |
 | `cam sync` | 最新 rollout を durable memory に手動同期 |
-| `cam memory` | startup files、topic refs、startup budget、edit paths、recent sync audit を確認 |
+| `cam memory` | startup files、topic refs、startup budget、edit paths、recent sync audit、suppressed conflict candidates を確認 |
 | `cam memory reindex` | canonical Markdown から retrieval sidecar を明示的に再構築する。`--scope`、`--state`、`--cwd`、`--json` をサポートし、sidecar が missing / invalid / stale のときの低摩擦な repair path を提供する |
 | `cam remember` / `cam forget` | durable memory の明示的な追加・削除。`cam forget --archive` は一致した項目をアーカイブ層へ移動する |
 | `cam recall search` / `timeline` / `details` | `search -> timeline -> details` の progressive disclosure workflow で durable memory を段階的に取得する。`search` は `state=auto, limit=8` を既定値として使い、active を先に調べてヒットしなければ archived にフォールバックしつつ read-only を保つ |

@@ -211,6 +211,12 @@ describe("dist cli smoke", () => {
       state: "auto",
       resolvedState: "archived",
       fallbackUsed: true,
+      stateFallbackUsed: true,
+      markdownFallbackUsed: true,
+      diagnostics: {
+        anyMarkdownFallback: true,
+        fallbackReasons: ["missing"]
+      },
       results: []
     });
     await expect(fs.access(memoryRoot)).rejects.toMatchObject({ code: "ENOENT" });
@@ -286,8 +292,12 @@ describe("dist cli smoke", () => {
       state: string;
       resolvedState: string;
       fallbackUsed: boolean;
+      stateFallbackUsed: boolean;
+      markdownFallbackUsed: boolean;
       retrievalMode: string;
       diagnostics: {
+        anyMarkdownFallback: boolean;
+        fallbackReasons: string[];
         checkedPaths: Array<{
           scope: string;
           state: string;
@@ -303,6 +313,8 @@ describe("dist cli smoke", () => {
       state: "active",
       resolvedState: "active",
       fallbackUsed: false,
+      stateFallbackUsed: false,
+      markdownFallbackUsed: false,
       retrievalMode: "index",
       results: [
         {
@@ -428,6 +440,7 @@ describe("dist cli smoke", () => {
     expect(result.exitCode, result.stderr).toBe(0);
     const payload = JSON.parse(result.stdout) as {
       host: string;
+      readOnlyRetrieval: boolean;
       serverName: string;
       targetFileHint: string;
       workflowContract: {
@@ -447,6 +460,7 @@ describe("dist cli smoke", () => {
     };
     expect(payload).toMatchObject({
       host: "codex",
+      readOnlyRetrieval: true,
       serverName: "codex_auto_memory",
       targetFileHint: ".codex/config.toml",
       workflowContract: {
@@ -478,6 +492,7 @@ describe("dist cli smoke", () => {
     expect(claudeResult.exitCode, claudeResult.stderr).toBe(0);
     expect(JSON.parse(claudeResult.stdout)).toMatchObject({
       host: "claude",
+      readOnlyRetrieval: true,
       serverName: "codex_auto_memory",
       readOnlyRetrieval: true,
       targetFileHint: ".mcp.json"
@@ -496,6 +511,7 @@ describe("dist cli smoke", () => {
     expect(geminiResult.exitCode, geminiResult.stderr).toBe(0);
     expect(JSON.parse(geminiResult.stdout)).toMatchObject({
       host: "gemini",
+      readOnlyRetrieval: true,
       serverName: "codex_auto_memory",
       readOnlyRetrieval: true,
       targetFileHint: ".gemini/settings.json"
@@ -514,6 +530,7 @@ describe("dist cli smoke", () => {
     expect(genericResult.exitCode, genericResult.stderr).toBe(0);
     expect(JSON.parse(genericResult.stdout)).toMatchObject({
       host: "generic",
+      readOnlyRetrieval: true,
       serverName: "codex_auto_memory",
       targetFileHint: "Your MCP client's stdio server config",
       readOnlyRetrieval: true,
@@ -1086,6 +1103,12 @@ describe("dist cli smoke", () => {
       stackAction: "created",
       skillsSurface: "runtime",
       readOnlyRetrieval: true,
+      workflowContract: {
+        recommendedPreset: "state=auto, limit=8",
+        cliFallback: {
+          searchCommand: `cam recall search "<query>" --state auto --limit 8 --cwd ${JSON.stringify(realProjectDir)}`
+        }
+      },
       subactions: {
         mcp: {
           action: "created",
@@ -1123,6 +1146,13 @@ describe("dist cli smoke", () => {
       host: "codex",
       projectRoot: realProjectDir,
       stackAction: "created",
+      readOnlyRetrieval: true,
+      workflowContract: {
+        recommendedPreset: "state=auto, limit=8",
+        cliFallback: {
+          searchCommand: `cam recall search "<query>" --state auto --limit 8 --cwd ${JSON.stringify(realProjectDir)}`
+        }
+      },
       subactions: {
         mcp: { action: "created" },
         agents: { action: "created" },

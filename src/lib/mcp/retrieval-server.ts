@@ -55,9 +55,13 @@ const memorySearchResponseSchema = z.object({
   state: retrievalStateSchema,
   resolvedState: resolvedRetrievalStateSchema,
   fallbackUsed: z.boolean(),
+  stateFallbackUsed: z.boolean(),
+  markdownFallbackUsed: z.boolean(),
   retrievalMode: z.enum(["index", "markdown-fallback"]),
   retrievalFallbackReason: z.enum(["missing", "invalid", "stale"]).optional(),
   diagnostics: z.object({
+    anyMarkdownFallback: z.boolean(),
+    fallbackReasons: z.array(z.enum(["missing", "invalid", "stale"])),
     checkedPaths: z.array(memorySearchDiagnosticSchema)
   }),
   results: z.array(memorySearchResultSchema)

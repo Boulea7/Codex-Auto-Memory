@@ -101,6 +101,12 @@ describe("integrations command", () => {
       stackAction: "created",
       skillsSurface: "runtime",
       readOnlyRetrieval: true,
+      workflowContract: {
+        recommendedPreset: "state=auto, limit=8",
+        cliFallback: {
+          searchCommand: `cam recall search "<query>" --state auto --limit 8 --cwd ${JSON.stringify(realProjectDir)}`
+        }
+      },
       subactions: {
         mcp: {
           status: "ok",
@@ -910,6 +916,12 @@ describe("integrations command", () => {
     expect(applyResult.exitCode, applyResult.stderr).toBe(0);
     expect(JSON.parse(applyResult.stdout)).toMatchObject({
       stackAction: "updated",
+      workflowContract: {
+        recommendedPreset: "state=auto, limit=8",
+        cliFallback: {
+          searchCommand: `cam recall search "<query>" --state auto --limit 8 --cwd ${JSON.stringify(realProjectDir)}`
+        }
+      },
       subactions: {
         mcp: { action: "unchanged" },
         agents: { action: "created" },

@@ -1,6 +1,6 @@
 <div align="center">
   <h1>Codex Auto Memory</h1>
-  <p><strong>一個以 Markdown 為核心、面向 Codex 的本地記憶運行層，正從 companion CLI 演進為 hook / skill / MCP-aware 的混合工作流</strong></p>
+  <p><strong>一個面向 Codex 的 Markdown-first 本地記憶運行層，正從 companion CLI 演進為 Codex-first Hybrid memory system</strong></p>
   <p>
     <a href="./README.md">简体中文</a> |
     <a href="./README.zh-TW.md">繁體中文</a> |
@@ -34,7 +34,7 @@
 
 1. **它做什麼**：從 Codex 會話中提取未來仍然有用的知識，保存為本地 Markdown，並在後續會話中自動帶回。
 2. **它怎麼存**：Durable memory 仍以 `MEMORY.md` + topic files 為核心，不以資料庫或隱藏快取作為主真相。
-3. **它往哪裡走**：專案仍以 Codex 為主宿主，但不再只把自己定義成窄化的 companion seam，而是明確朝 hook / skill / MCP-aware 的混合工作流演進。
+3. **它往哪裡走**：專案仍以 Codex 為主宿主，但不再只把自己定義成窄化的 companion seam，而是明確朝 **Codex-first Hybrid memory system** 演進。
 
 ---
 

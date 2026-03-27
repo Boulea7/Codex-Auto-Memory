@@ -134,7 +134,12 @@ The repository now treats the following as first-class evolution targets rather 
 - `cam mcp serve` now provides the first read-only retrieval MCP path for that contract
 - `cam mcp install --host <codex|claude|gemini>` now writes the recommended project-scoped host wiring for that retrieval plane without touching the Markdown store
 - `cam mcp print-config --host ...` now prints ready-to-paste host snippets so the same retrieval plane is easier to wire into existing MCP clients
+- `cam mcp apply-guidance --host codex` now manages the repository-level `AGENTS.md` guidance block through the existing additive, marker-scoped, fail-closed flow
 - `cam mcp doctor` now inspects the recommended project-scoped retrieval wiring, project pinning, and hook / skill fallback assets without mutating host config files
+- `cam integrations install --host codex` now orchestrates project-scoped MCP wiring plus hook and skill assets without touching `AGENTS.md`
+- `cam integrations apply --host codex` now adds the managed `AGENTS.md` guidance flow on top of install while preserving the same explicit, fail-closed boundary
+- `cam integrations doctor --host codex` now provides the thin Codex-only readiness surface, including `workflowContract`, `applyReadiness`, and next-step guidance
+- `cam skills install` still defaults to the runtime skill surface, but now also supports explicit `official-user` and `official-project` compatibility copies on `.agents/skills`
 
 These surfaces must remain host-adapter concerns. The core memory semantics should not be rewritten around any one host’s lifecycle.
 
