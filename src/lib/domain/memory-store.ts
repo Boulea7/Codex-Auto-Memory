@@ -7,8 +7,10 @@ import type {
   MemoryDetailsResult,
   MemoryEntry,
   MemoryHistoryRecordState,
+  MemoryLineageSummary,
   MemoryMutation,
   MemoryOperation,
+  MemoryReindexCheck,
   MemoryRecordState,
   MemorySearchDiagnosticPath,
   MemorySearchDiagnostics,
@@ -19,6 +21,7 @@ import type {
   MemorySyncAuditSummary,
   MemorySyncAuditEntry,
   MemoryTimelineEvent,
+  MemoryTimelineResponse,
   ProcessedRolloutIdentity,
   ProcessedRolloutRecord,
   ProjectContext,
@@ -119,6 +122,17 @@ export interface RetrievalSidecarCheck {
   generatedAt: string | null;
   topicFileCount: number | null;
   topicFiles: string[];
+}
+
+interface HistoryReadResult {
+  events: MemoryTimelineEvent[];
+  warnings: string[];
+  historyPath: string;
+}
+
+interface TimelineReadResult extends MemoryTimelineResponse {
+  latestAudit: MemorySyncAuditSummary | null;
+  latestEvent: MemoryTimelineEvent | null;
 }
 
 interface PlannedFileChange {
@@ -402,6 +416,80 @@ function appendJsonlContents(existingContents: string | null, values: unknown[])
       : "";
 
   return `${prefix}${values.map((value) => JSON.stringify(value)).join("\n")}\n`;
+}
+
+function buildEmptyLineageSummary(): MemoryLineageSummary {
+  return {
+    eventCount: 0,
+    firstSeenAt: null,
+    latestAt: null,
+    latestAction: null,
+    latestState: null,
+    archivedAt: null,
+    deletedAt: null,
+    latestAuditStatus: null,
+    noopOperationCount: 0,
+    suppressedOperationCount: 0,
+    conflictCount: 0
+  };
+}
+
+function buildLineageSummary(
+  events: MemoryTimelineEvent[],
+  latestAudit: MemorySyncAuditSummary | null
+): MemoryLineageSummary {
+  if (events.length === 0) {
+    return {
+      ...buildEmptyLineageSummary(),
+      latestAuditStatus: latestAudit?.status ?? null,
+      noopOperationCount: latestAudit?.noopOperationCount ?? 0,
+      suppressedOperationCount: latestAudit?.suppressedOperationCount ?? 0,
+      conflictCount: latestAudit?.conflicts.length ?? 0
+    };
+  }
+
+  const chronologicalEvents = [...events].sort((left, right) => left.at.localeCompare(right.at));
+  const latestEvent = events[0] ?? null;
+  const archivedEvent =
+    chronologicalEvents.find((event) => event.action === "archive") ?? null;
+  const deletedEvent =
+    chronologicalEvents.find((event) => event.action === "delete") ?? null;
+
+  return {
+    eventCount: events.length,
+    firstSeenAt: chronologicalEvents[0]?.at ?? null,
+    latestAt: latestEvent?.at ?? null,
+    latestAction: latestEvent?.action ?? null,
+    latestState: latestEvent?.state ?? null,
+    archivedAt: archivedEvent?.at ?? null,
+    deletedAt: deletedEvent?.at ?? null,
+    latestAuditStatus: latestAudit?.status ?? null,
+    noopOperationCount: latestAudit?.noopOperationCount ?? 0,
+    suppressedOperationCount: latestAudit?.suppressedOperationCount ?? 0,
+    conflictCount: latestAudit?.conflicts.length ?? 0
+  };
+}
+
+function buildHistoryWarnings(
+  historyPath: string,
+  invalidJsonLineCount: number,
+  invalidEventCount: number
+): string[] {
+  const warnings: string[] = [];
+
+  if (invalidJsonLineCount > 0) {
+    warnings.push(
+      `Ignored ${invalidJsonLineCount} invalid JSONL lifecycle history line(s) while reading ${historyPath}.`
+    );
+  }
+
+  if (invalidEventCount > 0) {
+    warnings.push(
+      `Ignored ${invalidEventCount} malformed lifecycle event(s) while reading ${historyPath}.`
+    );
+  }
+
+  return warnings;
 }
 
 function legacyEmptyIndexContents(scope: MemoryScope): string {
@@ -901,6 +989,47 @@ export class MemoryStore {
     return checks;
   }
 
+  public async rebuildRetrievalSidecars(options: {
+    scope?: MemoryScope | "all";
+    state?: MemoryRecordState | "all";
+  } = {}): Promise<MemoryReindexCheck[]> {
+    const scopes: MemoryScope[] =
+      options.scope && options.scope !== "all"
+        ? [options.scope]
+        : ["global", "project", "project-local"];
+    const states: MemoryRecordState[] =
+      options.state === "all" || options.state === undefined
+        ? ["active", "archived"]
+        : [options.state];
+
+    const rebuilt: MemoryReindexCheck[] = [];
+
+    await this.ensureLayout();
+    for (const scope of scopes) {
+      for (const state of states) {
+        await this.rebuildRetrievalIndex(scope, state);
+        const inspection = await this.inspectRetrievalIndex(scope, state);
+        if (!inspection.payload || inspection.generatedAt === null || inspection.topicFileCount === null) {
+          throw new Error(
+            `Failed to rebuild retrieval sidecar for ${scope}/${state}; inspection still returned ${inspection.status}.`
+          );
+        }
+
+        rebuilt.push({
+          scope,
+          state,
+          status: "ok",
+          indexPath: inspection.indexPath,
+          generatedAt: inspection.generatedAt,
+          topicFileCount: inspection.topicFileCount,
+          topicFiles: [...inspection.topicFiles]
+        });
+      }
+    }
+
+    return rebuilt;
+  }
+
   private async readRetrievalIndex(
     scope: MemoryScope,
     state: MemoryRecordState
@@ -1147,14 +1276,34 @@ export class MemoryStore {
       return null;
     }
 
-    const latestEvent = (await this.readTimeline(ref))[0] ?? null;
-    const latestAudit = await this.findLatestSyncAuditSummary(
-      parsed.scope,
-      parsed.topic,
-      parsed.id,
-      latestEvent?.rolloutPath,
-      latestEvent?.sessionId
-    );
+    const timeline = await this.readTimelineWithDiagnostics(ref);
+    const latestEvent = timeline.latestEvent;
+    const latestAudit = timeline.latestAudit;
+    const warnings = [...timeline.warnings];
+    if (latestEvent && !latestAudit && (latestEvent.rolloutPath || latestEvent.sessionId)) {
+      warnings.push(
+        `Lifecycle history exists for ${ref}, but no matching sync audit entry was found in ${this.getSyncAuditPath()}.`
+      );
+    }
+
+    if ((latestAudit?.noopOperationCount ?? 0) > 0) {
+      warnings.push(
+        `Latest sync audit recorded ${latestAudit?.noopOperationCount ?? 0} no-op operation(s).`
+      );
+    }
+
+    if ((latestAudit?.suppressedOperationCount ?? 0) > 0) {
+      warnings.push(
+        `Latest sync audit suppressed ${latestAudit?.suppressedOperationCount ?? 0} operation(s).`
+      );
+    }
+
+    if ((latestAudit?.conflicts.length ?? 0) > 0) {
+      warnings.push(
+        `Latest sync audit includes ${latestAudit?.conflicts.length ?? 0} suppressed conflict candidate(s).`
+      );
+    }
+
     return {
       ...parsed,
       entry,
@@ -1164,10 +1313,17 @@ export class MemoryStore {
           : this.getArchiveTopicFile(parsed.scope, parsed.topic),
       approxReadCost: entry.details.length + 4,
       latestLifecycleAction: latestEvent?.action ?? null,
+      latestState: latestEvent?.state ?? parsed.state,
       latestSessionId: latestEvent?.sessionId ?? null,
       latestRolloutPath: latestEvent?.rolloutPath ?? null,
       historyPath: this.getHistoryPath(parsed.scope),
-      latestAudit
+      latestAudit,
+      timelineWarningCount: timeline.warnings.length,
+      lineageSummary: {
+        ...timeline.lineageSummary,
+        latestState: timeline.lineageSummary.latestState ?? parsed.state
+      },
+      warnings
     };
   }
 
@@ -1303,15 +1459,49 @@ export class MemoryStore {
   }
 
   public async readTimeline(ref: string): Promise<MemoryTimelineEvent[]> {
+    return (await this.readTimelineWithDiagnostics(ref)).events;
+  }
+
+  public async readTimelineWithDiagnostics(ref: string): Promise<TimelineReadResult> {
     const parsed = parseMemoryRef(ref);
     if (!parsed) {
-      return [];
+      return {
+        ref,
+        events: [],
+        warnings: [],
+        lineageSummary: buildEmptyLineageSummary(),
+        latestAudit: null,
+        latestEvent: null
+      };
     }
 
-    const history = await this.readHistory(parsed.scope);
-    return history
+    const history = await this.readHistoryWithDiagnostics(parsed.scope);
+    const events = history.events
       .filter((entry) => entry.id === parsed.id && entry.topic === parsed.topic)
       .sort((left, right) => right.at.localeCompare(left.at));
+    const latestEvent = events[0] ?? null;
+    const latestAudit = await this.findLatestSyncAuditSummary(
+      parsed.scope,
+      parsed.topic,
+      parsed.id,
+      latestEvent?.rolloutPath,
+      latestEvent?.sessionId
+    );
+    const warnings = [...history.warnings];
+    if (latestEvent && !latestAudit && (latestEvent.rolloutPath || latestEvent.sessionId)) {
+      warnings.push(
+        `Lifecycle history exists for ${ref}, but no matching sync audit entry was found in ${this.getSyncAuditPath()}.`
+      );
+    }
+
+    return {
+      ref,
+      events,
+      warnings,
+      lineageSummary: buildLineageSummary(events, latestAudit),
+      latestAudit,
+      latestEvent
+    };
   }
 
   private async readTextFileIfExists(filePath: string): Promise<string | null> {
@@ -1933,12 +2123,25 @@ export class MemoryStore {
   }
 
   public async readHistory(scope: MemoryScope, limit?: number): Promise<MemoryTimelineEvent[]> {
+    return (await this.readHistoryWithDiagnostics(scope, limit)).events;
+  }
+
+  public async readHistoryWithDiagnostics(
+    scope: MemoryScope,
+    limit?: number
+  ): Promise<HistoryReadResult> {
     const historyPath = this.getHistoryPath(scope);
     if (!(await fileExists(historyPath))) {
-      return [];
+      return {
+        events: [],
+        warnings: [],
+        historyPath
+      };
     }
 
     const raw = await readTextFile(historyPath);
+    let invalidJsonLineCount = 0;
+    let invalidEventCount = 0;
     const parsed = raw
       .split("\n")
       .map((line) => line.trim())
@@ -1946,14 +2149,24 @@ export class MemoryStore {
       .flatMap((line) => {
         try {
           const candidate = JSON.parse(line) as unknown;
-          return isTimelineEvent(candidate) ? [candidate] : [];
+          if (isTimelineEvent(candidate)) {
+            return [candidate];
+          }
+
+          invalidEventCount += 1;
+          return [];
         } catch {
+          invalidJsonLineCount += 1;
           return [];
         }
       })
       .sort((left, right) => right.at.localeCompare(left.at));
 
-    return typeof limit === "number" ? parsed.slice(0, limit) : parsed;
+    return {
+      events: typeof limit === "number" ? parsed.slice(0, limit) : parsed,
+      warnings: buildHistoryWarnings(historyPath, invalidJsonLineCount, invalidEventCount),
+      historyPath
+    };
   }
 
   private async readSyncAuditEntries(): Promise<MemorySyncAuditEntry[]> {

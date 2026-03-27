@@ -65,6 +65,37 @@ describe("skills command", () => {
     expect(skillFile).toContain("cam session");
   });
 
+  it("emits a structured workflow contract in skills install --json", async () => {
+    const homeDir = await tempDir("cam-skills-json-home-");
+    const projectDir = await tempDir("cam-skills-json-project-");
+    process.env.HOME = homeDir;
+    delete process.env.CODEX_HOME;
+
+    const result = runCli(projectDir, ["skills", "install", "--json"]);
+    expect(result.exitCode, result.stderr).toBe(0);
+    expect(JSON.parse(result.stdout)).toMatchObject({
+      action: "created",
+      targetDir: path.join(homeDir, ".codex", "skills", "codex-auto-memory-recall"),
+      surface: "runtime",
+      preferredSkillSurface: "runtime",
+      readOnlyRetrieval: true,
+      workflowContract: {
+        recommendedPreset: "state=auto, limit=8",
+        cliFallback: {
+          searchCommand: `cam recall search "<query>" --state auto --limit 8 --cwd ${JSON.stringify(await fs.realpath(projectDir))}`
+        },
+        postWorkSyncReview: {
+          helperScript: "post-work-memory-review.sh"
+        }
+      },
+      assets: expect.arrayContaining([
+        expect.objectContaining({
+          id: "codex-memory-skill"
+        })
+      ])
+    });
+  });
+
   it("installs skill assets under CODEX_HOME when it is set", async () => {
     const homeDir = await tempDir("cam-skills-codex-home-home-");
     const codexHome = await tempDir("cam-skills-codex-home-codex-home-");

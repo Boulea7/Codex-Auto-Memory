@@ -4,7 +4,7 @@ import type {
   MemoryRetrievalScope,
   MemoryRetrievalStateFilter,
   MemorySearchResponse,
-  MemoryTimelineEvent
+  MemoryTimelineResponse
 } from "../types.js";
 import {
   buildMemoryTimelineResponse,
@@ -61,20 +61,39 @@ function formatSearchResults(response: MemorySearchResponse): string {
   return lines.join("\n");
 }
 
-function formatTimeline(ref: string, timeline: MemoryTimelineEvent[]): string {
+function formatTimeline(timeline: MemoryTimelineResponse): string {
   const lines = [
     "Codex Auto Memory Recall Timeline",
-    `Ref: ${ref}`,
-    `Events: ${timeline.length}`
+    `Ref: ${timeline.ref}`,
+    `Events: ${timeline.events.length}`
   ];
 
-  if (timeline.length === 0) {
+  if (timeline.warnings.length > 0) {
+    lines.push("", "Warnings:", ...timeline.warnings.map((warning) => `- ${warning}`));
+  }
+
+  lines.push(
+    "",
+    "Lineage:",
+    `- Latest action: ${timeline.lineageSummary.latestAction ?? "unknown"}`,
+    `- Latest state: ${timeline.lineageSummary.latestState ?? "unknown"}`,
+    `- Latest audit status: ${timeline.lineageSummary.latestAuditStatus ?? "unknown"}`,
+    `- First seen: ${timeline.lineageSummary.firstSeenAt ?? "unknown"}`,
+    `- Latest event at: ${timeline.lineageSummary.latestAt ?? "unknown"}`,
+    `- Archived at: ${timeline.lineageSummary.archivedAt ?? "n/a"}`,
+    `- Deleted at: ${timeline.lineageSummary.deletedAt ?? "n/a"}`,
+    `- No-op count: ${timeline.lineageSummary.noopOperationCount}`,
+    `- Suppressed count: ${timeline.lineageSummary.suppressedOperationCount}`,
+    `- Conflict count: ${timeline.lineageSummary.conflictCount}`
+  );
+
+  if (timeline.events.length === 0) {
     lines.push("", "No timeline events were recorded for this memory ref.");
     return lines.join("\n");
   }
 
   lines.push("");
-  for (const event of timeline) {
+  for (const event of timeline.events) {
     lines.push(`- ${event.at}: [${event.action}] ${event.summary}`);
     lines.push(`  Scope: ${event.scope} | State: ${event.state} | Topic: ${event.topic}`);
     if (event.reason) {
@@ -103,6 +122,7 @@ function formatDetails(details: MemoryDetailsResult): string {
     `Scope: ${details.scope} | State: ${details.state} | Topic: ${details.topic}`,
     `Updated: ${details.entry.updatedAt}`,
     `Latest lifecycle action: ${details.latestLifecycleAction ?? "unknown"}`,
+    `Latest state: ${details.latestState}`,
     `Summary: ${details.entry.summary}`,
     "Details:",
     ...details.entry.details.map((detail) => `- ${detail}`)
@@ -122,6 +142,25 @@ function formatDetails(details: MemoryDetailsResult): string {
       `Latest audit path: ${details.latestAudit.auditPath}`,
       `Latest audit summary: ${details.latestAudit.resultSummary}`
     );
+  }
+
+  lines.push(
+    "Lineage:",
+    `- Latest action: ${details.lineageSummary.latestAction ?? "unknown"}`,
+    `- Latest state: ${details.lineageSummary.latestState ?? details.latestState}`,
+    `- Latest audit status: ${details.lineageSummary.latestAuditStatus ?? "unknown"}`,
+    `- First seen: ${details.lineageSummary.firstSeenAt ?? "unknown"}`,
+    `- Latest event at: ${details.lineageSummary.latestAt ?? "unknown"}`,
+    `- Archived at: ${details.lineageSummary.archivedAt ?? "n/a"}`,
+    `- Deleted at: ${details.lineageSummary.deletedAt ?? "n/a"}`,
+    `- No-op count: ${details.lineageSummary.noopOperationCount}`,
+    `- Suppressed count: ${details.lineageSummary.suppressedOperationCount}`,
+    `- Conflict count: ${details.lineageSummary.conflictCount}`,
+    `- Timeline warning count: ${details.timelineWarningCount}`
+  );
+
+  if (details.warnings.length > 0) {
+    lines.push("Warnings:", ...details.warnings.map((warning) => `- ${warning}`));
   }
 
   if (details.entry.sources.length > 0) {
@@ -162,7 +201,7 @@ export async function runRecall(
       if (options.json) {
         return JSON.stringify(buildMemoryTimelineResponse(target, timeline), null, 2);
       }
-      return formatTimeline(target, timeline);
+      return formatTimeline(timeline);
     }
     case "details": {
       assertValidMemoryRef(target);

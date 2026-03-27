@@ -8,6 +8,7 @@ import { resolveMcpProjectRoot } from "../integration/mcp-config.js";
 
 interface HooksCommandOptions {
   cwd?: string;
+  json?: boolean;
 }
 
 export async function installHooks(options: HooksCommandOptions = {}): Promise<string> {
@@ -15,6 +16,21 @@ export async function installHooks(options: HooksCommandOptions = {}): Promise<s
   const result = await installIntegrationAssets("hooks", {
     projectRoot
   });
+
+  if (options.json) {
+    return JSON.stringify(
+      {
+        action: result.action,
+        targetDir: result.targetDir,
+        readOnlyRetrieval: result.readOnlyRetrieval,
+        workflowContract: result.workflowContract,
+        notes: result.notes,
+        assets: result.assets
+      },
+      null,
+      2
+    );
+  }
 
   return [
     `Generated hook bridge bundle in ${result.targetDir}`,

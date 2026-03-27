@@ -9,7 +9,7 @@ import {
   runIntegrationsInstall
 } from "../commands/integrations.js";
 import { runInit } from "../commands/init.js";
-import { runMemory } from "../commands/memory.js";
+import { runMemory, runMemoryReindex } from "../commands/memory.js";
 import {
   runMcpApplyGuidance,
   runMcpDoctor,
@@ -119,11 +119,12 @@ function registerHookCommands(program: Command): void {
     .command("hooks")
     .description("Manage the local bridge and fallback helper bundle for current and upcoming integrations");
 
-  hooksCommand
-    .command("install")
-    .description("Generate the local recall bridge bundle plus startup and post-session helper scripts")
-    .option("--cwd <path>", "Project directory to anchor generated hook helpers to")
-    .action(withStdout(async (options) => installHooks(options)));
+  addJsonOption(
+    hooksCommand
+      .command("install")
+      .description("Generate the local recall bridge bundle plus startup and post-session helper scripts")
+      .option("--cwd <path>", "Project directory to anchor generated hook helpers to")
+  ).action(withStdout(async (options) => installHooks(options)));
 
   hooksCommand
     .command("remove")
@@ -137,16 +138,17 @@ function registerSkillCommands(program: Command): void {
     .command("skills")
     .description("Manage Codex skill assets for MCP-first and CLI-fallback durable memory retrieval");
 
-  skillsCommand
-    .command("install")
-    .description("Install a Codex skill that teaches search -> timeline -> details memory retrieval")
-    .option(
-      "--surface <surface>",
-      `Skill install surface: ${skillSurfaceChoices}`,
-      DEFAULT_CODEX_SKILL_INSTALL_SURFACE
-    )
-    .option("--cwd <path>", "Project directory to anchor project-scoped skill installs to")
-    .action(withStdout(async (options) => installSkills(options)));
+  addJsonOption(
+    skillsCommand
+      .command("install")
+      .description("Install a Codex skill that teaches search -> timeline -> details memory retrieval")
+      .option(
+        "--surface <surface>",
+        `Skill install surface: ${skillSurfaceChoices}`,
+        DEFAULT_CODEX_SKILL_INSTALL_SURFACE
+      )
+      .option("--cwd <path>", "Project directory to anchor project-scoped skill installs to")
+  ).action(withStdout(async (options) => installSkills(options)));
 
   skillsCommand
     .command("remove")
@@ -297,13 +299,19 @@ export function registerCommands(program: Command): void {
     .description("Initialize Codex Auto Memory in the current project")
     .action(withStdout(async () => runInit()));
 
-  program
+  const memoryCommand = program
     .command("memory")
     .description("Inspect local memory state")
+    .argument("[subaction]", "Optional memory subaction. Use reindex to rebuild retrieval sidecars.")
     .option("--json", "Print JSON output")
     .option(
       "--scope <scope>",
       "Show a single memory scope: global, project, project-local, or all",
+      "all"
+    )
+    .option(
+      "--state <state>",
+      "Memory reindex only: rebuild active, archived, or all retrieval sidecars",
       "all"
     )
     .option("--recent [count]", "Show recent sync audit entries")
@@ -312,7 +320,19 @@ export function registerCommands(program: Command): void {
     .option("--config-scope <scope>", "Config scope to edit: user, project, or local", "local")
     .option("--print-startup", "Print the compiled startup memory block")
     .option("--open", "Open the memory directory in the default file browser")
-    .action(withStdout(async (options) => runMemory(options)));
+    .action(
+      withStdout(async (subaction, options) => {
+        if (!subaction) {
+          return runMemory(options);
+        }
+
+        if (subaction === "reindex") {
+          return runMemoryReindex(options);
+        }
+
+        throw new Error(`Unsupported memory subaction "${subaction}".`);
+      })
+    );
 
   program
     .command("remember")

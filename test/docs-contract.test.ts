@@ -171,8 +171,17 @@ describe("docs contract", () => {
     expect(releaseChecklist).toContain("node dist/cli.js recall search pnpm --json");
     expect(releaseChecklist).toContain("state=auto, limit=8");
     expect(releaseChecklist).toContain("checkedPaths");
+    expect(releaseChecklist).toContain("node dist/cli.js memory reindex --scope all --state all --json");
     expect(releaseChecklist).toContain("node dist/cli.js recall details <ref> --json");
+    expect(releaseChecklist).toContain("latestLifecycleAction");
+    expect(releaseChecklist).toContain("latestSessionId");
+    expect(releaseChecklist).toContain("latestRolloutPath");
+    expect(releaseChecklist).toContain("historyPath");
     expect(releaseChecklist).toContain("latestAudit");
+    expect(releaseChecklist).toContain("latestState");
+    expect(releaseChecklist).toContain("timelineWarningCount");
+    expect(releaseChecklist).toContain("lineageSummary");
+    expect(releaseChecklist).toContain("warnings");
     expect(releaseChecklist).toContain(
       "node dist/cli.js mcp install --host <codex|claude|gemini> --json"
     );
@@ -188,6 +197,7 @@ describe("docs contract", () => {
     expect(releaseChecklist).toContain("node dist/cli.js mcp doctor --host codex --json");
     expect(releaseChecklist).toContain("structured `workflowContract`");
     expect(releaseChecklist).toContain("retrievalSidecar");
+    expect(releaseChecklist).toContain("repair command");
     expect(releaseChecklist).toContain("alternate global wiring");
     expect(releaseChecklist).toContain("non-canonical custom fields");
     expect(releaseChecklist).toContain("preservedCustomFields");
@@ -197,6 +207,8 @@ describe("docs contract", () => {
     expect(releaseChecklist).toContain("officialUserSkillMatchesCanonical");
     expect(releaseChecklist).toContain("anySkillSurfaceInstalled");
     expect(releaseChecklist).toContain("post-work-memory-review.sh");
+    expect(releaseChecklist).toContain("node dist/cli.js hooks install --json");
+    expect(releaseChecklist).toContain("node dist/cli.js skills install --json");
     expect(releaseChecklist).toContain("node dist/cli.js integrations install --host codex --json");
     expect(releaseChecklist).toContain("node dist/cli.js integrations apply --host codex --json");
     expect(releaseChecklist).toContain('stackAction: "blocked"');

@@ -107,6 +107,22 @@ export interface MemoryTimelineEvent {
 export interface MemoryTimelineResponse {
   ref: string;
   events: MemoryTimelineEvent[];
+  warnings: string[];
+  lineageSummary: MemoryLineageSummary;
+}
+
+export interface MemoryLineageSummary {
+  eventCount: number;
+  firstSeenAt: string | null;
+  latestAt: string | null;
+  latestAction: Exclude<MemoryLifecycleAction, "noop"> | null;
+  latestState: MemoryHistoryRecordState | null;
+  archivedAt: string | null;
+  deletedAt: string | null;
+  latestAuditStatus: MemorySyncAuditStatus | null;
+  noopOperationCount: number;
+  suppressedOperationCount: number;
+  conflictCount: number;
 }
 
 export interface MemoryDetailsResult extends MemoryRef {
@@ -114,10 +130,14 @@ export interface MemoryDetailsResult extends MemoryRef {
   path: string;
   approxReadCost: number;
   latestLifecycleAction: Exclude<MemoryLifecycleAction, "noop"> | null;
+  latestState: MemoryHistoryRecordState;
   latestSessionId: string | null;
   latestRolloutPath: string | null;
   historyPath: string;
   latestAudit: MemorySyncAuditSummary | null;
+  timelineWarningCount: number;
+  lineageSummary: MemoryLineageSummary;
+  warnings: string[];
 }
 
 export interface MemorySyncAuditSummary {
@@ -461,6 +481,24 @@ export interface MemoryCommandOutput {
   syncAuditPath: string;
   pendingSyncRecovery: SyncRecoveryRecord | null;
   syncRecoveryPath: string;
+}
+
+export interface MemoryReindexCheck {
+  scope: MemoryScope;
+  state: MemoryRecordState;
+  status: "ok";
+  indexPath: string;
+  generatedAt: string;
+  topicFileCount: number;
+  topicFiles: string[];
+}
+
+export interface MemoryReindexOutput {
+  projectRoot: string;
+  requestedScope: MemoryScope | "all";
+  requestedState: MemoryRecordState | "all";
+  rebuilt: MemoryReindexCheck[];
+  summary: string;
 }
 
 export interface SyncResult {

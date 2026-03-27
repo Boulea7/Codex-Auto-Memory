@@ -177,6 +177,7 @@ This is still the most mature end-to-end path today. After each session ends, `c
 
 ```bash
 cam memory
+cam memory reindex --scope all --state all
 cam recall search pnpm --state auto
 cam mcp serve
 cam integrations install --host codex
@@ -201,6 +202,7 @@ cam audit
 | `cam run` / `cam exec` / `cam resume` | compile startup memory and launch Codex through the wrapper |
 | `cam sync` | manually sync the latest rollout into durable memory |
 | `cam memory` | inspect startup files, topic refs, startup budget, edit paths, and recent durable sync audit events plus suppressed conflict candidates |
+| `cam memory reindex` | explicitly rebuild retrieval sidecars from canonical Markdown memory; supports `--scope`, `--state`, `--cwd`, and `--json` so missing, invalid, or stale sidecars have a low-friction repair path |
 | `cam remember` / `cam forget` | explicitly add or remove durable memory; `cam forget --archive` moves matching entries into the archive layer |
 | `cam recall search` / `timeline` / `details` | progressively retrieve durable memory through a search -> timeline -> details workflow; `search` now defaults to `state=auto, limit=8`, so active memory is checked before archived fallback while staying read-only |
 | `cam mcp serve` | start a read-only retrieval MCP server that exposes the same workflow through `search_memories`, `timeline_memories`, and `get_memory_details` |

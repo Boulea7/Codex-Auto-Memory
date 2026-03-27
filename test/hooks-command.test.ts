@@ -176,6 +176,34 @@ describe("hooks command", () => {
     expect(recallGuide).toContain("not an official Codex hook surface");
   });
 
+  it("emits a structured workflow contract in hooks install --json", async () => {
+    const homeDir = await tempDir("cam-hooks-json-home-");
+    const projectDir = await tempDir("cam-hooks-json-project-");
+    process.env.HOME = homeDir;
+
+    const result = runCli(projectDir, ["hooks", "install", "--json"]);
+    expect(result.exitCode, result.stderr).toBe(0);
+    expect(JSON.parse(result.stdout)).toMatchObject({
+      action: "created",
+      targetDir: path.join(homeDir, ".codex-auto-memory", "hooks"),
+      readOnlyRetrieval: true,
+      workflowContract: {
+        recommendedPreset: "state=auto, limit=8",
+        cliFallback: {
+          searchCommand: 'cam recall search "<query>" --state auto --limit 8'
+        },
+        postWorkSyncReview: {
+          helperScript: "post-work-memory-review.sh"
+        }
+      },
+      assets: expect.arrayContaining([
+        expect.objectContaining({
+          id: "memory-recall"
+        })
+      ])
+    });
+  });
+
   shellOnlyIt("executes the recall bridge bundle without overriding explicit state or limit flags", async () => {
     const homeDir = await tempDir("cam-hooks-exec-home-");
     const projectDir = await tempDir("cam-hooks-exec-project-");

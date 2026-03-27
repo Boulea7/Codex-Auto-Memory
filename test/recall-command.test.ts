@@ -408,6 +408,16 @@ describe("runRecall", () => {
     expect(timelineResult.exitCode).toBe(0);
     expect(JSON.parse(timelineResult.stdout)).toMatchObject({
       ref: searchOutput.results[0]!.ref,
+      warnings: [],
+      lineageSummary: expect.objectContaining({
+        eventCount: 1,
+        latestAction: "add",
+        latestState: "active",
+        latestAuditStatus: "applied",
+        noopOperationCount: 0,
+        suppressedOperationCount: 0,
+        conflictCount: 0
+      }),
       events: expect.arrayContaining([
         expect.objectContaining({
           sessionId: "session-provenance",
@@ -428,9 +438,21 @@ describe("runRecall", () => {
     expect(detailsResult.exitCode).toBe(0);
     expect(JSON.parse(detailsResult.stdout)).toMatchObject({
       latestLifecycleAction: "add",
+      latestState: "active",
       latestSessionId: "session-provenance",
       latestRolloutPath: rolloutPath,
       historyPath: store.getHistoryPath("project"),
+      timelineWarningCount: 0,
+      lineageSummary: expect.objectContaining({
+        eventCount: 1,
+        latestAction: "add",
+        latestState: "active",
+        latestAuditStatus: "applied",
+        noopOperationCount: 0,
+        suppressedOperationCount: 0,
+        conflictCount: 0
+      }),
+      warnings: [],
       latestAudit: {
         auditPath: store.getSyncAuditPath(),
         rolloutPath,
@@ -440,6 +462,72 @@ describe("runRecall", () => {
         noopOperationCount: 0,
         suppressedOperationCount: 0
       }
+    });
+  });
+
+  it("surfaces additive timeline and details warnings when lifecycle history contains bad lines", async () => {
+    const homeDir = await tempDir("cam-recall-history-warning-home-");
+    const projectDir = await tempDir("cam-recall-history-warning-project-");
+    const memoryRoot = await tempDir("cam-recall-history-warning-memory-");
+    process.env.HOME = homeDir;
+
+    const projectConfig = makeAppConfig();
+    await writeCamConfig(projectDir, projectConfig, {
+      autoMemoryDirectory: memoryRoot
+    });
+
+    const store = new MemoryStore(detectProjectContext(projectDir), {
+      ...projectConfig,
+      autoMemoryDirectory: memoryRoot
+    });
+    await store.ensureLayout();
+    await store.remember(
+      "project",
+      "workflow",
+      "prefer-pnpm",
+      "Prefer pnpm in this repository.",
+      ["Use pnpm instead of npm in this repository."],
+      "Manual note."
+    );
+
+    await fs.appendFile(
+      store.getHistoryPath("project"),
+      `${JSON.stringify({ bad: "event" })}\n{not-json}\n`,
+      "utf8"
+    );
+
+    const ref = "project:active:workflow:prefer-pnpm";
+    const timelineResult = runCli(projectDir, ["recall", "timeline", ref, "--json"]);
+    expect(timelineResult.exitCode).toBe(0);
+    expect(JSON.parse(timelineResult.stdout)).toMatchObject({
+      ref,
+      warnings: expect.arrayContaining([
+        expect.stringContaining("invalid JSONL lifecycle history line"),
+        expect.stringContaining("malformed lifecycle event")
+      ]),
+      lineageSummary: expect.objectContaining({
+        eventCount: 1,
+        latestAction: "add",
+        latestState: "active"
+      }),
+      events: [expect.objectContaining({ action: "add" })]
+    });
+
+    const detailsResult = runCli(projectDir, ["recall", "details", ref, "--json"]);
+    expect(detailsResult.exitCode).toBe(0);
+    expect(JSON.parse(detailsResult.stdout)).toMatchObject({
+      ref,
+      latestState: "active",
+      timelineWarningCount: 2,
+      warnings: expect.arrayContaining([
+        expect.stringContaining("invalid JSONL lifecycle history line"),
+        expect.stringContaining("malformed lifecycle event")
+      ]),
+      lineageSummary: expect.objectContaining({
+        eventCount: 1,
+        latestAction: "add",
+        latestState: "active"
+      })
     });
   });
 

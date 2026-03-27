@@ -78,9 +78,25 @@ const memoryTimelineEventSchema = z.object({
   rolloutPath: z.string().optional()
 });
 
+const memoryLineageSummarySchema = z.object({
+  eventCount: z.number().int().nonnegative(),
+  firstSeenAt: z.string().nullable(),
+  latestAt: z.string().nullable(),
+  latestAction: memoryLifecycleActionSchema.nullable(),
+  latestState: memoryHistoryRecordStateSchema.nullable(),
+  archivedAt: z.string().nullable(),
+  deletedAt: z.string().nullable(),
+  latestAuditStatus: z.enum(["applied", "no-op", "skipped"]).nullable(),
+  noopOperationCount: z.number().int().nonnegative(),
+  suppressedOperationCount: z.number().int().nonnegative(),
+  conflictCount: z.number().int().nonnegative()
+});
+
 const memoryTimelineResponseSchema = z.object({
   ref: z.string(),
-  events: z.array(memoryTimelineEventSchema)
+  events: z.array(memoryTimelineEventSchema),
+  warnings: z.array(z.string()),
+  lineageSummary: memoryLineageSummarySchema
 });
 
 const memoryDetailsResponseSchema = z.object({
@@ -92,9 +108,13 @@ const memoryDetailsResponseSchema = z.object({
   path: z.string(),
   approxReadCost: z.number().int().nonnegative(),
   latestLifecycleAction: memoryLifecycleActionSchema.nullable(),
+  latestState: memoryHistoryRecordStateSchema,
   latestSessionId: z.string().nullable(),
   latestRolloutPath: z.string().nullable(),
   historyPath: z.string(),
+  timelineWarningCount: z.number().int().nonnegative(),
+  lineageSummary: memoryLineageSummarySchema,
+  warnings: z.array(z.string()),
   latestAudit: z
     .object({
       auditPath: z.string(),
