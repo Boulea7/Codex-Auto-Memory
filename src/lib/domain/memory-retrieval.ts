@@ -3,7 +3,7 @@ import type {
   MemoryRetrievalScope,
   MemoryRetrievalStateFilter,
   MemorySearchResponse,
-  MemoryTimelineEvent
+  MemoryTimelineResponse
 } from "../types.js";
 import {
   buildMemorySearchResponse,
@@ -91,8 +91,8 @@ export class MemoryRetrievalService {
     );
   }
 
-  public async timelineMemories(ref: string): Promise<MemoryTimelineEvent[]> {
-    return this.memoryStore.readTimeline(ref);
+  public async timelineMemories(ref: string): Promise<MemoryTimelineResponse> {
+    return this.memoryStore.readTimelineWithDiagnostics(ref);
   }
 
   public async getMemoryDetails(ref: string): Promise<MemoryDetailsResult | null> {

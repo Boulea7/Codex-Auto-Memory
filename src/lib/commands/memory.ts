@@ -6,6 +6,8 @@ import { compileStartupMemory } from "../domain/startup-memory.js";
 import type {
   ConfigScope,
   MemoryCommandOutput,
+  MemoryReindexOutput,
+  MemoryRecordState,
   MemoryScope,
   MemorySyncAuditEntry,
   SyncRecoveryRecord
@@ -25,6 +27,13 @@ interface MemoryOptions {
   enable?: boolean;
   disable?: boolean;
   configScope?: ConfigScope;
+}
+
+interface MemoryReindexOptions {
+  cwd?: string;
+  json?: boolean;
+  scope?: MemoryScope | "all";
+  state?: MemoryRecordState | "all";
 }
 
 function formatPendingSyncRecovery(record: SyncRecoveryRecord, recoveryPath: string): string[] {
@@ -288,4 +297,72 @@ export async function runMemory(options: MemoryOptions = {}): Promise<string> {
   }
 
   return lines.join("\n");
+}
+
+function normalizeMemoryReindexScope(scope: MemoryScope | "all" | undefined): MemoryScope | "all" {
+  if (!scope || scope === "all") {
+    return "all";
+  }
+
+  if (scope === "global" || scope === "project" || scope === "project-local") {
+    return scope;
+  }
+
+  throw new Error(`Unsupported memory reindex scope "${scope}".`);
+}
+
+function normalizeMemoryReindexState(
+  state: MemoryRecordState | "all" | undefined
+): MemoryRecordState | "all" {
+  if (!state || state === "all") {
+    return "all";
+  }
+
+  if (state === "active" || state === "archived") {
+    return state;
+  }
+
+  throw new Error(`Unsupported memory reindex state "${state}".`);
+}
+
+export async function runMemoryReindex(options: MemoryReindexOptions = {}): Promise<string> {
+  const runtime = await buildRuntimeContext(options.cwd ?? process.cwd());
+  const requestedScope = normalizeMemoryReindexScope(options.scope);
+  const requestedState = normalizeMemoryReindexState(options.state);
+  const rebuilt = await runtime.syncService.memoryStore.rebuildRetrievalSidecars({
+    scope: requestedScope,
+    state: requestedState
+  });
+  const summary =
+    rebuilt.length === 1
+      ? "Rebuilt 1 retrieval sidecar from Markdown canonical memory."
+      : `Rebuilt ${rebuilt.length} retrieval sidecar(s) from Markdown canonical memory.`;
+
+  const output: MemoryReindexOutput = {
+    projectRoot: runtime.project.projectRoot,
+    requestedScope,
+    requestedState,
+    rebuilt,
+    summary
+  };
+
+  if (options.json) {
+    return JSON.stringify(output, null, 2);
+  }
+
+  return [
+    "Codex Auto Memory Retrieval Sidecar Reindex",
+    `Project root: ${output.projectRoot}`,
+    `Requested scope: ${output.requestedScope}`,
+    `Requested state: ${output.requestedState}`,
+    output.summary,
+    "",
+    "Rebuilt sidecars:",
+    ...output.rebuilt.map(
+      (check) =>
+        `- ${check.scope}/${check.state}: ${check.indexPath} | generatedAt: ${check.generatedAt} | topicFiles: ${check.topicFileCount}`
+    ),
+    "",
+    "Markdown memory remains canonical; retrieval-index.json is a rebuildable acceleration sidecar."
+  ].join("\n");
 }

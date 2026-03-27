@@ -265,6 +265,7 @@ function buildIntegrationsDoctorResult(
     ...buildCodexStackNotes({
       cwd: pinnedProjectRoot
     }),
+    `If retrieval sidecars are degraded, repair them explicitly with \`${report.retrievalSidecar.repairCommand}\` before treating the retrieval plane as fully healthy.`,
     "AGENTS guidance is inspected read-only and is never auto-written by integrations doctor."
   ];
   const applySafetyStatus = report.applySafety.status;
@@ -296,6 +297,11 @@ function buildIntegrationsDoctorResult(
     projectRoot: pinnedProjectRoot
   });
   const needsAgents = report.agentsGuidance.status !== "ok";
+  if (report.retrievalSidecar.status === "warning") {
+    nextSteps.unshift(
+      `Run \`${report.retrievalSidecar.repairCommand}\` to rebuild retrieval sidecars from Markdown canonical memory.`
+    );
+  }
   const needsOtherStackSurface =
     !report.codexStack.mcpReady ||
     !report.codexStack.hookCaptureReady ||

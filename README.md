@@ -181,6 +181,7 @@ cam run
 
 ```bash
 cam memory
+cam memory reindex --scope all --state all
 cam memory --recent 5
 cam recall search pnpm --state auto
 cam mcp serve
@@ -206,6 +207,7 @@ cam audit
 | `cam run` / `cam exec` / `cam resume` | 编译 startup memory 并通过 wrapper 启动 Codex |
 | `cam sync` | 手动把最近 rollout 同步进 durable memory |
 | `cam memory` | 查看 startup payload、topic refs、edit paths、durable sync audit 与 suppressed conflict candidates |
+| `cam memory reindex` | 显式从 canonical Markdown 重建 retrieval sidecar；支持 `--scope`、`--state`、`--cwd`、`--json`，用于 sidecar 缺失、损坏或 stale 时的低心智修复路径 |
 | `cam remember` / `cam forget` | 显式新增、删除或修正 memory；`cam forget --archive` 会把匹配条目移入归档层 |
 | `cam recall search` / `timeline` / `details` | 以 `search -> timeline -> details` 的 progressive disclosure 检索 durable memory；`search` 默认采用 `state=auto`、`limit=8`，先查 active，未命中再回退 archived，且保持只读 retrieval |
 | `cam mcp serve` | 启动只读 retrieval MCP server，通过 `search_memories` / `timeline_memories` / `get_memory_details` 暴露同一套渐进式检索契约 |

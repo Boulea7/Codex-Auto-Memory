@@ -12,6 +12,7 @@ import { resolveMcpProjectRoot } from "../integration/mcp-config.js";
 
 interface SkillsCommandOptions {
   cwd?: string;
+  json?: boolean;
   surface?: string;
 }
 
@@ -22,6 +23,23 @@ export async function installSkills(options: SkillsCommandOptions = {}): Promise
     projectRoot,
     skillSurface
   });
+
+  if (options.json) {
+    return JSON.stringify(
+      {
+        action: result.action,
+        targetDir: result.targetDir,
+        surface: skillSurface,
+        preferredSkillSurface: result.preferredSkillSurface ?? "runtime",
+        readOnlyRetrieval: result.readOnlyRetrieval,
+        workflowContract: result.workflowContract,
+        notes: result.notes,
+        assets: result.assets
+      },
+      null,
+      2
+    );
+  }
 
   return [
     `Installed Codex skill assets in ${result.targetDir}`,

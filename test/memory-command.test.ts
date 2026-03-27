@@ -2,7 +2,7 @@ import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { runMemory } from "../src/lib/commands/memory.js";
+import { runMemory, runMemoryReindex } from "../src/lib/commands/memory.js";
 import { configPaths } from "../src/lib/config/load-config.js";
 import { detectProjectContext } from "../src/lib/domain/project-context.js";
 import { MemoryStore } from "../src/lib/domain/memory-store.js";
@@ -1207,5 +1207,123 @@ describe("runMemory", () => {
     expect(await snapshotFiles(Object.keys(globalSnapshot))).toEqual(globalSnapshot);
     expect(await snapshotFiles(Object.keys(projectSnapshot))).toEqual(projectSnapshot);
     expect(await snapshotFiles(Object.keys(projectLocalSnapshot))).toEqual(projectLocalSnapshot);
+  });
+
+  it("rebuilds retrieval sidecars explicitly from canonical Markdown memory", async () => {
+    const homeDir = await tempDir("cam-memory-reindex-home-");
+    const projectDir = await tempDir("cam-memory-reindex-project-");
+    const memoryRoot = await tempDir("cam-memory-reindex-root-");
+    process.env.HOME = homeDir;
+
+    const projectConfig = buildProjectConfig();
+    await writeProjectConfig(projectDir, projectConfig, {
+      autoMemoryDirectory: memoryRoot
+    });
+
+    const project = detectProjectContext(projectDir);
+    const store = new MemoryStore(project, {
+      ...projectConfig,
+      autoMemoryDirectory: memoryRoot
+    });
+    await store.ensureLayout();
+    await store.remember(
+      "project",
+      "workflow",
+      "prefer-pnpm",
+      "Prefer pnpm in this repository.",
+      ["Use pnpm instead of npm in this repository."],
+      "Manual note."
+    );
+    await store.remember(
+      "project",
+      "workflow",
+      "historical-note",
+      "Historical pnpm migration note.",
+      ["Old pnpm migration note kept for history."],
+      "Manual note."
+    );
+    await store.forget("project", "historical", { archive: true });
+
+    const activeTopicPath = store.getTopicFile("project", "workflow");
+    const archivedTopicPath = store.getArchiveTopicFile("project", "workflow");
+    const activeContentsBefore = await fs.readFile(activeTopicPath, "utf8");
+    const archivedContentsBefore = await fs.readFile(archivedTopicPath, "utf8");
+
+    await fs.writeFile(store.getRetrievalIndexFile("project", "active"), "{bad-json", "utf8");
+    await fs.rm(store.getRetrievalIndexFile("project", "archived"), { force: true });
+
+    const output = JSON.parse(
+      await runMemoryReindex({
+        cwd: projectDir,
+        json: true,
+        scope: "project",
+        state: "all"
+      })
+    ) as {
+      projectRoot: string;
+      requestedScope: string;
+      requestedState: string;
+      rebuilt: Array<{
+        scope: string;
+        state: string;
+        status: string;
+        indexPath: string;
+        generatedAt: string;
+        topicFileCount: number;
+        topicFiles: string[];
+      }>;
+      summary: string;
+    };
+
+    expect(output).toMatchObject({
+      projectRoot: project.projectRoot,
+      requestedScope: "project",
+      requestedState: "all",
+      summary: "Rebuilt 2 retrieval sidecar(s) from Markdown canonical memory."
+    });
+    expect(output.rebuilt).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          scope: "project",
+          state: "active",
+          status: "ok",
+          indexPath: store.getRetrievalIndexFile("project", "active"),
+          generatedAt: expect.any(String),
+          topicFileCount: 1,
+          topicFiles: ["workflow.md"]
+        }),
+        expect.objectContaining({
+          scope: "project",
+          state: "archived",
+          status: "ok",
+          indexPath: store.getRetrievalIndexFile("project", "archived"),
+          generatedAt: expect.any(String),
+          topicFileCount: 1,
+          topicFiles: ["workflow.md"]
+        })
+      ])
+    );
+    expect(await fs.readFile(activeTopicPath, "utf8")).toBe(activeContentsBefore);
+    expect(await fs.readFile(archivedTopicPath, "utf8")).toBe(archivedContentsBefore);
+
+    const cliResult = runCli(
+      projectDir,
+      ["memory", "reindex", "--scope", "project", "--state", "active", "--json"],
+      {
+        env: { HOME: homeDir }
+      }
+    );
+    expect(cliResult.exitCode, cliResult.stderr).toBe(0);
+    expect(JSON.parse(cliResult.stdout)).toMatchObject({
+      requestedScope: "project",
+      requestedState: "active",
+      rebuilt: [
+        expect.objectContaining({
+          scope: "project",
+          state: "active",
+          status: "ok"
+        })
+      ]
+    });
   });
 });

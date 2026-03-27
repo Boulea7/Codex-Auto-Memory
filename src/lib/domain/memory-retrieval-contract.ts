@@ -94,11 +94,34 @@ export function buildMemorySearchResponse(
 
 export function buildMemoryTimelineResponse(
   ref: string,
-  events: MemoryTimelineEvent[]
+  timeline:
+    | MemoryTimelineResponse
+    | {
+        events: MemoryTimelineEvent[];
+        warnings?: string[];
+        lineageSummary?: MemoryTimelineResponse["lineageSummary"];
+      }
 ): MemoryTimelineResponse {
   return {
     ref,
-    events
+    events: [...timeline.events],
+    warnings: [...(timeline.warnings ?? [])],
+    lineageSummary:
+      timeline.lineageSummary !== undefined
+        ? { ...timeline.lineageSummary }
+        : {
+            eventCount: timeline.events.length,
+            firstSeenAt: null,
+            latestAt: null,
+            latestAction: null,
+            latestState: null,
+            archivedAt: null,
+            deletedAt: null,
+            latestAuditStatus: null,
+            noopOperationCount: 0,
+            suppressedOperationCount: 0,
+            conflictCount: 0
+          }
   };
 }
 
@@ -158,6 +181,10 @@ export function toMemorySearchResultShapes(
 export function toMemoryDetailsResultShape(details: MemoryDetailsResult): MemoryDetailsResult {
   return {
     ...details,
+    lineageSummary: {
+      ...details.lineageSummary
+    },
+    warnings: [...details.warnings],
     latestAudit: details.latestAudit
       ? {
           ...details.latestAudit,

@@ -196,6 +196,7 @@ interface McpDoctorFallbackAssets {
 interface McpDoctorRetrievalSidecarReport {
   status: "ok" | "warning";
   summary: string;
+  repairCommand: string;
   checks: RetrievalSidecarCheck[];
 }
 
@@ -746,13 +747,21 @@ async function inspectFallbackAssets(
 }
 
 function buildRetrievalSidecarReport(
-  checks: RetrievalSidecarCheck[]
+  checks: RetrievalSidecarCheck[],
+  options: {
+    cwd?: string;
+  } = {}
 ): McpDoctorRetrievalSidecarReport {
+  const repairCommand = appendCliCwdFlag(
+    "cam memory reindex --scope all --state all",
+    options.cwd
+  );
   const degradedChecks = checks.filter((check) => check.status !== "ok");
   if (degradedChecks.length === 0) {
     return {
       status: "ok",
       summary: "All inspected retrieval sidecars are current.",
+      repairCommand,
       checks
     };
   }
@@ -761,6 +770,7 @@ function buildRetrievalSidecarReport(
     status: "warning",
     summary:
       "One or more retrieval sidecars are missing, invalid, or stale. Recall still falls back to Markdown canonical memory safely.",
+    repairCommand,
     checks
   };
 }
@@ -857,7 +867,10 @@ export async function inspectMcpDoctor(options: {
   });
   const runtime = await buildRuntimeContext(cwd, {}, { ensureMemoryLayout: false });
   const retrievalSidecar = buildRetrievalSidecarReport(
-    await runtime.syncService.memoryStore.inspectRetrievalSidecars()
+    await runtime.syncService.memoryStore.inspectRetrievalSidecars(),
+    {
+      cwd: options.explicitCwd ? projectRoot : undefined
+    }
   );
   const camCommandAvailable = await isCommandAvailableInPath("cam");
   const codexHost = hosts.find((host) => host.host === "codex") ?? (await inspectHost("codex", projectRoot));
@@ -971,6 +984,7 @@ export function formatMcpDoctorReport(report: McpDoctorReport): string {
     "Retrieval sidecar:",
     `- Status: ${report.retrievalSidecar.status}`,
     `- Summary: ${report.retrievalSidecar.summary}`,
+    `- Repair command: ${report.retrievalSidecar.repairCommand}`,
     ...report.retrievalSidecar.checks.map(
       (check) =>
         `- ${check.scope}/${check.state}: ${check.status}${check.fallbackReason ? ` (${check.fallbackReason})` : ""} | index: ${check.indexPath} | generatedAt: ${check.generatedAt ?? "none"} | topicFiles: ${check.topicFileCount ?? "none"}`
@@ -1053,6 +1067,7 @@ export function formatMcpDoctorReport(report: McpDoctorReport): string {
     "Notes:",
     "- cam mcp install writes the recommended project-scoped host config for codex, claude, or gemini only.",
     "- cam mcp doctor only inspects the recommended project-scoped wiring and never writes host config files.",
+    "- Run the retrieval sidecar repair command above if retrieval indexes are missing, invalid, or stale.",
     "- Re-run cam hooks install or cam skills install if a fallback asset is reported as stale.",
     "- cam memory is the inspect/audit surface for durable memory.",
     "- cam session is the temporary continuity surface and is not the same as durable memory retrieval.",

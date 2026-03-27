@@ -171,6 +171,7 @@ cam run
 
 ```bash
 cam memory
+cam memory reindex --scope all --state all
 cam recall search pnpm --state auto
 cam mcp serve
 cam integrations install --host codex
@@ -195,6 +196,7 @@ cam audit
 | `cam run` / `cam exec` / `cam resume` | startup memory を生成して wrapper 経由で Codex を起動 |
 | `cam sync` | 最新 rollout を durable memory に手動同期 |
 | `cam memory` | startup files、topic refs、startup budget、edit paths、recent sync audit を確認 |
+| `cam memory reindex` | canonical Markdown から retrieval sidecar を明示的に再構築する。`--scope`、`--state`、`--cwd`、`--json` をサポートし、sidecar が missing / invalid / stale のときの低摩擦な repair path を提供する |
 | `cam remember` / `cam forget` | durable memory の明示的な追加・削除。`cam forget --archive` は一致した項目をアーカイブ層へ移動する |
 | `cam recall search` / `timeline` / `details` | `search -> timeline -> details` の progressive disclosure workflow で durable memory を段階的に取得する。`search` は `state=auto, limit=8` を既定値として使い、active を先に調べてヒットしなければ archived にフォールバックしつつ read-only を保つ |
 | `cam mcp serve` | `search_memories` / `timeline_memories` / `get_memory_details` を通じて同じ retrieval contract を公開する read-only MCP server を起動する |

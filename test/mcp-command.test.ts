@@ -49,6 +49,16 @@ interface SearchMemoriesResponse {
 
 interface TimelineMemoriesResponse {
   ref: string;
+  warnings: string[];
+  lineageSummary: {
+    eventCount: number;
+    latestAction: string | null;
+    latestState: string | null;
+    latestAuditStatus: string | null;
+    noopOperationCount: number;
+    suppressedOperationCount: number;
+    conflictCount: number;
+  };
   events: Array<{
     action: string;
     state: string;
@@ -61,9 +71,21 @@ interface MemoryDetailsResponse {
   ref: string;
   path: string;
   latestLifecycleAction: string;
+  latestState: string;
   latestSessionId: string | null;
   latestRolloutPath: string | null;
   historyPath: string;
+  timelineWarningCount: number;
+  lineageSummary: {
+    eventCount: number;
+    latestAction: string | null;
+    latestState: string | null;
+    latestAuditStatus: string | null;
+    noopOperationCount: number;
+    suppressedOperationCount: number;
+    conflictCount: number;
+  };
+  warnings: string[];
   latestAudit?: {
     auditPath: string;
     rolloutPath: string;
@@ -1532,6 +1554,7 @@ describe("mcp command", () => {
     expect(payload.retrievalSidecar).toMatchObject({
       status: "warning",
       summary: expect.stringContaining("Markdown"),
+      repairCommand: `cam memory reindex --scope all --state all --cwd ${JSON.stringify(realProjectDir)}`,
       checks: expect.arrayContaining([
         expect.objectContaining({
           scope: "project",
@@ -2315,14 +2338,28 @@ describe("mcp command", () => {
       ["integrations", "doctor", "--host", "codex", "--cwd", projectDir, "--json"],
       { env: { HOME: homeDir } }
     );
+    const hooksInstall = runCli(
+      shellDir,
+      ["hooks", "install", "--cwd", projectDir, "--json"],
+      { env: { HOME: homeDir } }
+    );
+    const skillsInstall = runCli(
+      shellDir,
+      ["skills", "install", "--cwd", projectDir, "--json"],
+      { env: { HOME: homeDir } }
+    );
 
     expect(printConfig.exitCode, printConfig.stderr).toBe(0);
     expect(mcpDoctor.exitCode, mcpDoctor.stderr).toBe(0);
     expect(integrationsDoctor.exitCode, integrationsDoctor.stderr).toBe(0);
+    expect(hooksInstall.exitCode, hooksInstall.stderr).toBe(0);
+    expect(skillsInstall.exitCode, skillsInstall.stderr).toBe(0);
 
     const printWorkflow = JSON.parse(printConfig.stdout).workflowContract;
     const mcpWorkflow = JSON.parse(mcpDoctor.stdout).workflowContract;
     const integrationsWorkflow = JSON.parse(integrationsDoctor.stdout).workflowContract;
+    const hooksWorkflow = JSON.parse(hooksInstall.stdout).workflowContract;
+    const skillsWorkflow = JSON.parse(skillsInstall.stdout).workflowContract;
     const expectedCore = {
       recommendedPreset: "state=auto, limit=8",
       preferredRoute: "mcp-first",
@@ -2347,6 +2384,8 @@ describe("mcp command", () => {
     expect(printWorkflow).toMatchObject(expectedCore);
     expect(mcpWorkflow).toMatchObject(expectedCore);
     expect(integrationsWorkflow).toMatchObject(expectedCore);
+    expect(hooksWorkflow).toMatchObject(expectedCore);
+    expect(skillsWorkflow).toMatchObject(expectedCore);
   });
 
   it("reports an operational MCP route once cam is available on PATH", async () => {
@@ -2585,6 +2624,16 @@ describe("mcp command", () => {
         timelineResult as ToolCallResultLike
       );
       expect(timelinePayload.ref).toBe(ref);
+      expect(timelinePayload.warnings).toEqual([]);
+      expect(timelinePayload.lineageSummary).toMatchObject({
+        eventCount: 2,
+        latestAction: "archive",
+        latestState: "archived",
+        latestAuditStatus: null,
+        noopOperationCount: 0,
+        suppressedOperationCount: 0,
+        conflictCount: 0
+      });
       expect(timelinePayload.events.slice(0, 2)).toEqual([
         expect.objectContaining({ action: "archive", state: "archived" }),
         expect.objectContaining({ action: "add", state: "active" })
@@ -2601,9 +2650,21 @@ describe("mcp command", () => {
         ref,
         path: store.getArchiveTopicFile("project", "workflow"),
         latestLifecycleAction: "archive",
+        latestState: "archived",
         latestSessionId: null,
         latestRolloutPath: null,
         historyPath: store.getHistoryPath("project"),
+        timelineWarningCount: 0,
+        lineageSummary: {
+          eventCount: 2,
+          latestAction: "archive",
+          latestState: "archived",
+          latestAuditStatus: null,
+          noopOperationCount: 0,
+          suppressedOperationCount: 0,
+          conflictCount: 0
+        },
+        warnings: [],
         entry: {
           summary: "Prefer pnpm in this repository.",
           details: ["Use pnpm instead of npm in this repository."]
@@ -3081,8 +3142,17 @@ describe("mcp command", () => {
         detailsResult as ToolCallResultLike
       );
       expect(detailsPayload).toMatchObject({
+        latestState: "active",
         latestSessionId: "session-mcp-audit",
         latestRolloutPath: rolloutPath,
+        timelineWarningCount: 0,
+        lineageSummary: expect.objectContaining({
+          eventCount: 1,
+          latestAction: "add",
+          latestState: "active",
+          latestAuditStatus: "applied"
+        }),
+        warnings: [],
         latestAudit: {
           auditPath: service.memoryStore.getSyncAuditPath(),
           rolloutPath,

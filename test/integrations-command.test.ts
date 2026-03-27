@@ -200,6 +200,7 @@ describe("integrations command", () => {
       recommendedPreset: "state=auto, limit=8",
       retrievalSidecar: {
         status: "warning",
+        repairCommand: "cam memory reindex --scope all --state all",
         checks: expect.arrayContaining([
           expect.objectContaining({
             scope: "project",
@@ -230,11 +231,10 @@ describe("integrations command", () => {
         }
       }
     });
-    expect(JSON.parse(result.stdout).nextSteps[0]).toContain(
-      "cam integrations apply --host codex"
-    );
     expect(JSON.parse(result.stdout).nextSteps).toEqual(
       expect.arrayContaining([
+        expect.stringContaining("cam memory reindex --scope all --state all"),
+        expect.stringContaining("cam integrations apply --host codex"),
         expect.stringContaining("cam mcp print-config --host codex")
       ])
     );
