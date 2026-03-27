@@ -102,7 +102,7 @@ For `codex-auto-memory`, that means:
 - shared project config must not be able to hijack a user-level memory path through `autoMemoryDirectory`
 - host convenience should not weaken the repository's local-first safety boundary
 
-### 7. Host integration surfaces matter, but should not replace the core contract
+### 7. Host-native breadth expands the host, not the memory model
 
 Claude Code also exposes stronger host-native surfaces around memory:
 

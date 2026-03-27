@@ -1,7 +1,7 @@
 import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { restoreOptionalEnv } from "./helpers/env.js";
 import { makeAppConfig, writeCamConfig } from "./helpers/cam-test-fixtures.js";
 import { runCli } from "./helpers/cli-runner.js";
@@ -71,6 +71,8 @@ function shellQuoteArg(value: string): string {
 afterEach(async () => {
   restoreOptionalEnv("HOME", originalHome);
   restoreOptionalEnv("CODEX_HOME", originalCodexHome);
+  vi.restoreAllMocks();
+  vi.resetModules();
   await Promise.all(tempDirs.splice(0).map((dir) => fs.rm(dir, { recursive: true, force: true })));
 });
 
@@ -667,6 +669,167 @@ describe("integrations command", () => {
     expect(await pathExists(configPath)).toBe(false);
     expect(await pathExists(hooksDir)).toBe(false);
     expect(await pathExists(skillDir)).toBe(false);
+  });
+
+  it("returns blocked without touching MCP, hooks, or skills when AGENTS apply blocks after a safe preflight", async () => {
+    const projectDir = await tempDir("cam-integrations-apply-late-block-project-");
+    const realProjectDir = await fs.realpath(projectDir);
+
+    vi.resetModules();
+    const agentsGuidanceModule = await import("../src/lib/integration/agents-guidance.js");
+    const mcpInstallModule = await import("../src/lib/integration/mcp-install.js");
+    const installAssetsModule = await import("../src/lib/integration/install-assets.js");
+    const mcpConfigModule = await import("../src/lib/integration/mcp-config.js");
+
+    vi.spyOn(mcpConfigModule, "resolveMcpProjectRoot").mockReturnValue(realProjectDir);
+    vi.spyOn(agentsGuidanceModule, "inspectCodexAgentsGuidanceApplySafety").mockResolvedValue({
+      host: "codex",
+      projectRoot: realProjectDir,
+      targetPath: path.join(realProjectDir, "AGENTS.md"),
+      status: "safe",
+      recommendedAction: "append",
+      notes: ["preflight safe"]
+    });
+    vi.spyOn(agentsGuidanceModule, "applyCodexAgentsGuidance").mockResolvedValue({
+      host: "codex",
+      projectRoot: realProjectDir,
+      targetPath: path.join(realProjectDir, "AGENTS.md"),
+      action: "blocked",
+      managedBlockVersion: "codex-agents-guidance-v1",
+      createdFile: false,
+      blockedReason: "managed guidance block changed after preflight",
+      notes: ["late block"]
+    });
+
+    const installMcpProjectConfigSpy = vi.spyOn(
+      mcpInstallModule,
+      "installMcpProjectConfig"
+    ).mockResolvedValue({
+      host: "codex",
+      serverName: "codex_auto_memory",
+      projectRoot: realProjectDir,
+      targetPath: path.join(realProjectDir, ".codex", "config.toml"),
+      action: "created",
+      projectPinned: true,
+      readOnlyRetrieval: true,
+      preservedCustomFields: [],
+      notes: ["mcp wrote"]
+    });
+    const installIntegrationAssetsSpy = vi.spyOn(
+      installAssetsModule,
+      "installIntegrationAssets"
+    ).mockResolvedValue({
+      installSurface: "hooks",
+      action: "created",
+      targetDir: path.join(realProjectDir, ".tmp"),
+      readOnlyRetrieval: true,
+      assetVersion: "retrieval-contract-v1",
+      recommendedPreset: "state=auto, limit=8",
+      workflowContract: {
+        version: "retrieval-contract-v1",
+        preferredRoute: "mcp-first",
+        recommendedPreset: "state=auto, limit=8",
+        recallFirst: "Before repeating prior work or repo-specific decisions, recall durable memory first.",
+        progressiveDisclosure: "Use progressive disclosure: search -> timeline -> details.",
+        routePreference: {
+          preferredRoute: "mcp-first",
+          mcpFirst: "Prefer retrieval MCP when it is already wired in: search_memories -> timeline_memories -> get_memory_details.",
+          cliFallback: "Otherwise fall back to the local recall bridge bundle through memory-recall.sh search|timeline|details.",
+          doctor: "Run cam mcp doctor if you are unsure whether the recommended project-scoped retrieval MCP wiring is already in place.",
+          serve: "cam mcp serve exposes the same retrieval contract over stdio MCP when a host can consume it."
+        },
+        recallWorkflow: {
+          recallFirst: "Before repeating prior work or repo-specific decisions, recall durable memory first.",
+          progressiveDisclosure: "Use progressive disclosure: search -> timeline -> details."
+        },
+        mcpTools: {
+          search: "search_memories",
+          timeline: "timeline_memories",
+          details: "get_memory_details"
+        },
+        cliFallback: {
+          searchCommand: `cam recall search "<query>" --state auto --limit 8 --cwd ${JSON.stringify(realProjectDir)}`,
+          timelineCommand: `cam recall timeline "<ref>" --cwd ${JSON.stringify(realProjectDir)}`,
+          detailsCommand: `cam recall details "<ref>" --cwd ${JSON.stringify(realProjectDir)}`
+        },
+        postWorkSyncReview: {
+          helperScript: "post-work-memory-review.sh",
+          syncCommand: `cam sync --cwd ${JSON.stringify(realProjectDir)}`,
+          reviewCommand: `cam memory --recent --cwd ${JSON.stringify(realProjectDir)}`,
+          guidance: "After finishing work that should affect durable memory, run cam sync or review cam memory --recent instead of assuming temporary continuity already updated Markdown memory."
+        },
+        boundaries: {
+          memoryAudit: "Use cam memory for inspect/audit surfaces and startup payload review.",
+          sessionContinuity: "Use cam session only for temporary continuity, not durable memory retrieval.",
+          archive: "Treat archived memory as historical context that does not participate in default startup recall."
+        }
+      },
+      notes: ["asset wrote"],
+      assets: []
+    });
+
+    const { runIntegrationsApply } = await import("../src/lib/commands/integrations.js");
+    const payload = JSON.parse(
+      await runIntegrationsApply({
+        cwd: realProjectDir,
+        host: "codex",
+        json: true
+      })
+    ) as {
+      stackAction: string;
+      subactions: {
+        mcp: {
+          attempted: boolean;
+          skipped: boolean;
+        };
+        agents: {
+          status: string;
+          action: string;
+          attempted: boolean;
+        };
+        hooks: {
+          attempted: boolean;
+          skipped: boolean;
+        };
+        skills: {
+          attempted: boolean;
+          skipped: boolean;
+          surface: string;
+        };
+      };
+      notes: string[];
+    };
+
+    expect(payload).toMatchObject({
+      stackAction: "blocked",
+      subactions: {
+        mcp: {
+          attempted: false,
+          skipped: true
+        },
+        agents: {
+          status: "blocked",
+          action: "blocked",
+          attempted: true
+        },
+        hooks: {
+          attempted: false,
+          skipped: true
+        },
+        skills: {
+          attempted: false,
+          skipped: true,
+          surface: "runtime"
+        }
+      }
+    });
+    expect(payload.notes).toEqual(
+      expect.arrayContaining([
+        expect.stringContaining("no project-scoped MCP wiring, hook assets, or skill assets were written")
+      ])
+    );
+    expect(installMcpProjectConfigSpy).not.toHaveBeenCalled();
+    expect(installIntegrationAssetsSpy).not.toHaveBeenCalled();
   });
 
   it("withholds integrations apply from doctor next steps when AGENTS guidance is unsafe", async () => {

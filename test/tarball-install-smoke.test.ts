@@ -3,7 +3,10 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import * as toml from "smol-toml";
+import { detectProjectContext } from "../src/lib/domain/project-context.js";
+import { MemoryStore } from "../src/lib/domain/memory-store.js";
 import { runCommandCapture } from "../src/lib/util/process.js";
+import { makeAppConfig, writeCamConfig } from "./helpers/cam-test-fixtures.js";
 
 const tempDirs: string[] = [];
 
@@ -59,7 +62,7 @@ describe("tarball install smoke", () => {
       process.cwd(),
       env
     );
-    expect(packResult.exitCode).toBe(0);
+    expect(packResult.exitCode, packResult.stderr).toBe(0);
 
     const tarballName = packResult.stdout.trim().split(/\r?\n/).at(-1);
     expect(tarballName).toBeTruthy();
@@ -101,6 +104,119 @@ describe("tarball install smoke", () => {
     expect(payload.projectLocation.exists).toBe(false);
     expect(payload.latestContinuityAuditEntry).toBeNull();
     expect(payload.pendingContinuityRecovery).toBeNull();
+
+    const memoryRoot = await tempDir("cam-tarball-memory-root-");
+    const appConfig = makeAppConfig();
+    await writeCamConfig(installDir, appConfig, {
+      autoMemoryDirectory: memoryRoot
+    });
+
+    const project = detectProjectContext(installDir);
+    const memoryStore = new MemoryStore(project, {
+      ...appConfig,
+      autoMemoryDirectory: memoryRoot
+    });
+    await memoryStore.ensureLayout();
+    await memoryStore.remember(
+      "project",
+      "workflow",
+      "prefer-pnpm",
+      "Prefer pnpm in this repository.",
+      ["Use pnpm instead of npm in this repository."],
+      "Manual note."
+    );
+    await memoryStore.appendSyncAuditEntry({
+      appliedAt: "2026-03-27T08:00:00.000Z",
+      projectId: project.projectId,
+      worktreeId: project.worktreeId,
+      rolloutPath: "/tmp/rollout-tarball-recall-contract.jsonl",
+      sessionId: "session-tarball-recall-contract",
+      configuredExtractorMode: "heuristic",
+      configuredExtractorName: "heuristic",
+      actualExtractorMode: "heuristic",
+      actualExtractorName: "heuristic",
+      extractorMode: "heuristic",
+      extractorName: "heuristic",
+      sessionSource: "rollout-jsonl",
+      status: "applied",
+      appliedCount: 1,
+      scopesTouched: ["project"],
+      resultSummary: "1 operation(s) applied",
+      operations: [
+        {
+          action: "upsert",
+          scope: "project",
+          topic: "workflow",
+          id: "prefer-pnpm",
+          summary: "Prefer pnpm in this repository.",
+          details: ["Use pnpm instead of npm in this repository."],
+          reason: "Manual note.",
+          sources: ["manual"]
+        }
+      ]
+    });
+
+    const recallSearchResult = runCommandCapture(
+      camBinaryPath(installDir),
+      ["recall", "search", "prefer pnpm", "--state", "active", "--json"],
+      installDir,
+      envWithBin
+    );
+    expect(recallSearchResult.exitCode, recallSearchResult.stderr).toBe(0);
+    expect(JSON.parse(recallSearchResult.stdout)).toMatchObject({
+      state: "active",
+      resolvedState: "active",
+      fallbackUsed: false,
+      retrievalMode: "index",
+      diagnostics: {
+        checkedPaths: expect.arrayContaining([
+          expect.objectContaining({
+            scope: "project",
+            state: "active",
+            retrievalMode: "index",
+            matchedCount: 1,
+            indexPath: memoryStore.getRetrievalIndexFile("project", "active"),
+            generatedAt: expect.any(String)
+          })
+        ])
+      },
+      results: [
+        expect.objectContaining({
+          ref: "project:active:workflow:prefer-pnpm",
+          state: "active",
+          topic: "workflow"
+        })
+      ]
+    });
+
+    const recallDetailsResult = runCommandCapture(
+      camBinaryPath(installDir),
+      ["recall", "details", "project:active:workflow:prefer-pnpm", "--json"],
+      installDir,
+      envWithBin
+    );
+    expect(recallDetailsResult.exitCode, recallDetailsResult.stderr).toBe(0);
+    expect(JSON.parse(recallDetailsResult.stdout)).toMatchObject({
+      ref: "project:active:workflow:prefer-pnpm",
+      path: memoryStore.getTopicFile("project", "workflow"),
+      latestLifecycleAction: "add",
+      latestState: "active",
+      latestSessionId: null,
+      latestRolloutPath: null,
+      historyPath: memoryStore.getHistoryPath("project"),
+      timelineWarningCount: 0,
+      warnings: [],
+      lineageSummary: {
+        eventCount: 1,
+        latestAction: "add",
+        latestState: "active",
+        latestAuditStatus: null,
+        noopOperationCount: 0,
+        suppressedOperationCount: 0,
+        conflictCount: 0
+      },
+      latestAudit: null
+    });
 
     const mcpInstallResult = runCommandCapture(
       camBinaryPath(installDir),
@@ -543,8 +659,27 @@ describe("tarball install smoke", () => {
       applyReadiness: {
         status: "safe"
       },
+      retrievalSidecar: {
+        status: "ok",
+        repairCommand: "cam memory reindex --scope all --state all",
+        checks: expect.arrayContaining([
+          expect.objectContaining({
+            scope: "project",
+            state: "active",
+            status: "ok",
+            indexPath: memoryStore.getRetrievalIndexFile("project", "active"),
+            generatedAt: expect.any(String),
+            topicFileCount: 1
+          })
+        ])
+      },
       workflowContract: {
         version: expect.any(String),
+        cliFallback: {
+          searchCommand: 'cam recall search "<query>" --state auto --limit 8',
+          timelineCommand: 'cam recall timeline "<ref>"',
+          detailsCommand: 'cam recall details "<ref>"'
+        },
         postWorkSyncReview: {
           helperScript: "post-work-memory-review.sh",
           syncCommand: "cam sync",
@@ -582,8 +717,27 @@ describe("tarball install smoke", () => {
         officialUserSkillMatchesCanonical: true,
         officialProjectSkillMatchesCanonical: true
       },
+      retrievalSidecar: {
+        status: "ok",
+        repairCommand: "cam memory reindex --scope all --state all",
+        checks: expect.arrayContaining([
+          expect.objectContaining({
+            scope: "project",
+            state: "active",
+            status: "ok",
+            indexPath: memoryStore.getRetrievalIndexFile("project", "active"),
+            generatedAt: expect.any(String),
+            topicFileCount: 1
+          })
+        ])
+      },
       workflowContract: {
         version: expect.any(String),
+        cliFallback: {
+          searchCommand: 'cam recall search "<query>" --state auto --limit 8',
+          timelineCommand: 'cam recall timeline "<ref>"',
+          detailsCommand: 'cam recall details "<ref>"'
+        },
         postWorkSyncReview: {
           helperScript: "post-work-memory-review.sh",
           syncCommand: "cam sync",
@@ -689,6 +843,18 @@ describe("tarball install smoke", () => {
     expect(recallHelpResult.exitCode).toBe(0);
     expect(recallHelpResult.stdout).toContain("Search compact memory candidates without loading full details");
     expect(recallHelpResult.stdout).toContain("Limit memory state: active, archived, all, or auto");
+
+    const hooksHelpResult = runCommandCapture(
+      camBinaryPath(installDir),
+      ["hooks", "install", "--help"],
+      installDir,
+      envWithBin
+    );
+    expect(hooksHelpResult.exitCode).toBe(0);
+    expect(hooksHelpResult.stdout).toContain(
+      "Generate the local bridge / fallback helper bundle"
+    );
+    expect(hooksHelpResult.stdout).toContain("Project directory to anchor generated hook helpers to");
 
     const mcpHelpResult = runCommandCapture(
       camBinaryPath(installDir),
@@ -807,7 +973,7 @@ describe("tarball install smoke", () => {
       process.cwd(),
       env
     );
-    expect(packResult.exitCode).toBe(0);
+    expect(packResult.exitCode, packResult.stderr).toBe(0);
 
     const tarballName = packResult.stdout.trim().split(/\r?\n/).at(-1);
     expect(tarballName).toBeTruthy();

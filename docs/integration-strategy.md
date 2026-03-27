@@ -44,7 +44,8 @@
 当前状态：
 
 - 已有 hook bridge 资产
-- `cam hooks install` 现在会生成本仓自带的 local bridge / fallback helper bundle：`memory-recall.sh`、兼容 helper wrappers 与 `recall-bridge.md`
+- `cam hooks install` 现在会生成本仓自带的 local bridge / fallback helper bundle：`memory-recall.sh`、`post-work-memory-review.sh`、兼容 helper wrappers 与 `recall-bridge.md`
+- `post-work-memory-review.sh` 会把 `cam sync` 与 `cam memory --recent` 串成同一套 post-work durable-memory review helper
 - 这条线当前仍是本地桥接层，不宣称自己是官方 Codex hook surface
 - 还不是主入口
 
@@ -106,12 +107,15 @@
 
 三者都不应该直接拥有 canonical memory。
 
-真正的主真相仍然是：
+真正的 durable memory canonical truth 仍然只有：
 
 - `MEMORY.md`
 - topic files
-- continuity files
-- audit / provenance logs
+
+而另外两类文件只承担辅助语义：
+
+- continuity files 属于临时 working state / reviewer surface，不是 canonical durable memory
+- audit / provenance logs 属于 reviewer / audit side evidence，不是 canonical memory store
 
 ## 当前仓库不做什么
 
