@@ -101,7 +101,7 @@ async function inspectCodexAgentsGuidanceApply(
       notes,
       exists,
       currentContents: null,
-      managedBlock: buildCodexAgentsManagedBlock(),
+      managedBlock: buildCodexAgentsManagedBlock("\n", { cwd: projectRoot }),
       lineEnding: "\n",
       unsafeManagedBlock: false,
       hasManagedBlock: false,
@@ -112,7 +112,9 @@ async function inspectCodexAgentsGuidanceApply(
 
   const currentContents = await readTextFile(targetPath);
   const parsed = parseCodexAgentsGuidanceContents(currentContents);
-  const managedBlock = buildCodexAgentsManagedBlock(parsed.lineEnding);
+  const managedBlock = buildCodexAgentsManagedBlock(parsed.lineEnding, {
+    cwd: projectRoot
+  });
   const alreadyCurrent =
     parsed.managedBlock !== null &&
     normalizeManagedBlockForComparison(parsed.managedBlock.contents) ===

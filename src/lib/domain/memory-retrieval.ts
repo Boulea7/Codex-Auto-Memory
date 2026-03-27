@@ -43,6 +43,7 @@ export class MemoryRetrievalService {
           false,
           activeSearch.retrievalMode,
           activeSearch.retrievalFallbackReason,
+          activeSearch.diagnostics,
           activeSearch.results
         );
       }
@@ -61,6 +62,12 @@ export class MemoryRetrievalService {
         true,
         archivedSearch.retrievalMode,
         archivedSearch.retrievalFallbackReason,
+        {
+          checkedPaths: [
+            ...activeSearch.diagnostics.checkedPaths,
+            ...archivedSearch.diagnostics.checkedPaths
+          ]
+        },
         archivedSearch.results
       );
     }
@@ -79,6 +86,7 @@ export class MemoryRetrievalService {
       false,
       search.retrievalMode,
       search.retrievalFallbackReason,
+      search.diagnostics,
       search.results
     );
   }

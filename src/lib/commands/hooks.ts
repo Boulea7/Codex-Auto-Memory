@@ -23,7 +23,9 @@ export async function installHooks(options: HooksCommandOptions = {}): Promise<s
     "",
     "These files now form a local bridge bundle for current Codex workflows and future hook/skill/MCP-aware retrieval flows.",
     LOCAL_BRIDGE_BUNDLE_NOTE,
-    ...buildRecallBridgeSummaryLines()
+    ...buildRecallBridgeSummaryLines({
+      cwd: projectRoot
+    })
   ].join("\n");
 }
 

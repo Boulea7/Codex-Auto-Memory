@@ -4,6 +4,8 @@ import {
   ARCHIVE_BOUNDARY,
   appendCliCwdFlag,
   buildCliSearchCommand,
+  buildCliDetailsCommand,
+  buildCliTimelineCommand,
   buildMarkdownAssetVersionComment,
   buildRecommendedCliSearchCommand,
   buildRecommendedSearchPresetGuidance,
@@ -220,7 +222,7 @@ exec ${buildPostWorkRecentReviewCommand({ cwd: projectRoot })}
 `;
 }
 
-function buildCodexSkillMarkdown(): string {
+function buildCodexSkillMarkdown(projectRoot: string): string {
   return `---
 name: codex-auto-memory-recall
 description: Search Codex Auto Memory before repeating work. Use when the user asks whether we solved something before, asks for prior repo-specific decisions, or wants past fixes, preferences, or architecture context.
@@ -256,15 +258,15 @@ Recommended MCP-first search preset:
 Otherwise fall back to the CLI workflow:
 
 1. Search first:
-   \`${buildRecommendedCliSearchCommand()}\`
+   \`${buildRecommendedCliSearchCommand("\"<query>\"", { cwd: projectRoot })}\`
 2. Inspect timeline for promising refs:
-   \`cam recall timeline "<ref>"\`
+   \`${buildCliTimelineCommand("\"<ref>\"", { cwd: projectRoot })}\`
 3. Fetch full details only for the refs that still look relevant:
-   \`cam recall details "<ref>"\`
+   \`${buildCliDetailsCommand("\"<ref>\"", { cwd: projectRoot })}\`
 
 If you need both active and archived results in one pass instead of active-first fallback:
 
-- \`${buildCliSearchCommand("\"<query>\"", { state: "all" })}\`
+- \`${buildCliSearchCommand("\"<query>\"", { state: "all", cwd: projectRoot })}\`
 
 ## Guardrails
 
@@ -273,8 +275,8 @@ If you need both active and archived results in one pass instead of active-first
 - \`cam mcp serve\` exposes the same retrieval contract over stdio MCP when the host can consume it.
 - If you are unsure whether retrieval MCP is wired into the current host, run \`cam mcp doctor\`.
 - If a host needs shell-based fallback assets, run \`cam hooks install\` and use the generated recall bridge bundle.
-- If available, run \`${POST_WORK_SYNC_REVIEW_HELPER}\` to combine \`${buildPostWorkSyncCommand()}\` with \`${buildPostWorkRecentReviewCommand()}\`.
-- After finishing work that should update durable memory, run \`cam sync\` or review \`cam memory --recent\`.
+- If available, run \`${POST_WORK_SYNC_REVIEW_HELPER}\` to combine \`${buildPostWorkSyncCommand({ cwd: projectRoot })}\` with \`${buildPostWorkRecentReviewCommand({ cwd: projectRoot })}\`.
+- After finishing work that should update durable memory, run \`${buildPostWorkSyncCommand({ cwd: projectRoot })}\` or review \`${buildPostWorkRecentReviewCommand({ cwd: projectRoot })}\`.
 - Use \`cam memory\` for inspect/audit surfaces, startup payload, and recent sync review.
 - Use \`cam session\` only for temporary continuity, not durable memory retrieval.
 - Treat archived memory as historical context that does not participate in default startup recall.
@@ -397,7 +399,7 @@ ${appendCliCwdFlag("cam doctor", context.projectRoot)} "$@"
     role: "guidance",
     doctorVisible: true,
     doctorSignatures: ["name: codex-auto-memory-recall", "search_memories"],
-    renderContents: () => buildCodexSkillMarkdown()
+    renderContents: (context) => buildCodexSkillMarkdown(context.projectRoot)
   }
 ] as const;
 
@@ -487,6 +489,10 @@ export function listDoctorVisibleIntegrationAssets(
   return listIntegrationAssets(homeDir, undefined, options).filter((asset) => asset.doctorVisible);
 }
 
-export function buildRecallBridgeSummaryLines(): string[] {
-  return buildRecommendedRetrievalSummaryLines();
+export function buildRecallBridgeSummaryLines(
+  options: {
+    cwd?: string;
+  } = {}
+): string[] {
+  return buildRecommendedRetrievalSummaryLines(options);
 }

@@ -5,8 +5,13 @@ import { afterEach, describe, expect, it } from "vitest";
 import * as toml from "smol-toml";
 import { detectProjectContext } from "../src/lib/domain/project-context.js";
 import { MemoryStore } from "../src/lib/domain/memory-store.js";
+import { SyncService } from "../src/lib/domain/sync-service.js";
 import { RETRIEVAL_INTEGRATION_ASSET_VERSION } from "../src/lib/integration/retrieval-contract.js";
-import { makeAppConfig, writeCamConfig } from "./helpers/cam-test-fixtures.js";
+import {
+  makeAppConfig,
+  makeRolloutFixture,
+  writeCamConfig
+} from "./helpers/cam-test-fixtures.js";
 import { runCli } from "./helpers/cli-runner.js";
 import { connectCliMcpClient } from "./helpers/mcp-client.js";
 
@@ -22,6 +27,17 @@ interface SearchMemoriesResponse {
   fallbackUsed: boolean;
   retrievalMode: string;
   retrievalFallbackReason?: string;
+  diagnostics?: {
+    checkedPaths: Array<{
+      scope: string;
+      state: string;
+      retrievalMode: string;
+      retrievalFallbackReason?: string;
+      matchedCount: number;
+      indexPath: string;
+      generatedAt: string | null;
+    }>;
+  };
   results: Array<{
     ref: string;
     state: string;
@@ -48,6 +64,15 @@ interface MemoryDetailsResponse {
   latestSessionId: string | null;
   latestRolloutPath: string | null;
   historyPath: string;
+  latestAudit?: {
+    auditPath: string;
+    rolloutPath: string;
+    sessionId?: string;
+    status: string;
+    resultSummary: string;
+    noopOperationCount: number;
+    suppressedOperationCount: number;
+  } | null;
   entry: {
     summary: string;
     details: string[];
@@ -1191,6 +1216,41 @@ describe("mcp command", () => {
     expect(payload.workflowContract).toBeUndefined();
   });
 
+  it("pins Codex AGENTS guidance fallback commands when print-config uses --cwd", async () => {
+    const homeDir = await tempDir("cam-mcp-print-codex-cwd-home-");
+    const projectDir = await tempDir("cam-mcp-print-codex-cwd-project-");
+    const callerDir = await tempDir("cam-mcp-print-codex-cwd-caller-");
+    const realProjectDir = await fs.realpath(projectDir);
+    process.env.HOME = homeDir;
+
+    const result = runCli(
+      callerDir,
+      ["mcp", "print-config", "--host", "codex", "--cwd", projectDir, "--json"],
+      {
+        env: { HOME: homeDir }
+      }
+    );
+
+    expect(result.exitCode, result.stderr).toBe(0);
+    const payload = JSON.parse(result.stdout) as {
+      agentsGuidance: {
+        snippet: string;
+      };
+    };
+    expect(payload.agentsGuidance.snippet).toContain(
+      `cam recall search "<query>" --state auto --limit 8 --cwd ${JSON.stringify(realProjectDir)}`
+    );
+    expect(payload.agentsGuidance.snippet).toContain(
+      `cam recall timeline "<ref>" --cwd ${JSON.stringify(realProjectDir)}`
+    );
+    expect(payload.agentsGuidance.snippet).toContain(
+      `cam recall details "<ref>" --cwd ${JSON.stringify(realProjectDir)}`
+    );
+    expect(payload.agentsGuidance.snippet).toContain(
+      `post-work-memory-review.sh`
+    );
+  });
+
   it("pins the recommended skill install command to the inspected project when mcp doctor uses --cwd", async () => {
     const homeDir = await tempDir("cam-mcp-doctor-cwd-home-");
     const projectParentDir = await tempDir("cam-mcp-doctor-cwd-parent-");
@@ -1322,6 +1382,19 @@ describe("mcp command", () => {
         hookRecallReady: boolean;
         skillReady: boolean;
         workflowConsistent: boolean;
+      };
+      retrievalSidecar: {
+        status: string;
+        summary: string;
+        checks: Array<{
+          scope: string;
+          state: string;
+          status: string;
+          fallbackReason?: string;
+          indexPath: string;
+          generatedAt: string | null;
+          topicFileCount: number | null;
+        }>;
       };
       hosts: Array<{
         host: string;
@@ -1456,6 +1529,21 @@ describe("mcp command", () => {
       skillReady: true,
       workflowConsistent: false
     });
+    expect(payload.retrievalSidecar).toMatchObject({
+      status: "warning",
+      summary: expect.stringContaining("Markdown"),
+      checks: expect.arrayContaining([
+        expect.objectContaining({
+          scope: "project",
+          state: "active",
+          status: "missing",
+          fallbackReason: "missing",
+          indexPath: expect.stringContaining("retrieval-index.json"),
+          generatedAt: null,
+          topicFileCount: null
+        })
+      ])
+    });
     expect(payload.agentsGuidance).toMatchObject({
       path: path.join(realProjectDir, "AGENTS.md"),
       exists: false,
@@ -1470,6 +1558,16 @@ describe("mcp command", () => {
     );
     expect(integrationsDoctor.exitCode, integrationsDoctor.stderr).toBe(0);
     expect(JSON.parse(integrationsDoctor.stdout)).toMatchObject({
+      retrievalSidecar: {
+        checks: expect.arrayContaining([
+          expect.objectContaining({
+            scope: "project",
+            state: "active",
+            status: "missing",
+            fallbackReason: "missing"
+          })
+        ])
+      },
       subchecks: {
         workflowConsistency: {
           status: "warning",
@@ -2823,6 +2921,17 @@ describe("mcp command", () => {
       expect(payload).toMatchObject({
         retrievalMode: "markdown-fallback",
         retrievalFallbackReason: "missing",
+        diagnostics: {
+          checkedPaths: expect.arrayContaining([
+            expect.objectContaining({
+              scope: "project",
+              state: "active",
+              retrievalMode: "markdown-fallback",
+              retrievalFallbackReason: "missing",
+              matchedCount: 0
+            })
+          ])
+        },
         results: []
       });
     } finally {
@@ -2899,7 +3008,90 @@ describe("mcp command", () => {
       expect(payload).toMatchObject({
         retrievalMode: "markdown-fallback",
         retrievalFallbackReason: "invalid",
+        diagnostics: {
+          checkedPaths: expect.arrayContaining([
+            expect.objectContaining({
+              scope: "project",
+              state: "active",
+              retrievalMode: "markdown-fallback",
+              retrievalFallbackReason: "invalid",
+              matchedCount: 1,
+              indexPath: store.getRetrievalIndexFile("project", "active"),
+              generatedAt: null
+            })
+          ])
+        },
         results: [expect.objectContaining({ ref: "project:active:workflow:prefer-pnpm" })]
+      });
+    } finally {
+      await client.close();
+    }
+  }, 30_000);
+
+  it("surfaces latest sync audit provenance through MCP memory details", async () => {
+    const homeDir = await tempDir("cam-mcp-details-audit-home-");
+    const projectDir = await tempDir("cam-mcp-details-audit-project-");
+    const memoryRoot = await tempDir("cam-mcp-details-audit-memory-");
+    const rolloutPath = path.join(projectDir, "rollout.jsonl");
+    process.env.HOME = homeDir;
+
+    const projectConfig = makeAppConfig();
+    await writeCamConfig(projectDir, projectConfig, {
+      autoMemoryDirectory: memoryRoot
+    });
+    await fs.writeFile(
+      rolloutPath,
+      makeRolloutFixture(projectDir, "Remember that this repository prefers pnpm.", {
+        sessionId: "session-mcp-audit"
+      }),
+      "utf8"
+    );
+
+    const service = new SyncService(detectProjectContext(projectDir), {
+      ...projectConfig,
+      autoMemoryDirectory: memoryRoot
+    });
+    await service.syncRollout(rolloutPath, true);
+
+    const client = await connectCliMcpClient(projectDir, {
+      env: { HOME: homeDir }
+    });
+
+    try {
+      const searchResult = await client.callTool({
+        name: "search_memories",
+        arguments: {
+          query: "prefers pnpm",
+          limit: 5
+        }
+      });
+      const searchPayload = readStructuredContent<SearchMemoriesResponse>(
+        searchResult as ToolCallResultLike
+      );
+      const ref = searchPayload.results[0]?.ref;
+      expect(ref).toBeTruthy();
+
+      const detailsResult = await client.callTool({
+        name: "get_memory_details",
+        arguments: {
+          ref
+        }
+      });
+      const detailsPayload = readStructuredContent<MemoryDetailsResponse>(
+        detailsResult as ToolCallResultLike
+      );
+      expect(detailsPayload).toMatchObject({
+        latestSessionId: "session-mcp-audit",
+        latestRolloutPath: rolloutPath,
+        latestAudit: {
+          auditPath: service.memoryStore.getSyncAuditPath(),
+          rolloutPath,
+          sessionId: "session-mcp-audit",
+          status: "applied",
+          resultSummary: expect.stringContaining("operation(s) applied"),
+          noopOperationCount: 0,
+          suppressedOperationCount: 0
+        }
       });
     } finally {
       await client.close();

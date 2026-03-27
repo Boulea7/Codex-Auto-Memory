@@ -1,3 +1,4 @@
+import * as path from "node:path";
 import {
   appendCliCwdFlag,
   buildCliDetailsCommand,
@@ -218,11 +219,14 @@ function isClosingFence(line: string, fence: GuidanceFenceState): boolean {
 }
 
 export function buildCodexAgentsManagedBlock(
-  lineEnding: "\n" | "\r\n" | "\r" = "\n"
+  lineEnding: "\n" | "\r\n" | "\r" = "\n",
+  options: {
+    cwd?: string;
+  } = {}
 ): string {
   return [
     CODEX_AGENTS_MANAGED_BLOCK_START,
-    buildCodexAgentsGuidance().snippet,
+    buildCodexAgentsGuidance(options).snippet,
     CODEX_AGENTS_MANAGED_BLOCK_END
   ].join("\n").replace(/\n/g, lineEnding);
 }
@@ -352,15 +356,19 @@ export function summarizeCodexIntegrationStatus(
   return hasOk ? "ok" : "missing";
 }
 
-export function buildCodexStackNotes(): string[] {
-  const workflowContract = buildWorkflowContract();
+export function buildCodexStackNotes(
+  options: {
+    cwd?: string;
+  } = {}
+): string[] {
+  const workflowContract = buildWorkflowContract(options);
   return [
     READ_ONLY_RETRIEVAL_NOTE,
     LOCAL_BRIDGE_BUNDLE_NOTE,
     "Recommended route prefers project-scoped MCP, then local bridge recall helpers, then direct cam recall CLI usage.",
     `Recommended retrieval preset: ${workflowContract.recommendedPreset}.`,
     ...buildSharedWorkflowDisciplineLines().slice(2),
-    `When the local bridge bundle is installed, prefer \`${workflowContract.postWorkSyncReview.helperScript}\` to combine \`${buildPostWorkSyncCommand()}\` with \`${buildPostWorkRecentReviewCommand()}\`.`,
+    `When the local bridge bundle is installed, prefer \`${workflowContract.postWorkSyncReview.helperScript}\` to combine \`${workflowContract.postWorkSyncReview.syncCommand}\` with \`${workflowContract.postWorkSyncReview.reviewCommand}\`.`,
     "Run `cam mcp print-config --host codex` to inspect the recommended project-scoped MCP wiring together with an AGENTS.md snippet for Codex agents.",
     "Run `cam mcp apply-guidance --host codex` to create or update the managed Codex Auto Memory block inside the repository-level AGENTS.md.",
     "Codex skill readiness is guidance-only and does not replace executable hook fallback helpers.",
@@ -368,8 +376,12 @@ export function buildCodexStackNotes(): string[] {
   ];
 }
 
-export function buildCodexAgentsGuidance(): CodexAgentsGuidance {
-  const workflowContract = buildWorkflowContract();
+export function buildCodexAgentsGuidance(
+  options: {
+    cwd?: string;
+  } = {}
+): CodexAgentsGuidance {
+  const workflowContract = buildWorkflowContract(options);
   const sharedLines = buildSharedWorkflowDisciplineLines();
   const snippet = [
     "## Codex Auto Memory",
@@ -405,12 +417,12 @@ export function detectCodexAgentsGuidanceVersion(contents: string): string | nul
 }
 
 export function inspectCodexAgentsGuidance(
-  path: string,
+  filePath: string,
   contents: string | null
 ): CodexAgentsGuidanceInspection {
   if (contents === null) {
     return {
-      path,
+      path: filePath,
       exists: false,
       status: "missing",
       expectedVersion: CODEX_AGENTS_GUIDANCE_VERSION,
@@ -423,7 +435,11 @@ export function inspectCodexAgentsGuidance(
   const parsed = parseCodexAgentsGuidanceContents(contents);
   const inspectionTarget = parsed.managedBlock?.body ?? parsed.visibleText;
   const normalizedTarget = normalizeLineEndings(inspectionTarget);
-  const expectedSnippet = normalizeLineEndings(buildCodexAgentsGuidance().snippet);
+  const expectedSnippet = normalizeLineEndings(
+    buildCodexAgentsGuidance({
+      cwd: path.dirname(filePath)
+    }).snippet
+  );
   const detectedVersion = detectCodexAgentsGuidanceVersion(normalizedTarget);
   const matchedSignatures = CODEX_AGENTS_REQUIRED_SIGNATURES.filter((signature) =>
     normalizedTarget.includes(signature)
@@ -436,7 +452,7 @@ export function inspectCodexAgentsGuidance(
     : normalizeLineEndings(parsed.visibleText).includes(expectedSnippet);
 
   return {
-    path,
+    path: filePath,
     exists: true,
     status: hasCurrentGuidance ? "ok" : "warning",
     expectedVersion: CODEX_AGENTS_GUIDANCE_VERSION,
