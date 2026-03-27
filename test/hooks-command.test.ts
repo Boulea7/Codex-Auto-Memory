@@ -4,6 +4,11 @@ import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { detectProjectContext } from "../src/lib/domain/project-context.js";
 import { MemoryStore } from "../src/lib/domain/memory-store.js";
+import {
+  buildResolvedCliCommand,
+  buildResolvedPostWorkRecentReviewCommand,
+  buildResolvedPostWorkSyncCommand
+} from "../src/lib/integration/retrieval-contract.js";
 import { runCommandCapture } from "../src/lib/util/process.js";
 import { makeAppConfig, writeCamConfig } from "./helpers/cam-test-fixtures.js";
 import { resolveCliInvocation, runCli } from "./helpers/cli-runner.js";
@@ -107,10 +112,10 @@ describe("hooks command", () => {
     const postWorkReviewScript = await fs.readFile(postWorkReviewScriptPath, "utf8");
     expect(recallScript).toContain(`PROJECT_ROOT=${shellQuoteArg(await fs.realpath(projectDir))}`);
     expect(postWorkReviewScript).toContain(
-      `cam sync --cwd ${shellQuoteArg(await fs.realpath(projectDir))}`
+      `${buildResolvedPostWorkSyncCommand({ cwd: await fs.realpath(projectDir) })}`
     );
     expect(postWorkReviewScript).toContain(
-      `exec cam memory --recent --cwd ${shellQuoteArg(await fs.realpath(projectDir))}`
+      `exec ${buildResolvedPostWorkRecentReviewCommand({ cwd: await fs.realpath(projectDir) })}`
     );
   });
 
@@ -152,7 +157,7 @@ describe("hooks command", () => {
     const recallGuide = await fs.readFile(path.join(hooksDir, "recall-bridge.md"), "utf8");
     const realProjectDir = await fs.realpath(projectDir);
 
-    expect(recallScript).toContain('exec cam recall search "$@"');
+    expect(recallScript).toContain(`exec ${buildResolvedCliCommand("recall search")} "$@"`);
     expect(recallScript).toContain(`PROJECT_ROOT=${shellQuoteArg(realProjectDir)}`);
     expect(recallScript).toContain("--state");
     expect(recallScript).toContain("auto");
@@ -162,10 +167,10 @@ describe("hooks command", () => {
     expect(timelineScript).toContain('exec "$SCRIPT_DIR/memory-recall.sh" timeline "$@"');
     expect(detailsScript).toContain('exec "$SCRIPT_DIR/memory-recall.sh" details "$@"');
     expect(postWorkReviewScript).toContain(
-      `cam sync --cwd ${shellQuoteArg(realProjectDir)} "$@"`
+      `${buildResolvedPostWorkSyncCommand({ cwd: realProjectDir })} "$@"`
     );
     expect(postWorkReviewScript).toContain(
-      `exec cam memory --recent --cwd ${shellQuoteArg(realProjectDir)}`
+      `exec ${buildResolvedPostWorkRecentReviewCommand({ cwd: realProjectDir })}`
     );
     expect(recallGuide).toContain("search_memories");
     expect(recallGuide).toContain("memory-recall.sh search");

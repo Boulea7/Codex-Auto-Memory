@@ -1,12 +1,30 @@
 export type MemoryScope = "global" | "project" | "project-local";
 export type MemoryRecordState = "active" | "archived";
 export type MemoryHistoryRecordState = MemoryRecordState | "deleted";
-export type MemoryLifecycleAction = "add" | "update" | "delete" | "archive" | "noop";
+export type MemoryLifecycleAction =
+  | "add"
+  | "update"
+  | "restore"
+  | "delete"
+  | "archive"
+  | "noop";
+export type MemoryLifecycleAttemptOutcome = "applied" | "noop";
+export type MemoryLifecycleUpdateKind =
+  | "overwrite"
+  | "semantic-overwrite"
+  | "metadata-only"
+  | "restore";
 export type MemoryRetrievalScope = MemoryScope | "all";
 export type MemoryRetrievalResolvedState = MemoryRecordState | "all";
 export type MemoryRetrievalStateFilter = MemoryRetrievalResolvedState | "auto";
 export type MemoryRetrievalMode = "index" | "markdown-fallback";
 export type MemoryRetrievalFallbackReason = "missing" | "invalid" | "stale";
+export type MemorySearchStateResolutionOutcome =
+  | "active-hit"
+  | "archived-hit"
+  | "miss-after-both"
+  | "explicit-state";
+export type MemorySearchExecutionMode = "index-only" | "markdown-fallback-only" | "mixed";
 export type SessionContinuityScope = "project" | "project-local";
 export type SessionContinuityLocalPathStyle = "codex" | "claude";
 export type SessionContinuityWriteMode = "merge" | "replace";
@@ -69,6 +87,8 @@ export interface MemorySearchDiagnosticPath {
   retrievalMode: MemoryRetrievalMode;
   retrievalFallbackReason?: MemoryRetrievalFallbackReason;
   matchedCount: number;
+  returnedCount: number;
+  droppedCount: number;
   indexPath: string;
   generatedAt: string | null;
 }
@@ -76,7 +96,20 @@ export interface MemorySearchDiagnosticPath {
 export interface MemorySearchDiagnostics {
   anyMarkdownFallback: boolean;
   fallbackReasons: MemoryRetrievalFallbackReason[];
+  executionModes: MemoryRetrievalMode[];
   checkedPaths: MemorySearchDiagnosticPath[];
+}
+
+export interface MemorySearchStateResolution {
+  outcome: MemorySearchStateResolutionOutcome;
+  searchedStates: MemoryRecordState[];
+  resolutionReason: string;
+}
+
+export interface MemorySearchExecutionSummary {
+  mode: MemorySearchExecutionMode;
+  retrievalModes: MemoryRetrievalMode[];
+  fallbackReasons: MemoryRetrievalFallbackReason[];
 }
 
 export interface MemorySearchResponse {
@@ -84,28 +117,50 @@ export interface MemorySearchResponse {
   scope: MemoryRetrievalScope;
   state: MemoryRetrievalStateFilter;
   resolvedState: MemoryRetrievalResolvedState;
+  searchOrder: string[];
+  globalLimitApplied: boolean;
+  truncatedCount: number;
   fallbackUsed: boolean;
   stateFallbackUsed: boolean;
   markdownFallbackUsed: boolean;
   retrievalMode: MemoryRetrievalMode;
   retrievalFallbackReason?: MemoryRetrievalFallbackReason;
+  stateResolution: MemorySearchStateResolution;
+  executionSummary: MemorySearchExecutionSummary;
   diagnostics: MemorySearchDiagnostics;
   results: MemorySearchResult[];
 }
 
 export interface MemoryTimelineEvent {
   at: string;
-  action: Exclude<MemoryLifecycleAction, "noop">;
+  action: MemoryLifecycleAction;
   scope: MemoryScope;
   state: MemoryHistoryRecordState;
   topic: string;
   id: string;
   ref?: string;
   summary: string;
+  outcome?: MemoryLifecycleAttemptOutcome;
+  previousState?: MemoryHistoryRecordState;
+  nextState?: MemoryHistoryRecordState;
+  updateKind?: MemoryLifecycleUpdateKind;
   reason?: string;
   source?: string;
   sessionId?: string;
   rolloutPath?: string;
+}
+
+export interface MemoryLifecycleAttempt {
+  at: string;
+  action: MemoryLifecycleAction;
+  outcome: MemoryLifecycleAttemptOutcome;
+  state: MemoryHistoryRecordState | null;
+  previousState: MemoryHistoryRecordState | null;
+  nextState: MemoryHistoryRecordState | null;
+  summary: string;
+  updateKind: MemoryLifecycleUpdateKind | null;
+  sessionId: string | null;
+  rolloutPath: string | null;
 }
 
 export interface MemoryTimelineResponse {
@@ -113,6 +168,7 @@ export interface MemoryTimelineResponse {
   events: MemoryTimelineEvent[];
   warnings: string[];
   lineageSummary: MemoryLineageSummary;
+  latestLifecycleAttempt: MemoryLifecycleAttempt | null;
 }
 
 export interface MemoryLineageSummary {
@@ -121,9 +177,18 @@ export interface MemoryLineageSummary {
   latestAt: string | null;
   latestAction: Exclude<MemoryLifecycleAction, "noop"> | null;
   latestState: MemoryHistoryRecordState | null;
+  latestAttemptedAction: MemoryLifecycleAction | null;
+  latestAttemptedState: MemoryHistoryRecordState | null;
+  latestAttemptedOutcome: MemoryLifecycleAttemptOutcome | null;
+  latestUpdateKind: MemoryLifecycleUpdateKind | null;
   archivedAt: string | null;
   deletedAt: string | null;
   latestAuditStatus: MemorySyncAuditStatus | null;
+  refNoopCount: number;
+  matchedAuditOperationCount: number;
+  rolloutNoopOperationCount: number;
+  rolloutSuppressedOperationCount: number;
+  rolloutConflictCount: number;
   noopOperationCount: number;
   suppressedOperationCount: number;
   conflictCount: number;
@@ -134,6 +199,7 @@ export interface MemoryDetailsResult extends MemoryRef {
   path: string;
   approxReadCost: number;
   latestLifecycleAction: Exclude<MemoryLifecycleAction, "noop"> | null;
+  latestLifecycleAttempt: MemoryLifecycleAttempt | null;
   latestState: MemoryHistoryRecordState;
   latestSessionId: string | null;
   latestRolloutPath: string | null;
@@ -151,6 +217,7 @@ export interface MemorySyncAuditSummary {
   sessionId?: string;
   status: MemorySyncAuditStatus;
   resultSummary: string;
+  matchedOperationCount: number;
   noopOperationCount: number;
   suppressedOperationCount: number;
   conflicts: MemoryConflictCandidate[];

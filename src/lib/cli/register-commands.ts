@@ -343,6 +343,7 @@ export function registerCommands(program: Command): void {
     .option("--scope <scope>", "Memory scope: global, project, or project-local")
     .option("--topic <topic>", "Topic file name", "workflow")
     .option("--detail <detail...>", "Additional detail bullets")
+    .option("--json", "Print JSON output")
     .action(withStdout(async (text, options) => runRemember(text, options)));
 
   program
@@ -351,6 +352,7 @@ export function registerCommands(program: Command): void {
     .argument("<query>", "Search query used to find memory entries")
     .option("--scope <scope>", "Specific scope to target, or all")
     .option("--archive", "Move matching entries into archive instead of deleting them")
+    .option("--json", "Print JSON output")
     .action(withStdout(async (query, options) => runForget(query, options)));
 
   program

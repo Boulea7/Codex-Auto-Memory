@@ -6,6 +6,7 @@ import type {
   MemoryApplyRecord,
   MemoryDetailsResult,
   MemoryEntry,
+  MemoryLifecycleAttempt,
   MemoryHistoryRecordState,
   MemoryLineageSummary,
   MemoryMutation,
@@ -41,6 +42,7 @@ import {
 import { parseMemorySyncAuditEntry } from "./memory-sync-audit.js";
 import {
   buildMemoryRef,
+  classifyUpdateKind,
   classifyUpsertLifecycle,
   isMemoryHistoryRecordState,
   nextHistoryStateForLifecycle,
@@ -109,6 +111,9 @@ interface RetrievalIndexInspection {
 
 interface MemorySearchExecution {
   results: MemorySearchResult[];
+  searchOrder: string[];
+  globalLimitApplied: boolean;
+  truncatedCount: number;
   retrievalMode: MemoryRetrievalMode;
   retrievalFallbackReason?: MemoryRetrievalFallbackReason;
   diagnostics: MemorySearchDiagnostics;
@@ -134,6 +139,7 @@ interface HistoryReadResult {
 interface TimelineReadResult extends MemoryTimelineResponse {
   latestAudit: MemorySyncAuditSummary | null;
   latestEvent: MemoryTimelineEvent | null;
+  latestAttempt: MemoryTimelineEvent | null;
 }
 
 interface PlannedFileChange {
@@ -170,6 +176,10 @@ interface MemoryStoreFileOps {
 
 const topicNamePattern = /^[a-z0-9]+(?:-[a-z0-9]+)*$/u;
 const retrievalIndexVersion = 1 as const;
+
+function buildSearchDiagnosticKey(scope: MemoryScope, state: MemoryRecordState): string {
+  return `${scope}:${state}`;
+}
 
 function topicTitle(topic: string): string {
   return topic
@@ -431,9 +441,18 @@ function buildEmptyLineageSummary(): MemoryLineageSummary {
     latestAt: null,
     latestAction: null,
     latestState: null,
+    latestAttemptedAction: null,
+    latestAttemptedState: null,
+    latestAttemptedOutcome: null,
+    latestUpdateKind: null,
     archivedAt: null,
     deletedAt: null,
     latestAuditStatus: null,
+    refNoopCount: 0,
+    matchedAuditOperationCount: 0,
+    rolloutNoopOperationCount: 0,
+    rolloutSuppressedOperationCount: 0,
+    rolloutConflictCount: 0,
     noopOperationCount: 0,
     suppressedOperationCount: 0,
     conflictCount: 0
@@ -442,37 +461,80 @@ function buildEmptyLineageSummary(): MemoryLineageSummary {
 
 function buildLineageSummary(
   events: MemoryTimelineEvent[],
-  latestAudit: MemorySyncAuditSummary | null
+  latestAudit: MemorySyncAuditSummary | null,
+  latestAttempt: MemoryTimelineEvent | null
 ): MemoryLineageSummary {
+  const refNoopCount = events.filter((event) => event.action === "noop").length;
+  const visibleEvents = events.filter((event) => event.action !== "noop");
   if (events.length === 0) {
     return {
       ...buildEmptyLineageSummary(),
+      latestAttemptedAction: latestAttempt?.action ?? null,
+      latestAttemptedState: latestAttempt?.state ?? null,
+      latestAttemptedOutcome: latestAttempt?.outcome ?? null,
+      latestUpdateKind: latestAttempt?.updateKind ?? null,
       latestAuditStatus: latestAudit?.status ?? null,
+      refNoopCount,
+      matchedAuditOperationCount: latestAudit?.matchedOperationCount ?? 0,
+      rolloutNoopOperationCount: latestAudit?.noopOperationCount ?? 0,
+      rolloutSuppressedOperationCount: latestAudit?.suppressedOperationCount ?? 0,
+      rolloutConflictCount: latestAudit?.conflicts.length ?? 0,
       noopOperationCount: latestAudit?.noopOperationCount ?? 0,
       suppressedOperationCount: latestAudit?.suppressedOperationCount ?? 0,
       conflictCount: latestAudit?.conflicts.length ?? 0
     };
   }
 
-  const chronologicalEvents = [...events].sort((left, right) => left.at.localeCompare(right.at));
-  const latestEvent = events[0] ?? null;
+  const chronologicalEvents = [...visibleEvents].sort((left, right) => left.at.localeCompare(right.at));
+  const latestEvent = visibleEvents[0] ?? null;
   const archivedEvent =
     chronologicalEvents.find((event) => event.action === "archive") ?? null;
   const deletedEvent =
     chronologicalEvents.find((event) => event.action === "delete") ?? null;
 
   return {
-    eventCount: events.length,
+    eventCount: visibleEvents.length,
     firstSeenAt: chronologicalEvents[0]?.at ?? null,
     latestAt: latestEvent?.at ?? null,
-    latestAction: latestEvent?.action ?? null,
+    latestAction:
+      latestEvent && latestEvent.action !== "noop" ? latestEvent.action : null,
     latestState: latestEvent?.state ?? null,
+    latestAttemptedAction: latestAttempt?.action ?? null,
+    latestAttemptedState: latestAttempt?.state ?? null,
+    latestAttemptedOutcome: latestAttempt?.outcome ?? null,
+    latestUpdateKind: latestAttempt?.updateKind ?? null,
     archivedAt: archivedEvent?.at ?? null,
     deletedAt: deletedEvent?.at ?? null,
     latestAuditStatus: latestAudit?.status ?? null,
+    refNoopCount,
+    matchedAuditOperationCount: latestAudit?.matchedOperationCount ?? 0,
+    rolloutNoopOperationCount: latestAudit?.noopOperationCount ?? 0,
+    rolloutSuppressedOperationCount: latestAudit?.suppressedOperationCount ?? 0,
+    rolloutConflictCount: latestAudit?.conflicts.length ?? 0,
     noopOperationCount: latestAudit?.noopOperationCount ?? 0,
     suppressedOperationCount: latestAudit?.suppressedOperationCount ?? 0,
     conflictCount: latestAudit?.conflicts.length ?? 0
+  };
+}
+
+function buildLatestLifecycleAttempt(
+  event: MemoryTimelineEvent | null
+): MemoryLifecycleAttempt | null {
+  if (!event) {
+    return null;
+  }
+
+  return {
+    at: event.at,
+    action: event.action,
+    outcome: event.outcome ?? (event.action === "noop" ? "noop" : "applied"),
+    state: event.state,
+    previousState: event.previousState ?? null,
+    nextState: event.nextState ?? null,
+    summary: event.summary,
+    updateKind: event.updateKind ?? null,
+    sessionId: event.sessionId ?? null,
+    rolloutPath: event.rolloutPath ?? null
   };
 }
 
@@ -560,14 +622,24 @@ function isTimelineEvent(value: unknown): value is MemoryTimelineEvent {
     typeof event.at === "string" &&
     (event.action === "add" ||
       event.action === "update" ||
+      event.action === "restore" ||
       event.action === "delete" ||
-      event.action === "archive") &&
+      event.action === "archive" ||
+      event.action === "noop") &&
     isMemoryScope(event.scope) &&
     isMemoryHistoryRecordState(event.state) &&
     typeof event.topic === "string" &&
     typeof event.id === "string" &&
     typeof event.summary === "string" &&
     (event.ref === undefined || typeof event.ref === "string") &&
+    (event.outcome === undefined || event.outcome === "applied" || event.outcome === "noop") &&
+    (event.previousState === undefined || isMemoryHistoryRecordState(event.previousState)) &&
+    (event.nextState === undefined || isMemoryHistoryRecordState(event.nextState)) &&
+    (event.updateKind === undefined ||
+      event.updateKind === "overwrite" ||
+      event.updateKind === "semantic-overwrite" ||
+      event.updateKind === "metadata-only" ||
+      event.updateKind === "restore") &&
     (event.reason === undefined || typeof event.reason === "string") &&
     (event.source === undefined || typeof event.source === "string") &&
     (event.sessionId === undefined || typeof event.sessionId === "string") &&
@@ -1284,9 +1356,10 @@ export class MemoryStore {
 
     const timeline = await this.readTimelineWithDiagnostics(ref);
     const latestEvent = timeline.latestEvent;
+    const latestAttempt = timeline.latestAttempt;
     const latestAudit = timeline.latestAudit;
     const warnings = [...timeline.warnings];
-    if (latestEvent && !latestAudit && (latestEvent.rolloutPath || latestEvent.sessionId)) {
+    if (latestAttempt && !latestAudit && (latestAttempt.rolloutPath || latestAttempt.sessionId)) {
       warnings.push(
         `Lifecycle history exists for ${ref}, but no matching sync audit entry was found in ${this.getSyncAuditPath()}.`
       );
@@ -1294,19 +1367,25 @@ export class MemoryStore {
 
     if ((latestAudit?.noopOperationCount ?? 0) > 0) {
       warnings.push(
-        `Latest sync audit recorded ${latestAudit?.noopOperationCount ?? 0} no-op operation(s).`
+        `Latest sync audit recorded ${latestAudit?.noopOperationCount ?? 0} rollout-level no-op operation(s) across the whole sync.`
       );
     }
 
     if ((latestAudit?.suppressedOperationCount ?? 0) > 0) {
       warnings.push(
-        `Latest sync audit suppressed ${latestAudit?.suppressedOperationCount ?? 0} operation(s).`
+        `Latest sync audit suppressed ${latestAudit?.suppressedOperationCount ?? 0} rollout-level operation(s) across the whole sync.`
       );
     }
 
     if ((latestAudit?.conflicts.length ?? 0) > 0) {
       warnings.push(
-        `Latest sync audit includes ${latestAudit?.conflicts.length ?? 0} suppressed conflict candidate(s).`
+        `Latest sync audit includes ${latestAudit?.conflicts.length ?? 0} rollout-level suppressed conflict candidate(s).`
+      );
+    }
+
+    if (timeline.lineageSummary.refNoopCount > 0) {
+      warnings.push(
+        `Lifecycle history recorded ${timeline.lineageSummary.refNoopCount} ref-local no-op attempt(s) for ${ref}.`
       );
     }
 
@@ -1318,10 +1397,12 @@ export class MemoryStore {
           ? this.getTopicFile(parsed.scope, parsed.topic)
           : this.getArchiveTopicFile(parsed.scope, parsed.topic),
       approxReadCost: entry.details.length + 4,
-      latestLifecycleAction: latestEvent?.action ?? null,
+      latestLifecycleAction:
+        latestEvent && latestEvent.action !== "noop" ? latestEvent.action : null,
+      latestLifecycleAttempt: buildLatestLifecycleAttempt(latestAttempt),
       latestState: latestEvent?.state ?? parsed.state,
-      latestSessionId: latestEvent?.sessionId ?? null,
-      latestRolloutPath: latestEvent?.rolloutPath ?? null,
+      latestSessionId: latestAttempt?.sessionId ?? latestEvent?.sessionId ?? null,
+      latestRolloutPath: latestAttempt?.rolloutPath ?? latestEvent?.rolloutPath ?? null,
       historyPath: this.getHistoryPath(parsed.scope),
       latestAudit,
       timelineWarningCount: timeline.warnings.length,
@@ -1387,6 +1468,8 @@ export class MemoryStore {
             state,
             retrievalMode: "index",
             matchedCount,
+            returnedCount: 0,
+            droppedCount: 0,
             indexPath: retrievalIndex.indexPath,
             generatedAt: retrievalIndex.generatedAt
           });
@@ -1423,12 +1506,15 @@ export class MemoryStore {
           retrievalMode: "markdown-fallback",
           retrievalFallbackReason: retrievalIndex.fallbackReason ?? "missing",
           matchedCount,
+          returnedCount: 0,
+          droppedCount: 0,
           indexPath: retrievalIndex.indexPath,
           generatedAt: retrievalIndex.generatedAt
         });
       }
     }
 
+    const totalMatchedCount = results.length;
     const normalizedResults = results
       .sort((left, right) => {
         if (right.score !== left.score) {
@@ -1438,16 +1524,30 @@ export class MemoryStore {
       })
       .slice(0, options.limit ?? 10)
       .map(({ score: _score, ...result }) => result);
+    const returnedCountByPath = new Map<string, number>();
+    for (const result of normalizedResults) {
+      const key = buildSearchDiagnosticKey(result.scope, result.state);
+      returnedCountByPath.set(key, (returnedCountByPath.get(key) ?? 0) + 1);
+    }
+    const diagnosticsWithReturnedCounts = diagnostics.map((check) => ({
+      ...check,
+      returnedCount: returnedCountByPath.get(buildSearchDiagnosticKey(check.scope, check.state)) ?? 0,
+      droppedCount:
+        check.matchedCount - (returnedCountByPath.get(buildSearchDiagnosticKey(check.scope, check.state)) ?? 0)
+    }));
 
     return {
       results: normalizedResults,
+      searchOrder: diagnostics.map((check) => buildSearchDiagnosticKey(check.scope, check.state)),
+      globalLimitApplied: normalizedResults.length < totalMatchedCount,
+      truncatedCount: Math.max(0, totalMatchedCount - normalizedResults.length),
       retrievalMode:
         matchedViaFallback || (!matchedViaIndex && usedFallback)
           ? "markdown-fallback"
           : "index",
       retrievalFallbackReason:
         matchedViaFallback || (!matchedViaIndex && usedFallback) ? fallbackReason : undefined,
-      diagnostics: normalizeMemorySearchDiagnostics(diagnostics)
+      diagnostics: normalizeMemorySearchDiagnostics(diagnosticsWithReturnedCounts)
     };
   }
 
@@ -1475,28 +1575,32 @@ export class MemoryStore {
         warnings: [],
         lineageSummary: buildEmptyLineageSummary(),
         latestAudit: null,
-        latestEvent: null
+        latestEvent: null,
+        latestAttempt: null,
+        latestLifecycleAttempt: null
       };
     }
 
     const history = await this.readHistoryWithDiagnostics(parsed.scope);
-    const events = history.events
+    const matchingEvents = history.events
       .filter((entry) => entry.id === parsed.id && entry.topic === parsed.topic)
       .sort((left, right) => right.at.localeCompare(left.at));
+    const events = matchingEvents.filter((event) => event.action !== "noop");
     const latestEvent = events[0] ?? null;
+    const latestAttempt = matchingEvents[0] ?? null;
     const latestEventHasProvenance = Boolean(latestEvent?.rolloutPath || latestEvent?.sessionId);
-    const olderEventHasProvenance = events
+    const olderEventHasProvenance = matchingEvents
       .slice(1)
       .some((event) => Boolean(event.rolloutPath || event.sessionId));
     const latestAudit = await this.findLatestSyncAuditSummary(
       parsed.scope,
       parsed.topic,
       parsed.id,
-      latestEvent?.rolloutPath,
-      latestEvent?.sessionId
+      latestAttempt?.rolloutPath,
+      latestAttempt?.sessionId
     );
     const warnings = [...history.warnings];
-    if (latestEvent && !latestAudit && latestEventHasProvenance) {
+    if (latestAttempt && !latestAudit && (latestAttempt.rolloutPath || latestAttempt.sessionId)) {
       warnings.push(
         `Lifecycle history exists for ${ref}, but no matching sync audit entry was found in ${this.getSyncAuditPath()}.`
       );
@@ -1511,9 +1615,11 @@ export class MemoryStore {
       ref,
       events,
       warnings,
-      lineageSummary: buildLineageSummary(events, latestAudit),
+      lineageSummary: buildLineageSummary(matchingEvents, latestAudit, latestAttempt),
       latestAudit,
-      latestEvent
+      latestEvent,
+      latestAttempt,
+      latestLifecycleAttempt: buildLatestLifecycleAttempt(latestAttempt)
     };
   }
 
@@ -1661,11 +1767,34 @@ export class MemoryStore {
         };
 
         if (lifecycleAction === "noop") {
+          const noopState = existingActive ? "active" : existingArchived ? "archived" : "deleted";
           applied.push({
             operation: appliedOperation,
             lifecycleAction,
-            previousState: "active",
-            nextState: "active"
+            previousState: noopState === "deleted" ? undefined : noopState,
+            nextState: noopState
+          });
+          scopeState.historyAppends.push({
+            at: updatedAt,
+            action: "noop",
+            outcome: "noop",
+            previousState: noopState === "deleted" ? undefined : noopState,
+            nextState: noopState,
+            scope: mutation.scope,
+            state: noopState,
+            topic,
+            id: mutation.id,
+            ref:
+              noopState === "deleted"
+                ? undefined
+                : buildMemoryRef(mutation.scope, noopState, topic, mutation.id),
+            summary: entry.summary,
+            reason: mutation.reason,
+            source: mutation.sources?.[0],
+            sessionId: options.sessionId,
+            rolloutPath:
+              options.rolloutPath ??
+              mutation.sources?.find((source) => source.endsWith(".jsonl"))
           });
           continue;
         }
@@ -1693,6 +1822,15 @@ export class MemoryStore {
         scopeState.historyAppends.push({
           at: updatedAt,
           action: lifecycleAction,
+          outcome: "applied",
+          previousState: existingActive ? "active" : existingArchived ? "archived" : undefined,
+          nextState: nextHistoryStateForLifecycle(lifecycleAction),
+          updateKind:
+            lifecycleAction === "restore"
+              ? "restore"
+              : existingActive
+                ? classifyUpdateKind(existingActive, entry)
+                : undefined,
           scope: mutation.scope,
           state: "active",
           topic,
@@ -1723,6 +1861,27 @@ export class MemoryStore {
           previousState: existingArchived ? "archived" : undefined,
           nextState: existingArchived ? "archived" : undefined
         });
+        if (existingArchived) {
+          scopeState.historyAppends.push({
+            at: new Date().toISOString(),
+            action: "noop",
+            outcome: "noop",
+            previousState: "archived",
+            nextState: "archived",
+            scope: mutation.scope,
+            state: "archived",
+            topic,
+            id: mutation.id,
+            ref: buildMemoryRef(mutation.scope, "archived", topic, mutation.id),
+            summary: existingArchived.summary,
+            reason: mutation.reason ?? existingArchived.reason,
+            source: (mutation.sources ?? existingArchived.sources)?.[0],
+            sessionId: options.sessionId,
+            rolloutPath:
+              options.rolloutPath ??
+              (mutation.sources ?? existingArchived.sources)?.find((source) => source.endsWith(".jsonl"))
+          });
+        }
         continue;
       }
 
@@ -1768,6 +1927,9 @@ export class MemoryStore {
         scopeState.historyAppends.push({
           at: archivedAt,
           action: "archive",
+          outcome: "applied",
+          previousState: "active",
+          nextState: "archived",
           scope: mutation.scope,
           state: "archived",
           topic,
@@ -1799,6 +1961,25 @@ export class MemoryStore {
           previousState: "active",
           nextState: "active"
         });
+        scopeState.historyAppends.push({
+          at: new Date().toISOString(),
+          action: "noop",
+          outcome: "noop",
+          previousState: "active",
+          nextState: "active",
+          scope: mutation.scope,
+          state: "active",
+          topic,
+          id: mutation.id,
+          ref: buildMemoryRef(mutation.scope, "active", topic, mutation.id),
+          summary: existingActive.summary,
+          reason: mutation.reason ?? existingActive.reason,
+          source: (mutation.sources ?? existingActive.sources)?.[0],
+          sessionId: options.sessionId,
+          rolloutPath:
+            options.rolloutPath ??
+            (mutation.sources ?? existingActive.sources)?.find((source) => source.endsWith(".jsonl"))
+        });
         continue;
       }
 
@@ -1826,6 +2007,9 @@ export class MemoryStore {
       scopeState.historyAppends.push({
         at: deletedAt,
         action: "delete",
+        outcome: "applied",
+        previousState: "active",
+        nextState: "deleted",
         scope: mutation.scope,
         state: "deleted",
         topic,
@@ -2220,23 +2404,29 @@ export class MemoryStore {
     }
 
     const entries = await this.readSyncAuditEntries();
-    const matched =
-      entries.find(
-          (entry) =>
-            ((latestRolloutPath !== undefined && entry.rolloutPath === latestRolloutPath) ||
-              (latestRolloutPath === undefined &&
-                latestSessionId !== undefined &&
-                entry.sessionId === latestSessionId)) &&
-            (latestSessionId === undefined || entry.sessionId === latestSessionId) &&
-            entry.operations.some(
-              (operation) =>
-                operation.scope === scope && operation.topic === topic && operation.id === id
-            )
+    const matched = entries.find((entry) => {
+      const matchesProvenance =
+        latestRolloutPath !== undefined
+          ? entry.rolloutPath === latestRolloutPath &&
+            (latestSessionId === undefined || entry.sessionId === latestSessionId)
+          : latestSessionId !== undefined && entry.sessionId === latestSessionId;
+
+      if (!matchesProvenance) {
+        return false;
+      }
+
+      return entry.operations.some(
+        (operation) => operation.scope === scope && operation.topic === topic && operation.id === id
       );
+    });
 
     if (!matched) {
       return null;
     }
+
+    const matchedOperations = matched.operations.filter(
+      (operation) => operation.scope === scope && operation.topic === topic && operation.id === id
+    );
 
     return {
       auditPath: this.getSyncAuditPath(),
@@ -2245,6 +2435,7 @@ export class MemoryStore {
       sessionId: matched.sessionId,
       status: matched.status,
       resultSummary: matched.resultSummary,
+      matchedOperationCount: matchedOperations.length,
       noopOperationCount: matched.noopOperationCount ?? 0,
       suppressedOperationCount: matched.suppressedOperationCount ?? 0,
       conflicts: matched.conflicts ?? []

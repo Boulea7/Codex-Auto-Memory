@@ -41,9 +41,17 @@ export class MemoryRetrievalService {
           scope,
           state,
           "active",
+          activeSearch.searchOrder,
+          activeSearch.globalLimitApplied,
+          activeSearch.truncatedCount,
           false,
           activeSearch.retrievalMode,
           activeSearch.retrievalFallbackReason,
+          {
+            outcome: "active-hit",
+            searchedStates: ["active"],
+            resolutionReason: "active-match-found"
+          },
           activeSearch.diagnostics,
           activeSearch.results
         );
@@ -60,9 +68,20 @@ export class MemoryRetrievalService {
         scope,
         state,
         "archived",
+        [...activeSearch.searchOrder, ...archivedSearch.searchOrder],
+        activeSearch.globalLimitApplied || archivedSearch.globalLimitApplied,
+        activeSearch.truncatedCount + archivedSearch.truncatedCount,
         true,
         archivedSearch.retrievalMode,
         archivedSearch.retrievalFallbackReason,
+        {
+          outcome: archivedSearch.results.length > 0 ? "archived-hit" : "miss-after-both",
+          searchedStates: ["active", "archived"],
+          resolutionReason:
+            archivedSearch.results.length > 0
+              ? "active-empty-archived-match-found"
+              : "no-match-after-auto-search"
+        },
         normalizeMemorySearchDiagnostics([
           ...activeSearch.diagnostics.checkedPaths,
           ...archivedSearch.diagnostics.checkedPaths
@@ -82,9 +101,18 @@ export class MemoryRetrievalService {
       scope,
       state,
       state,
+      search.searchOrder,
+      search.globalLimitApplied,
+      search.truncatedCount,
       false,
       search.retrievalMode,
       search.retrievalFallbackReason,
+      {
+        outcome: "explicit-state",
+        searchedStates: state === "all" ? ["active", "archived"] : [state],
+        resolutionReason:
+          state === "all" ? "explicit-all-state-requested" : `explicit-${state}-state-requested`
+      },
       search.diagnostics,
       search.results
     );

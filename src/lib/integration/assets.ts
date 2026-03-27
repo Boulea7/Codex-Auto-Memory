@@ -13,6 +13,9 @@ import {
   buildRecommendedRetrievalSummaryLines,
   buildPostWorkRecentReviewCommand,
   buildPostWorkSyncCommand,
+  buildResolvedCliCommand,
+  buildResolvedPostWorkRecentReviewCommand,
+  buildResolvedPostWorkSyncCommand,
   buildSharedWorkflowDisciplineLines,
   buildShellAssetVersionComment,
   CLI_FALLBACK_RECALL_WORKFLOW,
@@ -144,19 +147,19 @@ case "$ACTION" in
     if ! contains_flag "--limit" "$@"; then
       set -- "$@" "--limit" "${RECOMMENDED_RETRIEVAL_LIMIT}"
     fi
-    exec cam recall search "$@"
+    exec ${buildResolvedCliCommand("recall search")} "$@"
     ;;
   timeline)
     if ! contains_flag "--cwd" "$@"; then
       set -- "$@" "--cwd" "$PROJECT_ROOT"
     fi
-    exec cam recall timeline "$@"
+    exec ${buildResolvedCliCommand("recall timeline")} "$@"
     ;;
   details)
     if ! contains_flag "--cwd" "$@"; then
       set -- "$@" "--cwd" "$PROJECT_ROOT"
     fi
-    exec cam recall details "$@"
+    exec ${buildResolvedCliCommand("recall details")} "$@"
     ;;
   *)
     echo "Usage: memory-recall.sh <search|timeline|details> <args...>" >&2
@@ -221,8 +224,8 @@ function buildPostWorkMemoryReviewScript(projectRoot: string): string {
   return `#!/bin/sh
 ${buildShellAssetVersionComment()}
 # Sync the latest durable memory updates, then show the recent audit surface for review.
-${buildPostWorkSyncCommand({ cwd: projectRoot })} "$@" || exit $?
-exec ${buildPostWorkRecentReviewCommand({ cwd: projectRoot })}
+${buildResolvedPostWorkSyncCommand({ cwd: projectRoot })} "$@" || exit $?
+exec ${buildResolvedPostWorkRecentReviewCommand({ cwd: projectRoot })}
 `;
 }
 
@@ -297,7 +300,7 @@ const INTEGRATION_ASSET_DEFINITIONS: readonly IntegrationAssetDefinition[] = [
     executable: true,
     role: "capture-helper",
     doctorVisible: true,
-    doctorSignatures: ["cam sync --cwd"],
+    doctorSignatures: [" sync --cwd "],
     renderContents: (context) =>
       `#!/bin/sh
 ${buildShellAssetVersionComment()}
@@ -313,7 +316,7 @@ ${appendCliCwdFlag("cam sync", context.projectRoot)} "$@"
     executable: true,
     role: "capture-helper",
     doctorVisible: true,
-    doctorSignatures: ["cam doctor --cwd"],
+    doctorSignatures: [" doctor --cwd "],
     renderContents: (context) =>
       `#!/bin/sh
 ${buildShellAssetVersionComment()}
@@ -329,7 +332,7 @@ ${appendCliCwdFlag("cam doctor", context.projectRoot)} "$@"
     executable: true,
     role: "capture-helper",
     doctorVisible: true,
-    doctorSignatures: ["cam sync --cwd", "cam memory --recent --cwd"],
+    doctorSignatures: [" sync --cwd ", " memory --recent --cwd "],
     renderContents: (context) => buildPostWorkMemoryReviewScript(context.projectRoot)
   },
   {
@@ -342,9 +345,9 @@ ${appendCliCwdFlag("cam doctor", context.projectRoot)} "$@"
     doctorVisible: true,
     doctorSignatures: [
       "PROJECT_ROOT=",
-      'exec cam recall search "$@"',
-      'exec cam recall timeline "$@"',
-      'exec cam recall details "$@"'
+      ' recall search "$@"',
+      ' recall timeline "$@"',
+      ' recall details "$@"'
     ],
     renderContents: (context) => buildRecallDispatcherScript(context.projectRoot)
   },

@@ -25,7 +25,15 @@ const retrievalStateSchema = z.enum(["active", "archived", "all", "auto"]);
 const resolvedRetrievalStateSchema = z.enum(["active", "archived", "all"]);
 const memoryRecordStateSchema = z.enum(["active", "archived"]);
 const memoryHistoryRecordStateSchema = z.enum(["active", "archived", "deleted"]);
-const memoryLifecycleActionSchema = z.enum(["add", "update", "delete", "archive"]);
+const memoryLifecycleActionSchema = z.enum(["add", "update", "restore", "delete", "archive", "noop"]);
+const appliedMemoryLifecycleActionSchema = z.enum(["add", "update", "restore", "delete", "archive"]);
+const memoryLifecycleAttemptOutcomeSchema = z.enum(["applied", "noop"]);
+const memoryLifecycleUpdateKindSchema = z.enum([
+  "overwrite",
+  "semantic-overwrite",
+  "metadata-only",
+  "restore"
+]);
 
 const memorySearchResultSchema = z.object({
   ref: z.string(),
@@ -45,6 +53,8 @@ const memorySearchDiagnosticSchema = z.object({
   retrievalMode: z.enum(["index", "markdown-fallback"]),
   retrievalFallbackReason: z.enum(["missing", "invalid", "stale"]).optional(),
   matchedCount: z.number().int().nonnegative(),
+  returnedCount: z.number().int().nonnegative(),
+  droppedCount: z.number().int().nonnegative(),
   indexPath: z.string(),
   generatedAt: z.string().nullable()
 });
@@ -54,14 +64,28 @@ const memorySearchResponseSchema = z.object({
   scope: retrievalScopeSchema,
   state: retrievalStateSchema,
   resolvedState: resolvedRetrievalStateSchema,
+  searchOrder: z.array(z.string()),
+  globalLimitApplied: z.boolean(),
+  truncatedCount: z.number().int().nonnegative(),
   fallbackUsed: z.boolean(),
   stateFallbackUsed: z.boolean(),
   markdownFallbackUsed: z.boolean(),
   retrievalMode: z.enum(["index", "markdown-fallback"]),
   retrievalFallbackReason: z.enum(["missing", "invalid", "stale"]).optional(),
+  stateResolution: z.object({
+    outcome: z.enum(["active-hit", "archived-hit", "miss-after-both", "explicit-state"]),
+    searchedStates: z.array(memoryRecordStateSchema),
+    resolutionReason: z.string()
+  }),
+  executionSummary: z.object({
+    mode: z.enum(["index-only", "markdown-fallback-only", "mixed"]),
+    retrievalModes: z.array(z.enum(["index", "markdown-fallback"])),
+    fallbackReasons: z.array(z.enum(["missing", "invalid", "stale"]))
+  }),
   diagnostics: z.object({
     anyMarkdownFallback: z.boolean(),
     fallbackReasons: z.array(z.enum(["missing", "invalid", "stale"])),
+    executionModes: z.array(z.enum(["index", "markdown-fallback"])),
     checkedPaths: z.array(memorySearchDiagnosticSchema)
   }),
   results: z.array(memorySearchResultSchema)
@@ -76,21 +100,47 @@ const memoryTimelineEventSchema = z.object({
   id: z.string(),
   ref: z.string().optional(),
   summary: z.string(),
+  outcome: memoryLifecycleAttemptOutcomeSchema.optional(),
+  previousState: memoryHistoryRecordStateSchema.optional(),
+  nextState: memoryHistoryRecordStateSchema.optional(),
+  updateKind: memoryLifecycleUpdateKindSchema.optional(),
   reason: z.string().optional(),
   source: z.string().optional(),
   sessionId: z.string().optional(),
   rolloutPath: z.string().optional()
 });
 
+const memoryLifecycleAttemptSchema = z.object({
+  at: z.string(),
+  action: memoryLifecycleActionSchema,
+  outcome: memoryLifecycleAttemptOutcomeSchema,
+  state: memoryHistoryRecordStateSchema.nullable(),
+  previousState: memoryHistoryRecordStateSchema.nullable(),
+  nextState: memoryHistoryRecordStateSchema.nullable(),
+  summary: z.string(),
+  updateKind: memoryLifecycleUpdateKindSchema.nullable(),
+  sessionId: z.string().nullable(),
+  rolloutPath: z.string().nullable()
+});
+
 const memoryLineageSummarySchema = z.object({
   eventCount: z.number().int().nonnegative(),
   firstSeenAt: z.string().nullable(),
   latestAt: z.string().nullable(),
-  latestAction: memoryLifecycleActionSchema.nullable(),
+  latestAction: appliedMemoryLifecycleActionSchema.nullable(),
   latestState: memoryHistoryRecordStateSchema.nullable(),
+  latestAttemptedAction: memoryLifecycleActionSchema.nullable(),
+  latestAttemptedState: memoryHistoryRecordStateSchema.nullable(),
+  latestAttemptedOutcome: memoryLifecycleAttemptOutcomeSchema.nullable(),
+  latestUpdateKind: memoryLifecycleUpdateKindSchema.nullable(),
   archivedAt: z.string().nullable(),
   deletedAt: z.string().nullable(),
   latestAuditStatus: z.enum(["applied", "no-op", "skipped"]).nullable(),
+  refNoopCount: z.number().int().nonnegative(),
+  matchedAuditOperationCount: z.number().int().nonnegative(),
+  rolloutNoopOperationCount: z.number().int().nonnegative(),
+  rolloutSuppressedOperationCount: z.number().int().nonnegative(),
+  rolloutConflictCount: z.number().int().nonnegative(),
   noopOperationCount: z.number().int().nonnegative(),
   suppressedOperationCount: z.number().int().nonnegative(),
   conflictCount: z.number().int().nonnegative()
@@ -100,6 +150,7 @@ const memoryTimelineResponseSchema = z.object({
   ref: z.string(),
   events: z.array(memoryTimelineEventSchema),
   warnings: z.array(z.string()),
+  latestLifecycleAttempt: memoryLifecycleAttemptSchema.nullable(),
   lineageSummary: memoryLineageSummarySchema
 });
 
@@ -111,7 +162,8 @@ const memoryDetailsResponseSchema = z.object({
   id: z.string(),
   path: z.string(),
   approxReadCost: z.number().int().nonnegative(),
-  latestLifecycleAction: memoryLifecycleActionSchema.nullable(),
+  latestLifecycleAction: appliedMemoryLifecycleActionSchema.nullable(),
+  latestLifecycleAttempt: memoryLifecycleAttemptSchema.nullable(),
   latestState: memoryHistoryRecordStateSchema,
   latestSessionId: z.string().nullable(),
   latestRolloutPath: z.string().nullable(),
@@ -127,6 +179,7 @@ const memoryDetailsResponseSchema = z.object({
       sessionId: z.string().optional(),
       status: z.enum(["applied", "no-op", "skipped"]),
       resultSummary: z.string(),
+      matchedOperationCount: z.number().int().nonnegative(),
       noopOperationCount: z.number().int().nonnegative(),
       suppressedOperationCount: z.number().int().nonnegative(),
       conflicts: z.array(

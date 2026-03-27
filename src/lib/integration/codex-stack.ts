@@ -1,6 +1,10 @@
 import * as path from "node:path";
 import {
   appendCliCwdFlag,
+  buildResolvedCliCommand,
+  buildResolvedCliDetailsCommand,
+  buildResolvedCliSearchCommand,
+  buildResolvedCliTimelineCommand,
   buildCliDetailsCommand,
   buildPostWorkRecentReviewCommand,
   buildPostWorkSyncCommand,
@@ -28,7 +32,9 @@ export interface CodexStackReadiness {
   mcpOperationalReady: boolean;
   camCommandAvailable: boolean;
   hookCaptureReady: boolean;
+  hookCaptureOperationalReady: boolean;
   hookRecallReady: boolean;
+  hookRecallOperationalReady: boolean;
   skillReady: boolean;
   workflowAssetsConsistent: boolean;
   workflowConsistent: boolean;
@@ -59,6 +65,16 @@ export interface CodexAgentsGuidance {
   snippetFormat: "markdown";
   snippet: string;
   notes: string[];
+}
+
+export interface ExperimentalCodexHooksGuidance {
+  status: "experimental";
+  featureFlag: "codex_hooks";
+  targetFileHint: ".codex/config.toml";
+  snippetFormat: "toml";
+  snippet: string;
+  notes: string[];
+  docs: string[];
 }
 
 export interface CodexAgentsGuidanceInspection {
@@ -94,6 +110,8 @@ export const READ_ONLY_RETRIEVAL_NOTE =
   "Codex Auto Memory exposes a read-only retrieval MCP plane. Markdown remains the canonical memory surface.";
 export const LOCAL_BRIDGE_BUNDLE_NOTE =
   "Hook assets in this repository are local bridge and fallback helpers, not an official Codex hook surface.";
+export const EXPERIMENTAL_CODEX_HOOKS_NOTE =
+  "Official Codex hooks are a public but experimental opt-in surface and are not the default path in this repository.";
 export const CODEX_AGENTS_TARGET_FILE_HINT = "AGENTS.md";
 export const CODEX_AGENTS_GUIDANCE_VERSION = "codex-agents-guidance-v1";
 export const CODEX_AGENTS_GUIDANCE_VERSION_MARKER = "cam:agents-guidance-version";
@@ -325,13 +343,13 @@ export function formatIntegrationActionHeadline(
 }
 
 export function resolveCodexIntegrationRoute(
-  readiness: Pick<CodexStackReadiness, "mcpOperationalReady" | "hookRecallReady">
+  readiness: Pick<CodexStackReadiness, "mcpOperationalReady" | "hookRecallOperationalReady">
 ): CodexIntegrationRoute {
   if (readiness.mcpOperationalReady) {
     return "mcp";
   }
 
-  if (readiness.hookRecallReady) {
+  if (readiness.hookRecallOperationalReady) {
     return "hooks-fallback";
   }
 
@@ -365,15 +383,40 @@ export function buildCodexStackNotes(
   return [
     READ_ONLY_RETRIEVAL_NOTE,
     LOCAL_BRIDGE_BUNDLE_NOTE,
+    EXPERIMENTAL_CODEX_HOOKS_NOTE,
+    "Shell-based hook helpers require `cam` to be resolvable on PATH; installed helper files alone do not make the route operational.",
     "Recommended route prefers project-scoped MCP, then local bridge recall helpers, then direct cam recall CLI usage.",
     `Recommended retrieval preset: ${workflowContract.recommendedPreset}.`,
     ...buildSharedWorkflowDisciplineLines().slice(2),
-    `When the local bridge bundle is installed, prefer \`${workflowContract.postWorkSyncReview.helperScript}\` to combine \`${workflowContract.postWorkSyncReview.syncCommand}\` with \`${workflowContract.postWorkSyncReview.reviewCommand}\`.`,
+    `When the local bridge bundle is installed, prefer \`${workflowContract.postWorkSyncReview.helperScript}\` to combine \`${workflowContract.resolvedPostWorkSyncReview.syncCommand}\` with \`${workflowContract.resolvedPostWorkSyncReview.reviewCommand}\`.`,
     "Run `cam mcp print-config --host codex` to inspect the recommended project-scoped MCP wiring together with an AGENTS.md snippet for Codex agents.",
     "Run `cam mcp apply-guidance --host codex` to create or update the managed Codex Auto Memory block inside the repository-level AGENTS.md.",
     "Codex skill readiness is guidance-only and does not replace executable hook fallback helpers.",
     "Workflow consistency expects AGENTS guidance, hooks, and skills to stay aligned on the shared search -> timeline -> details contract and recommended preset."
   ];
+}
+
+export function buildExperimentalCodexHooksGuidance(): ExperimentalCodexHooksGuidance {
+  return {
+    status: "experimental",
+    featureFlag: "codex_hooks",
+    targetFileHint: ".codex/config.toml",
+    snippetFormat: "toml",
+    snippet: "codex_hooks = true",
+    notes: [
+      "Experimental: the public Codex hooks page labels hooks as Experimental.",
+      "Under development: the Codex config docs still label the `codex_hooks` feature flag as Under development.",
+      "Paste this line inside an existing [features] table, or create that table once if it does not exist yet.",
+      "Keep this as an explicit opt-in route. Do not treat it as the default or stable path for Codex Auto Memory.",
+      LOCAL_BRIDGE_BUNDLE_NOTE
+    ],
+    docs: [
+      "https://developers.openai.com/codex/hooks",
+      "https://developers.openai.com/codex/config-basic",
+      "https://developers.openai.com/codex/config-reference",
+      "https://developers.openai.com/codex/feature-maturity"
+    ]
+  };
 }
 
 export function buildCodexAgentsGuidance(
@@ -392,6 +435,7 @@ export function buildCodexAgentsGuidance(
     `- ${workflowContract.routePreference.mcpFirst}`,
     `- ${buildRecommendedMcpSearchInstruction()}`,
     `- If the retrieval MCP server is unavailable, fall back to \`${workflowContract.cliFallback.searchCommand}\`, then \`${workflowContract.cliFallback.timelineCommand}\`, then \`${workflowContract.cliFallback.detailsCommand}\`.`,
+    `- If \`cam\` is unavailable on PATH, prefer the verified launcher fallback \`${workflowContract.resolvedCliFallback.searchCommand}\`, then \`${workflowContract.resolvedCliFallback.timelineCommand}\`, then \`${workflowContract.resolvedCliFallback.detailsCommand}\`.`,
     ...sharedLines.slice(2).map((line) => `- ${line}`),
     `- When the local bridge bundle is installed, \`${workflowContract.postWorkSyncReview.helperScript}\` combines \`${workflowContract.postWorkSyncReview.syncCommand}\` with \`${workflowContract.postWorkSyncReview.reviewCommand}\`.`,
     `- ${LOCAL_BRIDGE_BUNDLE_NOTE}`
@@ -482,10 +526,16 @@ export function buildCodexIntegrationSubchecks(
               "Project-scoped retrieval MCP wiring is present, but the current shell could not resolve `cam` on PATH."
           },
     hookCapture: readiness.hookCaptureReady
-      ? {
+      ? readiness.hookCaptureOperationalReady
+        ? {
           status: "ok",
           summary: "Capture helpers are ready for post-session sync and startup diagnostics."
         }
+        : {
+            status: "warning",
+            summary:
+              "Capture helpers are installed, but the current shell could not resolve `cam` on PATH yet."
+          }
       : assetAvailability.hasCaptureAssets
         ? {
             status: "warning",
@@ -495,11 +545,17 @@ export function buildCodexIntegrationSubchecks(
             status: "missing",
             summary: "No capture helper bundle is installed yet."
           },
-    hookRecall: readiness.hookRecallReady
+    hookRecall: readiness.hookRecallOperationalReady
       ? {
           status: "ok",
           summary: "Recall helpers are ready for shell-based search -> timeline -> details fallback."
         }
+      : readiness.hookRecallReady
+        ? {
+            status: "warning",
+            summary:
+              "Recall helpers are installed, but the current shell could not resolve `cam` on PATH yet."
+          }
       : assetAvailability.hasRecallAssets
         ? {
             status: "warning",
@@ -569,19 +625,19 @@ export function buildCodexIntegrationNextSteps(
     options.skillInstallCommand ?? "cam skills install",
     options.projectRoot
   );
-  const integrationsInstallCommand = appendProjectRootFlag(
-    "cam integrations install --host codex",
-    options.projectRoot
+  const integrationsInstallCommand = buildResolvedCliCommand(
+    "integrations install --host codex",
+    { cwd: options.projectRoot }
   );
-  const mcpInstallCommand = appendProjectRootFlag(
-    "cam mcp install --host codex",
-    options.projectRoot
-  );
-  const mcpPrintConfigCommand = appendProjectRootFlag(
-    "cam mcp print-config --host codex",
-    options.projectRoot
-  );
-  const hooksInstallCommand = appendProjectRootFlag("cam hooks install", options.projectRoot);
+  const mcpInstallCommand = buildResolvedCliCommand("mcp install --host codex", {
+    cwd: options.projectRoot
+  });
+  const mcpPrintConfigCommand = buildResolvedCliCommand("mcp print-config --host codex", {
+    cwd: options.projectRoot
+  });
+  const hooksInstallCommand = buildResolvedCliCommand("hooks install", {
+    cwd: options.projectRoot
+  });
   const nextSteps: string[] = [];
 
   if (
@@ -593,6 +649,7 @@ export function buildCodexIntegrationNextSteps(
     return [
       `Run \`${integrationsInstallCommand}\` to install the recommended Codex integration stack in one step.`,
       `Until the stack is installed, use \`${buildRecommendedCliSearchCommand("\"<query>\"", { cwd: options.projectRoot })}\` directly.`,
+      `If \`cam\` is unavailable on PATH, use \`${buildResolvedCliSearchCommand("\"<query>\"", { cwd: options.projectRoot })}\` as the verified fallback.`,
       `Run \`${mcpPrintConfigCommand}\` to print the recommended project-scoped MCP wiring and AGENTS.md snippet.`
     ];
   }
@@ -610,6 +667,14 @@ export function buildCodexIntegrationNextSteps(
   if (!readiness.hookCaptureReady || !readiness.hookRecallReady) {
     nextSteps.push(
       `Run \`${hooksInstallCommand}\` to refresh the shared hook helper bundle for capture and recall.`
+    );
+  } else if (!readiness.hookCaptureOperationalReady) {
+    nextSteps.push(
+      "Make sure the host process can resolve `cam` on PATH before relying on the local hook capture helpers."
+    );
+  } else if (!readiness.hookRecallOperationalReady) {
+    nextSteps.push(
+      "Make sure the host process can resolve `cam` on PATH before relying on the local hook recall helpers."
     );
   }
 
@@ -640,11 +705,14 @@ export function buildCodexIntegrationNextSteps(
     nextSteps.push(
       `Use \`${buildRecommendedCliSearchCommand("\"<query>\"", { cwd: options.projectRoot })}\` directly until a richer integration route becomes ready.`
     );
+    nextSteps.push(
+      `If \`cam\` is unavailable on PATH, use \`${buildResolvedCliSearchCommand("\"<query>\"", { cwd: options.projectRoot })}\` as the verified fallback.`
+    );
   }
 
   if (route !== "mcp") {
     nextSteps.push(
-      `Follow progressive disclosure when using the CLI fallback: \`${buildRecommendedCliSearchCommand("\"<query>\"", { cwd: options.projectRoot })}\`, then \`${buildCliTimelineCommand("\"<ref>\"", { cwd: options.projectRoot })}\`, then \`${buildCliDetailsCommand("\"<ref>\"", { cwd: options.projectRoot })}\`.`
+      `Follow progressive disclosure when using the CLI fallback: \`${buildResolvedCliSearchCommand("\"<query>\"", { cwd: options.projectRoot })}\`, then \`${buildResolvedCliTimelineCommand("\"<ref>\"", { cwd: options.projectRoot })}\`, then \`${buildResolvedCliDetailsCommand("\"<ref>\"", { cwd: options.projectRoot })}\`.`
     );
   }
 

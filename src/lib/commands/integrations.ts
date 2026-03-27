@@ -114,6 +114,7 @@ interface IntegrationDoctorResult {
   recommendedPreset: string;
   retrievalSidecar: McpDoctorReport["retrievalSidecar"];
   workflowContract: McpDoctorReport["workflowContract"];
+  experimentalHooks: McpDoctorReport["experimentalHooks"];
   applyReadiness: {
     status: "safe" | "blocked";
     reason?: string;
@@ -225,7 +226,9 @@ function buildIntegrationsDoctorResult(
       mcpOperationalReady: report.codexStack.mcpOperationalReady,
       camCommandAvailable: report.codexStack.camCommandAvailable,
       hookCaptureReady: report.codexStack.hookCaptureReady,
+      hookCaptureOperationalReady: report.codexStack.hookCaptureOperationalReady,
       hookRecallReady: report.codexStack.hookRecallReady,
+      hookRecallOperationalReady: report.codexStack.hookRecallOperationalReady,
       skillReady: report.codexStack.skillReady,
       workflowAssetsConsistent: report.codexStack.workflowAssetsConsistent,
       workflowConsistent: report.codexStack.workflowConsistent
@@ -293,7 +296,9 @@ function buildIntegrationsDoctorResult(
     mcpOperationalReady: report.codexStack.mcpOperationalReady,
     camCommandAvailable: report.codexStack.camCommandAvailable,
     hookCaptureReady: report.codexStack.hookCaptureReady,
+    hookCaptureOperationalReady: report.codexStack.hookCaptureOperationalReady,
     hookRecallReady: report.codexStack.hookRecallReady,
+    hookRecallOperationalReady: report.codexStack.hookRecallOperationalReady,
     skillReady: report.codexStack.skillReady,
     workflowAssetsConsistent: report.codexStack.workflowAssetsConsistent,
     workflowConsistent: report.codexStack.workflowConsistent
@@ -307,14 +312,14 @@ function buildIntegrationsDoctorResult(
       `Run \`${report.retrievalSidecar.repairCommand}\` to rebuild retrieval sidecars from Markdown canonical memory.`
     );
   }
-  const needsOtherStackSurface =
+  const needsInstallableOtherStackSurface =
     !report.codexStack.mcpReady ||
     !report.codexStack.hookCaptureReady ||
     !report.codexStack.hookRecallReady ||
     !report.codexStack.skillReady;
   if (applyReadiness.status === "blocked") {
     nextSteps.unshift(applyReadiness.recommendedFix);
-  } else if (needsAgents && needsOtherStackSurface) {
+  } else if (needsAgents && needsInstallableOtherStackSurface) {
     nextSteps.unshift(
         `Run \`${appendCliCwdFlag(
           `cam integrations apply --host codex --skill-surface ${report.fallbackAssets.preferredInstallSurface}`,
@@ -339,6 +344,7 @@ function buildIntegrationsDoctorResult(
     recommendedPreset: report.codexStack.preset,
     retrievalSidecar: report.retrievalSidecar,
     workflowContract: report.workflowContract,
+    experimentalHooks: report.experimentalHooks,
     applyReadiness,
     preferredSkillSurface: report.fallbackAssets.preferredInstallSurface,
     recommendedSkillInstallCommand: report.fallbackAssets.recommendedSkillInstallCommand,
@@ -359,6 +365,7 @@ function formatIntegrationsDoctorResult(result: IntegrationDoctorResult): string
     `Status: ${result.status}`,
     `Recommended route: ${result.recommendedRoute}`,
     `Recommended preset: ${result.recommendedPreset}`,
+    `Experimental hooks: ${result.experimentalHooks.status} (${result.experimentalHooks.featureFlag})`,
     `Retrieval sidecar: ${result.retrievalSidecar.status} (${result.retrievalSidecar.summary})`,
     `Apply readiness: ${result.applyReadiness.status}${result.applyReadiness.reason ? ` (${result.applyReadiness.reason})` : ""}`,
     `Preferred skill surface: ${formatCodexSkillInstallSurface(result.preferredSkillSurface)}`,
