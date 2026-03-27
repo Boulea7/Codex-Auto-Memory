@@ -531,6 +531,61 @@ describe("runRecall", () => {
     });
   });
 
+  it("does not backfill latestAudit from an older sync after a later manual archive", async () => {
+    const homeDir = await tempDir("cam-recall-manual-archive-audit-home-");
+    const projectDir = await tempDir("cam-recall-manual-archive-audit-project-");
+    const memoryRoot = await tempDir("cam-recall-manual-archive-audit-memory-");
+    const rolloutPath = path.join(projectDir, "rollout.jsonl");
+    process.env.HOME = homeDir;
+
+    const projectConfig = makeAppConfig();
+    await writeCamConfig(projectDir, projectConfig, {
+      autoMemoryDirectory: memoryRoot
+    });
+
+    await fs.writeFile(
+      rolloutPath,
+      makeRolloutFixture(projectDir, "Remember that this repository prefers pnpm.", {
+        sessionId: "session-provenance"
+      }),
+      "utf8"
+    );
+
+    const service = new SyncService(detectProjectContext(projectDir), {
+      ...projectConfig,
+      autoMemoryDirectory: memoryRoot
+    });
+    await service.syncRollout(rolloutPath, true);
+    await service.memoryStore.forget("project", "prefers pnpm", { archive: true });
+
+    const searchResult = runCli(projectDir, ["recall", "search", "prefers pnpm", "--state", "archived", "--json"]);
+    expect(searchResult.exitCode).toBe(0);
+    const searchOutput = JSON.parse(searchResult.stdout) as {
+      results: Array<{ ref: string }>;
+    };
+    expect(searchOutput.results).toHaveLength(1);
+
+    const ref = searchOutput.results[0]!.ref;
+    const detailsResult = runCli(projectDir, ["recall", "details", ref, "--json"]);
+    expect(detailsResult.exitCode).toBe(0);
+    expect(JSON.parse(detailsResult.stdout)).toMatchObject({
+      ref,
+      latestLifecycleAction: "archive",
+      latestState: "archived",
+      latestSessionId: null,
+      latestRolloutPath: null,
+      latestAudit: null,
+      warnings: expect.arrayContaining([
+        expect.stringContaining("latestAudit was not backfilled from an older sync audit entry")
+      ]),
+      lineageSummary: expect.objectContaining({
+        latestAction: "archive",
+        latestState: "archived",
+        latestAuditStatus: null
+      })
+    });
+  });
+
   it("keeps recall search read-only and does not create memory layout on first lookup", async () => {
     const homeDir = await tempDir("cam-recall-readonly-home-");
     const projectDir = await tempDir("cam-recall-readonly-project-");

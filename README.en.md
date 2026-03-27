@@ -216,7 +216,7 @@ cam audit
 | `cam session save` | merge / incremental save for continuity |
 | `cam session refresh` | replace / clean regeneration for continuity |
 | `cam session load` / `status` | inspect the continuity reviewer surface |
-| `cam hooks` | manage the current local bridge / fallback recall bundle, including `memory-recall.sh`, `post-work-memory-review.sh`, compatibility wrappers, and `recall-bridge.md`; `post-work-memory-review.sh` chains `cam sync` with `cam memory --recent` for post-work durable-memory review; it is not an official Codex hook surface, and the bundle's recommended search preset is `state=auto`, `limit=8` |
+| `cam hooks install` | generate and refresh the current local bridge / fallback helper bundle, including `memory-recall.sh`, `post-work-memory-review.sh`, compatibility wrappers, and `recall-bridge.md`; `post-work-memory-review.sh` chains `cam sync` with `cam memory --recent` for post-work durable-memory review; it is not an official Codex hook surface, and the bundle's recommended search preset is `state=auto`, `limit=8` |
 | `cam skills` | install Codex skill assets with `cam skills install`; the default target remains the runtime surface, while `--surface runtime|official-user|official-project` enables explicit migration-prep copies on official `.agents/skills` paths; all surfaces teach the same MCP-first, CLI-fallback progressive durable-memory retrieval workflow and the same recommended search preset: `state=auto`, `limit=8` |
 | `cam audit` | run privacy and secret-hygiene checks |
 | `cam doctor` | inspect local wiring and native-readiness posture |
@@ -334,7 +334,7 @@ Current public-ready status:
 ### v0.2
 
 - complete the issue-level memory goals, including the first shipped archive path through `cam forget --archive`
-- clearer `cam memory` and `cam session` reviewer UX
+- clearer `cam memory`, `cam session`, and `cam recall` reviewer UX
 - stronger contradiction handling and explicit memory lifecycle documentation
 - define and document hook, skill, and MCP-friendly integration surfaces without replacing the current Markdown-first contract
 - ship the first progressive-disclosure retrieval surface through `cam recall search / timeline / details`

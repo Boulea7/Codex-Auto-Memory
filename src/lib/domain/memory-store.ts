@@ -256,12 +256,19 @@ function parseEntryBlock(block: string): MemoryEntry | null {
     return null;
   }
 
-  const details = detailsRaw
-    .split("\n")
-    .filter((line) => line.trim().length > 0);
-  if (details.some((line) => !line.startsWith("- "))) {
+  const detailLines = detailsRaw.split("\n");
+  const hasUnsupportedDetailText = detailLines.some((line) => {
+    const trimmed = line.trim();
+    return trimmed.length > 0 && !line.startsWith("- ");
+  });
+  if (hasUnsupportedDetailText) {
     return null;
   }
+
+  const details = detailLines
+    .filter((line) => line.startsWith("- "))
+    .map((line) => line.slice(2).trim())
+    .filter(Boolean);
 
   return {
     id: metadata.id ?? headingRaw.trim(),
@@ -1480,6 +1487,10 @@ export class MemoryStore {
       .filter((entry) => entry.id === parsed.id && entry.topic === parsed.topic)
       .sort((left, right) => right.at.localeCompare(left.at));
     const latestEvent = events[0] ?? null;
+    const latestEventHasProvenance = Boolean(latestEvent?.rolloutPath || latestEvent?.sessionId);
+    const olderEventHasProvenance = events
+      .slice(1)
+      .some((event) => Boolean(event.rolloutPath || event.sessionId));
     const latestAudit = await this.findLatestSyncAuditSummary(
       parsed.scope,
       parsed.topic,
@@ -1488,9 +1499,14 @@ export class MemoryStore {
       latestEvent?.sessionId
     );
     const warnings = [...history.warnings];
-    if (latestEvent && !latestAudit && (latestEvent.rolloutPath || latestEvent.sessionId)) {
+    if (latestEvent && !latestAudit && latestEventHasProvenance) {
       warnings.push(
         `Lifecycle history exists for ${ref}, but no matching sync audit entry was found in ${this.getSyncAuditPath()}.`
+      );
+    }
+    if (latestEvent && !latestEventHasProvenance && olderEventHasProvenance) {
+      warnings.push(
+        `Latest lifecycle event for ${ref} has no rollout/session provenance, so latestAudit was not backfilled from an older sync audit entry.`
       );
     }
 
@@ -2069,6 +2085,10 @@ export class MemoryStore {
       archive?: boolean;
     } = {}
   ): Promise<MemoryEntry[]> {
+    if (query.trim().length === 0) {
+      throw new Error("Forget query must be non-empty.");
+    }
+
     const scopes: MemoryScope[] =
       scope === "all" ? ["global", "project", "project-local"] : [scope];
     const deleted: MemoryEntry[] = [];
@@ -2198,23 +2218,21 @@ export class MemoryStore {
     latestRolloutPath?: string,
     latestSessionId?: string
   ): Promise<MemorySyncAuditSummary | null> {
+    if (latestRolloutPath === undefined && latestSessionId === undefined) {
+      return null;
+    }
+
     const entries = await this.readSyncAuditEntries();
     const matched =
       entries.find(
-        (entry) =>
-          latestRolloutPath !== undefined &&
-          entry.rolloutPath === latestRolloutPath &&
-          (latestSessionId === undefined || entry.sessionId === latestSessionId) &&
-          entry.operations.some(
-            (operation) =>
-              operation.scope === scope && operation.topic === topic && operation.id === id
-          )
-      ) ??
-      entries.find((entry) =>
-        entry.operations.some(
-          (operation) =>
-            operation.scope === scope && operation.topic === topic && operation.id === id
-        )
+          (entry) =>
+            latestRolloutPath !== undefined &&
+            entry.rolloutPath === latestRolloutPath &&
+            (latestSessionId === undefined || entry.sessionId === latestSessionId) &&
+            entry.operations.some(
+              (operation) =>
+                operation.scope === scope && operation.topic === topic && operation.id === id
+            )
       );
 
     if (!matched) {

@@ -78,7 +78,9 @@ describe("docs contract", () => {
     expect(readmeTw).toContain("非 canonical 自訂欄位");
     expect(readmeTw).toContain("applyReadiness");
     expect(readmeTw).toContain("--state auto");
+    expect(readmeTw).toContain("`cam memory` / `cam session` / `cam recall` / `cam audit`");
     expect(readmeTw).toContain("local bridge");
+    expect(readmeTw).toContain("| `cam hooks install` |");
     expect(readmeTw).toContain("manual-only");
     expect(readmeTw).toContain("--surface runtime|official-user|official-project");
     expect(readmeTw).toContain("重要 `--help` 文案");
@@ -98,7 +100,9 @@ describe("docs contract", () => {
     expect(readmeJa).toContain("non-canonical なカスタム項目");
     expect(readmeJa).toContain("applyReadiness");
     expect(readmeJa).toContain("--state auto");
+    expect(readmeJa).toContain("`cam memory` / `cam session` / `cam recall` / `cam audit`");
     expect(readmeJa).toContain("local bridge");
+    expect(readmeJa).toContain("| `cam hooks install` |");
     expect(readmeJa).toContain("manual-only");
     expect(readmeJa).toContain("--surface runtime|official-user|official-project");
     expect(readmeJa).toContain("主要な `--help` 文言");
@@ -131,6 +135,8 @@ describe("docs contract", () => {
     expect(readmeEn).toContain("alternate global wiring");
     expect(readmeEn).toContain("non-canonical custom fields");
     expect(readmeEn).toContain("manual-only");
+    expect(readmeEn).toContain("| `cam hooks install` |");
+    expect(readmeEn).toContain("`cam memory`, `cam session`, and `cam recall` reviewer UX");
     expect(readmeEn).toContain("--surface runtime|official-user|official-project");
     expect(docsReadme).toContain("Codex-first Hybrid");
     expect(docsReadme).toContain("cam mcp apply-guidance --host codex");
@@ -298,6 +304,8 @@ describe("docs contract", () => {
     const hostSurfaces = await readDoc("docs/host-surfaces.md");
     const readme = await readDoc("README.md");
     const readmeEn = await readDoc("README.en.md");
+    const claudeReferenceEn = await readDoc("docs/claude-reference.en.md");
+    const registerCommands = await readDoc("src/lib/cli/register-commands.ts");
 
     expect(continuityDoc).toContain("save` keeps merge semantics");
     expect(continuityDoc).toContain("refresh` ignores existing continuity");
@@ -345,12 +353,16 @@ describe("docs contract", () => {
     expect(integrationStrategy).toContain("cam mcp install");
     expect(integrationStrategy).toContain("cam mcp apply-guidance");
     expect(integrationStrategy).toContain("memory-recall.sh");
+    expect(integrationStrategy).toContain("post-work-memory-review.sh");
     expect(integrationStrategy).toContain("local bridge / fallback helper bundle");
     expect(integrationStrategy).toContain("cam mcp serve");
     expect(integrationStrategy).toContain("cam mcp print-config");
     expect(integrationStrategy).toContain("AGENTS.md");
     expect(integrationStrategy).toContain("cam mcp doctor");
     expect(integrationStrategy).toContain("manual-only");
+    expect(integrationStrategy).toContain("continuity files 属于临时 working state / reviewer surface");
+    expect(integrationStrategy).toContain("不是 canonical durable memory");
+    expect(integrationStrategy).toContain("audit / provenance logs 属于 reviewer / audit side evidence");
     expect(integrationStrategy).toContain("cam integrations install --host codex");
     expect(integrationStrategy).toContain("cam integrations doctor --host codex");
     expect(integrationStrategy).toContain("release-facing `--help` 文案");
@@ -380,5 +392,22 @@ describe("docs contract", () => {
     expect(readmeEn).toContain("workflowContract");
     expect(readmeEn).toContain("preflight `blocked`");
     expect(readmeEn).toContain("applyReadiness");
+    expect(
+      claudeReferenceEn.match(
+        /### 6\. Host integration surfaces matter, but should not replace the core contract/g
+      )?.length ?? 0
+    ).toBe(1);
+    expect(
+      claudeReferenceEn.match(
+        /### 7\. Host integration surfaces matter, but should not replace the core contract/g
+      )?.length ?? 0
+    ).toBe(0);
+    expect(claudeReferenceEn).toContain("### 7. Host-native breadth expands the host, not the memory model");
+    expect(registerCommands).toContain(
+      "Manage the local bridge / fallback helper bundle for current and upcoming integrations"
+    );
+    expect(registerCommands).toContain(
+      "Generate the local bridge / fallback helper bundle, including recall, startup, post-session, and post-work review helpers"
+    );
   });
 });

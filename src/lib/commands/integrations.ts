@@ -531,8 +531,77 @@ export async function runIntegrationsApply(
       ...result.notes.map((note) => `- ${note}`)
     ].join("\n");
   }
-  const mcpResult = await installMcpProjectConfig("codex", projectRoot);
   const agentsResult = await applyCodexAgentsGuidance(projectRoot);
+  if (agentsResult.action === "blocked") {
+    const skipReason =
+      "Skipped because integrations apply was blocked while applying the AGENTS guidance block.";
+    const result: IntegrationStackApplyResult = {
+      host: "codex",
+      projectRoot,
+      stackAction: "blocked",
+      skillsSurface: skillSurface,
+      readOnlyRetrieval: true,
+      subactions: {
+        mcp: {
+          status: "ok",
+          action: "unchanged",
+          attempted: false,
+          skipped: true,
+          skipReason,
+          readOnlyRetrieval: true,
+          notes: [skipReason]
+        },
+        agents: {
+          status: "blocked",
+          action: "blocked",
+          attempted: true,
+          targetPath: agentsResult.targetPath,
+          readOnlyRetrieval: true,
+          notes: [...agentsResult.notes]
+        },
+        hooks: {
+          status: "ok",
+          action: "unchanged",
+          attempted: false,
+          skipped: true,
+          skipReason,
+          readOnlyRetrieval: true,
+          notes: [skipReason]
+        },
+        skills: {
+          status: "ok",
+          action: "unchanged",
+          attempted: false,
+          skipped: true,
+          skipReason,
+          surface: skillSurface,
+          readOnlyRetrieval: true,
+          notes: [skipReason]
+        }
+      },
+      notes: [
+        "This orchestration surface is Codex-only and explicit.",
+        "Integrations apply was blocked while applying the repository-level AGENTS.md guidance block, so no project-scoped MCP wiring, hook assets, or skill assets were written.",
+        ...(agentsResult.blockedReason ? [`Reason: ${agentsResult.blockedReason}`] : [])
+      ]
+    };
+
+    if (options.json) {
+      return JSON.stringify(result, null, 2);
+    }
+
+    return [
+      formatIntegrationApplyHeadline(result.stackAction),
+      `Host: ${result.host}`,
+      `Project root: ${result.projectRoot}`,
+      `Stack action: ${result.stackAction}`,
+      "",
+      "Notes:",
+      ...result.notes.map((note) => `- ${note}`)
+    ].join("\n");
+  }
+
+  const mcpResult = await installMcpProjectConfig("codex", projectRoot);
   const hooksResult = await installIntegrationAssets("hooks", {
     projectRoot
   });
@@ -551,15 +620,15 @@ export async function runIntegrationsApply(
       hooksResult.action,
       skillsResult.action
     ]),
-      readOnlyRetrieval: true,
-      subactions: {
-        mcp: {
-          ...toMcpSubaction(mcpResult),
-          attempted: true
-        },
-        agents: {
-          status: agentsResult.action === "blocked" ? "blocked" : "ok",
-          action: agentsResult.action,
+    readOnlyRetrieval: true,
+    subactions: {
+      mcp: {
+        ...toMcpSubaction(mcpResult),
+        attempted: true
+      },
+      agents: {
+        status: "ok",
+        action: agentsResult.action,
         attempted: true,
         targetPath: agentsResult.targetPath,
         readOnlyRetrieval: true,

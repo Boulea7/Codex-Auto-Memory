@@ -1209,6 +1209,46 @@ describe("runMemory", () => {
     expect(await snapshotFiles(Object.keys(projectLocalSnapshot))).toEqual(projectLocalSnapshot);
   });
 
+  it("fails closed at the CLI surface when forget query is empty or whitespace-only", async () => {
+    const homeDir = await tempDir("cam-forget-empty-cli-home-");
+    const projectDir = await tempDir("cam-forget-empty-cli-project-");
+    const memoryRoot = await tempDir("cam-forget-empty-cli-root-");
+    process.env.HOME = homeDir;
+
+    const projectConfig = buildProjectConfig();
+    await writeProjectConfig(projectDir, projectConfig, {
+      autoMemoryDirectory: memoryRoot
+    });
+
+    const project = detectProjectContext(projectDir);
+    const store = new MemoryStore(project, {
+      ...projectConfig,
+      autoMemoryDirectory: memoryRoot
+    });
+    await store.ensureLayout();
+    await store.remember(
+      "project",
+      "workflow",
+      "prefer-pnpm",
+      "Prefer pnpm in this repository.",
+      ["Use pnpm instead of npm in this repository."],
+      "Manual note."
+    );
+
+    const emptyResult = runCli(projectDir, ["forget", ""], {
+      env: { HOME: homeDir }
+    });
+    expect(emptyResult.exitCode).toBe(1);
+    expect(emptyResult.stderr).toContain("non-empty");
+
+    const blankResult = runCli(projectDir, ["forget", "   "], {
+      env: { HOME: homeDir }
+    });
+    expect(blankResult.exitCode).toBe(1);
+    expect(blankResult.stderr).toContain("non-empty");
+    expect(await store.listEntries("project")).toHaveLength(1);
+  });
+
   it("rebuilds retrieval sidecars explicitly from canonical Markdown memory", async () => {
     const homeDir = await tempDir("cam-memory-reindex-home-");
     const projectDir = await tempDir("cam-memory-reindex-project-");

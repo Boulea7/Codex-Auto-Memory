@@ -117,12 +117,14 @@ function registerSessionCommands(program: Command): void {
 function registerHookCommands(program: Command): void {
   const hooksCommand = program
     .command("hooks")
-    .description("Manage the local bridge and fallback helper bundle for current and upcoming integrations");
+    .description("Manage the local bridge / fallback helper bundle for current and upcoming integrations");
 
   addJsonOption(
     hooksCommand
       .command("install")
-      .description("Generate the local recall bridge bundle plus startup and post-session helper scripts")
+      .description(
+        "Generate the local bridge / fallback helper bundle, including recall, startup, post-session, and post-work review helpers"
+      )
       .option("--cwd <path>", "Project directory to anchor generated hook helpers to")
   ).action(withStdout(async (options) => installHooks(options)));
 

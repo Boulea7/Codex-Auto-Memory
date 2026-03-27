@@ -11,6 +11,10 @@ export async function runForget(
   query: string,
   options: ForgetOptions = {}
 ): Promise<string> {
+  if (query.trim().length === 0) {
+    throw new Error("Forget query must be non-empty.");
+  }
+
   const runtime = await buildRuntimeContext(options.cwd);
   const deleted = await runtime.syncService.memoryStore.forget(options.scope ?? "all", query, {
     archive: options.archive

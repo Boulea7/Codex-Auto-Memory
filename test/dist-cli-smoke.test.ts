@@ -216,6 +216,147 @@ describe("dist cli smoke", () => {
     await expect(fs.access(memoryRoot)).rejects.toMatchObject({ code: "ENOENT" });
   });
 
+  it("serves additive recall search and details JSON contract from the compiled cli entrypoint", async () => {
+    const homeDir = await tempDir("cam-dist-recall-contract-home-");
+    const projectDir = await tempDir("cam-dist-recall-contract-project-");
+    const memoryRoot = await tempDir("cam-dist-recall-contract-memory-");
+    const rolloutPath = "/tmp/rollout-dist-recall-contract.jsonl";
+    const cliEnv = { HOME: homeDir };
+
+    const config = makeAppConfig();
+    await writeCamConfig(projectDir, config, {
+      autoMemoryDirectory: memoryRoot
+    });
+
+    const project = detectProjectContext(projectDir);
+    const memoryStore = new MemoryStore(project, {
+      ...config,
+      autoMemoryDirectory: memoryRoot
+    });
+    await memoryStore.ensureLayout();
+    await memoryStore.remember(
+      "project",
+      "workflow",
+      "prefer-pnpm",
+      "Prefer pnpm in this repository.",
+      ["Use pnpm instead of npm in this repository."],
+      "Manual note."
+    );
+    await memoryStore.appendSyncAuditEntry({
+      appliedAt: "2026-03-27T08:00:00.000Z",
+      projectId: project.projectId,
+      worktreeId: project.worktreeId,
+      rolloutPath,
+      sessionId: "session-dist-recall-contract",
+      configuredExtractorMode: "heuristic",
+      configuredExtractorName: "heuristic",
+      actualExtractorMode: "heuristic",
+      actualExtractorName: "heuristic",
+      extractorMode: "heuristic",
+      extractorName: "heuristic",
+      sessionSource: "rollout-jsonl",
+      status: "applied",
+      appliedCount: 1,
+      scopesTouched: ["project"],
+      resultSummary: "1 operation(s) applied",
+      operations: [
+        {
+          action: "upsert",
+          scope: "project",
+          topic: "workflow",
+          id: "prefer-pnpm",
+          summary: "Prefer pnpm in this repository.",
+          details: ["Use pnpm instead of npm in this repository."],
+          reason: "Manual note.",
+          sources: ["manual"]
+        }
+      ]
+    });
+
+    const searchResult = runCli(
+      projectDir,
+      ["recall", "search", "prefer pnpm", "--state", "active", "--json"],
+      {
+        entrypoint: "dist",
+        env: cliEnv
+      }
+    );
+    expect(searchResult.exitCode, searchResult.stderr).toBe(0);
+    const searchPayload = JSON.parse(searchResult.stdout) as {
+      state: string;
+      resolvedState: string;
+      fallbackUsed: boolean;
+      retrievalMode: string;
+      diagnostics: {
+        checkedPaths: Array<{
+          scope: string;
+          state: string;
+          retrievalMode: string;
+          matchedCount: number;
+          indexPath: string;
+          generatedAt: string | null;
+        }>;
+      };
+      results: Array<{ ref: string; state: string; topic: string }>;
+    };
+    expect(searchPayload).toMatchObject({
+      state: "active",
+      resolvedState: "active",
+      fallbackUsed: false,
+      retrievalMode: "index",
+      results: [
+        {
+          ref: "project:active:workflow:prefer-pnpm",
+          state: "active",
+          topic: "workflow"
+        }
+      ]
+    });
+    expect(searchPayload.diagnostics.checkedPaths).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          scope: "project",
+          state: "active",
+          retrievalMode: "index",
+          matchedCount: 1,
+          indexPath: memoryStore.getRetrievalIndexFile("project", "active"),
+          generatedAt: expect.any(String)
+        })
+      ])
+    );
+
+    const detailsResult = runCli(
+      projectDir,
+      ["recall", "details", "project:active:workflow:prefer-pnpm", "--json"],
+      {
+        entrypoint: "dist",
+        env: cliEnv
+      }
+    );
+    expect(detailsResult.exitCode, detailsResult.stderr).toBe(0);
+    expect(JSON.parse(detailsResult.stdout)).toMatchObject({
+      ref: "project:active:workflow:prefer-pnpm",
+      path: memoryStore.getTopicFile("project", "workflow"),
+      latestLifecycleAction: "add",
+      latestState: "active",
+      latestSessionId: null,
+      latestRolloutPath: null,
+      historyPath: memoryStore.getHistoryPath("project"),
+      timelineWarningCount: 0,
+      warnings: [],
+      lineageSummary: {
+        eventCount: 1,
+        latestAction: "add",
+        latestState: "active",
+        latestAuditStatus: null,
+        noopOperationCount: 0,
+        suppressedOperationCount: 0,
+        conflictCount: 0
+      },
+      latestAudit: null
+    });
+  });
+
   it("serves retrieval MCP tools from the compiled cli entrypoint", async () => {
     const homeDir = await tempDir("cam-dist-mcp-home-");
     const projectDir = await tempDir("cam-dist-mcp-project-");
@@ -637,6 +778,11 @@ describe("dist cli smoke", () => {
       projectRoot: realProjectDir,
       workflowContract: {
         version: expect.any(String),
+        cliFallback: {
+          searchCommand: 'cam recall search "<query>" --state auto --limit 8',
+          timelineCommand: 'cam recall timeline "<ref>"',
+          detailsCommand: 'cam recall details "<ref>"'
+        },
         postWorkSyncReview: {
           helperScript: "post-work-memory-review.sh",
           syncCommand: "cam sync",
@@ -644,7 +790,22 @@ describe("dist cli smoke", () => {
         }
       },
       fallbackAssets: {
+        runtimeSkillPresent: true,
+        anySkillSurfaceInstalled: true,
+        anySkillSurfaceReady: true,
         postWorkReviewInstalled: true
+      },
+      retrievalSidecar: {
+        status: "warning",
+        repairCommand: "cam memory reindex --scope all --state all",
+        checks: expect.arrayContaining([
+          expect.objectContaining({
+            scope: "project",
+            state: "active",
+            status: "missing",
+            fallbackReason: "missing"
+          })
+        ])
       }
     });
   });
@@ -1195,8 +1356,25 @@ describe("dist cli smoke", () => {
       applyReadiness: {
         status: "safe"
       },
+      retrievalSidecar: {
+        status: "warning",
+        repairCommand: "cam memory reindex --scope all --state all",
+        checks: expect.arrayContaining([
+          expect.objectContaining({
+            scope: "project",
+            state: "active",
+            status: "missing",
+            fallbackReason: "missing"
+          })
+        ])
+      },
       workflowContract: {
         version: expect.any(String),
+        cliFallback: {
+          searchCommand: 'cam recall search "<query>" --state auto --limit 8',
+          timelineCommand: 'cam recall timeline "<ref>"',
+          detailsCommand: 'cam recall details "<ref>"'
+        },
         postWorkSyncReview: {
           helperScript: "post-work-memory-review.sh",
           syncCommand: "cam sync",
@@ -1306,6 +1484,16 @@ fs.writeFileSync(${JSON.stringify(capturedArgsPath)}, JSON.stringify(process.arg
     expect(recallHelp.exitCode, recallHelp.stderr).toBe(0);
     expect(recallHelp.stdout).toContain("Search compact memory candidates without loading full details");
     expect(recallHelp.stdout).toContain("Limit memory state: active, archived, all, or auto");
+
+    const hooksHelp = runCli(projectDir, ["hooks", "install", "--help"], {
+      entrypoint: "dist",
+      env
+    });
+    expect(hooksHelp.exitCode, hooksHelp.stderr).toBe(0);
+    expect(hooksHelp.stdout).toContain(
+      "Generate the local bridge / fallback helper bundle"
+    );
+    expect(hooksHelp.stdout).toContain("Project directory to anchor generated hook helpers to");
 
     const mcpHelp = runCli(projectDir, ["mcp", "print-config", "--help"], {
       entrypoint: "dist",

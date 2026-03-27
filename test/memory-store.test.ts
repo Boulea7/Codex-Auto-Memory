@@ -858,6 +858,37 @@ describe("MemoryStore", () => {
     expect(history[0]?.action).toBe("add");
   });
 
+  it("rejects empty or whitespace-only forget queries at the store layer", async () => {
+    const projectDir = await tempDir("cam-store-empty-forget-project-");
+    const memoryRoot = await tempDir("cam-store-empty-forget-memory-");
+    const config: AppConfig = {
+      autoMemoryEnabled: true,
+      autoMemoryDirectory: memoryRoot,
+      extractorMode: "heuristic",
+      defaultScope: "project",
+      maxStartupLines: 200,
+      sessionContinuityAutoLoad: false,
+      sessionContinuityAutoSave: false,
+      sessionContinuityLocalPathStyle: "codex",
+      maxSessionContinuityLines: 60,
+      codexBinary: "codex"
+    };
+    const store = new MemoryStore(detectProjectContext(projectDir), config);
+    await store.ensureLayout();
+    await store.remember(
+      "project",
+      "workflow",
+      "prefer-pnpm",
+      "Prefer pnpm in this repository.",
+      ["Use pnpm instead of npm in this repository."],
+      "Manual note."
+    );
+
+    await expect(store.forget("project", "")).rejects.toThrow(/non-empty/i);
+    await expect(store.forget("project", "   ")).rejects.toThrow(/non-empty/i);
+    expect(await store.listEntries("project")).toHaveLength(1);
+  });
+
   it("fails fast when an upsert mutation is missing its summary", async () => {
     const projectDir = await tempDir("cam-store-missing-summary-project-");
     const memoryRoot = await tempDir("cam-store-missing-summary-memory-");
@@ -897,6 +928,60 @@ describe("MemoryStore", () => {
     ).rejects.toThrow(/summary is required/i);
 
     expect(await snapshotFiles(Object.keys(snapshot))).toEqual(snapshot);
+  });
+
+  it("fails closed when details contain non-bullet manual text inside an entry block", async () => {
+    const projectDir = await tempDir("cam-store-unsafe-details-project-");
+    const memoryRoot = await tempDir("cam-store-unsafe-details-memory-");
+    const config: AppConfig = {
+      autoMemoryEnabled: true,
+      autoMemoryDirectory: memoryRoot,
+      extractorMode: "heuristic",
+      defaultScope: "project",
+      maxStartupLines: 200,
+      sessionContinuityAutoLoad: false,
+      sessionContinuityAutoSave: false,
+      sessionContinuityLocalPathStyle: "codex",
+      maxSessionContinuityLines: 60,
+      codexBinary: "codex"
+    };
+    const store = new MemoryStore(detectProjectContext(projectDir), config);
+    await store.ensureLayout();
+
+    const topicFile = store.getTopicFile("project", "workflow");
+    const originalContents = [
+      "# Workflow",
+      "",
+      "<!-- cam:topic workflow -->",
+      "",
+      "This file is maintained by Codex Auto Memory. You may edit summaries or details directly.",
+      "",
+      "## keep-entry",
+      "<!-- cam:entry {\"id\":\"keep-entry\",\"scope\":\"project\",\"updatedAt\":\"2026-03-14T00:00:00.000Z\"} -->",
+      "Summary: Keep this valid entry.",
+      "Details:",
+      "- Preserve this bullet.",
+      "Manual prose that must force fail-closed rewriting.",
+      ""
+    ].join("\n");
+    await fs.writeFile(topicFile, originalContents, "utf8");
+
+    await expect(
+      store.applyMutations([
+        {
+          action: "upsert",
+          scope: "project",
+          topic: "workflow",
+          id: "new-entry",
+          summary: "Do not rewrite unsafe details.",
+          details: ["Unsafe details block should stay untouched."],
+          sources: ["manual"],
+          reason: "Manual note."
+        }
+      ])
+    ).rejects.toThrow(/Cannot rewrite topic file/);
+
+    expect(await fs.readFile(topicFile, "utf8")).toBe(originalContents);
   });
 
   it("fails closed when a topic file contains unsupported manual or malformed content during upsert", async () => {
