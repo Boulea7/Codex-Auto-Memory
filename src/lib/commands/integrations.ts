@@ -107,6 +107,7 @@ interface IntegrationDoctorResult {
   status: CodexIntegrationStatus;
   recommendedRoute: McpDoctorReport["codexStack"]["recommendedRoute"];
   recommendedPreset: string;
+  retrievalSidecar: McpDoctorReport["retrievalSidecar"];
   workflowContract: McpDoctorReport["workflowContract"];
   applyReadiness: {
     status: "safe" | "blocked";
@@ -261,7 +262,9 @@ function buildIntegrationsDoctorResult(
   );
   const notes = [
     buildCodexRouteSummary(report.codexStack.recommendedRoute),
-    ...buildCodexStackNotes(),
+    ...buildCodexStackNotes({
+      cwd: pinnedProjectRoot
+    }),
     "AGENTS guidance is inspected read-only and is never auto-written by integrations doctor."
   ];
   const applySafetyStatus = report.applySafety.status;
@@ -323,6 +326,7 @@ function buildIntegrationsDoctorResult(
     status,
     recommendedRoute: report.codexStack.recommendedRoute,
     recommendedPreset: report.codexStack.preset,
+    retrievalSidecar: report.retrievalSidecar,
     workflowContract: report.workflowContract,
     applyReadiness,
     preferredSkillSurface: report.fallbackAssets.preferredInstallSurface,
@@ -344,6 +348,7 @@ function formatIntegrationsDoctorResult(result: IntegrationDoctorResult): string
     `Status: ${result.status}`,
     `Recommended route: ${result.recommendedRoute}`,
     `Recommended preset: ${result.recommendedPreset}`,
+    `Retrieval sidecar: ${result.retrievalSidecar.status} (${result.retrievalSidecar.summary})`,
     `Apply readiness: ${result.applyReadiness.status}${result.applyReadiness.reason ? ` (${result.applyReadiness.reason})` : ""}`,
     `Preferred skill surface: ${formatCodexSkillInstallSurface(result.preferredSkillSurface)}`,
     `Recommended skill install command: ${result.recommendedSkillInstallCommand}`,

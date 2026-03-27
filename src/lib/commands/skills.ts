@@ -35,7 +35,9 @@ export async function installSkills(options: SkillsCommandOptions = {}): Promise
     skillSurface === "runtime"
       ? "This keeps the current runtime-first install target unchanged."
       : "This writes an explicit official .agents/skills copy without changing the runtime-first default.",
-    ...buildRecallBridgeSummaryLines(),
+    ...buildRecallBridgeSummaryLines({
+      cwd: projectRoot
+    }),
     "If a host prefers shell-based fallback helpers, run cam hooks install to generate memory-recall.sh, compatibility wrappers, and recall-bridge.md."
   ].join("\n");
 }

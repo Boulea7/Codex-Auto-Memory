@@ -42,7 +42,9 @@ import {
   type CodexSkillPathResolution
 } from "./skills-paths.js";
 import { fileExists, readTextFile } from "../util/fs.js";
+import { buildRuntimeContext } from "../runtime/runtime-context.js";
 import { resolveMcpProjectRoot } from "./mcp-config.js";
+import type { RetrievalSidecarCheck } from "../domain/memory-store.js";
 
 type McpDoctorStatus = "ok" | "warning" | "missing" | "manual";
 type McpDoctorConfigInspection = "ok" | "missing" | "parse-error" | "shape-mismatch";
@@ -191,6 +193,12 @@ interface McpDoctorFallbackAssets {
   assets: McpDoctorAssetCheck[];
 }
 
+interface McpDoctorRetrievalSidecarReport {
+  status: "ok" | "warning";
+  summary: string;
+  checks: RetrievalSidecarCheck[];
+}
+
 export interface McpDoctorReport {
   cwd: string;
   projectRoot: string;
@@ -207,6 +215,7 @@ export interface McpDoctorReport {
   agentsGuidance: CodexAgentsGuidanceInspection;
   applySafety: Awaited<ReturnType<typeof inspectCodexAgentsGuidanceApplySafety>>;
   fallbackAssets: McpDoctorFallbackAssets;
+  retrievalSidecar: McpDoctorRetrievalSidecarReport;
   workflowContract: ReturnType<typeof buildWorkflowContract>;
   hosts: McpDoctorHostReport[];
   codexStack: {
@@ -736,6 +745,26 @@ async function inspectFallbackAssets(
   };
 }
 
+function buildRetrievalSidecarReport(
+  checks: RetrievalSidecarCheck[]
+): McpDoctorRetrievalSidecarReport {
+  const degradedChecks = checks.filter((check) => check.status !== "ok");
+  if (degradedChecks.length === 0) {
+    return {
+      status: "ok",
+      summary: "All inspected retrieval sidecars are current.",
+      checks
+    };
+  }
+
+  return {
+    status: "warning",
+    summary:
+      "One or more retrieval sidecars are missing, invalid, or stale. Recall still falls back to Markdown canonical memory safely.",
+    checks
+  };
+}
+
 function isAssetReady(
   assets: McpDoctorAssetCheck[],
   ids: string[]
@@ -747,7 +776,10 @@ function buildCodexStackReport(
   codexHost: McpDoctorHostReport,
   fallbackAssets: McpDoctorFallbackAssets,
   camCommandAvailable: boolean,
-  agentsGuidance: CodexAgentsGuidanceInspection
+  agentsGuidance: CodexAgentsGuidanceInspection,
+  options: {
+    cwd?: string;
+  } = {}
 ): McpDoctorReport["codexStack"] {
   const mcpReady = codexHost.status === "ok";
   const mcpOperationalReady = mcpReady && camCommandAvailable;
@@ -781,7 +813,7 @@ function buildCodexStackReport(
         ? "warning"
         : "missing"
   ]) as McpDoctorStatus;
-  const notes = buildCodexStackNotes();
+  const notes = buildCodexStackNotes(options);
   if (mcpReady && !camCommandAvailable) {
     notes.push(
       "The current shell could not resolve `cam` on PATH, so MCP wiring may still fail at runtime."
@@ -823,6 +855,10 @@ export async function inspectMcpDoctor(options: {
   const fallbackAssets = await inspectFallbackAssets(projectRoot, {
     explicitCwd: options.explicitCwd ?? false
   });
+  const runtime = await buildRuntimeContext(cwd, {}, { ensureMemoryLayout: false });
+  const retrievalSidecar = buildRetrievalSidecarReport(
+    await runtime.syncService.memoryStore.inspectRetrievalSidecars()
+  );
   const camCommandAvailable = await isCommandAvailableInPath("cam");
   const codexHost = hosts.find((host) => host.host === "codex") ?? (await inspectHost("codex", projectRoot));
   const agentsGuidance = inspectCodexAgentsGuidance(
@@ -850,14 +886,18 @@ export async function inspectMcpDoctor(options: {
     agentsGuidance,
     applySafety,
     fallbackAssets,
+    retrievalSidecar,
     workflowContract,
     hosts,
     codexStack: buildCodexStackReport(
-      codexHost,
-      fallbackAssets,
-      camCommandAvailable,
-      agentsGuidance
-    )
+    codexHost,
+    fallbackAssets,
+    camCommandAvailable,
+    agentsGuidance,
+    {
+      cwd: options.explicitCwd ? projectRoot : undefined
+    }
+  )
   };
 }
 
@@ -927,6 +967,14 @@ export function formatMcpDoctorReport(report: McpDoctorReport): string {
     "",
     "Apply safety:",
     `- AGENTS managed-block apply safety: ${report.applySafety.status}${report.applySafety.blockedReason ? ` (${report.applySafety.blockedReason})` : ""}`,
+    "",
+    "Retrieval sidecar:",
+    `- Status: ${report.retrievalSidecar.status}`,
+    `- Summary: ${report.retrievalSidecar.summary}`,
+    ...report.retrievalSidecar.checks.map(
+      (check) =>
+        `- ${check.scope}/${check.state}: ${check.status}${check.fallbackReason ? ` (${check.fallbackReason})` : ""} | index: ${check.indexPath} | generatedAt: ${check.generatedAt ?? "none"} | topicFiles: ${check.topicFileCount ?? "none"}`
+    ),
     "",
     "Fallback assets:"
   );

@@ -170,7 +170,9 @@ describe("docs contract", () => {
     expect(releaseChecklist).toContain("node dist/cli.js session status --json");
     expect(releaseChecklist).toContain("node dist/cli.js recall search pnpm --json");
     expect(releaseChecklist).toContain("state=auto, limit=8");
+    expect(releaseChecklist).toContain("checkedPaths");
     expect(releaseChecklist).toContain("node dist/cli.js recall details <ref> --json");
+    expect(releaseChecklist).toContain("latestAudit");
     expect(releaseChecklist).toContain(
       "node dist/cli.js mcp install --host <codex|claude|gemini> --json"
     );
@@ -185,6 +187,7 @@ describe("docs contract", () => {
     expect(releaseChecklist).toContain("node dist/cli.js mcp doctor --json");
     expect(releaseChecklist).toContain("node dist/cli.js mcp doctor --host codex --json");
     expect(releaseChecklist).toContain("structured `workflowContract`");
+    expect(releaseChecklist).toContain("retrievalSidecar");
     expect(releaseChecklist).toContain("alternate global wiring");
     expect(releaseChecklist).toContain("non-canonical custom fields");
     expect(releaseChecklist).toContain("preservedCustomFields");

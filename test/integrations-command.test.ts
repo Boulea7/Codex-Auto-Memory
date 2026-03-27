@@ -198,6 +198,17 @@ describe("integrations command", () => {
       status: "missing",
       recommendedRoute: "cli-direct",
       recommendedPreset: "state=auto, limit=8",
+      retrievalSidecar: {
+        status: "warning",
+        checks: expect.arrayContaining([
+          expect.objectContaining({
+            scope: "project",
+            state: "active",
+            status: "missing",
+            fallbackReason: "missing"
+          })
+        ])
+      },
       subchecks: {
         mcp: {
           status: "missing"

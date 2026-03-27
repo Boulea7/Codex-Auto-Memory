@@ -63,6 +63,20 @@ export interface MemorySearchResult extends MemoryRef {
   approxReadCost: number;
 }
 
+export interface MemorySearchDiagnosticPath {
+  scope: MemoryScope;
+  state: MemoryRecordState;
+  retrievalMode: MemoryRetrievalMode;
+  retrievalFallbackReason?: MemoryRetrievalFallbackReason;
+  matchedCount: number;
+  indexPath: string;
+  generatedAt: string | null;
+}
+
+export interface MemorySearchDiagnostics {
+  checkedPaths: MemorySearchDiagnosticPath[];
+}
+
 export interface MemorySearchResponse {
   query: string;
   scope: MemoryRetrievalScope;
@@ -71,6 +85,7 @@ export interface MemorySearchResponse {
   fallbackUsed: boolean;
   retrievalMode: MemoryRetrievalMode;
   retrievalFallbackReason?: MemoryRetrievalFallbackReason;
+  diagnostics: MemorySearchDiagnostics;
   results: MemorySearchResult[];
 }
 
@@ -102,6 +117,19 @@ export interface MemoryDetailsResult extends MemoryRef {
   latestSessionId: string | null;
   latestRolloutPath: string | null;
   historyPath: string;
+  latestAudit: MemorySyncAuditSummary | null;
+}
+
+export interface MemorySyncAuditSummary {
+  auditPath: string;
+  appliedAt: string;
+  rolloutPath: string;
+  sessionId?: string;
+  status: MemorySyncAuditStatus;
+  resultSummary: string;
+  noopOperationCount: number;
+  suppressedOperationCount: number;
+  conflicts: MemoryConflictCandidate[];
 }
 
 export interface MemoryApplyRecord {

@@ -39,6 +39,16 @@ const memorySearchResultSchema = z.object({
   approxReadCost: z.number().int().nonnegative()
 });
 
+const memorySearchDiagnosticSchema = z.object({
+  scope: z.enum(["global", "project", "project-local"]),
+  state: memoryRecordStateSchema,
+  retrievalMode: z.enum(["index", "markdown-fallback"]),
+  retrievalFallbackReason: z.enum(["missing", "invalid", "stale"]).optional(),
+  matchedCount: z.number().int().nonnegative(),
+  indexPath: z.string(),
+  generatedAt: z.string().nullable()
+});
+
 const memorySearchResponseSchema = z.object({
   query: z.string(),
   scope: retrievalScopeSchema,
@@ -47,6 +57,9 @@ const memorySearchResponseSchema = z.object({
   fallbackUsed: z.boolean(),
   retrievalMode: z.enum(["index", "markdown-fallback"]),
   retrievalFallbackReason: z.enum(["missing", "invalid", "stale"]).optional(),
+  diagnostics: z.object({
+    checkedPaths: z.array(memorySearchDiagnosticSchema)
+  }),
   results: z.array(memorySearchResultSchema)
 });
 
@@ -82,6 +95,28 @@ const memoryDetailsResponseSchema = z.object({
   latestSessionId: z.string().nullable(),
   latestRolloutPath: z.string().nullable(),
   historyPath: z.string(),
+  latestAudit: z
+    .object({
+      auditPath: z.string(),
+      appliedAt: z.string(),
+      rolloutPath: z.string(),
+      sessionId: z.string().optional(),
+      status: z.enum(["applied", "no-op", "skipped"]),
+      resultSummary: z.string(),
+      noopOperationCount: z.number().int().nonnegative(),
+      suppressedOperationCount: z.number().int().nonnegative(),
+      conflicts: z.array(
+        z.object({
+          scope: z.enum(["global", "project", "project-local"]),
+          topic: z.string(),
+          candidateSummary: z.string(),
+          conflictsWith: z.array(z.string()),
+          source: z.enum(["within-rollout", "existing-memory"]),
+          resolution: z.literal("suppressed")
+        })
+      )
+    })
+    .nullable(),
   entry: z.object({
     id: z.string(),
     scope: z.enum(["global", "project", "project-local"]),

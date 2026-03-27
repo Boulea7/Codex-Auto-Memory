@@ -1,5 +1,6 @@
 import type {
   MemoryDetailsResult,
+  MemorySearchDiagnostics,
   MemoryRetrievalFallbackReason,
   MemoryRetrievalMode,
   MemoryRecordState,
@@ -75,6 +76,7 @@ export function buildMemorySearchResponse(
   fallbackUsed: boolean,
   retrievalMode: MemoryRetrievalMode,
   retrievalFallbackReason: MemoryRetrievalFallbackReason | undefined,
+  diagnostics: MemorySearchDiagnostics,
   results: MemorySearchResult[]
 ): MemorySearchResponse {
   return {
@@ -85,6 +87,7 @@ export function buildMemorySearchResponse(
     fallbackUsed,
     retrievalMode,
     retrievalFallbackReason,
+    diagnostics,
     results
   };
 }
@@ -155,6 +158,12 @@ export function toMemorySearchResultShapes(
 export function toMemoryDetailsResultShape(details: MemoryDetailsResult): MemoryDetailsResult {
   return {
     ...details,
+    latestAudit: details.latestAudit
+      ? {
+          ...details.latestAudit,
+          conflicts: [...details.latestAudit.conflicts]
+        }
+      : null,
     entry: {
       ...details.entry,
       details: [...details.entry.details],

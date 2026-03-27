@@ -52,10 +52,15 @@ describe("skills command", () => {
     expect(skillFile).toContain("limit: 8");
     expect(skillFile).toContain("cam recall search");
     expect(skillFile).toContain("--state auto");
+    expect(skillFile).toContain(`--cwd ${JSON.stringify(await fs.realpath(projectDir))}`);
     expect(skillFile).toContain("cam recall timeline");
     expect(skillFile).toContain("cam recall details");
     expect(skillFile).toContain("cam mcp doctor");
     expect(skillFile).toContain("cam hooks install");
+    expect(skillFile).toContain(`cam sync --cwd ${JSON.stringify(await fs.realpath(projectDir))}`);
+    expect(skillFile).toContain(
+      `cam memory --recent --cwd ${JSON.stringify(await fs.realpath(projectDir))}`
+    );
     expect(skillFile).toContain("cam memory");
     expect(skillFile).toContain("cam session");
   });

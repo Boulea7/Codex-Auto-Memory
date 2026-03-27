@@ -233,8 +233,12 @@ export function buildRecommendedSearchPresetGuidance(): string {
   return `The recommended search preset is --state ${RECOMMENDED_RETRIEVAL_STATE} --limit ${RECOMMENDED_RETRIEVAL_LIMIT} unless you override those flags explicitly.`;
 }
 
-export function buildRecommendedRetrievalSummaryLines(): string[] {
-  const workflowContract = buildWorkflowContract();
+export function buildRecommendedRetrievalSummaryLines(
+  options: {
+    cwd?: string;
+  } = {}
+): string[] {
+  const workflowContract = buildWorkflowContract(options);
   return [
     workflowContract.recallWorkflow.recallFirst,
     workflowContract.recallWorkflow.progressiveDisclosure,

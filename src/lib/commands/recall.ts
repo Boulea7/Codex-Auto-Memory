@@ -25,12 +25,22 @@ interface RecallOptions {
 }
 
 function formatSearchResults(response: MemorySearchResponse): string {
+  const diagnosticsSummary =
+    response.diagnostics.checkedPaths.length === 0
+      ? "none"
+      : response.diagnostics.checkedPaths
+          .map(
+            (check) =>
+              `${check.scope}/${check.state}=${check.retrievalMode}${check.retrievalFallbackReason ? `(${check.retrievalFallbackReason})` : ""}:${check.matchedCount}`
+          )
+          .join("; ");
   const lines = [
     "Codex Auto Memory Recall Search",
     `Query: ${response.query}`,
     `Scope: ${response.scope} | Requested state: ${response.state} | Resolved state: ${response.resolvedState} | Results: ${response.results.length}`,
     `Archived fallback used: ${response.fallbackUsed ? "yes" : "no"}`,
-    `Retrieval mode: ${response.retrievalMode}${response.retrievalFallbackReason ? ` (${response.retrievalFallbackReason})` : ""}`
+    `Retrieval mode: ${response.retrievalMode}${response.retrievalFallbackReason ? ` (${response.retrievalFallbackReason})` : ""}`,
+    `Diagnostics: ${diagnosticsSummary}`
   ];
 
   if (response.results.length === 0) {
@@ -104,6 +114,14 @@ function formatDetails(details: MemoryDetailsResult): string {
 
   if (details.latestRolloutPath) {
     lines.push(`Latest rollout: ${details.latestRolloutPath}`);
+  }
+
+  if (details.latestAudit) {
+    lines.push(
+      `Latest audit: ${details.latestAudit.status} at ${details.latestAudit.appliedAt}`,
+      `Latest audit path: ${details.latestAudit.auditPath}`,
+      `Latest audit summary: ${details.latestAudit.resultSummary}`
+    );
   }
 
   if (details.entry.sources.length > 0) {

@@ -10,10 +10,13 @@ import type {
   MemoryMutation,
   MemoryOperation,
   MemoryRecordState,
+  MemorySearchDiagnosticPath,
+  MemorySearchDiagnostics,
   MemoryRetrievalFallbackReason,
   MemoryRetrievalMode,
   MemorySearchResult,
   MemoryScope,
+  MemorySyncAuditSummary,
   MemorySyncAuditEntry,
   MemoryTimelineEvent,
   ProcessedRolloutIdentity,
@@ -91,14 +94,31 @@ interface RetrievalIndexPayload {
 }
 
 interface RetrievalIndexInspection {
+  status: "ok" | "missing" | "invalid" | "stale";
+  indexPath: string;
   payload: RetrievalIndexPayload | null;
   fallbackReason?: MemoryRetrievalFallbackReason;
+  generatedAt: string | null;
+  topicFileCount: number | null;
+  topicFiles: string[];
 }
 
 interface MemorySearchExecution {
   results: MemorySearchResult[];
   retrievalMode: MemoryRetrievalMode;
   retrievalFallbackReason?: MemoryRetrievalFallbackReason;
+  diagnostics: MemorySearchDiagnostics;
+}
+
+export interface RetrievalSidecarCheck {
+  scope: MemoryScope;
+  state: MemoryRecordState;
+  status: RetrievalIndexInspection["status"];
+  indexPath: string;
+  fallbackReason?: MemoryRetrievalFallbackReason;
+  generatedAt: string | null;
+  topicFileCount: number | null;
+  topicFiles: string[];
 }
 
 interface PlannedFileChange {
@@ -788,8 +808,13 @@ export class MemoryStore {
     const retrievalIndexPath = this.getRetrievalIndexFile(scope, state);
     if (!(await fileExists(retrievalIndexPath))) {
       return {
+        status: "missing",
+        indexPath: retrievalIndexPath,
         payload: null,
-        fallbackReason: "missing"
+        fallbackReason: "missing",
+        generatedAt: null,
+        topicFileCount: null,
+        topicFiles: []
       };
     }
 
@@ -798,35 +823,82 @@ export class MemoryStore {
       payload = JSON.parse(await readTextFile(retrievalIndexPath)) as unknown;
     } catch {
       return {
+        status: "invalid",
+        indexPath: retrievalIndexPath,
         payload: null,
-        fallbackReason: "invalid"
+        fallbackReason: "invalid",
+        generatedAt: null,
+        topicFileCount: null,
+        topicFiles: []
       };
     }
 
     if (!isRetrievalIndexPayload(payload)) {
       return {
+        status: "invalid",
+        indexPath: retrievalIndexPath,
         payload: null,
-        fallbackReason: "invalid"
+        fallbackReason: "invalid",
+        generatedAt: null,
+        topicFileCount: null,
+        topicFiles: []
       };
     }
 
     if (payload.scope !== scope || payload.state !== state) {
       return {
+        status: "invalid",
+        indexPath: retrievalIndexPath,
         payload: null,
-        fallbackReason: "invalid"
+        fallbackReason: "invalid",
+        generatedAt: null,
+        topicFileCount: null,
+        topicFiles: []
       };
     }
 
     if (await this.isRetrievalIndexStale(scope, state, retrievalIndexPath, payload)) {
       return {
+        status: "stale",
+        indexPath: retrievalIndexPath,
         payload: null,
-        fallbackReason: "stale"
+        fallbackReason: "stale",
+        generatedAt: payload.generatedAt,
+        topicFileCount: payload.topicFileCount,
+        topicFiles: [...payload.topicFiles]
       };
     }
 
     return {
-      payload
+      status: "ok",
+      indexPath: retrievalIndexPath,
+      payload,
+      generatedAt: payload.generatedAt,
+      topicFileCount: payload.topicFileCount,
+      topicFiles: [...payload.topicFiles]
     };
+  }
+
+  public async inspectRetrievalSidecars(): Promise<RetrievalSidecarCheck[]> {
+    const checks: RetrievalSidecarCheck[] = [];
+
+    for (const scope of ["global", "project", "project-local"] satisfies MemoryScope[]) {
+      for (const state of ["active", "archived"] satisfies MemoryRecordState[]) {
+        const inspection = await this.inspectRetrievalIndex(scope, state);
+        checks.push({
+          scope,
+          state,
+          status: inspection.status,
+          indexPath: inspection.indexPath,
+          fallbackReason: inspection.fallbackReason,
+          generatedAt: inspection.generatedAt,
+          topicFileCount: inspection.topicFileCount,
+          topicFiles: [...inspection.topicFiles]
+        });
+      }
+    }
+
+    return checks;
   }
 
   private async readRetrievalIndex(
@@ -1076,6 +1148,13 @@ export class MemoryStore {
     }
 
     const latestEvent = (await this.readTimeline(ref))[0] ?? null;
+    const latestAudit = await this.findLatestSyncAuditSummary(
+      parsed.scope,
+      parsed.topic,
+      parsed.id,
+      latestEvent?.rolloutPath,
+      latestEvent?.sessionId
+    );
     return {
       ...parsed,
       entry,
@@ -1087,7 +1166,8 @@ export class MemoryStore {
       latestLifecycleAction: latestEvent?.action ?? null,
       latestSessionId: latestEvent?.sessionId ?? null,
       latestRolloutPath: latestEvent?.rolloutPath ?? null,
-      historyPath: this.getHistoryPath(parsed.scope)
+      historyPath: this.getHistoryPath(parsed.scope),
+      latestAudit
     };
   }
 
@@ -1108,6 +1188,7 @@ export class MemoryStore {
         ? ["active", "archived"]
         : [options.state ?? "active"];
     const results: Array<MemorySearchResult & { score: number }> = [];
+    const diagnostics: MemorySearchDiagnosticPath[] = [];
     let usedFallback = false;
     let fallbackReason: MemoryRetrievalFallbackReason | undefined;
     let matchedViaIndex = false;
@@ -1116,6 +1197,7 @@ export class MemoryStore {
     for (const scope of scopes) {
       for (const state of states) {
         const retrievalIndex = await this.inspectRetrievalIndex(scope, state);
+        let matchedCount = 0;
         if (retrievalIndex.payload) {
           for (const entry of retrievalIndex.payload.entries) {
             const match = findRetrievalIndexSearchMatch(entry, query);
@@ -1123,6 +1205,7 @@ export class MemoryStore {
               continue;
             }
 
+            matchedCount += 1;
             results.push({
               ref: entry.ref,
               scope: entry.scope,
@@ -1137,6 +1220,14 @@ export class MemoryStore {
             });
             matchedViaIndex = true;
           }
+          diagnostics.push({
+            scope,
+            state,
+            retrievalMode: "index",
+            matchedCount,
+            indexPath: retrievalIndex.indexPath,
+            generatedAt: retrievalIndex.generatedAt
+          });
           continue;
         }
 
@@ -1149,6 +1240,7 @@ export class MemoryStore {
             continue;
           }
 
+          matchedCount += 1;
           results.push({
             ref: buildMemoryRef(scope, state, entry.topic, entry.id),
             scope,
@@ -1163,6 +1255,15 @@ export class MemoryStore {
           });
           matchedViaFallback = true;
         }
+        diagnostics.push({
+          scope,
+          state,
+          retrievalMode: "markdown-fallback",
+          retrievalFallbackReason: retrievalIndex.fallbackReason ?? "missing",
+          matchedCount,
+          indexPath: retrievalIndex.indexPath,
+          generatedAt: retrievalIndex.generatedAt
+        });
       }
     }
 
@@ -1183,7 +1284,10 @@ export class MemoryStore {
           ? "markdown-fallback"
           : "index",
       retrievalFallbackReason:
-        matchedViaFallback || (!matchedViaIndex && usedFallback) ? fallbackReason : undefined
+        matchedViaFallback || (!matchedViaIndex && usedFallback) ? fallbackReason : undefined,
+      diagnostics: {
+        checkedPaths: diagnostics
+      }
     };
   }
 
@@ -1852,6 +1956,71 @@ export class MemoryStore {
     return typeof limit === "number" ? parsed.slice(0, limit) : parsed;
   }
 
+  private async readSyncAuditEntries(): Promise<MemorySyncAuditEntry[]> {
+    const auditPath = this.getSyncAuditPath();
+    if (!(await fileExists(auditPath))) {
+      return [];
+    }
+
+    const raw = await readTextFile(auditPath);
+    return raw
+      .split("\n")
+      .map((line) => line.trim())
+      .filter(Boolean)
+      .flatMap((line) => {
+        try {
+          const parsed = parseMemorySyncAuditEntry(JSON.parse(line) as unknown);
+          return parsed ? [parsed] : [];
+        } catch {
+          return [];
+        }
+      })
+      .sort((left, right) => right.appliedAt.localeCompare(left.appliedAt));
+  }
+
+  private async findLatestSyncAuditSummary(
+    scope: MemoryScope,
+    topic: string,
+    id: string,
+    latestRolloutPath?: string,
+    latestSessionId?: string
+  ): Promise<MemorySyncAuditSummary | null> {
+    const entries = await this.readSyncAuditEntries();
+    const matched =
+      entries.find(
+        (entry) =>
+          latestRolloutPath !== undefined &&
+          entry.rolloutPath === latestRolloutPath &&
+          (latestSessionId === undefined || entry.sessionId === latestSessionId) &&
+          entry.operations.some(
+            (operation) =>
+              operation.scope === scope && operation.topic === topic && operation.id === id
+          )
+      ) ??
+      entries.find((entry) =>
+        entry.operations.some(
+          (operation) =>
+            operation.scope === scope && operation.topic === topic && operation.id === id
+        )
+      );
+
+    if (!matched) {
+      return null;
+    }
+
+    return {
+      auditPath: this.getSyncAuditPath(),
+      appliedAt: matched.appliedAt,
+      rolloutPath: matched.rolloutPath,
+      sessionId: matched.sessionId,
+      status: matched.status,
+      resultSummary: matched.resultSummary,
+      noopOperationCount: matched.noopOperationCount ?? 0,
+      suppressedOperationCount: matched.suppressedOperationCount ?? 0,
+      conflicts: matched.conflicts ?? []
+    };
+  }
+
   private async appendHistoryEntry(entry: MemoryTimelineEvent): Promise<void> {
     await appendJsonl(this.getHistoryPath(entry.scope), entry);
   }
@@ -1904,26 +2073,7 @@ export class MemoryStore {
   }
 
   public async readRecentSyncAuditEntries(limit = 5): Promise<MemorySyncAuditEntry[]> {
-    const auditPath = this.getSyncAuditPath();
-    if (!(await fileExists(auditPath))) {
-      return [];
-    }
-
-    const raw = await readTextFile(auditPath);
-    return raw
-      .split("\n")
-      .map((line) => line.trim())
-      .filter(Boolean)
-      .flatMap((line) => {
-        try {
-          const parsed = parseMemorySyncAuditEntry(JSON.parse(line) as unknown);
-          return parsed ? [parsed] : [];
-        } catch {
-          return [];
-        }
-      })
-      .slice(-limit)
-      .reverse();
+    return (await this.readSyncAuditEntries()).slice(0, limit);
   }
 
   public async writeSyncRecoveryRecord(record: SyncRecoveryRecord): Promise<void> {

@@ -27,6 +27,18 @@ afterEach(async () => {
   await Promise.all(tempDirs.splice(0).map((dir) => fs.rm(dir, { recursive: true, force: true })));
 });
 
+interface RecallSearchDiagnostics {
+  checkedPaths: Array<{
+    scope: string;
+    state: string;
+    retrievalMode: string;
+    retrievalFallbackReason?: string;
+    matchedCount: number;
+    indexPath: string;
+    generatedAt: string | null;
+  }>;
+}
+
 describe("runRecall", () => {
   it("uses the recommended search preset by default when state and limit flags are omitted", async () => {
     const homeDir = await tempDir("cam-recall-default-preset-home-");
@@ -66,6 +78,7 @@ describe("runRecall", () => {
       fallbackUsed: boolean;
       retrievalMode: string;
       retrievalFallbackReason?: string;
+      diagnostics: RecallSearchDiagnostics;
       results: Array<{ ref: string; state: string; topic: string }>;
     };
     expect(output).toMatchObject({
@@ -74,6 +87,18 @@ describe("runRecall", () => {
       fallbackUsed: true,
       retrievalMode: "index"
     });
+    expect(output.diagnostics.checkedPaths).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          scope: "project",
+          state: "archived",
+          retrievalMode: "index",
+          matchedCount: 9,
+          indexPath: store.getRetrievalIndexFile("project", "archived"),
+          generatedAt: expect.any(String)
+        })
+      ])
+    );
     expect(output.results).toHaveLength(8);
     expect(output.results.every((result) => result.state === "archived")).toBe(true);
   });
@@ -405,7 +430,16 @@ describe("runRecall", () => {
       latestLifecycleAction: "add",
       latestSessionId: "session-provenance",
       latestRolloutPath: rolloutPath,
-      historyPath: store.getHistoryPath("project")
+      historyPath: store.getHistoryPath("project"),
+      latestAudit: {
+        auditPath: store.getSyncAuditPath(),
+        rolloutPath,
+        sessionId: "session-provenance",
+        status: "applied",
+        resultSummary: expect.stringContaining("operation(s) applied"),
+        noopOperationCount: 0,
+        suppressedOperationCount: 0
+      }
     });
   });
 
@@ -429,6 +463,7 @@ describe("runRecall", () => {
       fallbackUsed: boolean;
       retrievalMode: string;
       retrievalFallbackReason?: string;
+      diagnostics: RecallSearchDiagnostics;
       results: unknown[];
     };
     expect(output).toMatchObject({
@@ -439,6 +474,24 @@ describe("runRecall", () => {
       retrievalFallbackReason: "missing",
       results: []
     });
+    expect(output.diagnostics.checkedPaths).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          scope: "project",
+          state: "active",
+          retrievalMode: "markdown-fallback",
+          retrievalFallbackReason: "missing",
+          matchedCount: 0
+        }),
+        expect.objectContaining({
+          scope: "project",
+          state: "archived",
+          retrievalMode: "markdown-fallback",
+          retrievalFallbackReason: "missing",
+          matchedCount: 0
+        })
+      ])
+    );
 
     await expect(fs.access(memoryRoot)).rejects.toMatchObject({ code: "ENOENT" });
   });
@@ -493,6 +546,70 @@ describe("runRecall", () => {
     expect(JSON.parse(result.stdout)).toMatchObject({
       retrievalMode: "markdown-fallback",
       retrievalFallbackReason: "invalid",
+      diagnostics: {
+        checkedPaths: expect.arrayContaining([
+          expect.objectContaining({
+            scope: "project",
+            state: "active",
+            retrievalMode: "markdown-fallback",
+            retrievalFallbackReason: "invalid",
+            matchedCount: 1,
+            indexPath: store.getRetrievalIndexFile("project", "active"),
+            generatedAt: null
+          })
+        ])
+      },
+      results: [expect.objectContaining({ ref: "project:active:workflow:prefer-pnpm" })]
+    });
+  });
+
+  it("surfaces markdown fallback diagnostics when the retrieval sidecar is stale", async () => {
+    const homeDir = await tempDir("cam-recall-stale-sidecar-home-");
+    const projectDir = await tempDir("cam-recall-stale-sidecar-project-");
+    const memoryRoot = await tempDir("cam-recall-stale-sidecar-memory-");
+    process.env.HOME = homeDir;
+
+    const projectConfig = makeAppConfig();
+    await writeCamConfig(projectDir, projectConfig, {
+      autoMemoryDirectory: memoryRoot
+    });
+
+    const store = new MemoryStore(detectProjectContext(projectDir), {
+      ...projectConfig,
+      autoMemoryDirectory: memoryRoot
+    });
+    await store.ensureLayout();
+    await store.remember(
+      "project",
+      "workflow",
+      "prefer-pnpm",
+      "Prefer pnpm in this repository.",
+      ["Use pnpm instead of npm in this repository."],
+      "Manual note."
+    );
+
+    const topicPath = store.getTopicFile("project", "workflow");
+    const staleAt = new Date(Date.now() + 60_000);
+    await fs.utimes(topicPath, staleAt, staleAt);
+
+    const result = runCli(projectDir, ["recall", "search", "prefer pnpm", "--state", "active", "--json"]);
+    expect(result.exitCode).toBe(0);
+    expect(JSON.parse(result.stdout)).toMatchObject({
+      retrievalMode: "markdown-fallback",
+      retrievalFallbackReason: "stale",
+      diagnostics: {
+        checkedPaths: expect.arrayContaining([
+          expect.objectContaining({
+            scope: "project",
+            state: "active",
+            retrievalMode: "markdown-fallback",
+            retrievalFallbackReason: "stale",
+            matchedCount: 1,
+            indexPath: store.getRetrievalIndexFile("project", "active"),
+            generatedAt: expect.any(String)
+          })
+        ])
+      },
       results: [expect.objectContaining({ ref: "project:active:workflow:prefer-pnpm" })]
     });
   });
