@@ -424,6 +424,178 @@ describe("MemoryStore", () => {
     expect(timeline.map((event) => event.action)).toEqual(["archive", "add"]);
   });
 
+  it("surfaces restore and ref-local noop attempts without collapsing them into a plain update", async () => {
+    const projectDir = await tempDir("cam-store-restore-project-");
+    const memoryRoot = await tempDir("cam-store-restore-memory-");
+    const config: AppConfig = {
+      autoMemoryEnabled: true,
+      autoMemoryDirectory: memoryRoot,
+      extractorMode: "heuristic",
+      defaultScope: "project",
+      maxStartupLines: 200,
+      sessionContinuityAutoLoad: false,
+      sessionContinuityAutoSave: false,
+      sessionContinuityLocalPathStyle: "codex",
+      maxSessionContinuityLines: 60,
+      codexBinary: "codex"
+    };
+    const store = new MemoryStore(detectProjectContext(projectDir), config);
+    await store.ensureLayout();
+
+    await store.remember(
+      "project",
+      "workflow",
+      "prefer-pnpm",
+      "Prefer pnpm in this repository.",
+      ["Use pnpm instead of npm in this repository."],
+      "Manual note."
+    );
+    await store.forget("project", "pnpm", { archive: true });
+    await store.remember(
+      "project",
+      "workflow",
+      "prefer-pnpm",
+      "Prefer pnpm in this repository again.",
+      ["Use pnpm instead of npm in this repository."],
+      "Manual restore."
+    );
+    await store.remember(
+      "project",
+      "workflow",
+      "prefer-pnpm",
+      "Prefer pnpm in this repository again.",
+      ["Use pnpm instead of npm in this repository."],
+      "Manual restore."
+    );
+
+    const ref = "project:active:workflow:prefer-pnpm";
+    const timeline = await store.readTimelineWithDiagnostics(ref);
+    const details = await store.getEntryByRef(ref);
+
+    expect(timeline.events.map((event) => event.action)).toEqual(["restore", "archive", "add"]);
+    expect(timeline.latestLifecycleAttempt).toMatchObject({
+      action: "noop",
+      outcome: "noop",
+      state: "active",
+      previousState: "active",
+      nextState: "active"
+    });
+    expect(timeline.lineageSummary).toMatchObject({
+      latestAction: "restore",
+      latestAttemptedAction: "noop",
+      latestAttemptedOutcome: "noop",
+      latestUpdateKind: null,
+      refNoopCount: 1
+    });
+    expect(details).toMatchObject({
+      latestLifecycleAction: "restore",
+      latestLifecycleAttempt: {
+        action: "noop",
+        outcome: "noop",
+        state: "active"
+      },
+      lineageSummary: {
+        latestAction: "restore",
+        latestAttemptedAction: "noop",
+        latestAttemptedOutcome: "noop",
+        refNoopCount: 1
+      }
+    });
+    expect(details?.warnings).toEqual(
+      expect.arrayContaining([
+        expect.stringContaining("ref-local no-op attempt")
+      ])
+    );
+  });
+
+  it("distinguishes metadata-only updates from semantic overwrites in lifecycle reviewer surfaces", async () => {
+    const projectDir = await tempDir("cam-store-update-kind-project-");
+    const memoryRoot = await tempDir("cam-store-update-kind-memory-");
+    const config: AppConfig = {
+      autoMemoryEnabled: true,
+      autoMemoryDirectory: memoryRoot,
+      extractorMode: "heuristic",
+      defaultScope: "project",
+      maxStartupLines: 200,
+      sessionContinuityAutoLoad: false,
+      sessionContinuityAutoSave: false,
+      sessionContinuityLocalPathStyle: "codex",
+      maxSessionContinuityLines: 60,
+      codexBinary: "codex"
+    };
+    const store = new MemoryStore(detectProjectContext(projectDir), config);
+    await store.ensureLayout();
+
+    await store.remember(
+      "project",
+      "workflow",
+      "prefer-pnpm",
+      "Prefer pnpm in this repository.",
+      ["Use pnpm instead of npm in this repository."],
+      "Manual note."
+    );
+    await store.applyMutations([
+      {
+        action: "upsert",
+        scope: "project",
+        topic: "workflow",
+        id: "prefer-pnpm",
+        summary: "Prefer pnpm in this repository.",
+        details: ["Use pnpm instead of npm in this repository."],
+        reason: "Updated source note.",
+        sources: ["manual", "rollout.jsonl"]
+      }
+    ]);
+    await store.applyMutations([
+      {
+        action: "upsert",
+        scope: "project",
+        topic: "workflow",
+        id: "prefer-pnpm",
+        summary: "Prefer pnpm and corepack in this repository.",
+        details: ["Use pnpm via corepack instead of npm in this repository."],
+        reason: "Semantic correction.",
+        sources: ["manual"]
+      }
+    ]);
+
+    const ref = "project:active:workflow:prefer-pnpm";
+    const timeline = await store.readTimelineWithDiagnostics(ref);
+    const details = await store.getEntryByRef(ref);
+
+    expect(timeline.events.slice(0, 3)).toMatchObject([
+      { action: "update", updateKind: "semantic-overwrite" },
+      { action: "update", updateKind: "metadata-only" },
+      { action: "add" }
+    ]);
+    expect(timeline.latestLifecycleAttempt).toMatchObject({
+      action: "update",
+      outcome: "applied",
+      updateKind: "semantic-overwrite"
+    });
+    expect(timeline.lineageSummary).toMatchObject({
+      latestAction: "update",
+      latestAttemptedAction: "update",
+      latestAttemptedOutcome: "applied",
+      latestUpdateKind: "semantic-overwrite"
+    });
+    expect(details).toMatchObject({
+      latestLifecycleAction: "update",
+      latestLifecycleAttempt: {
+        action: "update",
+        outcome: "applied",
+        updateKind: "semantic-overwrite"
+      },
+      lineageSummary: {
+        latestUpdateKind: "semantic-overwrite"
+      },
+      entry: {
+        summary: "Prefer pnpm and corepack in this repository.",
+        details: ["Use pnpm via corepack instead of npm in this repository."]
+      }
+    });
+  });
+
   it("maintains thin retrieval sidecar indexes and falls back safely when one is invalid", async () => {
     const projectDir = await tempDir("cam-store-retrieval-index-project-");
     const memoryRoot = await tempDir("cam-store-retrieval-index-memory-");
@@ -854,8 +1026,14 @@ describe("MemoryStore", () => {
       previousState: undefined,
       nextState: undefined
     });
-    expect(history).toHaveLength(1);
-    expect(history[0]?.action).toBe("add");
+    expect(history).toHaveLength(2);
+    expect(history.map((event) => event.action)).toEqual(["noop", "add"]);
+    expect(history[0]).toMatchObject({
+      action: "noop",
+      outcome: "noop",
+      previousState: "active",
+      nextState: "active"
+    });
   });
 
   it("rejects empty or whitespace-only forget queries at the store layer", async () => {

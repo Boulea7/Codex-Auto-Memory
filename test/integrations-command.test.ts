@@ -3,6 +3,10 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { restoreOptionalEnv } from "./helpers/env.js";
+import {
+  buildResolvedCliCommand,
+  buildResolvedCliSearchCommand
+} from "../src/lib/integration/retrieval-contract.js";
 import { makeAppConfig, writeCamConfig } from "./helpers/cam-test-fixtures.js";
 import { runCli } from "./helpers/cli-runner.js";
 
@@ -243,7 +247,8 @@ describe("integrations command", () => {
       expect.arrayContaining([
         expect.stringContaining("cam memory reindex --scope all --state all"),
         expect.stringContaining("cam integrations apply --host codex"),
-        expect.stringContaining("cam mcp print-config --host codex")
+        expect.stringContaining(buildResolvedCliCommand("integrations install --host codex")),
+        expect.stringContaining(buildResolvedCliCommand("mcp print-config --host codex"))
       ])
     );
     expect(await pathExists(memoryRoot)).toBe(false);
@@ -293,14 +298,83 @@ describe("integrations command", () => {
           `cam integrations apply --host codex --skill-surface runtime --cwd ${shellQuoteArg(payload.projectRoot)}`
         ),
         expect.stringContaining(
-          `cam integrations install --host codex --cwd ${shellQuoteArg(payload.projectRoot)}`
+          buildResolvedCliCommand("integrations install --host codex", {
+            cwd: payload.projectRoot
+          })
         ),
         expect.stringContaining(
-          `cam mcp print-config --host codex --cwd ${shellQuoteArg(payload.projectRoot)}`
+          buildResolvedCliCommand("mcp print-config --host codex", {
+            cwd: payload.projectRoot
+          })
         ),
         expect.stringContaining(
-          `cam recall search "<query>" --state auto --limit 8 --cwd ${shellQuoteArg(payload.projectRoot)}`
+          buildResolvedCliSearchCommand("\"<query>\"", {
+            cwd: payload.projectRoot
+          })
         )
+      ])
+    );
+  });
+
+  it("passes through explicit experimental Codex hooks guidance in integrations doctor output", async () => {
+    const homeDir = await tempDir("cam-integrations-doctor-experimental-hooks-home-");
+    const projectDir = await tempDir("cam-integrations-doctor-experimental-hooks-project-");
+    process.env.HOME = homeDir;
+
+    const result = runCli(projectDir, ["integrations", "doctor", "--host", "codex", "--json"], {
+      env: { HOME: homeDir }
+    });
+    expect(result.exitCode, result.stderr).toBe(0);
+    expect(JSON.parse(result.stdout)).toMatchObject({
+      host: "codex",
+      experimentalHooks: {
+        status: "experimental",
+        featureFlag: "codex_hooks",
+        targetFileHint: ".codex/config.toml",
+        snippet: expect.stringContaining("codex_hooks")
+      }
+    });
+  });
+
+  it("does not recommend integrations apply when only AGENTS guidance is missing but cam is unavailable on PATH", async () => {
+    const homeDir = await tempDir("cam-integrations-doctor-path-home-");
+    const projectDir = await tempDir("cam-integrations-doctor-path-project-");
+    const emptyPathDir = await tempDir("cam-integrations-doctor-path-empty-");
+    process.env.HOME = homeDir;
+
+    const env = {
+      HOME: homeDir,
+      PATH: await buildPathWithoutCam(emptyPathDir)
+    };
+
+    expect(runCli(projectDir, ["mcp", "install", "--host", "codex", "--json"], { env }).exitCode).toBe(0);
+    expect(runCli(projectDir, ["hooks", "install", "--json"], { env }).exitCode).toBe(0);
+    expect(runCli(projectDir, ["skills", "install", "--json"], { env }).exitCode).toBe(0);
+
+    const result = runCli(projectDir, ["integrations", "doctor", "--host", "codex", "--json"], {
+      env
+    });
+    expect(result.exitCode, result.stderr).toBe(0);
+
+    const payload = JSON.parse(result.stdout) as {
+      nextSteps: string[];
+      subchecks: {
+        hookCapture: { status: string };
+        hookRecall: { status: string };
+        agents: { status: string };
+      };
+    };
+
+    expect(payload.subchecks).toMatchObject({
+      hookCapture: { status: "warning" },
+      hookRecall: { status: "warning" },
+      agents: { status: "missing" }
+    });
+    expect(payload.nextSteps[0]).not.toContain("cam integrations apply --host codex");
+    expect(payload.nextSteps).toEqual(
+      expect.arrayContaining([
+        expect.stringContaining("cam mcp apply-guidance --host codex"),
+        expect.stringContaining("resolve `cam` on PATH")
       ])
     );
   });
@@ -748,6 +822,14 @@ describe("integrations command", () => {
           recallFirst: "Before repeating prior work or repo-specific decisions, recall durable memory first.",
           progressiveDisclosure: "Use progressive disclosure: search -> timeline -> details."
         },
+        launcher: {
+          commandName: "cam",
+          requiresPathResolution: true,
+          hookHelpersShellOnly: true,
+          resolution: "cam-path",
+          verified: true,
+          resolvedCommand: "cam"
+        },
         mcpTools: {
           search: "search_memories",
           timeline: "timeline_memories",
@@ -756,13 +838,25 @@ describe("integrations command", () => {
         cliFallback: {
           searchCommand: `cam recall search "<query>" --state auto --limit 8 --cwd ${JSON.stringify(realProjectDir)}`,
           timelineCommand: `cam recall timeline "<ref>" --cwd ${JSON.stringify(realProjectDir)}`,
+          detailsCommand: `cam recall details "<ref>" --cwd ${JSON.stringify(realProjectDir)}`,
+          requiresCamOnPath: true
+        },
+        resolvedCliFallback: {
+          searchCommand: `cam recall search "<query>" --state auto --limit 8 --cwd ${JSON.stringify(realProjectDir)}`,
+          timelineCommand: `cam recall timeline "<ref>" --cwd ${JSON.stringify(realProjectDir)}`,
           detailsCommand: `cam recall details "<ref>" --cwd ${JSON.stringify(realProjectDir)}`
         },
         postWorkSyncReview: {
           helperScript: "post-work-memory-review.sh",
           syncCommand: `cam sync --cwd ${JSON.stringify(realProjectDir)}`,
           reviewCommand: `cam memory --recent --cwd ${JSON.stringify(realProjectDir)}`,
-          guidance: "After finishing work that should affect durable memory, run cam sync or review cam memory --recent instead of assuming temporary continuity already updated Markdown memory."
+          guidance: "After finishing work that should affect durable memory, run cam sync or review cam memory --recent instead of assuming temporary continuity already updated Markdown memory.",
+          shellOnly: true,
+          requiresCamOnPath: true
+        },
+        resolvedPostWorkSyncReview: {
+          syncCommand: `cam sync --cwd ${JSON.stringify(realProjectDir)}`,
+          reviewCommand: `cam memory --recent --cwd ${JSON.stringify(realProjectDir)}`
         },
         boundaries: {
           memoryAudit: "Use cam memory for inspect/audit surfaces and startup payload review.",

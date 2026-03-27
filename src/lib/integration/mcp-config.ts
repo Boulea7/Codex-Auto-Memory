@@ -2,8 +2,10 @@ import path from "node:path";
 import { detectProjectContext } from "../domain/project-context.js";
 import {
   buildCodexAgentsGuidance,
+  buildExperimentalCodexHooksGuidance,
   READ_ONLY_RETRIEVAL_NOTE,
-  type CodexAgentsGuidance
+  type CodexAgentsGuidance,
+  type ExperimentalCodexHooksGuidance
 } from "./codex-stack.js";
 import { buildWorkflowContract } from "./retrieval-contract.js";
 import {
@@ -29,6 +31,7 @@ export interface McpHostConfigSnippet {
   notes: string[];
   workflowContract?: ReturnType<typeof buildWorkflowContract>;
   agentsGuidance?: CodexAgentsGuidance;
+  experimentalHooks?: ExperimentalCodexHooksGuidance;
 }
 
 export { normalizeMcpHost };
@@ -50,14 +53,15 @@ export function buildMcpHostConfigSnippet(host: McpHost, projectRoot: string): M
     snippetFormat: definition.snippetFormat,
     snippet: buildMcpHostSnippet(host, projectRoot),
     notes: [...definition.notes],
+    workflowContract: buildWorkflowContract({
+      cwd: projectRoot
+    }),
     ...(host === "codex"
       ? {
-          workflowContract: buildWorkflowContract({
-            cwd: projectRoot
-          }),
           agentsGuidance: buildCodexAgentsGuidance({
             cwd: projectRoot
-          })
+          }),
+          experimentalHooks: buildExperimentalCodexHooksGuidance()
         }
       : {})
   };
@@ -85,6 +89,19 @@ export function formatMcpHostConfigSnippet(snippet: McpHostConfigSnippet): strin
       "",
       "AGENTS notes:",
       ...snippet.agentsGuidance.notes.map((note) => `- ${note}`)
+    );
+  }
+
+  if (snippet.experimentalHooks) {
+    lines.push(
+      "",
+      "Experimental Codex hooks:",
+      `Target file hint: ${snippet.experimentalHooks.targetFileHint}`,
+      "",
+      snippet.experimentalHooks.snippet,
+      "",
+      "Experimental hooks notes:",
+      ...snippet.experimentalHooks.notes.map((note) => `- ${note}`)
     );
   }
 

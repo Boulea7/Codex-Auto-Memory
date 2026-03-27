@@ -1,12 +1,17 @@
 import { slugify } from "../util/text.js";
 import type { MemoryScope } from "../types.js";
 import { buildRuntimeContext } from "../runtime/runtime-context.js";
+import {
+  buildManualMutationReviewEntry,
+  toManualMutationRememberPayload
+} from "./manual-mutation-review.js";
 
 interface RememberOptions {
   cwd?: string;
   scope?: MemoryScope;
   topic?: string;
   detail?: string[];
+  json?: boolean;
 }
 
 export async function runRemember(
@@ -27,6 +32,14 @@ export async function runRemember(
     details,
     "Manual remember request."
   );
+
+  if (options.json) {
+    if (!record) {
+      throw new Error("Remember command did not produce a mutation record.");
+    }
+    const reviewEntry = await buildManualMutationReviewEntry(runtime.syncService.memoryStore, record);
+    return JSON.stringify(toManualMutationRememberPayload(text, reviewEntry), null, 2);
+  }
 
   if (record?.lifecycleAction === "noop") {
     return `Memory ${scope}/${topic}/${id} is already up to date.`;

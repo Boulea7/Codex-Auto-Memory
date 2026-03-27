@@ -2,12 +2,14 @@ import type {
   MemoryDetailsResult,
   MemorySearchDiagnosticPath,
   MemorySearchDiagnostics,
+  MemorySearchExecutionSummary,
   MemoryRetrievalFallbackReason,
   MemoryRetrievalMode,
   MemoryRecordState,
   MemoryRetrievalResolvedState,
   MemoryRetrievalScope,
   MemoryRetrievalStateFilter,
+  MemorySearchStateResolution,
   MemoryScope,
   MemorySearchResponse,
   MemorySearchResult,
@@ -74,9 +76,13 @@ export function buildMemorySearchResponse(
   scope: MemoryRetrievalScope,
   state: MemoryRetrievalStateFilter,
   resolvedState: MemoryRetrievalResolvedState,
+  searchOrder: string[],
+  globalLimitApplied: boolean,
+  truncatedCount: number,
   fallbackUsed: boolean,
   retrievalMode: MemoryRetrievalMode,
   retrievalFallbackReason: MemoryRetrievalFallbackReason | undefined,
+  stateResolution: MemorySearchStateResolution,
   diagnostics: MemorySearchDiagnostics,
   results: MemorySearchResult[]
 ): MemorySearchResponse {
@@ -86,11 +92,16 @@ export function buildMemorySearchResponse(
     scope,
     state,
     resolvedState,
+    searchOrder: [...searchOrder],
+    globalLimitApplied,
+    truncatedCount,
     fallbackUsed,
     stateFallbackUsed: fallbackUsed,
     markdownFallbackUsed: normalizedDiagnostics.anyMarkdownFallback,
     retrievalMode,
     retrievalFallbackReason,
+    stateResolution,
+    executionSummary: buildMemorySearchExecutionSummary(normalizedDiagnostics),
     diagnostics: normalizedDiagnostics,
     results
   };
@@ -111,8 +122,25 @@ export function normalizeMemorySearchDiagnostics(
     anyMarkdownFallback: checkedPaths.some(
       (check) => check.retrievalMode === "markdown-fallback"
     ),
-    fallbackReasons,
+      fallbackReasons,
+      executionModes: Array.from(new Set(checkedPaths.map((check) => check.retrievalMode))),
     checkedPaths
+  };
+}
+
+export function buildMemorySearchExecutionSummary(
+  diagnostics: MemorySearchDiagnostics
+): MemorySearchExecutionSummary {
+  const retrievalModes = [...diagnostics.executionModes];
+  return {
+    mode:
+      retrievalModes.length <= 1
+        ? retrievalModes[0] === "markdown-fallback"
+          ? "markdown-fallback-only"
+          : "index-only"
+        : "mixed",
+    retrievalModes,
+    fallbackReasons: [...diagnostics.fallbackReasons]
   };
 }
 
@@ -130,6 +158,10 @@ export function buildMemoryTimelineResponse(
     ref,
     events: [...timeline.events],
     warnings: [...(timeline.warnings ?? [])],
+    latestLifecycleAttempt:
+      "latestLifecycleAttempt" in timeline && timeline.latestLifecycleAttempt
+        ? { ...timeline.latestLifecycleAttempt }
+        : null,
     lineageSummary:
       timeline.lineageSummary !== undefined
         ? { ...timeline.lineageSummary }
@@ -139,9 +171,18 @@ export function buildMemoryTimelineResponse(
             latestAt: null,
             latestAction: null,
             latestState: null,
+            latestAttemptedAction: null,
+            latestAttemptedState: null,
+            latestAttemptedOutcome: null,
+            latestUpdateKind: null,
             archivedAt: null,
             deletedAt: null,
             latestAuditStatus: null,
+            refNoopCount: 0,
+            matchedAuditOperationCount: 0,
+            rolloutNoopOperationCount: 0,
+            rolloutSuppressedOperationCount: 0,
+            rolloutConflictCount: 0,
             noopOperationCount: 0,
             suppressedOperationCount: 0,
             conflictCount: 0
@@ -208,6 +249,9 @@ export function toMemoryDetailsResultShape(details: MemoryDetailsResult): Memory
     lineageSummary: {
       ...details.lineageSummary
     },
+    latestLifecycleAttempt: details.latestLifecycleAttempt
+      ? { ...details.latestLifecycleAttempt }
+      : null,
     warnings: [...details.warnings],
     latestAudit: details.latestAudit
       ? {

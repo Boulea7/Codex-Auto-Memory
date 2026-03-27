@@ -24,20 +24,36 @@ interface SearchMemoriesResponse {
   scope: string;
   state: string;
   resolvedState: string;
+  searchOrder?: string[];
+  globalLimitApplied?: boolean;
+  truncatedCount?: number;
   fallbackUsed: boolean;
   stateFallbackUsed?: boolean;
   markdownFallbackUsed?: boolean;
   retrievalMode: string;
   retrievalFallbackReason?: string;
+  stateResolution?: {
+    outcome: string;
+    searchedStates: string[];
+    resolutionReason: string;
+  };
+  executionSummary?: {
+    mode: string;
+    retrievalModes: string[];
+    fallbackReasons: string[];
+  };
   diagnostics?: {
     anyMarkdownFallback?: boolean;
     fallbackReasons?: string[];
+    executionModes?: string[];
     checkedPaths: Array<{
       scope: string;
       state: string;
       retrievalMode: string;
       retrievalFallbackReason?: string;
       matchedCount: number;
+      returnedCount?: number;
+      droppedCount?: number;
       indexPath: string;
       generatedAt: string | null;
     }>;
@@ -1550,12 +1566,13 @@ describe("mcp command", () => {
     });
     expect(payload.codexStack).toMatchObject({
       status: "warning",
-      recommendedRoute: "hooks-fallback",
+      recommendedRoute: "cli-direct",
       preset: "state=auto, limit=8",
       assetVersion: RETRIEVAL_INTEGRATION_ASSET_VERSION,
       mcpReady: false,
       hookCaptureReady: true,
       hookRecallReady: true,
+      hookRecallOperationalReady: false,
       skillReady: true,
       workflowConsistent: false
     });
@@ -2303,6 +2320,8 @@ describe("mcp command", () => {
         mcpReady: boolean;
         mcpOperationalReady: boolean;
         camCommandAvailable: boolean;
+        hookCaptureOperationalReady: boolean;
+        hookRecallOperationalReady: boolean;
       };
       hosts: Array<{
         host: string;
@@ -2320,7 +2339,135 @@ describe("mcp command", () => {
       recommendedRoute: "cli-direct",
       mcpReady: true,
       mcpOperationalReady: false,
-      camCommandAvailable: false
+      camCommandAvailable: false,
+      hookCaptureOperationalReady: false,
+      hookRecallOperationalReady: false
+    });
+  });
+
+  it("does not treat hook recall assets as operational when cam is unavailable on PATH", async () => {
+    const homeDir = await tempDir("cam-mcp-doctor-hook-op-home-");
+    const projectDir = await tempDir("cam-mcp-doctor-hook-op-project-");
+    const emptyPathDir = await tempDir("cam-mcp-doctor-hook-op-empty-path-");
+    process.env.HOME = homeDir;
+
+    const hooksInstall = runCli(projectDir, ["hooks", "install", "--json"], {
+      env: {
+        HOME: homeDir,
+        PATH: await buildPathWithoutCam(emptyPathDir)
+      }
+    });
+    expect(hooksInstall.exitCode, hooksInstall.stderr).toBe(0);
+
+    const doctorResult = runCli(projectDir, ["mcp", "doctor", "--host", "codex", "--json"], {
+      env: {
+        HOME: homeDir,
+        PATH: await buildPathWithoutCam(emptyPathDir)
+      }
+    });
+    expect(doctorResult.exitCode, doctorResult.stderr).toBe(0);
+
+    const payload = JSON.parse(doctorResult.stdout) as {
+      codexStack: {
+        recommendedRoute: string;
+        camCommandAvailable: boolean;
+        hookRecallReady: boolean;
+        hookRecallOperationalReady: boolean;
+      };
+    };
+
+    expect(payload.codexStack).toMatchObject({
+      recommendedRoute: "cli-direct",
+      camCommandAvailable: false,
+      hookRecallReady: true,
+      hookRecallOperationalReady: false
+    });
+  });
+
+  it("suggests the smallest retrieval sidecar repair command when only one scope/state check is degraded", async () => {
+    const homeDir = await tempDir("cam-mcp-doctor-min-repair-home-");
+    const projectDir = await tempDir("cam-mcp-doctor-min-repair-project-");
+    const memoryRoot = await tempDir("cam-mcp-doctor-min-repair-memory-");
+    process.env.HOME = homeDir;
+
+    const projectConfig = makeAppConfig();
+    await writeCamConfig(projectDir, projectConfig, {
+      autoMemoryDirectory: memoryRoot
+    });
+
+    const store = new MemoryStore(detectProjectContext(projectDir), {
+      ...projectConfig,
+      autoMemoryDirectory: memoryRoot
+    });
+    await store.ensureLayout();
+    await store.remember(
+      "project",
+      "workflow",
+      "prefer-pnpm",
+      "Prefer pnpm in this repository.",
+      ["Use pnpm instead of npm in this repository."],
+      "Manual note."
+    );
+
+    const topicPath = store.getTopicFile("project", "workflow");
+    const staleAt = new Date(Date.now() + 60_000);
+    await fs.utimes(topicPath, staleAt, staleAt);
+
+    const result = runCli(projectDir, ["mcp", "doctor", "--host", "codex", "--json"], {
+      env: { HOME: homeDir }
+    });
+    expect(result.exitCode, result.stderr).toBe(0);
+
+    expect(JSON.parse(result.stdout)).toMatchObject({
+      retrievalSidecar: {
+        status: "warning",
+        repairCommand: "cam memory reindex --scope project --state active",
+        checks: expect.arrayContaining([
+          expect.objectContaining({
+            scope: "project",
+            state: "active",
+            status: "stale"
+          })
+        ])
+      }
+    });
+  });
+
+  it("surfaces explicit experimental Codex hooks guidance in print-config and doctor output", async () => {
+    const homeDir = await tempDir("cam-mcp-experimental-hooks-home-");
+    const projectDir = await tempDir("cam-mcp-experimental-hooks-project-");
+    process.env.HOME = homeDir;
+
+    const printConfig = runCli(projectDir, ["mcp", "print-config", "--host", "codex", "--json"], {
+      env: { HOME: homeDir }
+    });
+    const doctor = runCli(projectDir, ["mcp", "doctor", "--host", "codex", "--json"], {
+      env: { HOME: homeDir }
+    });
+
+    expect(printConfig.exitCode, printConfig.stderr).toBe(0);
+    expect(doctor.exitCode, doctor.stderr).toBe(0);
+
+    expect(JSON.parse(printConfig.stdout)).toMatchObject({
+      experimentalHooks: {
+        status: "experimental",
+        featureFlag: "codex_hooks",
+        targetFileHint: ".codex/config.toml",
+        snippetFormat: "toml",
+        snippet: "codex_hooks = true",
+        notes: expect.arrayContaining([
+          expect.stringContaining("Experimental"),
+          expect.stringContaining("Under development"),
+          expect.stringContaining("inside an existing [features] table")
+        ])
+      }
+    });
+    expect(JSON.parse(doctor.stdout)).toMatchObject({
+      experimentalHooks: {
+        status: "experimental",
+        featureFlag: "codex_hooks",
+        targetFileHint: ".codex/config.toml"
+      }
     });
   });
 
@@ -2371,6 +2518,11 @@ describe("mcp command", () => {
     const expectedCore = {
       recommendedPreset: "state=auto, limit=8",
       preferredRoute: "mcp-first",
+      launcher: {
+        commandName: "cam",
+        requiresPathResolution: true,
+        hookHelpersShellOnly: true
+      },
       routePreference: {
         preferredRoute: "mcp-first"
       },
@@ -2380,12 +2532,15 @@ describe("mcp command", () => {
       cliFallback: {
         searchCommand: `cam recall search "<query>" --state auto --limit 8 --cwd ${shellQuoteArg(realProjectDir)}`,
         timelineCommand: `cam recall timeline "<ref>" --cwd ${shellQuoteArg(realProjectDir)}`,
-        detailsCommand: `cam recall details "<ref>" --cwd ${shellQuoteArg(realProjectDir)}`
+        detailsCommand: `cam recall details "<ref>" --cwd ${shellQuoteArg(realProjectDir)}`,
+        requiresCamOnPath: true
       },
       postWorkSyncReview: {
         helperScript: "post-work-memory-review.sh",
         syncCommand: `cam sync --cwd ${shellQuoteArg(realProjectDir)}`,
-        reviewCommand: `cam memory --recent --cwd ${shellQuoteArg(realProjectDir)}`
+        reviewCommand: `cam memory --recent --cwd ${shellQuoteArg(realProjectDir)}`,
+        shellOnly: true,
+        requiresCamOnPath: true
       }
     };
 
@@ -2802,7 +2957,17 @@ describe("mcp command", () => {
         state: "auto",
         resolvedState: "active",
         fallbackUsed: false,
-        retrievalMode: "index"
+        retrievalMode: "index",
+        stateResolution: {
+          outcome: "active-hit",
+          searchedStates: ["active"],
+          resolutionReason: "active-match-found"
+        },
+        executionSummary: {
+          mode: "index-only",
+          retrievalModes: ["index"],
+          fallbackReasons: []
+        }
       });
       expect(preferredPayload.results).toEqual([
         expect.objectContaining({
@@ -2828,7 +2993,17 @@ describe("mcp command", () => {
         state: "auto",
         resolvedState: "archived",
         fallbackUsed: true,
-        retrievalMode: "index"
+        retrievalMode: "index",
+        stateResolution: {
+          outcome: "archived-hit",
+          searchedStates: ["active", "archived"],
+          resolutionReason: "active-empty-archived-match-found"
+        },
+        executionSummary: {
+          mode: "index-only",
+          retrievalModes: ["index"],
+          fallbackReasons: []
+        }
       });
       expect(fallbackPayload.results).toEqual([
         expect.objectContaining({
@@ -2890,10 +3065,126 @@ describe("mcp command", () => {
         fallbackUsed: true,
         stateFallbackUsed: true,
         markdownFallbackUsed: false,
-        retrievalMode: "index"
+        retrievalMode: "index",
+        stateResolution: {
+          outcome: "archived-hit",
+          searchedStates: ["active", "archived"],
+          resolutionReason: "active-empty-archived-match-found"
+        },
+        executionSummary: {
+          mode: "index-only",
+          retrievalModes: ["index"],
+          fallbackReasons: []
+        }
       });
       expect(payload.results).toHaveLength(8);
       expect(payload.results.every((entry) => entry.state === "archived")).toBe(true);
+    } finally {
+      await client.close();
+    }
+  }, 30_000);
+
+  it("surfaces explicit-state contract for state=all MCP searches and keeps checkedPaths ordered", async () => {
+    const homeDir = await tempDir("cam-mcp-state-all-home-");
+    const projectDir = await tempDir("cam-mcp-state-all-project-");
+    const memoryRoot = await tempDir("cam-mcp-state-all-memory-");
+    process.env.HOME = homeDir;
+
+    const projectConfig = makeAppConfig();
+    await writeCamConfig(projectDir, projectConfig, {
+      autoMemoryDirectory: memoryRoot
+    });
+
+    const store = new MemoryStore(detectProjectContext(projectDir), {
+      ...projectConfig,
+      autoMemoryDirectory: memoryRoot
+    });
+    await store.ensureLayout();
+    await store.remember(
+      "project",
+      "workflow",
+      "prefer-pnpm-active",
+      "Active pnpm workflow note.",
+      ["Use pnpm in this repository now."],
+      "Manual note."
+    );
+    await store.remember(
+      "project",
+      "workflow",
+      "prefer-pnpm-archived",
+      "Archived pnpm migration note.",
+      ["Historical pnpm migration note."],
+      "Manual note."
+    );
+    await store.forget("project", "Archived pnpm migration note", { archive: true });
+
+    const client = await connectCliMcpClient(projectDir, {
+      env: { HOME: homeDir }
+    });
+
+    try {
+      const result = await client.callTool({
+        name: "search_memories",
+        arguments: {
+          query: "pnpm",
+          state: "all",
+          limit: 1
+        }
+      });
+      const payload = readStructuredContent<SearchMemoriesResponse>(result as ToolCallResultLike);
+      expect(payload.state).toBe("all");
+      expect(payload.resolvedState).toBe("all");
+      expect(payload.searchOrder).toEqual([
+        "global:active",
+        "global:archived",
+        "project:active",
+        "project:archived",
+        "project-local:active",
+        "project-local:archived"
+      ]);
+      expect(payload.globalLimitApplied).toBe(true);
+      expect(payload.truncatedCount).toBe(1);
+      expect(payload.stateResolution).toMatchObject({
+        outcome: "explicit-state",
+        searchedStates: ["active", "archived"],
+        resolutionReason: "explicit-all-state-requested"
+      });
+      expect(payload.executionSummary).toMatchObject({
+        mode: "index-only",
+        retrievalModes: ["index"],
+        fallbackReasons: []
+      });
+      expect(payload.results).toHaveLength(1);
+      const returnedState = payload.results[0]?.state;
+      expect(returnedState === "active" || returnedState === "archived").toBe(true);
+      const projectChecks =
+        payload.diagnostics?.checkedPaths.filter((check) => check.scope === "project") ?? [];
+      expect(projectChecks).toMatchObject([
+        {
+          scope: "project",
+          state: "active",
+          retrievalMode: "index",
+          matchedCount: 1
+        },
+        {
+          scope: "project",
+          state: "archived",
+          retrievalMode: "index",
+          matchedCount: 1
+        }
+      ]);
+      const activeCheck = projectChecks.find((check) => check.state === "active");
+      const archivedCheck = projectChecks.find((check) => check.state === "archived");
+      expect((activeCheck?.returnedCount ?? 0) + (archivedCheck?.returnedCount ?? 0)).toBe(1);
+      expect(
+        returnedState === "active" ? activeCheck?.returnedCount : archivedCheck?.returnedCount
+      ).toBe(1);
+      expect(
+        returnedState === "active" ? activeCheck?.droppedCount : archivedCheck?.droppedCount
+      ).toBe(0);
+      expect(
+        returnedState === "active" ? archivedCheck?.droppedCount : activeCheck?.droppedCount
+      ).toBe(1);
     } finally {
       await client.close();
     }
@@ -2997,16 +3288,28 @@ describe("mcp command", () => {
         markdownFallbackUsed: true,
         retrievalMode: "markdown-fallback",
         retrievalFallbackReason: "missing",
+        stateResolution: {
+          outcome: "miss-after-both",
+          searchedStates: ["active", "archived"],
+          resolutionReason: "no-match-after-auto-search"
+        },
+        executionSummary: {
+          mode: "markdown-fallback-only",
+          retrievalModes: ["markdown-fallback"],
+          fallbackReasons: ["missing"]
+        },
         diagnostics: {
           anyMarkdownFallback: true,
           fallbackReasons: ["missing"],
+          executionModes: ["markdown-fallback"],
           checkedPaths: expect.arrayContaining([
             expect.objectContaining({
               scope: "project",
               state: "active",
               retrievalMode: "markdown-fallback",
               retrievalFallbackReason: "missing",
-              matchedCount: 0
+              matchedCount: 0,
+              returnedCount: 0
             })
           ])
         },
@@ -3086,7 +3389,13 @@ describe("mcp command", () => {
       expect(payload).toMatchObject({
         retrievalMode: "markdown-fallback",
         retrievalFallbackReason: "invalid",
+        executionSummary: {
+          mode: "mixed",
+          retrievalModes: ["index", "markdown-fallback"],
+          fallbackReasons: ["invalid"]
+        },
         diagnostics: {
+          executionModes: ["index", "markdown-fallback"],
           checkedPaths: expect.arrayContaining([
             expect.objectContaining({
               scope: "project",
@@ -3094,12 +3403,96 @@ describe("mcp command", () => {
               retrievalMode: "markdown-fallback",
               retrievalFallbackReason: "invalid",
               matchedCount: 1,
+              returnedCount: 1,
               indexPath: store.getRetrievalIndexFile("project", "active"),
               generatedAt: null
             })
           ])
         },
         results: [expect.objectContaining({ ref: "project:active:workflow:prefer-pnpm" })]
+      });
+    } finally {
+      await client.close();
+    }
+  }, 30_000);
+
+  it("surfaces mixed execution summary over MCP when auto search combines markdown fallback and archived index hits", async () => {
+    const homeDir = await tempDir("cam-mcp-mixed-execution-home-");
+    const projectDir = await tempDir("cam-mcp-mixed-execution-project-");
+    const memoryRoot = await tempDir("cam-mcp-mixed-execution-memory-");
+    process.env.HOME = homeDir;
+
+    const projectConfig = makeAppConfig();
+    await writeCamConfig(projectDir, projectConfig, {
+      autoMemoryDirectory: memoryRoot
+    });
+
+    const store = new MemoryStore(detectProjectContext(projectDir), {
+      ...projectConfig,
+      autoMemoryDirectory: memoryRoot
+    });
+    await store.ensureLayout();
+    await store.remember(
+      "project",
+      "workflow",
+      "historical-pnpm",
+      "Historical pnpm migration note.",
+      ["Old pnpm migration note kept for history."],
+      "Manual note."
+    );
+    await store.forget("project", "historical pnpm", { archive: true });
+    await fs.writeFile(store.getRetrievalIndexFile("project", "active"), "{not-json", "utf8");
+
+    const client = await connectCliMcpClient(projectDir, {
+      env: { HOME: homeDir }
+    });
+
+    try {
+      const result = await client.callTool({
+        name: "search_memories",
+        arguments: {
+          query: "historical",
+          state: "auto",
+          limit: 5
+        }
+      });
+      const payload = readStructuredContent<SearchMemoriesResponse>(result as ToolCallResultLike);
+      expect(payload).toMatchObject({
+        resolvedState: "archived",
+        retrievalMode: "index",
+        markdownFallbackUsed: true,
+        stateResolution: {
+          outcome: "archived-hit",
+          searchedStates: ["active", "archived"],
+          resolutionReason: "active-empty-archived-match-found"
+        },
+        executionSummary: {
+          mode: "mixed",
+          retrievalModes: ["index", "markdown-fallback"],
+          fallbackReasons: ["invalid"]
+        },
+        diagnostics: {
+          anyMarkdownFallback: true,
+          fallbackReasons: ["invalid"],
+          executionModes: ["index", "markdown-fallback"],
+          checkedPaths: expect.arrayContaining([
+            expect.objectContaining({
+              scope: "project",
+              state: "active",
+              retrievalMode: "markdown-fallback",
+              retrievalFallbackReason: "invalid",
+              matchedCount: 0,
+              returnedCount: 0
+            }),
+            expect.objectContaining({
+              scope: "project",
+              state: "archived",
+              retrievalMode: "index",
+              matchedCount: 1,
+              returnedCount: 1
+            })
+          ])
+        }
       });
     } finally {
       await client.close();

@@ -31,7 +31,7 @@ function formatSearchResults(response: MemorySearchResponse): string {
       : response.diagnostics.checkedPaths
           .map(
             (check) =>
-              `${check.scope}/${check.state}=${check.retrievalMode}${check.retrievalFallbackReason ? `(${check.retrievalFallbackReason})` : ""}:${check.matchedCount}`
+              `${check.scope}/${check.state}=${check.retrievalMode}${check.retrievalFallbackReason ? `(${check.retrievalFallbackReason})` : ""}:${check.matchedCount}/${check.returnedCount}`
           )
           .join("; ");
   const lines = [
@@ -39,8 +39,10 @@ function formatSearchResults(response: MemorySearchResponse): string {
     `Query: ${response.query}`,
     `Scope: ${response.scope} | Requested state: ${response.state} | Resolved state: ${response.resolvedState} | Results: ${response.results.length}`,
     `Archived fallback used: ${response.fallbackUsed ? "yes" : "no"}`,
+    `State resolution: ${response.stateResolution.outcome} (${response.stateResolution.resolutionReason}) [${response.stateResolution.searchedStates.join(" -> ")}]`,
     `Markdown fallback used: ${response.markdownFallbackUsed ? "yes" : "no"}`,
     `Retrieval mode: ${response.retrievalMode}${response.retrievalFallbackReason ? ` (${response.retrievalFallbackReason})` : ""}`,
+    `Execution summary: ${response.executionSummary.mode} [${response.executionSummary.retrievalModes.join(", ")}]${response.executionSummary.fallbackReasons.length > 0 ? ` fallback=${response.executionSummary.fallbackReasons.join(",")}` : ""}`,
     `Diagnostics: ${diagnosticsSummary}`
   ];
 
@@ -82,15 +84,29 @@ function formatTimeline(timeline: MemoryTimelineResponse): string {
     "Lineage:",
     `- Latest action: ${timeline.lineageSummary.latestAction ?? "unknown"}`,
     `- Latest state: ${timeline.lineageSummary.latestState ?? "unknown"}`,
+    `- Latest attempted action: ${timeline.lineageSummary.latestAttemptedAction ?? "unknown"}`,
+    `- Latest attempted outcome: ${timeline.lineageSummary.latestAttemptedOutcome ?? "unknown"}`,
+    `- Latest update kind: ${timeline.lineageSummary.latestUpdateKind ?? "n/a"}`,
     `- Latest audit status: ${timeline.lineageSummary.latestAuditStatus ?? "unknown"}`,
     `- First seen: ${timeline.lineageSummary.firstSeenAt ?? "unknown"}`,
     `- Latest event at: ${timeline.lineageSummary.latestAt ?? "unknown"}`,
     `- Archived at: ${timeline.lineageSummary.archivedAt ?? "n/a"}`,
     `- Deleted at: ${timeline.lineageSummary.deletedAt ?? "n/a"}`,
-    `- No-op count: ${timeline.lineageSummary.noopOperationCount}`,
-    `- Suppressed count: ${timeline.lineageSummary.suppressedOperationCount}`,
-    `- Conflict count: ${timeline.lineageSummary.conflictCount}`
+    `- Ref no-op count: ${timeline.lineageSummary.refNoopCount}`,
+    `- Matched audit operations: ${timeline.lineageSummary.matchedAuditOperationCount}`,
+    `- Rollout no-op count: ${timeline.lineageSummary.rolloutNoopOperationCount}`,
+    `- Rollout suppressed count: ${timeline.lineageSummary.rolloutSuppressedOperationCount}`,
+    `- Rollout conflict count: ${timeline.lineageSummary.rolloutConflictCount}`
   );
+
+  if (timeline.latestLifecycleAttempt) {
+    lines.push(
+      "",
+      "Latest attempt:",
+      `- ${timeline.latestLifecycleAttempt.at}: [${timeline.latestLifecycleAttempt.action}] ${timeline.latestLifecycleAttempt.summary}`,
+      `- Outcome: ${timeline.latestLifecycleAttempt.outcome} | State: ${timeline.latestLifecycleAttempt.state ?? "unknown"} | Previous: ${timeline.latestLifecycleAttempt.previousState ?? "n/a"} | Next: ${timeline.latestLifecycleAttempt.nextState ?? "n/a"} | Update kind: ${timeline.latestLifecycleAttempt.updateKind ?? "n/a"}`
+    );
+  }
 
   if (timeline.events.length === 0) {
     lines.push("", "No timeline events were recorded for this memory ref.");
@@ -145,7 +161,8 @@ function formatDetails(details: MemoryDetailsResult): string {
     lines.push(
       `Latest audit: ${details.latestAudit.status} at ${details.latestAudit.appliedAt}`,
       `Latest audit path: ${details.latestAudit.auditPath}`,
-      `Latest audit summary: ${details.latestAudit.resultSummary}`
+      `Latest audit summary: ${details.latestAudit.resultSummary}`,
+      `Latest audit matched operations for this ref: ${details.latestAudit.matchedOperationCount}`
     );
   }
 
@@ -153,16 +170,29 @@ function formatDetails(details: MemoryDetailsResult): string {
     "Lineage:",
     `- Latest action: ${details.lineageSummary.latestAction ?? "unknown"}`,
     `- Latest state: ${details.lineageSummary.latestState ?? details.latestState}`,
+    `- Latest attempted action: ${details.lineageSummary.latestAttemptedAction ?? "unknown"}`,
+    `- Latest attempted outcome: ${details.lineageSummary.latestAttemptedOutcome ?? "unknown"}`,
+    `- Latest update kind: ${details.lineageSummary.latestUpdateKind ?? "n/a"}`,
     `- Latest audit status: ${details.lineageSummary.latestAuditStatus ?? "unknown"}`,
     `- First seen: ${details.lineageSummary.firstSeenAt ?? "unknown"}`,
     `- Latest event at: ${details.lineageSummary.latestAt ?? "unknown"}`,
     `- Archived at: ${details.lineageSummary.archivedAt ?? "n/a"}`,
     `- Deleted at: ${details.lineageSummary.deletedAt ?? "n/a"}`,
-    `- No-op count: ${details.lineageSummary.noopOperationCount}`,
-    `- Suppressed count: ${details.lineageSummary.suppressedOperationCount}`,
-    `- Conflict count: ${details.lineageSummary.conflictCount}`,
+    `- Ref no-op count: ${details.lineageSummary.refNoopCount}`,
+    `- Matched audit operations: ${details.lineageSummary.matchedAuditOperationCount}`,
+    `- Rollout no-op count: ${details.lineageSummary.rolloutNoopOperationCount}`,
+    `- Rollout suppressed count: ${details.lineageSummary.rolloutSuppressedOperationCount}`,
+    `- Rollout conflict count: ${details.lineageSummary.rolloutConflictCount}`,
     `- Timeline warning count: ${details.timelineWarningCount}`
   );
+
+  if (details.latestLifecycleAttempt) {
+    lines.push(
+      "Latest attempt:",
+      `- ${details.latestLifecycleAttempt.at}: [${details.latestLifecycleAttempt.action}] ${details.latestLifecycleAttempt.summary}`,
+      `- Outcome: ${details.latestLifecycleAttempt.outcome} | State: ${details.latestLifecycleAttempt.state ?? "unknown"} | Previous: ${details.latestLifecycleAttempt.previousState ?? "n/a"} | Next: ${details.latestLifecycleAttempt.nextState ?? "n/a"} | Update kind: ${details.latestLifecycleAttempt.updateKind ?? "n/a"}`
+    );
+  }
 
   if (details.warnings.length > 0) {
     lines.push("Warnings:", ...details.warnings.map((warning) => `- ${warning}`));

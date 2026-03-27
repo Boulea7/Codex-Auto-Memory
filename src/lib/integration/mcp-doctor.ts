@@ -6,6 +6,7 @@ import {
 } from "./assets.js";
 import {
   buildCodexStackNotes,
+  buildExperimentalCodexHooksGuidance,
   inspectCodexAgentsGuidance,
   CODEX_HOOK_CAPTURE_ASSET_IDS,
   CODEX_HOOK_RECALL_ASSET_IDS,
@@ -13,7 +14,8 @@ import {
   resolveCodexIntegrationRoute,
   summarizeCodexIntegrationStatus,
   type CodexAgentsGuidanceInspection,
-  type CodexIntegrationRoute
+  type CodexIntegrationRoute,
+  type ExperimentalCodexHooksGuidance
 } from "./codex-stack.js";
 import { inspectCodexAgentsGuidanceApplySafety } from "./agents-guidance.js";
 import {
@@ -218,6 +220,7 @@ export interface McpDoctorReport {
   fallbackAssets: McpDoctorFallbackAssets;
   retrievalSidecar: McpDoctorRetrievalSidecarReport;
   workflowContract: ReturnType<typeof buildWorkflowContract>;
+  experimentalHooks: ExperimentalCodexHooksGuidance;
   hosts: McpDoctorHostReport[];
   codexStack: {
     status: McpDoctorStatus;
@@ -228,7 +231,9 @@ export interface McpDoctorReport {
     mcpOperationalReady: boolean;
     camCommandAvailable: boolean;
     hookCaptureReady: boolean;
+    hookCaptureOperationalReady: boolean;
     hookRecallReady: boolean;
+    hookRecallOperationalReady: boolean;
     skillReady: boolean;
     workflowAssetsConsistent: boolean;
     workflowConsistent: boolean;
@@ -752,11 +757,23 @@ function buildRetrievalSidecarReport(
     cwd?: string;
   } = {}
 ): McpDoctorRetrievalSidecarReport {
+  const degradedChecks = checks.filter((check) => check.status !== "ok");
   const repairCommand = appendCliCwdFlag(
-    "cam memory reindex --scope all --state all",
+    [
+      "cam memory reindex",
+      `--scope ${
+        new Set(degradedChecks.map((check) => check.scope)).size === 1
+          ? degradedChecks[0]?.scope ?? "all"
+          : "all"
+      }`,
+      `--state ${
+        new Set(degradedChecks.map((check) => check.state)).size === 1
+          ? degradedChecks[0]?.state ?? "all"
+          : "all"
+      }`
+    ].join(" "),
     options.cwd
   );
-  const degradedChecks = checks.filter((check) => check.status !== "ok");
   if (degradedChecks.length === 0) {
     return {
       status: "ok",
@@ -797,10 +814,12 @@ function buildCodexStackReport(
     fallbackAssets.assets,
     [...CODEX_HOOK_CAPTURE_ASSET_IDS]
   );
+  const hookCaptureOperationalReady = hookCaptureReady && camCommandAvailable;
   const hookRecallReady = isAssetReady(
     fallbackAssets.assets,
     [...CODEX_HOOK_RECALL_ASSET_IDS]
   );
+  const hookRecallOperationalReady = hookRecallReady && camCommandAvailable;
   const skillReady = fallbackAssets.readySkillSurfaces.length > 0;
   const workflowAssetsConsistent =
     isAssetReady(
@@ -814,8 +833,8 @@ function buildCodexStackReport(
     agentsGuidance.status === "ok";
   const status = summarizeCodexIntegrationStatus([
     mcpOperationalReady ? "ok" : mcpReady ? "warning" : "missing",
-    hookCaptureReady ? "ok" : "missing",
-    hookRecallReady ? "ok" : "missing",
+    hookCaptureOperationalReady ? "ok" : hookCaptureReady ? "warning" : "missing",
+    hookRecallOperationalReady ? "ok" : hookRecallReady ? "warning" : "missing",
     skillReady ? "ok" : "missing",
     workflowConsistent
       ? "ok"
@@ -829,12 +848,22 @@ function buildCodexStackReport(
       "The current shell could not resolve `cam` on PATH, so MCP wiring may still fail at runtime."
     );
   }
+  if (hookRecallReady && !hookRecallOperationalReady) {
+    notes.push(
+      "Hook recall helpers are installed, but the current shell could not resolve `cam` on PATH, so the local bridge fallback is not operational yet."
+    );
+  }
+  if (hookCaptureReady && !hookCaptureOperationalReady) {
+    notes.push(
+      "Hook capture helpers are installed, but the current shell could not resolve `cam` on PATH, so the local bridge capture path is not operational yet."
+    );
+  }
 
   return {
     status,
     recommendedRoute: resolveCodexIntegrationRoute({
       mcpOperationalReady,
-      hookRecallReady
+      hookRecallOperationalReady
     }),
     preset: formatRecommendedRetrievalPreset(),
     assetVersion: RETRIEVAL_INTEGRATION_ASSET_VERSION,
@@ -842,7 +871,9 @@ function buildCodexStackReport(
     mcpOperationalReady,
     camCommandAvailable,
     hookCaptureReady,
+    hookCaptureOperationalReady,
     hookRecallReady,
+    hookRecallOperationalReady,
     skillReady,
     workflowAssetsConsistent,
     workflowConsistent,
@@ -901,6 +932,7 @@ export async function inspectMcpDoctor(options: {
     fallbackAssets,
     retrievalSidecar,
     workflowContract,
+    experimentalHooks: buildExperimentalCodexHooksGuidance(),
     hosts,
     codexStack: buildCodexStackReport(
     codexHost,
@@ -981,6 +1013,13 @@ export function formatMcpDoctorReport(report: McpDoctorReport): string {
     "Apply safety:",
     `- AGENTS managed-block apply safety: ${report.applySafety.status}${report.applySafety.blockedReason ? ` (${report.applySafety.blockedReason})` : ""}`,
     "",
+    "Experimental Codex hooks:",
+    `- Status: ${report.experimentalHooks.status}`,
+    `- Feature flag: ${report.experimentalHooks.featureFlag}`,
+    `- Target file hint: ${report.experimentalHooks.targetFileHint}`,
+    `- Snippet: ${report.experimentalHooks.snippet.replace(/\n/g, " | ")}`,
+    ...report.experimentalHooks.notes.map((note) => `- ${note}`),
+    "",
     "Retrieval sidecar:",
     `- Status: ${report.retrievalSidecar.status}`,
     `- Summary: ${report.retrievalSidecar.summary}`,
@@ -1060,7 +1099,9 @@ export function formatMcpDoctorReport(report: McpDoctorReport): string {
     `- MCP operational ready: ${report.codexStack.mcpOperationalReady ? "yes" : "no"}`,
     `- cam command available: ${report.codexStack.camCommandAvailable ? "yes" : "no"}`,
     `- Hook capture ready: ${report.codexStack.hookCaptureReady ? "yes" : "no"}`,
+    `- Hook capture operational ready: ${report.codexStack.hookCaptureOperationalReady ? "yes" : "no"}`,
     `- Hook recall ready: ${report.codexStack.hookRecallReady ? "yes" : "no"}`,
+    `- Hook recall operational ready: ${report.codexStack.hookRecallOperationalReady ? "yes" : "no"}`,
     `- Skill ready: ${report.codexStack.skillReady ? "yes" : "no"}`,
     `- Workflow consistent: ${report.codexStack.workflowConsistent ? "yes" : "no"}`,
     "",

@@ -1,3 +1,6 @@
+import fs from "node:fs";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
 import {
   DEFAULT_MEMORY_RETRIEVAL_LIMIT,
   DEFAULT_MEMORY_RETRIEVAL_STATE
@@ -60,6 +63,14 @@ export interface WorkflowContract {
   recommendedPreset: string;
   recallFirst: string;
   progressiveDisclosure: string;
+  launcher: {
+    commandName: "cam";
+    requiresPathResolution: true;
+    hookHelpersShellOnly: true;
+    resolution: "cam-path" | "node-dist" | "cam-unverified";
+    verified: boolean;
+    resolvedCommand: string;
+  };
   routePreference: WorkflowRoutePreference;
   recallWorkflow: WorkflowRecallWorkflow;
   mcpTools: {
@@ -71,12 +82,24 @@ export interface WorkflowContract {
     searchCommand: string;
     timelineCommand: string;
     detailsCommand: string;
+    requiresCamOnPath: true;
+  };
+  resolvedCliFallback: {
+    searchCommand: string;
+    timelineCommand: string;
+    detailsCommand: string;
   };
   postWorkSyncReview: {
     helperScript: string;
     syncCommand: string;
     reviewCommand: string;
     guidance: string;
+    shellOnly: true;
+    requiresCamOnPath: true;
+  };
+  resolvedPostWorkSyncReview: {
+    syncCommand: string;
+    reviewCommand: string;
   };
   boundaries: {
     memoryAudit: string;
@@ -101,6 +124,61 @@ export function formatRecommendedRetrievalPreset(): string {
   return `state=${RECOMMENDED_RETRIEVAL_STATE}, limit=${RECOMMENDED_RETRIEVAL_LIMIT}`;
 }
 
+function isExecutableOnPath(commandName: string): boolean {
+  const pathValue = process.env.PATH;
+  if (!pathValue) {
+    return false;
+  }
+
+  const executableNames =
+    process.platform === "win32"
+      ? [commandName, `${commandName}.cmd`, `${commandName}.exe`, `${commandName}.bat`]
+      : [commandName];
+
+  return pathValue.split(path.delimiter).some((directory) =>
+    executableNames.some((candidate) => fs.existsSync(path.join(directory, candidate)))
+  );
+}
+
+function getPackagedDistCliPath(): string {
+  const thisFilePath = fileURLToPath(import.meta.url);
+  return path.resolve(path.dirname(thisFilePath), "../../../dist/cli.js");
+}
+
+export function resolveCliLauncher(): WorkflowContract["launcher"] {
+  if (isExecutableOnPath("cam")) {
+    return {
+      commandName: "cam",
+      requiresPathResolution: true,
+      hookHelpersShellOnly: true,
+      resolution: "cam-path",
+      verified: true,
+      resolvedCommand: "cam"
+    };
+  }
+
+  const distCliPath = getPackagedDistCliPath();
+  if (fs.existsSync(distCliPath)) {
+    return {
+      commandName: "cam",
+      requiresPathResolution: true,
+      hookHelpersShellOnly: true,
+      resolution: "node-dist",
+      verified: true,
+      resolvedCommand: `node ${JSON.stringify(distCliPath)}`
+    };
+  }
+
+  return {
+    commandName: "cam",
+    requiresPathResolution: true,
+    hookHelpersShellOnly: true,
+    resolution: "cam-unverified",
+    verified: false,
+    resolvedCommand: "cam"
+  };
+}
+
 export function hasCliCwdFlag(command: string): boolean {
   return /(?:^|\s)--cwd(?:\s|=)/u.test(command);
 }
@@ -115,6 +193,15 @@ export function appendCliCwdFlag(command: string, cwd?: string): string {
   }
 
   return `${command} --cwd ${shellQuote(cwd)}`;
+}
+
+export function buildResolvedCliCommand(
+  command: string,
+  options: {
+    cwd?: string;
+  } = {}
+): string {
+  return appendCliCwdFlag(`${resolveCliLauncher().resolvedCommand} ${command}`, options.cwd);
 }
 
 export function buildRecommendedCliSearchCommand(
@@ -176,11 +263,62 @@ export function buildPostWorkRecentReviewCommand(
   return appendCliCwdFlag(DURABLE_MEMORY_RECENT_REVIEW_COMMAND, options.cwd);
 }
 
+export function buildResolvedCliSearchCommand(
+  query = "\"<query>\"",
+  options: {
+    state?: MemoryRetrievalStateFilter;
+    limit?: number;
+    cwd?: string;
+  } = {}
+): string {
+  const state = options.state ?? RECOMMENDED_RETRIEVAL_STATE;
+  const limit = options.limit ?? RECOMMENDED_RETRIEVAL_LIMIT;
+  return buildResolvedCliCommand(
+    `recall search ${query} --state ${state} --limit ${limit}`,
+    options
+  );
+}
+
+export function buildResolvedCliTimelineCommand(
+  ref = "\"<ref>\"",
+  options: {
+    cwd?: string;
+  } = {}
+): string {
+  return buildResolvedCliCommand(`recall timeline ${ref}`, options);
+}
+
+export function buildResolvedCliDetailsCommand(
+  ref = "\"<ref>\"",
+  options: {
+    cwd?: string;
+  } = {}
+): string {
+  return buildResolvedCliCommand(`recall details ${ref}`, options);
+}
+
+export function buildResolvedPostWorkSyncCommand(
+  options: {
+    cwd?: string;
+  } = {}
+): string {
+  return buildResolvedCliCommand("sync", options);
+}
+
+export function buildResolvedPostWorkRecentReviewCommand(
+  options: {
+    cwd?: string;
+  } = {}
+): string {
+  return buildResolvedCliCommand("memory --recent", options);
+}
+
 export function buildWorkflowContract(
   options: {
     cwd?: string;
   } = {}
 ): WorkflowContract {
+  const launcher = resolveCliLauncher();
   const routePreference: WorkflowRoutePreference = {
     preferredRoute: "mcp-first",
     mcpFirst: MCP_FIRST_RECALL_WORKFLOW,
@@ -199,6 +337,7 @@ export function buildWorkflowContract(
     recommendedPreset: formatRecommendedRetrievalPreset(),
     recallFirst: recallWorkflow.recallFirst,
     progressiveDisclosure: recallWorkflow.progressiveDisclosure,
+    launcher,
     routePreference,
     recallWorkflow,
     mcpTools: {
@@ -209,13 +348,25 @@ export function buildWorkflowContract(
     cliFallback: {
       searchCommand: buildRecommendedCliSearchCommand("\"<query>\"", options),
       timelineCommand: buildCliTimelineCommand("\"<ref>\"", options),
-      detailsCommand: buildCliDetailsCommand("\"<ref>\"", options)
+      detailsCommand: buildCliDetailsCommand("\"<ref>\"", options),
+      requiresCamOnPath: true
+    },
+    resolvedCliFallback: {
+      searchCommand: buildResolvedCliSearchCommand("\"<query>\"", options),
+      timelineCommand: buildResolvedCliTimelineCommand("\"<ref>\"", options),
+      detailsCommand: buildResolvedCliDetailsCommand("\"<ref>\"", options)
     },
     postWorkSyncReview: {
       helperScript: POST_WORK_SYNC_REVIEW_HELPER,
       syncCommand: buildPostWorkSyncCommand(options),
       reviewCommand: buildPostWorkRecentReviewCommand(options),
-      guidance: DURABLE_MEMORY_SYNC_GUIDANCE
+      guidance: DURABLE_MEMORY_SYNC_GUIDANCE,
+      shellOnly: true,
+      requiresCamOnPath: true
+    },
+    resolvedPostWorkSyncReview: {
+      syncCommand: buildResolvedPostWorkSyncCommand(options),
+      reviewCommand: buildResolvedPostWorkRecentReviewCommand(options)
     },
     boundaries: {
       memoryAudit: MEMORY_AUDIT_BOUNDARY,

@@ -6,6 +6,10 @@ import { afterEach, describe, expect, it } from "vitest";
 import { detectProjectContext } from "../src/lib/domain/project-context.js";
 import { MemoryStore } from "../src/lib/domain/memory-store.js";
 import { SessionContinuityStore } from "../src/lib/domain/session-continuity-store.js";
+import {
+  buildResolvedPostWorkRecentReviewCommand,
+  buildResolvedPostWorkSyncCommand
+} from "../src/lib/integration/retrieval-contract.js";
 import type { AppConfig } from "../src/lib/types.js";
 import {
   initGitRepo,
@@ -927,6 +931,7 @@ describe("dist cli smoke", () => {
   it("installs hooks and skills from the compiled cli entrypoint", async () => {
     const homeDir = await tempDir("cam-dist-hook-skill-home-");
     const projectDir = await tempDir("cam-dist-hook-skill-project-");
+    const realProjectDir = await fs.realpath(projectDir);
     const env = { HOME: homeDir };
 
     const hooksResult = runCli(projectDir, ["hooks", "install"], {
@@ -943,7 +948,9 @@ describe("dist cli smoke", () => {
     );
     const recallGuide = await fs.readFile(path.join(hooksDir, "recall-bridge.md"), "utf8");
     expect(recallScript).toContain("cam:asset-version");
-    expect(postWorkReviewScript).toContain("cam memory --recent");
+    expect(postWorkReviewScript).toContain(
+      buildResolvedPostWorkRecentReviewCommand({ cwd: realProjectDir })
+    );
     expect(recallGuide).toContain("cam:asset-version");
 
     const skillsResult = runCli(projectDir, ["skills", "install"], {
@@ -1653,7 +1660,7 @@ fs.writeFileSync(${JSON.stringify(capturedArgsPath)}, JSON.stringify(process.arg
         path.join(homeDir, ".codex-auto-memory", "hooks", "post-work-memory-review.sh"),
         "utf8"
       )
-    ).toContain(`cam sync --cwd ${shellQuoteArg(realProjectDir)} "$@"`);
+    ).toContain(`${buildResolvedPostWorkSyncCommand({ cwd: realProjectDir })} "$@"`);
 
     const guidanceResult = runCli(
       callerDir,

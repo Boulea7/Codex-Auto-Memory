@@ -1249,6 +1249,150 @@ describe("runMemory", () => {
     expect(await store.listEntries("project")).toHaveLength(1);
   });
 
+  it("surfaces a structured reviewer payload for remember --json", async () => {
+    const homeDir = await tempDir("cam-remember-json-home-");
+    const projectDir = await tempDir("cam-remember-json-project-");
+    const memoryRoot = await tempDir("cam-remember-json-root-");
+    process.env.HOME = homeDir;
+
+    const projectConfig = buildProjectConfig();
+    await writeProjectConfig(projectDir, projectConfig, {
+      autoMemoryDirectory: memoryRoot
+    });
+
+    const result = runCli(
+      projectDir,
+      [
+        "remember",
+        "Prefer pnpm in this repository.",
+        "--scope",
+        "project",
+        "--topic",
+        "workflow",
+        "--detail",
+        "Use pnpm instead of npm in this repository.",
+        "--json"
+      ],
+      { env: { HOME: homeDir } }
+    );
+    expect(result.exitCode, result.stderr).toBe(0);
+
+    const payload = JSON.parse(result.stdout) as {
+      action: string;
+      scope: string;
+      topic: string;
+      id: string;
+      text: string;
+      ref: string;
+      path: string;
+      historyPath: string;
+      lifecycleAction: string;
+      latestState: string;
+      latestLifecycleAttempt: { action: string; outcome: string; updateKind: string | null } | null;
+      lineageSummary: { latestAction: string | null; latestUpdateKind: string | null };
+      entry: { summary: string; details: string[] };
+      warnings: string[];
+    };
+
+    expect(payload).toMatchObject({
+      action: "remember",
+      scope: "project",
+      topic: "workflow",
+      id: "prefer-pnpm-in-this-repository",
+      text: "Prefer pnpm in this repository.",
+      ref: "project:active:workflow:prefer-pnpm-in-this-repository",
+      lifecycleAction: "add",
+      latestState: "active",
+      latestLifecycleAttempt: {
+        action: "add",
+        outcome: "applied",
+        updateKind: null
+      },
+      lineageSummary: {
+        latestAction: "add",
+        latestUpdateKind: null
+      },
+      entry: {
+        summary: "Prefer pnpm in this repository.",
+        details: ["Use pnpm instead of npm in this repository."]
+      },
+      warnings: []
+    });
+    expect(payload.path).toContain(path.join("workflow.md"));
+    expect(payload.historyPath).toContain(path.join("project", "memory-history.jsonl"));
+  });
+
+  it("surfaces a structured reviewer payload for forget --json including archive refs", async () => {
+    const homeDir = await tempDir("cam-forget-json-home-");
+    const projectDir = await tempDir("cam-forget-json-project-");
+    const memoryRoot = await tempDir("cam-forget-json-root-");
+    process.env.HOME = homeDir;
+
+    const projectConfig = buildProjectConfig();
+    await writeProjectConfig(projectDir, projectConfig, {
+      autoMemoryDirectory: memoryRoot
+    });
+
+    const project = detectProjectContext(projectDir);
+    const store = new MemoryStore(project, {
+      ...projectConfig,
+      autoMemoryDirectory: memoryRoot
+    });
+    await store.ensureLayout();
+    await store.remember(
+      "project",
+      "workflow",
+      "prefer-pnpm",
+      "Prefer pnpm in this repository.",
+      ["Use pnpm instead of npm in this repository."],
+      "Manual note."
+    );
+
+    const result = runCli(projectDir, ["forget", "pnpm", "--scope", "project", "--archive", "--json"], {
+      env: { HOME: homeDir }
+    });
+    expect(result.exitCode, result.stderr).toBe(0);
+
+    const payload = JSON.parse(result.stdout) as {
+      action: string;
+      query: string;
+      scope: string;
+      archive: boolean;
+      affectedCount: number;
+      entries: Array<{
+        ref: string;
+        lifecycleAction: string;
+        latestState: string;
+        latestLifecycleAttempt: { action: string; outcome: string; updateKind: string | null } | null;
+        lineageSummary: { latestAction: string | null; latestUpdateKind: string | null };
+      }>;
+    };
+
+    expect(payload).toMatchObject({
+      action: "forget",
+      query: "pnpm",
+      scope: "project",
+      archive: true,
+      affectedCount: 1,
+      entries: [
+        {
+          ref: "project:archived:workflow:prefer-pnpm",
+          lifecycleAction: "archive",
+          latestState: "archived",
+          latestLifecycleAttempt: {
+            action: "archive",
+            outcome: "applied",
+            updateKind: null
+          },
+          lineageSummary: {
+            latestAction: "archive",
+            latestUpdateKind: null
+          }
+        }
+      ]
+    });
+  });
+
   it("rebuilds retrieval sidecars explicitly from canonical Markdown memory", async () => {
     const homeDir = await tempDir("cam-memory-reindex-home-");
     const projectDir = await tempDir("cam-memory-reindex-project-");

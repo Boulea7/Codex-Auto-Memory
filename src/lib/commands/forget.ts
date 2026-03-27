@@ -1,10 +1,15 @@
 import { buildRuntimeContext } from "../runtime/runtime-context.js";
 import type { MemoryScope } from "../types.js";
+import {
+  buildManualMutationReviewEntry,
+  toManualMutationForgetPayload
+} from "./manual-mutation-review.js";
 
 interface ForgetOptions {
   cwd?: string;
   scope?: MemoryScope | "all";
   archive?: boolean;
+  json?: boolean;
 }
 
 export async function runForget(
@@ -16,9 +21,38 @@ export async function runForget(
   }
 
   const runtime = await buildRuntimeContext(options.cwd);
-  const deleted = await runtime.syncService.memoryStore.forget(options.scope ?? "all", query, {
+  const targetScope = options.scope ?? "all";
+  const deleted = await runtime.syncService.memoryStore.forget(targetScope, query, {
     archive: options.archive
   });
+
+  if (options.json) {
+    const reviewEntries = await Promise.all(
+      deleted.map(async (entry) =>
+        buildManualMutationReviewEntry(runtime.syncService.memoryStore, {
+          operation: {
+            action: options.archive ? "archive" : "delete",
+            scope: entry.scope,
+            topic: entry.topic,
+            id: entry.id,
+            summary: entry.summary,
+            details: entry.details,
+            sources: ["manual"],
+            reason: options.archive ? "Manual archive request." : "Explicit forget instruction from the user."
+          },
+          lifecycleAction: options.archive ? "archive" : "delete",
+          previousState: "active",
+          nextState: options.archive ? "archived" : "deleted"
+        })
+      )
+    );
+    return JSON.stringify(
+      toManualMutationForgetPayload(query, targetScope, Boolean(options.archive), reviewEntries),
+      null,
+      2
+    );
+  }
+
   if (deleted.length === 0) {
     return `No memory entries matched "${query}".`;
   }
