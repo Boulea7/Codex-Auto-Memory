@@ -484,11 +484,16 @@ describe("MemoryStore", () => {
       latestAction: "restore",
       latestAttemptedAction: "noop",
       latestAttemptedOutcome: "noop",
-      latestUpdateKind: null,
+      latestUpdateKind: "restore",
       refNoopCount: 1
     });
     expect(details).toMatchObject({
       latestLifecycleAction: "restore",
+      latestAppliedLifecycle: {
+        action: "restore",
+        outcome: "applied",
+        state: "active"
+      },
       latestLifecycleAttempt: {
         action: "noop",
         outcome: "noop",
@@ -498,9 +503,11 @@ describe("MemoryStore", () => {
         latestAction: "restore",
         latestAttemptedAction: "noop",
         latestAttemptedOutcome: "noop",
+        latestUpdateKind: "restore",
         refNoopCount: 1
       }
     });
+    expect(details?.timelineWarningCount).toBe(details?.warnings.length);
     expect(details?.warnings).toEqual(
       expect.arrayContaining([
         expect.stringContaining("ref-local no-op attempt")
@@ -581,6 +588,11 @@ describe("MemoryStore", () => {
     });
     expect(details).toMatchObject({
       latestLifecycleAction: "update",
+      latestAppliedLifecycle: {
+        action: "update",
+        outcome: "applied",
+        updateKind: "semantic-overwrite"
+      },
       latestLifecycleAttempt: {
         action: "update",
         outcome: "applied",

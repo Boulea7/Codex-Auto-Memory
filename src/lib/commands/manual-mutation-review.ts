@@ -1,6 +1,7 @@
 import { buildMemoryRef } from "../domain/memory-lifecycle.js";
 import type { MemoryStore } from "../domain/memory-store.js";
 import type {
+  MemoryAppliedLifecycle,
   MemoryApplyRecord,
   MemoryDetailsResult,
   MemoryEntry,
@@ -14,6 +15,8 @@ import type {
 
 export interface ManualMutationReviewEntry {
   ref: string;
+  timelineRef: string;
+  detailsRef: string | null;
   scope: MemoryScope;
   state: "active" | "archived";
   topic: string;
@@ -22,6 +25,7 @@ export interface ManualMutationReviewEntry {
   historyPath: string;
   lifecycleAction: MemoryLifecycleAction;
   latestLifecycleAction: Exclude<MemoryLifecycleAction, "noop"> | null;
+  latestAppliedLifecycle: MemoryAppliedLifecycle | null;
   latestLifecycleAttempt: MemoryLifecycleAttempt | null;
   latestState: MemoryHistoryRecordState;
   latestSessionId: string | null;
@@ -65,6 +69,8 @@ function buildFallbackDetails(
   const { operation } = record;
   return store.readTimelineWithDiagnostics(ref).then((timeline) => ({
     ref,
+    timelineRef: ref,
+    detailsRef: state === "active" ? null : ref,
     scope: operation.scope,
     state,
     topic: operation.topic,
@@ -76,6 +82,7 @@ function buildFallbackDetails(
       timeline.latestEvent && timeline.latestEvent.action !== "noop"
         ? timeline.latestEvent.action
         : null,
+    latestAppliedLifecycle: timeline.latestAppliedLifecycle,
     latestLifecycleAttempt: timeline.latestLifecycleAttempt,
     latestState: timeline.lineageSummary.latestState ?? (record.nextState ?? state),
     latestSessionId: timeline.latestAttempt?.sessionId ?? null,
@@ -111,6 +118,8 @@ export async function buildManualMutationReviewEntry(
   if (details) {
     return {
       ref,
+      timelineRef: details.ref,
+      detailsRef: details.ref,
       scope: details.scope,
       state: details.state,
       topic: details.topic,
@@ -119,6 +128,7 @@ export async function buildManualMutationReviewEntry(
       historyPath: details.historyPath,
       lifecycleAction: record.lifecycleAction,
       latestLifecycleAction: details.latestLifecycleAction,
+      latestAppliedLifecycle: details.latestAppliedLifecycle,
       latestLifecycleAttempt: details.latestLifecycleAttempt,
       latestState: details.latestState,
       latestSessionId: details.latestLifecycleAttempt?.sessionId ?? details.latestSessionId,
@@ -144,15 +154,27 @@ export function toManualMutationRememberPayload(
 ): Record<string, unknown> {
   return {
     action: "remember",
+    mutationKind: "remember",
+    matchedCount: 1,
+    appliedCount: entry.lifecycleAction === "noop" ? 0 : 1,
+    noopCount: entry.lifecycleAction === "noop" ? 1 : 0,
+    affectedRefs: [entry.ref],
+    followUp: {
+      timelineRefs: [entry.timelineRef],
+      detailsRefs: entry.detailsRef ? [entry.detailsRef] : []
+    },
     text,
     scope: entry.scope,
     topic: entry.topic,
     id: entry.id,
     ref: entry.ref,
+    timelineRef: entry.timelineRef,
+    detailsRef: entry.detailsRef,
     path: entry.path,
     historyPath: entry.historyPath,
     lifecycleAction: entry.lifecycleAction,
     latestLifecycleAction: entry.latestLifecycleAction,
+    latestAppliedLifecycle: entry.latestAppliedLifecycle,
     latestLifecycleAttempt: entry.latestLifecycleAttempt,
     latestState: entry.latestState,
     latestSessionId: entry.latestSessionId,
@@ -173,10 +195,19 @@ export function toManualMutationForgetPayload(
 ): Record<string, unknown> {
   return {
     action: "forget",
+    mutationKind: "forget",
     query,
     scope,
     archive,
+    matchedCount: entries.length,
+    appliedCount: entries.filter((entry) => entry.lifecycleAction !== "noop").length,
+    noopCount: entries.filter((entry) => entry.lifecycleAction === "noop").length,
     affectedCount: entries.length,
+    affectedRefs: entries.map((entry) => entry.ref),
+    followUp: {
+      timelineRefs: entries.map((entry) => entry.timelineRef),
+      detailsRefs: entries.flatMap((entry) => (entry.detailsRef ? [entry.detailsRef] : []))
+    },
     entries
   };
 }

@@ -108,6 +108,15 @@ function formatTimeline(timeline: MemoryTimelineResponse): string {
     );
   }
 
+  if (timeline.latestAppliedLifecycle) {
+    lines.push(
+      "",
+      "Latest applied lifecycle:",
+      `- ${timeline.latestAppliedLifecycle.at}: [${timeline.latestAppliedLifecycle.action}] ${timeline.latestAppliedLifecycle.summary}`,
+      `- State: ${timeline.latestAppliedLifecycle.state ?? "unknown"} | Previous: ${timeline.latestAppliedLifecycle.previousState ?? "n/a"} | Next: ${timeline.latestAppliedLifecycle.nextState ?? "n/a"} | Update kind: ${timeline.latestAppliedLifecycle.updateKind ?? "n/a"}`
+    );
+  }
+
   if (timeline.events.length === 0) {
     lines.push("", "No timeline events were recorded for this memory ref.");
     return lines.join("\n");
@@ -191,6 +200,14 @@ function formatDetails(details: MemoryDetailsResult): string {
       "Latest attempt:",
       `- ${details.latestLifecycleAttempt.at}: [${details.latestLifecycleAttempt.action}] ${details.latestLifecycleAttempt.summary}`,
       `- Outcome: ${details.latestLifecycleAttempt.outcome} | State: ${details.latestLifecycleAttempt.state ?? "unknown"} | Previous: ${details.latestLifecycleAttempt.previousState ?? "n/a"} | Next: ${details.latestLifecycleAttempt.nextState ?? "n/a"} | Update kind: ${details.latestLifecycleAttempt.updateKind ?? "n/a"}`
+    );
+  }
+
+  if (details.latestAppliedLifecycle) {
+    lines.push(
+      "Latest applied lifecycle:",
+      `- ${details.latestAppliedLifecycle.at}: [${details.latestAppliedLifecycle.action}] ${details.latestAppliedLifecycle.summary}`,
+      `- State: ${details.latestAppliedLifecycle.state ?? "unknown"} | Previous: ${details.latestAppliedLifecycle.previousState ?? "n/a"} | Next: ${details.latestAppliedLifecycle.nextState ?? "n/a"} | Update kind: ${details.latestAppliedLifecycle.updateKind ?? "n/a"}`
     );
   }
 

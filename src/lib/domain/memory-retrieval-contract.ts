@@ -158,6 +158,10 @@ export function buildMemoryTimelineResponse(
     ref,
     events: [...timeline.events],
     warnings: [...(timeline.warnings ?? [])],
+    latestAppliedLifecycle:
+      "latestAppliedLifecycle" in timeline && timeline.latestAppliedLifecycle
+        ? { ...timeline.latestAppliedLifecycle }
+        : null,
     latestLifecycleAttempt:
       "latestLifecycleAttempt" in timeline && timeline.latestLifecycleAttempt
         ? { ...timeline.latestLifecycleAttempt }
@@ -249,6 +253,9 @@ export function toMemoryDetailsResultShape(details: MemoryDetailsResult): Memory
     lineageSummary: {
       ...details.lineageSummary
     },
+    latestAppliedLifecycle: details.latestAppliedLifecycle
+      ? { ...details.latestAppliedLifecycle }
+      : null,
     latestLifecycleAttempt: details.latestLifecycleAttempt
       ? { ...details.latestLifecycleAttempt }
       : null,
