@@ -2,6 +2,7 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import { DEFAULT_MEMORY_TOPICS } from "../constants.js";
 import type {
+  MemoryAppliedLifecycle,
   AppConfig,
   MemoryApplyRecord,
   MemoryDetailsResult,
@@ -472,7 +473,7 @@ function buildLineageSummary(
       latestAttemptedAction: latestAttempt?.action ?? null,
       latestAttemptedState: latestAttempt?.state ?? null,
       latestAttemptedOutcome: latestAttempt?.outcome ?? null,
-      latestUpdateKind: latestAttempt?.updateKind ?? null,
+      latestUpdateKind: null,
       latestAuditStatus: latestAudit?.status ?? null,
       refNoopCount,
       matchedAuditOperationCount: latestAudit?.matchedOperationCount ?? 0,
@@ -502,7 +503,8 @@ function buildLineageSummary(
     latestAttemptedAction: latestAttempt?.action ?? null,
     latestAttemptedState: latestAttempt?.state ?? null,
     latestAttemptedOutcome: latestAttempt?.outcome ?? null,
-    latestUpdateKind: latestAttempt?.updateKind ?? null,
+    latestUpdateKind:
+      latestEvent?.updateKind ?? (latestEvent?.action === "restore" ? "restore" : null),
     archivedAt: archivedEvent?.at ?? null,
     deletedAt: deletedEvent?.at ?? null,
     latestAuditStatus: latestAudit?.status ?? null,
@@ -528,6 +530,27 @@ function buildLatestLifecycleAttempt(
     at: event.at,
     action: event.action,
     outcome: event.outcome ?? (event.action === "noop" ? "noop" : "applied"),
+    state: event.state,
+    previousState: event.previousState ?? null,
+    nextState: event.nextState ?? null,
+    summary: event.summary,
+    updateKind: event.updateKind ?? (event.action === "restore" ? "restore" : null),
+    sessionId: event.sessionId ?? null,
+    rolloutPath: event.rolloutPath ?? null
+  };
+}
+
+function buildLatestAppliedLifecycle(
+  event: MemoryTimelineEvent | null
+): MemoryAppliedLifecycle | null {
+  if (!event || event.action === "noop") {
+    return null;
+  }
+
+  return {
+    at: event.at,
+    action: event.action,
+    outcome: "applied",
     state: event.state,
     previousState: event.previousState ?? null,
     nextState: event.nextState ?? null,
@@ -1399,13 +1422,14 @@ export class MemoryStore {
       approxReadCost: entry.details.length + 4,
       latestLifecycleAction:
         latestEvent && latestEvent.action !== "noop" ? latestEvent.action : null,
+      latestAppliedLifecycle: buildLatestAppliedLifecycle(latestEvent),
       latestLifecycleAttempt: buildLatestLifecycleAttempt(latestAttempt),
       latestState: latestEvent?.state ?? parsed.state,
       latestSessionId: latestAttempt?.sessionId ?? latestEvent?.sessionId ?? null,
       latestRolloutPath: latestAttempt?.rolloutPath ?? latestEvent?.rolloutPath ?? null,
       historyPath: this.getHistoryPath(parsed.scope),
       latestAudit,
-      timelineWarningCount: timeline.warnings.length,
+      timelineWarningCount: warnings.length,
       lineageSummary: {
         ...timeline.lineageSummary,
         latestState: timeline.lineageSummary.latestState ?? parsed.state
@@ -1576,6 +1600,7 @@ export class MemoryStore {
         lineageSummary: buildEmptyLineageSummary(),
         latestAudit: null,
         latestEvent: null,
+        latestAppliedLifecycle: null,
         latestAttempt: null,
         latestLifecycleAttempt: null
       };
@@ -1597,7 +1622,8 @@ export class MemoryStore {
       parsed.topic,
       parsed.id,
       latestAttempt?.rolloutPath,
-      latestAttempt?.sessionId
+      latestAttempt?.sessionId,
+      latestAttempt?.action === "noop"
     );
     const warnings = [...history.warnings];
     if (latestAttempt && !latestAudit && (latestAttempt.rolloutPath || latestAttempt.sessionId)) {
@@ -1618,6 +1644,7 @@ export class MemoryStore {
       lineageSummary: buildLineageSummary(matchingEvents, latestAudit, latestAttempt),
       latestAudit,
       latestEvent,
+      latestAppliedLifecycle: buildLatestAppliedLifecycle(latestEvent),
       latestAttempt,
       latestLifecycleAttempt: buildLatestLifecycleAttempt(latestAttempt)
     };
@@ -2397,7 +2424,8 @@ export class MemoryStore {
     topic: string,
     id: string,
     latestRolloutPath?: string,
-    latestSessionId?: string
+    latestSessionId?: string,
+    allowNoopProvenanceMatch = false
   ): Promise<MemorySyncAuditSummary | null> {
     if (latestRolloutPath === undefined && latestSessionId === undefined) {
       return null;
@@ -2415,8 +2443,12 @@ export class MemoryStore {
         return false;
       }
 
-      return entry.operations.some(
-        (operation) => operation.scope === scope && operation.topic === topic && operation.id === id
+      return (
+        entry.operations.some(
+          (operation) =>
+            operation.scope === scope && operation.topic === topic && operation.id === id
+        ) ||
+        (allowNoopProvenanceMatch && (entry.noopOperationCount ?? 0) > 0)
       );
     });
 

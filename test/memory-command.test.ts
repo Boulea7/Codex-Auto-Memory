@@ -1279,6 +1279,15 @@ describe("runMemory", () => {
 
     const payload = JSON.parse(result.stdout) as {
       action: string;
+      mutationKind: string;
+      matchedCount: number;
+      appliedCount: number;
+      noopCount: number;
+      affectedRefs: string[];
+      followUp: {
+        timelineRefs: string[];
+        detailsRefs: string[];
+      };
       scope: string;
       topic: string;
       id: string;
@@ -1296,6 +1305,10 @@ describe("runMemory", () => {
 
     expect(payload).toMatchObject({
       action: "remember",
+      mutationKind: "remember",
+      matchedCount: 1,
+      appliedCount: 1,
+      noopCount: 0,
       scope: "project",
       topic: "workflow",
       id: "prefer-pnpm-in-this-repository",
@@ -1318,6 +1331,9 @@ describe("runMemory", () => {
       },
       warnings: []
     });
+    expect(payload.affectedRefs).toEqual([payload.ref]);
+    expect(payload.followUp.timelineRefs).toEqual([payload.ref]);
+    expect(payload.followUp.detailsRefs).toEqual([payload.ref]);
     expect(payload.path).toContain(path.join("workflow.md"));
     expect(payload.historyPath).toContain(path.join("project", "memory-history.jsonl"));
   });
@@ -1355,12 +1371,23 @@ describe("runMemory", () => {
 
     const payload = JSON.parse(result.stdout) as {
       action: string;
+      mutationKind: string;
       query: string;
       scope: string;
       archive: boolean;
+      matchedCount: number;
+      appliedCount: number;
+      noopCount: number;
       affectedCount: number;
+      affectedRefs: string[];
+      followUp: {
+        timelineRefs: string[];
+        detailsRefs: string[];
+      };
       entries: Array<{
         ref: string;
+        timelineRef: string;
+        detailsRef: string | null;
         lifecycleAction: string;
         latestState: string;
         latestLifecycleAttempt: { action: string; outcome: string; updateKind: string | null } | null;
@@ -1370,13 +1397,19 @@ describe("runMemory", () => {
 
     expect(payload).toMatchObject({
       action: "forget",
+      mutationKind: "forget",
       query: "pnpm",
       scope: "project",
       archive: true,
+      matchedCount: 1,
+      appliedCount: 1,
+      noopCount: 0,
       affectedCount: 1,
       entries: [
         {
           ref: "project:archived:workflow:prefer-pnpm",
+          timelineRef: "project:archived:workflow:prefer-pnpm",
+          detailsRef: "project:archived:workflow:prefer-pnpm",
           lifecycleAction: "archive",
           latestState: "archived",
           latestLifecycleAttempt: {
@@ -1388,6 +1421,77 @@ describe("runMemory", () => {
             latestAction: "archive",
             latestUpdateKind: null
           }
+        }
+      ]
+    });
+    expect(payload.affectedRefs).toEqual(["project:archived:workflow:prefer-pnpm"]);
+    expect(payload.followUp.timelineRefs).toEqual(["project:archived:workflow:prefer-pnpm"]);
+    expect(payload.followUp.detailsRefs).toEqual(["project:archived:workflow:prefer-pnpm"]);
+  });
+
+  it("surfaces delete-only review routes for forget --json when details are no longer available", async () => {
+    const homeDir = await tempDir("cam-forget-delete-json-home-");
+    const projectDir = await tempDir("cam-forget-delete-json-project-");
+    const memoryRoot = await tempDir("cam-forget-delete-json-root-");
+    process.env.HOME = homeDir;
+
+    const projectConfig = buildProjectConfig();
+    await writeProjectConfig(projectDir, projectConfig, {
+      autoMemoryDirectory: memoryRoot
+    });
+
+    const project = detectProjectContext(projectDir);
+    const store = new MemoryStore(project, {
+      ...projectConfig,
+      autoMemoryDirectory: memoryRoot
+    });
+    await store.ensureLayout();
+    await store.remember(
+      "project",
+      "workflow",
+      "prefer-pnpm",
+      "Prefer pnpm in this repository.",
+      ["Use pnpm instead of npm in this repository."],
+      "Manual note."
+    );
+
+    const result = runCli(projectDir, ["forget", "pnpm", "--scope", "project", "--json"], {
+      env: { HOME: homeDir }
+    });
+    expect(result.exitCode, result.stderr).toBe(0);
+
+    const payload = JSON.parse(result.stdout) as {
+      mutationKind: string;
+      matchedCount: number;
+      appliedCount: number;
+      noopCount: number;
+      affectedRefs: string[];
+      followUp: {
+        timelineRefs: string[];
+        detailsRefs: string[];
+      };
+      entries: Array<{
+        ref: string;
+        timelineRef: string;
+        detailsRef: string | null;
+      }>;
+    };
+
+    expect(payload).toMatchObject({
+      mutationKind: "forget",
+      matchedCount: 1,
+      appliedCount: 1,
+      noopCount: 0,
+      affectedRefs: ["project:active:workflow:prefer-pnpm"],
+      followUp: {
+        timelineRefs: ["project:active:workflow:prefer-pnpm"],
+        detailsRefs: []
+      },
+      entries: [
+        {
+          ref: "project:active:workflow:prefer-pnpm",
+          timelineRef: "project:active:workflow:prefer-pnpm",
+          detailsRef: null
         }
       ]
     });

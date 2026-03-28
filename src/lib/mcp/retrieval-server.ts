@@ -123,6 +123,19 @@ const memoryLifecycleAttemptSchema = z.object({
   rolloutPath: z.string().nullable()
 });
 
+const memoryAppliedLifecycleSchema = z.object({
+  at: z.string(),
+  action: appliedMemoryLifecycleActionSchema,
+  outcome: z.literal("applied"),
+  state: memoryHistoryRecordStateSchema.nullable(),
+  previousState: memoryHistoryRecordStateSchema.nullable(),
+  nextState: memoryHistoryRecordStateSchema.nullable(),
+  summary: z.string(),
+  updateKind: memoryLifecycleUpdateKindSchema.nullable(),
+  sessionId: z.string().nullable(),
+  rolloutPath: z.string().nullable()
+});
+
 const memoryLineageSummarySchema = z.object({
   eventCount: z.number().int().nonnegative(),
   firstSeenAt: z.string().nullable(),
@@ -150,6 +163,7 @@ const memoryTimelineResponseSchema = z.object({
   ref: z.string(),
   events: z.array(memoryTimelineEventSchema),
   warnings: z.array(z.string()),
+  latestAppliedLifecycle: memoryAppliedLifecycleSchema.nullable(),
   latestLifecycleAttempt: memoryLifecycleAttemptSchema.nullable(),
   lineageSummary: memoryLineageSummarySchema
 });
@@ -163,6 +177,7 @@ const memoryDetailsResponseSchema = z.object({
   path: z.string(),
   approxReadCost: z.number().int().nonnegative(),
   latestLifecycleAction: appliedMemoryLifecycleActionSchema.nullable(),
+  latestAppliedLifecycle: memoryAppliedLifecycleSchema.nullable(),
   latestLifecycleAttempt: memoryLifecycleAttemptSchema.nullable(),
   latestState: memoryHistoryRecordStateSchema,
   latestSessionId: z.string().nullable(),

@@ -163,11 +163,25 @@ export interface MemoryLifecycleAttempt {
   rolloutPath: string | null;
 }
 
+export interface MemoryAppliedLifecycle {
+  at: string;
+  action: Exclude<MemoryLifecycleAction, "noop">;
+  outcome: "applied";
+  state: MemoryHistoryRecordState | null;
+  previousState: MemoryHistoryRecordState | null;
+  nextState: MemoryHistoryRecordState | null;
+  summary: string;
+  updateKind: MemoryLifecycleUpdateKind | null;
+  sessionId: string | null;
+  rolloutPath: string | null;
+}
+
 export interface MemoryTimelineResponse {
   ref: string;
   events: MemoryTimelineEvent[];
   warnings: string[];
   lineageSummary: MemoryLineageSummary;
+  latestAppliedLifecycle: MemoryAppliedLifecycle | null;
   latestLifecycleAttempt: MemoryLifecycleAttempt | null;
 }
 
@@ -199,6 +213,7 @@ export interface MemoryDetailsResult extends MemoryRef {
   path: string;
   approxReadCost: number;
   latestLifecycleAction: Exclude<MemoryLifecycleAction, "noop"> | null;
+  latestAppliedLifecycle: MemoryAppliedLifecycle | null;
   latestLifecycleAttempt: MemoryLifecycleAttempt | null;
   latestState: MemoryHistoryRecordState;
   latestSessionId: string | null;
