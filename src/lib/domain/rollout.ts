@@ -121,13 +121,13 @@ function parseSessionMeta(payload: Record<string, unknown>): ParsedSessionMeta |
 }
 
 function isPrimaryRolloutMeta(meta: RolloutMeta): boolean {
-  return (meta.provenanceKind ?? "primary") === "primary";
+  return meta.provenanceKind === "primary";
 }
 
 export function isPrimaryRolloutEvidence(
   evidence: Pick<RolloutEvidence, "provenanceKind" | "isSubagent">
 ): boolean {
-  return (evidence.provenanceKind ?? "primary") === "primary" && evidence.isSubagent !== true;
+  return evidence.provenanceKind === "primary" && evidence.isSubagent !== true;
 }
 
 async function attachRolloutMtime(metas: RolloutMeta[]): Promise<RolloutMetaWithMtime[]> {
@@ -204,6 +204,7 @@ export async function readRolloutMeta(filePath: string): Promise<RolloutMeta | n
       createdAtMs: parseTimestamp(parsedMeta.createdAt),
       cwd: await normalizeFsPath(parsedMeta.cwd),
       rolloutPath: filePath,
+      provenanceKind: parsedMeta.isSubagent ? "subagent" : "primary",
       isSubagent: parsedMeta.isSubagent,
       forkedFromSessionId: parsedMeta.forkedFromSessionId
     };
@@ -400,6 +401,7 @@ export async function parseRolloutEvidence(filePath: string): Promise<RolloutEvi
     agentMessages,
     toolCalls: stitchedToolCalls,
     rolloutPath: filePath,
+    provenanceKind: isSubagent ? "subagent" : "primary",
     isSubagent,
     forkedFromSessionId
   };

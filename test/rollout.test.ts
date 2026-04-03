@@ -181,9 +181,11 @@ describe("rollout helpers", () => {
     expect(meta?.sessionId).toBe("session-subagent");
     expect(meta?.isSubagent).toBe(true);
     expect(meta?.forkedFromSessionId).toBe("session-parent");
+    expect(meta?.provenanceKind).toBe("subagent");
     expect(evidence?.sessionId).toBe("session-subagent");
     expect(evidence?.isSubagent).toBe(true);
     expect(evidence?.forkedFromSessionId).toBe("session-parent");
+    expect(evidence?.provenanceKind).toBe("subagent");
   });
 
   it("skips invalid session_meta entries and still detects nested subagent meta", async () => {
@@ -227,9 +229,11 @@ describe("rollout helpers", () => {
     expect(meta?.sessionId).toBe("session-nested-subagent");
     expect(meta?.isSubagent).toBe(true);
     expect(meta?.forkedFromSessionId).toBe("session-parent");
+    expect(meta?.provenanceKind).toBe("subagent");
     expect(evidence?.sessionId).toBe("session-nested-subagent");
     expect(evidence?.isSubagent).toBe(true);
     expect(evidence?.forkedFromSessionId).toBe("session-parent");
+    expect(evidence?.provenanceKind).toBe("subagent");
   });
 
   it("does not match sibling directory", () => {

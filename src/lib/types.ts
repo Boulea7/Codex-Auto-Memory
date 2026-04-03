@@ -14,6 +14,23 @@ export type MemoryLifecycleUpdateKind =
   | "semantic-overwrite"
   | "metadata-only"
   | "restore";
+export type MemoryOperationRejectionReason =
+  | "unknown-topic"
+  | "sensitive"
+  | "volatile"
+  | "empty-summary"
+  | "operation-cap";
+export type StartupMemoryOmissionReason =
+  | "low-signal"
+  | "unsafe-topic"
+  | "duplicate-summary"
+  | "budget-trimmed"
+  | "budget-not-reached"
+  | "no-eligible-entry";
+export type StartupMemoryOmissionTarget = "highlight" | "topic-file" | "scope-block";
+export type StartupMemoryOmissionStage = "selection" | "render";
+export type StartupMemoryHighlightSelectionReason = "eligible-highlight";
+export type StartupMemoryOmissionBudgetKind = "per-scope-highlight-cap" | "global-highlight-cap" | "line-budget";
 export type MemoryRetrievalScope = MemoryScope | "all";
 export type MemoryRetrievalResolvedState = MemoryRecordState | "all";
 export type MemoryRetrievalStateFilter = MemoryRetrievalResolvedState | "auto";
@@ -225,6 +242,158 @@ export interface MemoryDetailsResult extends MemoryRef {
   warnings: string[];
 }
 
+export interface ManualMutationFollowUp {
+  timelineRefs: string[];
+  detailsRefs: string[];
+}
+
+export interface ManualMutationSummary {
+  matchedCount: number;
+  appliedCount: number;
+  noopCount: number;
+  affectedCount: number;
+}
+
+export interface ManualMutationPrimaryEntry {
+  ref: string;
+  timelineRef: string;
+  detailsRef: string | null;
+  lifecycleAction: MemoryLifecycleAction;
+}
+
+export interface RolloutReviewerSummary {
+  matchedAuditOperationCount: number;
+  noopOperationCount: number;
+  suppressedOperationCount: number;
+  rejectedOperationCount: number;
+  rejectedReasonCounts?: Partial<Record<MemoryOperationRejectionReason, number>>;
+  rolloutConflictCount: number;
+  uniqueAuditCount: number;
+  auditCountsDeduplicated: boolean;
+  warningCount: number;
+  warningsByEntryRef?: Record<string, number>;
+}
+
+export interface ManualMutationReviewEntry {
+  ref: string;
+  timelineRef: string;
+  detailsRef: string | null;
+  scope: MemoryScope;
+  state: MemoryRecordState;
+  topic: string;
+  id: string;
+  path: string | null;
+  historyPath: string;
+  lifecycleAction: MemoryLifecycleAction;
+  latestLifecycleAction: Exclude<MemoryLifecycleAction, "noop"> | null;
+  latestAppliedLifecycle: MemoryAppliedLifecycle | null;
+  latestLifecycleAttempt: MemoryLifecycleAttempt | null;
+  latestState: MemoryHistoryRecordState;
+  latestSessionId: string | null;
+  latestRolloutPath: string | null;
+  latestAudit: MemorySyncAuditSummary | null;
+  timelineWarningCount: number;
+  lineageSummary: MemoryLineageSummary;
+  warnings: string[];
+  entry: MemoryEntry;
+}
+
+export interface ManualMutationRememberPayload {
+  action: "remember";
+  mutationKind: "remember";
+  entryCount: number;
+  warningCount: number;
+  uniqueAuditCount: number;
+  auditCountsDeduplicated: boolean;
+  warningsByEntryRef: Record<string, number>;
+  leadEntryRef: string;
+  leadEntryIndex: number;
+  detailsAvailable: boolean;
+  reviewRefState: MemoryRecordState;
+  matchedCount: number;
+  appliedCount: number;
+  noopCount: number;
+  affectedCount: number;
+  affectedRefs: string[];
+  summary: ManualMutationSummary;
+  reviewerSummary: RolloutReviewerSummary;
+  primaryEntry: ManualMutationPrimaryEntry;
+  followUp: ManualMutationFollowUp;
+  nextRecommendedActions: string[];
+  entries: ManualMutationReviewEntry[];
+  text: string;
+  scope: MemoryScope;
+  topic: string;
+  id: string;
+  ref: string;
+  timelineRef: string;
+  detailsRef: string | null;
+  path: string | null;
+  historyPath: string;
+  lifecycleAction: MemoryLifecycleAction;
+  latestLifecycleAction: Exclude<MemoryLifecycleAction, "noop"> | null;
+  latestAppliedLifecycle: MemoryAppliedLifecycle | null;
+  latestLifecycleAttempt: MemoryLifecycleAttempt | null;
+  latestState: MemoryHistoryRecordState;
+  latestSessionId: string | null;
+  latestRolloutPath: string | null;
+  latestAudit: MemorySyncAuditSummary | null;
+  timelineWarningCount: number;
+  lineageSummary: MemoryLineageSummary;
+  warnings: string[];
+  entry: MemoryEntry;
+}
+
+export interface ManualMutationForgetPayload {
+  action: "forget";
+  mutationKind: "forget";
+  entryCount: number;
+  warningCount: number;
+  uniqueAuditCount: number;
+  auditCountsDeduplicated: boolean;
+  warningsByEntryRef: Record<string, number>;
+  leadEntryRef: string | null;
+  leadEntryIndex: number | null;
+  detailsAvailable: boolean;
+  reviewRefState: MemoryRecordState | null;
+  detailsUsableEntryCount: number;
+  timelineOnlyEntryCount: number;
+  query: string;
+  scope: MemoryScope | "all";
+  archive: boolean;
+  matchedCount: number;
+  appliedCount: number;
+  noopCount: number;
+  affectedCount: number;
+  affectedRefs: string[];
+  summary: ManualMutationSummary;
+  reviewerSummary: RolloutReviewerSummary;
+  primaryEntry: ManualMutationPrimaryEntry | null;
+  followUp: ManualMutationFollowUp;
+  nextRecommendedActions: string[];
+  entries: ManualMutationReviewEntry[];
+  ref: string | null;
+  timelineRef: string | null;
+  detailsRef: string | null;
+  path: string | null;
+  historyPath: string | null;
+  lifecycleAction: MemoryLifecycleAction | null;
+  latestLifecycleAction: Exclude<MemoryLifecycleAction, "noop"> | null;
+  latestAppliedLifecycle: MemoryAppliedLifecycle | null;
+  latestLifecycleAttempt: MemoryLifecycleAttempt | null;
+  latestState: MemoryHistoryRecordState | null;
+  latestSessionId: string | null;
+  latestRolloutPath: string | null;
+  latestAudit: MemorySyncAuditSummary | null;
+  timelineWarningCount: number;
+  lineageSummary: MemoryLineageSummary | null;
+  warnings: string[];
+  entry: MemoryEntry | null;
+}
+
+export type ManualMutationPayload =
+  | ManualMutationRememberPayload
+  | ManualMutationForgetPayload;
 export interface MemorySyncAuditSummary {
   auditPath: string;
   appliedAt: string;
@@ -269,6 +438,57 @@ export interface TopicFileRef {
   scope: MemoryScope;
   topic: string;
   path: string;
+}
+
+export interface TopicFileDiagnostic {
+  scope: MemoryScope;
+  state: MemoryRecordState;
+  topic: string;
+  path: string;
+  safeToRewrite: boolean;
+  entryCount: number;
+  invalidEntryBlockCount: number;
+  manualContentDetected: boolean;
+  unsafeReason?: string;
+}
+
+export type MemoryLayoutDiagnosticKind =
+  | "malformed-topic-filename"
+  | "orphan-topic-markdown"
+  | "misplaced-index-markdown"
+  | "unexpected-markdown"
+  | "unexpected-sidecar"
+  | "missing-index"
+  | "index-drift";
+
+export interface MemoryLayoutDiagnostic {
+  scope: MemoryScope;
+  state: MemoryRecordState;
+  kind: MemoryLayoutDiagnosticKind;
+  path: string;
+  fileName: string;
+  message: string;
+}
+
+export interface StartupMemoryHighlight {
+  scope: MemoryScope;
+  topic: string;
+  id: string;
+  summary: string;
+  selectionReason: StartupMemoryHighlightSelectionReason;
+  selectionRank: number;
+}
+
+export interface StartupMemoryOmission {
+  scope: MemoryScope;
+  topic: string;
+  id?: string;
+  summary?: string;
+  reason: StartupMemoryOmissionReason;
+  target?: StartupMemoryOmissionTarget;
+  stage?: StartupMemoryOmissionStage;
+  budgetKind?: StartupMemoryOmissionBudgetKind;
+  unsafeTopicReason?: string;
 }
 
 export interface AppConfig {
@@ -331,13 +551,15 @@ export interface RolloutToolCall {
   output?: string;
 }
 
+export type RolloutProvenanceKind = "primary" | "subagent";
+
 export interface RolloutMeta {
   sessionId: string;
   createdAt: string;
   createdAtMs: number;
   cwd: string;
   rolloutPath: string;
-  provenanceKind?: RolloutProvenanceKind;
+  provenanceKind: RolloutProvenanceKind;
   isSubagent?: boolean;
   forkedFromSessionId?: string;
 }
@@ -350,7 +572,7 @@ export interface RolloutEvidence {
   agentMessages: string[];
   toolCalls: RolloutToolCall[];
   rolloutPath: string;
-  provenanceKind?: RolloutProvenanceKind;
+  provenanceKind: RolloutProvenanceKind;
   isSubagent?: boolean;
   forkedFromSessionId?: string;
 }
@@ -513,7 +735,10 @@ export interface CompiledSessionContinuity {
 
 export type MemorySyncAuditStatus = "applied" | "no-op" | "skipped";
 
-export type MemorySyncAuditSkipReason = "already-processed" | "no-rollout-evidence";
+export type MemorySyncAuditSkipReason =
+  | "already-processed"
+  | "no-rollout-evidence"
+  | "subagent-rollout";
 
 export interface MemorySyncAuditEntry {
   appliedAt: string;

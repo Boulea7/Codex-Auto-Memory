@@ -40,6 +40,10 @@ export function buildNativeReadinessReport(
 ): NativeReadinessReport {
   const memories = features.find((feature) => feature.name === "memories") ?? null;
   const hooks = features.find((feature) => feature.name === "codex_hooks") ?? null;
+  const appServer =
+    features.find((feature) => feature.name === "tui") ??
+    features.find((feature) => feature.name === "tui_app_server") ??
+    null;
 
   if (!memories && !hooks) {
     return {
