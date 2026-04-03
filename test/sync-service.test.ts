@@ -139,6 +139,78 @@ function sameRolloutCorrectionFixture(projectDir: string, sessionId = "session-c
   ].join("\n");
 }
 
+function referenceRolloutFixture(projectDir: string, sessionId = "session-reference"): string {
+  return [
+    JSON.stringify({
+      timestamp: "2026-03-14T00:30:00.000Z",
+      type: "session_meta",
+      payload: {
+        id: sessionId,
+        timestamp: "2026-03-14T00:30:00.000Z",
+        cwd: projectDir
+      }
+    }),
+    JSON.stringify({
+      timestamp: "2026-03-14T00:30:01.000Z",
+      type: "event_msg",
+      payload: {
+        type: "user_message",
+        message: "remember that pipeline bugs are tracked in Linear project INGEST"
+      }
+    }),
+    JSON.stringify({
+      timestamp: "2026-03-14T00:30:02.000Z",
+      type: "event_msg",
+      payload: {
+        type: "user_message",
+        message: "remember that the latency dashboard lives at https://grafana.example.com/d/api-latency"
+      }
+    })
+  ].join("\n");
+}
+
+function subagentRolloutFixture(
+  projectDir: string,
+  sessionId = "session-subagent",
+  parentSessionId = "session-primary"
+): string {
+  return [
+    JSON.stringify({
+      timestamp: "2026-03-14T00:40:00.000Z",
+      type: "session_meta",
+      payload: {
+        id: sessionId,
+        forked_from_id: parentSessionId,
+        timestamp: "2026-03-14T00:40:00.000Z",
+        cwd: projectDir,
+        source: {
+          subagent: {
+            thread_spawn: {
+              parent_thread_id: parentSessionId
+            }
+          }
+        }
+      }
+    }),
+    JSON.stringify({
+      timestamp: "2026-03-14T00:40:01.000Z",
+      type: "event_msg",
+      payload: {
+        type: "user_message",
+        message: "remember that reviewer subagents always use npm"
+      }
+    }),
+    JSON.stringify({
+      timestamp: "2026-03-14T00:40:02.000Z",
+      type: "event_msg",
+      payload: {
+        type: "agent_message",
+        message: "Reviewer subagent follow-up that should never become durable memory."
+      }
+    })
+  ].join("\n");
+}
+
 afterEach(async () => {
   await Promise.all(tempDirs.splice(0).map((dir) => fs.rm(dir, { recursive: true, force: true })));
 });
@@ -458,6 +530,37 @@ describe("SyncService", () => {
     expect(auditEntries[2]).toMatchObject({
       rolloutPath: appliedRolloutPath,
       status: "applied"
+    });
+  });
+
+  it("fails closed when syncRollout is called with a subagent rollout", async () => {
+    const projectDir = await tempDir("cam-sync-subagent-project-");
+    const memoryRoot = await tempDir("cam-sync-subagent-memory-");
+    const rolloutPath = path.join(projectDir, "subagent-rollout.jsonl");
+    await fs.writeFile(rolloutPath, subagentRolloutFixture(projectDir), "utf8");
+
+    const service = new SyncService(
+      detectProjectContext(projectDir),
+      baseConfig(memoryRoot),
+      path.resolve("schemas/memory-operations.schema.json")
+    );
+
+    const result = await service.syncRollout(rolloutPath, true);
+    const auditEntries = await service.memoryStore.readRecentSyncAuditEntries(5);
+
+    expect(result).toMatchObject({
+      applied: [],
+      skipped: true
+    });
+    expect(result.message).toContain("subagent rollout");
+    expect(await service.memoryStore.listEntries("project")).toEqual([]);
+    expect(auditEntries[0]).toMatchObject({
+      rolloutPath,
+      sessionId: "session-subagent",
+      status: "skipped",
+      skipReason: "subagent-rollout",
+      appliedCount: 0,
+      scopesTouched: []
     });
   });
 

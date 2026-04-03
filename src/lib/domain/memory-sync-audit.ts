@@ -18,7 +18,12 @@ function isMemorySyncAuditStatus(value: unknown): value is MemorySyncAuditStatus
 }
 
 function isMemorySyncAuditSkipReason(value: unknown): value is MemorySyncAuditSkipReason {
-  return value === undefined || value === "already-processed" || value === "no-rollout-evidence";
+  return (
+    value === undefined ||
+    value === "already-processed" ||
+    value === "no-rollout-evidence" ||
+    value === "subagent-rollout"
+  );
 }
 
 function isStringArray(value: unknown): value is string[] {
@@ -87,9 +92,13 @@ function summaryForStatus(
         ? `0 operations applied, ${noopOperationCount} no-op`
         : "0 operations applied";
     case "skipped":
-      return skipReason === "already-processed"
-        ? "Skipped rollout; it was already processed"
-        : "Skipped rollout; no rollout evidence could be parsed";
+      if (skipReason === "already-processed") {
+        return "Skipped rollout; it was already processed";
+      }
+      if (skipReason === "subagent-rollout") {
+        return "Skipped rollout; subagent rollout evidence does not qualify for durable sync";
+      }
+      return "Skipped rollout; no rollout evidence could be parsed";
   }
 }
 
