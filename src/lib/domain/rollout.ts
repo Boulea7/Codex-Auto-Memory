@@ -121,7 +121,13 @@ function parseSessionMeta(payload: Record<string, unknown>): ParsedSessionMeta |
 }
 
 function isPrimaryRolloutMeta(meta: RolloutMeta): boolean {
-  return meta.isSubagent !== true;
+  return (meta.provenanceKind ?? "primary") === "primary";
+}
+
+export function isPrimaryRolloutEvidence(
+  evidence: Pick<RolloutEvidence, "provenanceKind" | "isSubagent">
+): boolean {
+  return (evidence.provenanceKind ?? "primary") === "primary" && evidence.isSubagent !== true;
 }
 
 async function attachRolloutMtime(metas: RolloutMeta[]): Promise<RolloutMetaWithMtime[]> {
