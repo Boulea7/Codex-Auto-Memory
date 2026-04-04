@@ -1236,6 +1236,29 @@ describe("session continuity domain", () => {
     expect(compiled.lineCount).toBeLessThanOrEqual(12);
     expect(compiled.text).toContain("# Session Continuity");
     expect(compiled.text).toContain("Source");
+    expect(compiled.candidateSourceFiles).toEqual([
+      "/tmp/project/shared.md",
+      "/tmp/project/local.md"
+    ]);
+    expect(compiled.sourceFiles).toEqual([
+      "/tmp/project/shared.md",
+      "/tmp/project/local.md"
+    ]);
+    expect(compiled.continuityMode).toBe("startup");
+    expect(compiled.continuityProvenanceKind).toBe("temporary-continuity");
+    expect(compiled.futureCompactionSeam).toMatchObject({
+      kind: "session-summary-placeholder",
+      rebuildsStartupSections: true
+    });
+    expect(compiled.continuitySectionKinds).toEqual(
+      expect.arrayContaining([
+        "sources",
+        "goal",
+        "confirmed-working"
+      ])
+    );
+    expect(compiled.continuitySourceKinds).toEqual(["shared", "project-local"]);
+    expect(compiled.sectionsRendered.sources).toBe(true);
   });
 
   it("caps the continuity startup preamble when the budget is smaller than the static intro", () => {
@@ -1245,6 +1268,58 @@ describe("session continuity domain", () => {
 
     expect(compiled.lineCount).toBeLessThanOrEqual(3);
     expect(compiled.text).not.toContain("## Goal");
+    expect(compiled.sourceFiles).toEqual([]);
+    expect(compiled.candidateSourceFiles).toEqual(["/tmp/project/local.md"]);
+    expect(compiled.sectionsRendered.sources).toBe(false);
+    expect(compiled.sectionsRendered.goal).toBe(false);
+    expect(compiled.omissionCounts["budget-trimmed"]).toBeGreaterThan(0);
+    expect(compiled.omissions).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          target: "source-file",
+          stage: "render",
+          reason: "budget-trimmed",
+          path: "/tmp/project/local.md"
+        }),
+        expect.objectContaining({
+          target: "section",
+          stage: "render",
+          reason: "budget-trimmed",
+          section: "goal"
+        })
+      ])
+    );
+  });
+
+  it("reports only rendered source files when the source provenance itself is trimmed by budget", () => {
+    const state = {
+      ...createEmptySessionContinuityState("project-local", "project-1", "worktree-1"),
+      goal: "Continue the rollout-backed continuity work."
+    };
+
+    const compiled = compileSessionContinuity(
+      state,
+      ["/tmp/project/shared.md", "/tmp/project/local.md"],
+      5
+    );
+
+    expect(compiled.text).toContain('"/tmp/project/shared.md"');
+    expect(compiled.text).not.toContain('"/tmp/project/local.md"');
+    expect(compiled.sourceFiles).toEqual(["/tmp/project/shared.md"]);
+    expect(compiled.candidateSourceFiles).toEqual([
+      "/tmp/project/shared.md",
+      "/tmp/project/local.md"
+    ]);
+    expect(compiled.omissions).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          target: "source-file",
+          stage: "render",
+          reason: "budget-trimmed",
+          path: "/tmp/project/local.md"
+        })
+      ])
+    );
   });
 });
 

@@ -245,6 +245,19 @@ This block:
 - is framed as temporary working state
 - should be verified against the current codebase and user request
 
+The compiled startup reviewer surface now also exposes explicit additive metadata:
+
+- `sourceFiles`: only the source continuity files that actually rendered into the bounded startup block
+- `candidateSourceFiles`: all candidate continuity files that were considered before the line budget was applied
+- `sectionsRendered`: whether each startup section (`sources`, `goal`, `confirmedWorking`, `triedAndFailed`, `notYetTried`, `incompleteNext`, `filesDecisionsEnvironment`) actually rendered
+- `omissions` / `omissionCounts`: reviewer-visible budget trimming for source provenance and sections
+- `continuitySectionKinds` / `continuitySourceKinds`: compact structural summaries for what kinds of startup continuity were present
+- `continuityProvenanceKind`: currently `temporary-continuity`
+- `continuityMode`: currently `startup`
+- `futureCompactionSeam`: a structured placeholder that marks where future compact/session-summary rebuilds should re-enter the startup contract
+
+This keeps temporary continuity startup payloads reviewer-auditable in the same spirit as durable startup memory, while still keeping `cam session` separate from durable memory retrieval.
+
 ## Config: `sessionContinuityLocalPathStyle`
 
 Controls the local-path layout for project-local continuity files.
@@ -312,6 +325,7 @@ These sources justify the current implementation choice:
 - wrapper-based startup injection
 - optional automation rather than assuming stable native hooks
 - future integration surfaces should consume continuity as auditable working state, not collapse it into opaque host-native session state
+- the continuity startup contract should stay explicit about rendered provenance, section trimming, and rebuild boundaries instead of hiding them inside implementation details
 
 ### Community reference: `affaan-m/everything-claude-code`
 

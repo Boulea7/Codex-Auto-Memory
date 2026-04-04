@@ -94,16 +94,55 @@ describe("tarball install smoke", () => {
       installDir,
       envWithBin
     );
+    const sessionLoadResult = runCommandCapture(
+      camBinaryPath(installDir),
+      ["session", "load", "--json", "--print-startup"],
+      installDir,
+      envWithBin
+    );
     expect(sessionStatusResult.exitCode).toBe(0);
+    expect(sessionLoadResult.exitCode).toBe(0);
 
     const payload = JSON.parse(sessionStatusResult.stdout) as {
       projectLocation: { exists: boolean };
       latestContinuityAuditEntry: object | null;
       pendingContinuityRecovery: object | null;
+      latestContinuityDiagnostics: object | null;
+    };
+    const loadPayload = JSON.parse(sessionLoadResult.stdout) as {
+      startup: {
+        continuityMode: string;
+        continuityProvenanceKind: string;
+        sourceFiles: string[];
+        candidateSourceFiles: string[];
+        continuitySectionKinds: string[];
+        continuitySourceKinds: string[];
+        sectionsRendered: { sources: boolean; goal: boolean };
+        omissionCounts: Record<string, number>;
+        futureCompactionSeam: { kind: string; rebuildsStartupSections: boolean };
+      };
     };
     expect(payload.projectLocation.exists).toBe(false);
     expect(payload.latestContinuityAuditEntry).toBeNull();
+    expect(payload.latestContinuityDiagnostics).toBeNull();
     expect(payload.pendingContinuityRecovery).toBeNull();
+    expect(loadPayload.startup).toMatchObject({
+      continuityMode: "startup",
+      continuityProvenanceKind: "temporary-continuity",
+      continuitySectionKinds: expect.arrayContaining(["goal"]),
+      continuitySourceKinds: [],
+      sectionsRendered: {
+        sources: false,
+        goal: true
+      },
+      omissionCounts: {},
+      futureCompactionSeam: {
+        kind: "session-summary-placeholder",
+        rebuildsStartupSections: true
+      }
+    });
+    expect(loadPayload.startup.sourceFiles).toEqual([]);
+    expect(loadPayload.startup.candidateSourceFiles).toEqual([]);
 
     const memoryRoot = await tempDir("cam-tarball-memory-root-");
     const appConfig = makeAppConfig();

@@ -524,7 +524,18 @@ describe("runSession", () => {
     expect(statusResult.exitCode).toBe(0);
 
     const loadPayload = JSON.parse(loadResult.stdout) as {
-      startup: { text: string; sourceFiles: string[] };
+      startup: {
+        text: string;
+        sourceFiles: string[];
+        candidateSourceFiles: string[];
+        continuityMode: string;
+        continuityProvenanceKind: string;
+        continuitySectionKinds: string[];
+        continuitySourceKinds: string[];
+        sectionsRendered: { sources: boolean; goal: boolean };
+        omissionCounts: Record<string, number>;
+        futureCompactionSeam: { kind: string; rebuildsStartupSections: boolean };
+      };
       projectLocation: { path: string };
       localLocation: { path: string };
     };
@@ -535,7 +546,20 @@ describe("runSession", () => {
 
     expect(loadPayload.startup.text).toContain("# Session Continuity");
     expect(loadPayload.startup.sourceFiles).toEqual([loadPayload.projectLocation.path]);
+    expect(loadPayload.startup.candidateSourceFiles).toEqual([loadPayload.projectLocation.path]);
     expect(loadPayload.startup.sourceFiles).not.toContain(loadPayload.localLocation.path);
+    expect(loadPayload.startup.continuityMode).toBe("startup");
+    expect(loadPayload.startup.continuityProvenanceKind).toBe("temporary-continuity");
+    expect(loadPayload.startup.continuitySectionKinds).toContain("sources");
+    expect(loadPayload.startup.continuitySectionKinds).toContain("goal");
+    expect(loadPayload.startup.continuitySourceKinds).toEqual(["shared"]);
+    expect(loadPayload.startup.sectionsRendered.sources).toBe(true);
+    expect(loadPayload.startup.sectionsRendered.goal).toBe(true);
+    expect(loadPayload.startup.omissionCounts).toEqual({});
+    expect(loadPayload.startup.futureCompactionSeam).toMatchObject({
+      kind: "session-summary-placeholder",
+      rebuildsStartupSections: true
+    });
     expect(statusPayload.projectLocation.exists).toBe(true);
     expect(statusPayload.localLocation.exists).toBe(false);
   }, 30_000);

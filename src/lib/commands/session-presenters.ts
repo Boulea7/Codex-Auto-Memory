@@ -395,7 +395,19 @@ export function formatSessionLoadText(
   ];
 
   if (printStartup) {
-    lines.push("", "Startup continuity:", view.startup.text.trimEnd());
+    lines.push(
+      "",
+      "Startup continuity:",
+      `- Rendered source files: ${view.startup.sourceFiles.length}/${view.startup.candidateSourceFiles.length}`,
+      `- Rendered sections: ${view.startup.continuitySectionKinds.join(", ") || "none"}`,
+      `- Startup omissions: ${view.startup.omissions.length}`,
+      view.startup.omissions.length > 0
+        ? `- Omission counts: ${Object.entries(view.startup.omissionCounts)
+            .map(([reason, count]) => `${reason}=${count}`)
+            .join(", ")}`
+        : "- Omission counts: none",
+      view.startup.text.trimEnd()
+    );
   }
 
   return lines.join("\n");
