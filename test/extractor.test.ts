@@ -6,7 +6,10 @@ import { parseRolloutEvidence } from "../src/lib/domain/rollout.js";
 import { CodexExtractor } from "../src/lib/extractor/codex-extractor.js";
 import { reviewExtractedMemoryOperations } from "../src/lib/extractor/contradiction-review.js";
 import { HeuristicExtractor } from "../src/lib/extractor/heuristic-extractor.js";
-import { filterMemoryOperations } from "../src/lib/extractor/safety.js";
+import {
+  filterMemoryOperations,
+  filterMemoryOperationsWithDiagnostics
+} from "../src/lib/extractor/safety.js";
 import type { MemoryEntry, RolloutEvidence } from "../src/lib/types.js";
 
 const tempDirs: string[] = [];
@@ -179,6 +182,35 @@ describe("HeuristicExtractor", () => {
     expect(upserts[0]?.summary).not.toContain("npm install");
   });
 
+  it("classifies external systems and docs pointers as reference memories", async () => {
+    const extractor = new HeuristicExtractor();
+    const operations = await extractor.extract(
+      baseEvidence({
+        userMessages: [
+          "remember that pipeline bugs are tracked in Linear project INGEST",
+          "remember that the latency dashboard lives at https://grafana.example.com/d/api-latency"
+        ]
+      }),
+      []
+    );
+
+    expect(
+      operations.filter(
+        (operation) => operation.action === "upsert" && operation.topic === "reference"
+      )
+    ).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          summary: "pipeline bugs are tracked in Linear project INGEST"
+        }),
+        expect.objectContaining({
+          summary:
+            "the latency dashboard lives at https://grafana.example.com/d/api-latency"
+        })
+      ])
+    );
+  });
+
   it("treats bash-named tool calls with expanded success output as reusable commands", async () => {
     const extractor = new HeuristicExtractor();
     const operations = await extractor.extract(
@@ -201,7 +233,72 @@ describe("HeuristicExtractor", () => {
     expect(upserts[0]?.summary).toContain("pnpm lint");
   });
 
-  it("replaces stale command memory from a real rollout fixture", async () => {
+  it("treats wrapped successful verification commands as reusable commands", async () => {
+    const extractor = new HeuristicExtractor();
+    const operations = await extractor.extract(
+      baseEvidence({
+        toolCalls: [
+          {
+            callId: "call-pnpm-exec-vitest",
+            name: "exec_command",
+            arguments: "{\"cmd\":\"pnpm exec vitest run test/session-command.test.ts\"}",
+            output: "Process exited with code 0"
+          },
+          {
+            callId: "call-uv-run-pytest",
+            name: "exec_command",
+            arguments: "{\"cmd\":\"uv run pytest tests/test_memory.py\"}",
+            output: "Process exited with code 0"
+          }
+        ]
+      }),
+      []
+    );
+
+    expect(operations).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          action: "upsert",
+          topic: "commands",
+          summary: "Run `pnpm exec vitest run test/session-command.test.ts` to verify this repository."
+        }),
+        expect.objectContaining({
+          action: "upsert",
+          topic: "commands",
+          summary: "Run `uv run pytest tests/test_memory.py` to verify this repository."
+        })
+      ])
+    );
+  });
+
+  it("extracts stable assistant summaries without pulling in reviewer chatter", async () => {
+    const extractor = new HeuristicExtractor();
+    const operations = await extractor.extract(
+      baseEvidence({
+        agentMessages: [
+          "Confirmed durable memory stays Markdown-first; retrieval sidecars are rebuildable acceleration only.",
+          "I will ask a reviewer subagent to check docs wording before I continue."
+        ]
+      }),
+      []
+    );
+
+    expect(operations).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          action: "upsert",
+          topic: "architecture",
+          summary:
+            "durable memory stays Markdown-first; retrieval sidecars are rebuildable acceleration only"
+        })
+      ])
+    );
+    expect(
+      operations.some((operation) => /reviewer subagent/i.test(operation.summary ?? ""))
+    ).toBe(false);
+  });
+
+  it("adds a newer command memory from a real rollout fixture without deleting a different toolchain command", async () => {
     const extractor = new HeuristicExtractor();
     const evidence = await parseRolloutEvidence(
       path.join(process.cwd(), "test/fixtures/rollouts/memory-correction.jsonl")
@@ -227,12 +324,126 @@ describe("HeuristicExtractor", () => {
           operation.action === "delete" &&
           operation.id === "npm-test"
       )
-    ).toBe(true);
+    ).toBe(false);
     expect(
       operations.some(
         (operation) =>
           operation.action === "upsert" &&
           operation.summary?.includes("pnpm test")
+      )
+    ).toBe(true);
+  });
+
+  it("does not treat npm test and pnpm test as the same command signature", async () => {
+    const extractor = new HeuristicExtractor();
+    const operations = await extractor.extract(
+      baseEvidence({
+        toolCalls: [
+          {
+            callId: "call-pnpm-test",
+            name: "exec_command",
+            arguments: "{\"cmd\":\"pnpm test\"}",
+            output: "Process exited with code 0"
+          }
+        ]
+      }),
+      [
+        {
+          id: "npm-test",
+          scope: "project",
+          topic: "commands",
+          summary: "Run `npm test` to verify this repository.",
+          details: ["Use `npm test` as a repeatable verification command for this project."],
+          updatedAt: "2026-03-14T00:00:00.000Z",
+          sources: ["old"]
+        }
+      ]
+    );
+
+    expect(
+      operations.some((operation) => operation.action === "delete" && operation.id === "npm-test")
+    ).toBe(false);
+    expect(
+      operations.some(
+        (operation) => operation.action === "upsert" && operation.summary?.includes("pnpm test")
+      )
+    ).toBe(true);
+  });
+
+  it("does not silently truncate heuristic operations before later reviewer stages", async () => {
+    const extractor = new HeuristicExtractor();
+    const operations = await extractor.extract(
+      baseEvidence({
+        toolCalls: [
+          {
+            callId: "call-pnpm-test",
+            name: "exec_command",
+            arguments: "{\"cmd\":\"pnpm test\"}",
+            output: "Process exited with code 0"
+          },
+          {
+            callId: "call-pnpm-lint",
+            name: "exec_command",
+            arguments: "{\"cmd\":\"pnpm lint\"}",
+            output: "Process exited with code 0"
+          },
+          {
+            callId: "call-pnpm-build",
+            name: "exec_command",
+            arguments: "{\"cmd\":\"pnpm build\"}",
+            output: "Process exited with code 0"
+          },
+          {
+            callId: "call-npm-install",
+            name: "exec_command",
+            arguments: "{\"cmd\":\"npm install\"}",
+            output: "Process exited with code 0"
+          },
+          {
+            callId: "call-cargo-test",
+            name: "exec_command",
+            arguments: "{\"cmd\":\"cargo test\"}",
+            output: "Process exited with code 0"
+          },
+          {
+            callId: "call-cargo-build",
+            name: "exec_command",
+            arguments: "{\"cmd\":\"cargo build\"}",
+            output: "Process exited with code 0"
+          },
+          {
+            callId: "call-pytest",
+            name: "exec_command",
+            arguments: "{\"cmd\":\"pytest\"}",
+            output: "Process exited with code 0"
+          },
+          {
+            callId: "call-jest",
+            name: "exec_command",
+            arguments: "{\"cmd\":\"jest\"}",
+            output: "Process exited with code 0"
+          },
+          {
+            callId: "call-vitest",
+            name: "exec_command",
+            arguments: "{\"cmd\":\"vitest\"}",
+            output: "Process exited with code 0"
+          },
+          {
+            callId: "call-make",
+            name: "exec_command",
+            arguments: "{\"cmd\":\"make\"}",
+            output: "Process exited with code 0"
+          }
+        ]
+      }),
+      []
+    );
+
+    expect(operations.length).toBeGreaterThan(8);
+    expect(
+      operations.some(
+        (operation) => operation.action === "upsert" && operation.summary?.includes("make")
       )
     ).toBe(true);
   });
@@ -407,6 +618,98 @@ describe("HeuristicExtractor", () => {
           operation.summary?.includes("We use pnpm, not npm")
       )
     ).toBe(true);
+  });
+
+  it("deletes only the matching scoped stale entry when duplicate ids exist across scopes", async () => {
+    const extractor = new HeuristicExtractor();
+    const existingEntries: MemoryEntry[] = [
+      {
+        id: "use-npm",
+        scope: "global",
+        topic: "preferences",
+        summary: "Use npm for legacy global examples.",
+        details: ["Keep npm in the global legacy examples."],
+        updatedAt: "2026-03-14T00:00:00.000Z",
+        sources: ["old"]
+      },
+      {
+        id: "use-npm",
+        scope: "project",
+        topic: "preferences",
+        summary: "Use npm in this repository.",
+        details: ["Use npm instead of pnpm in this repository."],
+        updatedAt: "2026-03-14T00:00:00.000Z",
+        sources: ["old"]
+      }
+    ];
+
+    const operations = await extractor.extract(
+      baseEvidence({
+        userMessages: ["remember that we use pnpm, not npm"]
+      }),
+      existingEntries
+    );
+
+    expect(operations).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          action: "delete",
+          scope: "project",
+          topic: "preferences",
+          id: "use-npm"
+        })
+      ])
+    );
+    expect(operations).not.toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          action: "delete",
+          scope: "global",
+          topic: "preferences",
+          id: "use-npm"
+        })
+      ])
+    );
+  });
+
+  it("forgets only the matching entry when duplicate ids exist across topics", async () => {
+    const extractor = new HeuristicExtractor();
+    const existingEntries: MemoryEntry[] = [
+      {
+        id: "prefer-pnpm",
+        scope: "project",
+        topic: "workflow",
+        summary: "Prefer pnpm in this repository.",
+        details: ["Use pnpm instead of npm in this repository."],
+        updatedAt: "2026-03-14T00:00:00.000Z",
+        sources: ["old"]
+      },
+      {
+        id: "prefer-pnpm",
+        scope: "project",
+        topic: "commands",
+        summary: "Run `pnpm test` to verify this repository.",
+        details: ["Use `pnpm test` as a repeatable verification command for this project."],
+        updatedAt: "2026-03-14T00:00:00.000Z",
+        sources: ["old"]
+      }
+    ];
+
+    const operations = await extractor.extract(
+      baseEvidence({
+        userMessages: ["forget repeatable verification command"]
+      }),
+      existingEntries
+    );
+
+    expect(operations).toEqual([
+      expect.objectContaining({
+        action: "delete",
+        scope: "project",
+        topic: "commands",
+        id: "prefer-pnpm"
+      })
+    ]);
   });
 
   it("does not delete architecture memory from a generic remember instruction", async () => {
@@ -595,6 +898,168 @@ describe("HeuristicExtractor", () => {
       ])
     );
   });
+
+  it("does not let a retained high-confidence directive keep replacement deletes for an unrelated suppressed directive", () => {
+    const reviewed = reviewExtractedMemoryOperations(
+      [
+        {
+          action: "delete",
+          scope: "project",
+          topic: "preferences",
+          id: "use-grep",
+          reason: "Superseded by a newer explicit user correction."
+        },
+        {
+          action: "upsert",
+          scope: "project",
+          topic: "preferences",
+          id: "maybe-use-rg",
+          summary: "maybe use rg instead of grep",
+          details: ["Potential repo search correction."],
+          reason: "Explicit user correction that should replace stale memory."
+        },
+        {
+          action: "delete",
+          scope: "project",
+          topic: "preferences",
+          id: "use-bun",
+          reason: "Superseded by a newer explicit user correction."
+        },
+        {
+          action: "upsert",
+          scope: "project",
+          topic: "preferences",
+          id: "use-pnpm",
+          summary: "Actually use pnpm, not bun",
+          details: ["Package manager correction."],
+          reason: "Explicit user correction that should replace stale memory."
+        }
+      ],
+      [
+        {
+          id: "use-grep",
+          scope: "project",
+          topic: "preferences",
+          summary: "Use grep for repo search.",
+          details: ["Use grep instead of rg in this repository."],
+          updatedAt: "2026-03-14T00:00:00.000Z",
+          sources: ["old"]
+        }
+      ]
+    );
+
+    expect(reviewed.operations).not.toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          action: "delete",
+          id: "use-grep"
+        })
+      ])
+    );
+    expect(reviewed.operations).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          action: "delete",
+          id: "use-bun"
+        }),
+        expect.objectContaining({
+          action: "upsert",
+          id: "use-pnpm"
+        })
+      ])
+    );
+  });
+
+  it("keeps the latest high-confidence reference correction and suppresses stale same-rollout pointers", () => {
+    const reviewed = reviewExtractedMemoryOperations(
+      [
+        {
+          action: "upsert",
+          scope: "project",
+          topic: "reference",
+          id: "old-runbook",
+          summary: "The runbook lives at https://old.example.com/runbook",
+          details: ["Old runbook pointer."],
+          reason: "Manual reference note."
+        },
+        {
+          action: "upsert",
+          scope: "project",
+          topic: "reference",
+          id: "new-runbook",
+          summary: "Actually the runbook lives at https://new.example.com/runbook",
+          details: ["Updated runbook pointer."],
+          reason: "Explicit user correction that should replace stale memory."
+        }
+      ],
+      []
+    );
+
+    expect(reviewed.operations).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          action: "upsert",
+          id: "new-runbook"
+        })
+      ])
+    );
+    expect(reviewed.operations).not.toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          action: "upsert",
+          id: "old-runbook"
+        })
+      ])
+    );
+    expect(reviewed.conflicts).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          source: "within-rollout",
+          candidateSummary: "The runbook lives at https://old.example.com/runbook",
+          conflictsWith: ["Actually the runbook lives at https://new.example.com/runbook"]
+        })
+      ])
+    );
+  });
+
+  it("suppresses hedged reference updates that conflict with existing durable pointers", () => {
+    const reviewed = reviewExtractedMemoryOperations(
+      [
+        {
+          action: "upsert",
+          scope: "project",
+          topic: "reference",
+          id: "maybe-dashboard",
+          summary: "Maybe the dashboard lives at https://new.example.com/dashboard",
+          details: ["Possible dashboard pointer."],
+          reason: "Explicit user correction that should replace stale memory."
+        }
+      ],
+      [
+        {
+          id: "dashboard",
+          scope: "project",
+          topic: "reference",
+          summary: "The dashboard lives at https://old.example.com/dashboard",
+          details: ["Current dashboard pointer."],
+          updatedAt: "2026-03-14T00:00:00.000Z",
+          sources: ["old"]
+        }
+      ]
+    );
+
+    expect(reviewed.operations).toEqual([]);
+    expect(reviewed.suppressedOperationCount).toBe(1);
+    expect(reviewed.conflicts).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          source: "existing-memory",
+          candidateSummary: "Maybe the dashboard lives at https://new.example.com/dashboard",
+          conflictsWith: ["The dashboard lives at https://old.example.com/dashboard"]
+        })
+      ])
+    );
+  });
 });
 
 describe("safety filter", () => {
@@ -655,6 +1120,32 @@ describe("safety filter", () => {
 });
 
 describe("safety filter - volatile/sensitive patterns", () => {
+  it("fails closed when an upsert uses an unknown topic", () => {
+    const filtered = filterMemoryOperations([
+      {
+        action: "upsert",
+        scope: "project",
+        topic: "commandss",
+        id: "prefer-pnpm",
+        summary: "Prefer pnpm in this repository.",
+        details: ["Use pnpm instead of npm."]
+      }
+    ]);
+    expect(filtered).toHaveLength(0);
+  });
+
+  it("fails closed when a delete uses an unknown topic", () => {
+    const filtered = filterMemoryOperations([
+      {
+        action: "delete",
+        scope: "project",
+        topic: "commandss",
+        id: "prefer-pnpm"
+      }
+    ]);
+    expect(filtered).toHaveLength(0);
+  });
+
   it("keeps entries with 'currently' in summary", () => {
     const filtered = filterMemoryOperations([
       {
@@ -678,6 +1169,20 @@ describe("safety filter - volatile/sensitive patterns", () => {
         id: "wip-entry",
         summary: "This is wip for now",
         details: ["temporary approach"]
+      }
+    ]);
+    expect(filtered).toHaveLength(0);
+  });
+
+  it("rejects entries that only capture local host config or resume noise", () => {
+    const filtered = filterMemoryOperations([
+      {
+        action: "upsert",
+        scope: "project",
+        topic: "workflow",
+        id: "local-config-noise",
+        summary: "Next step: update .mcp.json and .codex/config.toml in this worktree only.",
+        details: ["Resume here after the next message."]
       }
     ]);
     expect(filtered).toHaveLength(0);
@@ -727,7 +1232,7 @@ describe("safety filter - volatile/sensitive patterns", () => {
   });
 
   it("rejects volatile wording even inside debugging topics", () => {
-    const filtered = filterMemoryOperations([
+    const diagnostics = filterMemoryOperationsWithDiagnostics([
       {
         action: "upsert",
         scope: "project",
@@ -737,7 +1242,11 @@ describe("safety filter - volatile/sensitive patterns", () => {
         details: ["Temporary but still useful while the issue is open."]
       }
     ]);
-    expect(filtered).toHaveLength(0);
+
+    expect(diagnostics.operations).toEqual([]);
+    expect(diagnostics.rejectedReasonCounts).toMatchObject({
+      volatile: 1
+    });
   });
 
   it("caps sanitized operations at 12 items", () => {
@@ -753,9 +1262,158 @@ describe("safety filter - volatile/sensitive patterns", () => {
     );
     expect(filtered).toHaveLength(12);
   });
+
+  it("returns rejected diagnostics for unknown topics, sensitive content, and operation cap", () => {
+    const diagnostics = filterMemoryOperationsWithDiagnostics(
+      [
+        {
+          action: "upsert",
+          scope: "project",
+          topic: "commandss",
+          id: "unknown-topic",
+          summary: "Prefer pnpm in this repository.",
+          details: ["Use pnpm instead of npm."]
+        },
+        {
+          action: "upsert",
+          scope: "project",
+          topic: "workflow",
+          id: "secret",
+          summary: "postgres://fixture-user:fixture-pass@example.com/testdb",
+          details: ["Never store this."]
+        },
+        ...Array.from({ length: 20 }, (_, index) => ({
+          action: "upsert" as const,
+          scope: "project" as const,
+          topic: "workflow",
+          id: `entry-${index}`,
+          summary: `Workflow note ${index}`,
+          details: [`Workflow detail ${index}`]
+        }))
+      ]
+    );
+
+    expect(diagnostics.operations).toHaveLength(12);
+    expect(diagnostics.rejectedOperationCount).toBe(10);
+    expect(diagnostics.rejectedReasonCounts).toMatchObject({
+      "unknown-topic": 1,
+      sensitive: 1,
+      "operation-cap": 8
+    });
+  });
+
+  it("returns volatile diagnostics for local host config task-state noise", () => {
+    const diagnostics = filterMemoryOperationsWithDiagnostics([
+      {
+        action: "upsert",
+        scope: "project",
+        topic: "workflow",
+        id: "local-config-noise",
+        summary: "Next step: update .mcp.json and .codex/config.toml in this worktree only.",
+        details: ["Resume here after the next message."]
+      }
+    ]);
+
+    expect(diagnostics.operations).toEqual([]);
+    expect(diagnostics.rejectedReasonCounts).toMatchObject({
+      volatile: 1
+    });
+    expect(diagnostics.rejectedOperations).toEqual([
+      expect.objectContaining({
+        id: "local-config-noise",
+        reason: "volatile"
+      })
+    ]);
+  });
+
+  it("rejects entries when volatile task-state noise only appears in details", () => {
+    const diagnostics = filterMemoryOperationsWithDiagnostics([
+      {
+        action: "upsert",
+        scope: "project",
+        topic: "workflow",
+        id: "volatile-detail-only",
+        summary: "Use pnpm in this repository.",
+        details: ["Next step: resume here after updating the current worktree only."]
+      }
+    ]);
+
+    expect(diagnostics.operations).toEqual([]);
+    expect(diagnostics.rejectedReasonCounts).toMatchObject({
+      volatile: 1
+    });
+  });
+
+  it("rejects entries when volatile task-state noise only appears in reason", () => {
+    const diagnostics = filterMemoryOperationsWithDiagnostics([
+      {
+        action: "upsert",
+        scope: "project",
+        topic: "workflow",
+        id: "volatile-reason-only",
+        summary: "Use pnpm in this repository.",
+        details: ["Prefer pnpm instead of npm here."],
+        reason: "Temporary next step for the current branch only."
+      }
+    ]);
+
+    expect(diagnostics.operations).toEqual([]);
+    expect(diagnostics.rejectedReasonCounts).toMatchObject({
+      volatile: 1
+    });
+  });
 });
 
 describe("HeuristicExtractor - no duplicate upserts for remember + insight", () => {
+  it("classifies explicit command remembers under commands", async () => {
+    const extractor = new HeuristicExtractor();
+    const operations = await extractor.extract(
+      baseEvidence({
+        userMessages: ["remember that run `pnpm test` to verify this repository"]
+      }),
+      []
+    );
+
+    expect(operations).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          action: "upsert",
+          topic: "commands",
+          summary: "run `pnpm test` to verify this repository"
+        })
+      ])
+    );
+  });
+
+  it("keeps explicit command corrections in commands when replacing stale command memory", async () => {
+    const extractor = new HeuristicExtractor();
+    const operations = await extractor.extract(
+      baseEvidence({
+        userMessages: ["remember that run `pnpm test`, not `npm test`, to verify this repository"]
+      }),
+      [
+        {
+          id: "npm-test",
+          scope: "project",
+          topic: "commands",
+          summary: "Run `npm test` to verify this repository.",
+          details: ["Use `npm test` as a repeatable verification command for this project."],
+          updatedAt: "2026-03-14T00:00:00.000Z",
+          sources: ["old"]
+        }
+      ]
+    );
+
+    expect(operations).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          action: "upsert",
+          topic: "commands"
+        })
+      ])
+    );
+  });
+
   it("does not produce duplicate upserts for remember + insight match on same message", async () => {
     const extractor = new HeuristicExtractor();
     const operations = await extractor.extract(
