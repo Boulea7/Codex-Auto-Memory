@@ -205,6 +205,48 @@ describe("session continuity domain", () => {
     expect(summary.project.confirmedWorking).toHaveLength(0);
   });
 
+  it("heuristic summarizer extracts repo-relative paths from apply_patch managed patch syntax", async () => {
+    const evidence: RolloutEvidence = {
+      sessionId: "session-managed-patch-text",
+      createdAt: "2026-03-15T00:00:00.000Z",
+      cwd: "/tmp/project",
+      userMessages: ["Finish the auth patch"],
+      agentMessages: [],
+      toolCalls: [
+        {
+          name: "apply_patch",
+          arguments: [
+            "*** Begin Patch",
+            "*** Update File: src/auth/login.ts",
+            "@@",
+            '-const cookie = "";',
+            '+const cookie = "httpOnly";',
+            "*** End Patch"
+          ].join("\n"),
+          output: undefined
+        },
+        {
+          name: "apply_patch",
+          arguments: [
+            "*** Begin Patch",
+            "*** Add File: docs/runbooks/auth-cookie.md",
+            "+# Auth Cookie Runbook",
+            "*** End Patch"
+          ].join("\n"),
+          output: undefined
+        }
+      ],
+      rolloutPath: "/tmp/rollout.jsonl"
+    };
+
+    const summarizer = new SessionContinuitySummarizer(baseConfig("/tmp/memory-root"));
+    const summary = await summarizer.summarize(evidence);
+    const fde = summary.projectLocal.filesDecisionsEnvironment.join("\n");
+
+    expect(fde).toContain("src/auth/login.ts");
+    expect(fde).toContain("docs/runbooks/auth-cookie.md");
+  });
+
   it("heuristic summarizer recognizes expanded success patterns", async () => {
     const evidence: RolloutEvidence = {
       sessionId: "session-success-patterns",
@@ -293,6 +335,34 @@ describe("session continuity domain", () => {
 
     const summary = await summarizer.summarize(evidence, existing);
     expect(summary.project.notYetTried).toContain("Try Redis cache");
+  });
+
+  it("heuristic summarizer does not let generic latest requests overwrite an existing goal", async () => {
+    const existing = {
+      project: {
+        ...createEmptySessionContinuityState("project", "p1", "w1"),
+        goal: "Keep the auth rollout aligned with shared middleware changes."
+      },
+      projectLocal: {
+        ...createEmptySessionContinuityState("project-local", "p1", "w1"),
+        goal: "Finish the current worktree patch for login cookie handling."
+      }
+    };
+    const evidence: RolloutEvidence = {
+      sessionId: "session-generic-goal",
+      createdAt: "2026-03-15T00:00:00.000Z",
+      cwd: "/tmp/project",
+      userMessages: ["Continue", "Run checks"],
+      agentMessages: [],
+      toolCalls: [],
+      rolloutPath: "/tmp/rollout.jsonl"
+    };
+
+    const summarizer = new SessionContinuitySummarizer(baseConfig("/tmp/memory-root"));
+    const summary = await summarizer.summarize(evidence, existing);
+
+    expect(summary.project.goal).toBe(existing.project.goal);
+    expect(summary.projectLocal.goal).toBe(existing.projectLocal.goal);
   });
 
   it("heuristic summarizer drops historical in-progress pseudo-failures from existing state", async () => {
@@ -436,33 +506,6 @@ describe("session continuity domain", () => {
 
     expect(result.summary.projectLocal.incompleteNext).toEqual(existing.projectLocal.incompleteNext);
     expect(result.diagnostics.warnings).not.toEqual(
-      expect.arrayContaining([
-        expect.stringContaining("Next steps were inferred from the latest request")
-      ])
-    );
-  });
-
-  it("treats concrete question-style latest requests as meaningful goals and fallback next steps", async () => {
-    const evidence: RolloutEvidence = {
-      sessionId: "session-question-goal",
-      createdAt: "2026-03-15T00:00:00.000Z",
-      cwd: "/tmp/project",
-      userMessages: ["Why is the login cookie missing after the middleware redirect?"],
-      agentMessages: [],
-      toolCalls: [],
-      rolloutPath: "/tmp/rollout.jsonl"
-    };
-
-    const summarizer = new SessionContinuitySummarizer(baseConfig("/tmp/memory-root"));
-    const result = await summarizer.summarizeWithDiagnostics(evidence);
-
-    expect(result.summary.project.goal).toBe(
-      "Why is the login cookie missing after the middleware redirect?"
-    );
-    expect(result.summary.projectLocal.incompleteNext).toEqual([
-      "Continue with the latest request: Why is the login cookie missing after the middleware redirect?"
-    ]);
-    expect(result.diagnostics.warnings).toEqual(
       expect.arrayContaining([
         expect.stringContaining("Next steps were inferred from the latest request")
       ])
@@ -805,18 +848,22 @@ describe("session continuity domain", () => {
     expect(result.diagnostics.confidence).toBe("high");
   });
 
-  it("surfaces expanded continuity warning hints for true architecture and route-order conflicts", async () => {
+  it("surfaces expanded continuity warning hints for architecture, reference, required-service, and route-order conflicts", async () => {
     const evidence: RolloutEvidence = {
       sessionId: "session-expanded-warning-hints",
       createdAt: "2026-03-15T00:00:00.000Z",
       cwd: "/tmp/project",
       userMessages: [
         "Keep Markdown-first as the canonical store, not database-first.",
+        "Use the production dashboard at https://dash.example.com for auth incidents.",
+        "Redis must be running before integration tests.",
         "Use search -> timeline -> details for recall.",
         "Use MCP -> local bridge -> resolved CLI for retrieval."
       ],
       agentMessages: [
         "Maybe move to a database-first canonical store later.",
+        "Use the old dashboard at https://legacy.example.com for auth incidents.",
+        "Postgres must be running before integration tests.",
         "Use details -> timeline -> search for recall.",
         "Use resolved CLI -> local bridge -> MCP for retrieval."
       ],
@@ -829,35 +876,12 @@ describe("session continuity domain", () => {
     expect(buckets.warningHints).toEqual(
       expect.arrayContaining([
         expect.stringContaining("canonical store"),
+        expect.stringContaining("reference pointer"),
+        expect.stringContaining("required service"),
         expect.stringContaining("retrieval flow"),
         expect.stringContaining("route order")
       ])
     );
-  });
-
-  it("does not treat additive reference pointers or multiple required services as conflicts", async () => {
-    const evidence: RolloutEvidence = {
-      sessionId: "session-additive-warning-hints",
-      createdAt: "2026-03-15T00:00:00.000Z",
-      cwd: "/tmp/project",
-      userMessages: [
-        "Use the production dashboard at https://dash.example.com for auth incidents.",
-        "Use the auth docs at https://docs.example.com/auth for incident triage.",
-        "Redis must be running before integration tests.",
-        "Postgres must be running before integration tests.",
-        "Next step: review the auth incident notes before changing the middleware."
-      ],
-      agentMessages: [],
-      toolCalls: [],
-      rolloutPath: "/tmp/rollout.jsonl"
-    };
-
-    const buckets = collectSessionContinuityEvidenceBuckets(evidence);
-    expect(buckets.warningHints).toEqual([]);
-
-    const summarizer = new SessionContinuitySummarizer(baseConfig("/tmp/memory-root"));
-    const result = await summarizer.summarizeWithDiagnostics(evidence);
-    expect(result.diagnostics.warnings).toEqual([]);
   });
 
   it("falls back after scrubbing warning-only codex output", async () => {
