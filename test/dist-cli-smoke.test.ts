@@ -175,20 +175,100 @@ describe("dist cli smoke", () => {
       entrypoint: "dist",
       env: cliEnv
     });
+    const sessionLoadResult = runCli(
+      projectDir,
+      ["session", "load", "--json", "--print-startup"],
+      {
+        entrypoint: "dist",
+        env: cliEnv
+      }
+    );
+    const rememberResult = runCli(
+      projectDir,
+      ["remember", "Keep release smoke on pnpm.", "--scope", "project", "--json"],
+      {
+        entrypoint: "dist",
+        env: cliEnv
+      }
+    );
+    const forgetResult = runCli(
+      projectDir,
+      ["forget", "release smoke", "--scope", "project", "--json"],
+      {
+        entrypoint: "dist",
+        env: cliEnv
+      }
+    );
 
     expect(memoryResult.exitCode, memoryResult.stderr).toBe(0);
     expect(sessionResult.exitCode, sessionResult.stderr).toBe(0);
+    expect(sessionLoadResult.exitCode, sessionLoadResult.stderr).toBe(0);
+    expect(rememberResult.exitCode, rememberResult.stderr).toBe(0);
+    expect(forgetResult.exitCode, forgetResult.stderr).toBe(0);
 
     const memoryPayload = JSON.parse(memoryResult.stdout) as {
       recentSyncAudit: Array<{ rolloutPath: string }>;
     };
     const sessionPayload = JSON.parse(sessionResult.stdout) as {
       projectLocation: { exists: boolean };
+      latestContinuityDiagnostics: { confidence: string; fallbackReason?: string | null } | null;
+    };
+    const sessionLoadPayload = JSON.parse(sessionLoadResult.stdout) as {
+      startup: {
+        continuityMode: string;
+        continuityProvenanceKind: string;
+        sourceFiles: string[];
+        candidateSourceFiles: string[];
+        continuitySectionKinds: string[];
+        continuitySourceKinds: string[];
+        sectionsRendered: { sources: boolean; goal: boolean };
+        omissionCounts: Record<string, number>;
+        futureCompactionSeam: { kind: string; rebuildsStartupSections: boolean };
+      };
+      latestContinuityDiagnostics: { confidence: string; fallbackReason?: string | null } | null;
     };
 
     expect(memoryPayload.recentSyncAudit).toHaveLength(1);
     expect(memoryPayload.recentSyncAudit[0]?.rolloutPath).toBe("/tmp/rollout-dist-smoke.jsonl");
     expect(sessionPayload.projectLocation.exists).toBe(true);
+    expect(sessionPayload.latestContinuityDiagnostics).toBeNull();
+    expect(sessionLoadPayload.latestContinuityDiagnostics).toBeNull();
+    expect(sessionLoadPayload.startup).toMatchObject({
+      continuityMode: "startup",
+      continuityProvenanceKind: "temporary-continuity",
+      continuitySectionKinds: expect.arrayContaining(["sources", "goal"]),
+      continuitySourceKinds: ["shared"],
+      sectionsRendered: {
+        sources: true,
+        goal: true
+      },
+      omissionCounts: {},
+      futureCompactionSeam: {
+        kind: "session-summary-placeholder",
+        rebuildsStartupSections: true
+      }
+    });
+    expect(sessionLoadPayload.startup.sourceFiles).toEqual(
+      sessionLoadPayload.startup.candidateSourceFiles
+    );
+    expect(rememberPayload).toMatchObject({
+      mutationKind: "remember",
+      latestAppliedLifecycle: {
+        action: "add"
+      }
+    });
+    expect(rememberPayload.nextRecommendedActions).toEqual(
+      expect.arrayContaining([expect.stringContaining("recall timeline")])
+    );
+    expect(forgetPayload).toMatchObject({
+      mutationKind: "forget",
+      latestAppliedLifecycle: {
+        action: "delete"
+      }
+    });
+    expect(forgetPayload.nextRecommendedActions).toEqual(
+      expect.arrayContaining([expect.stringContaining("memory --recent")])
+    );
   }, 30_000);
 
   it("uses the recommended recall search preset from the compiled cli entrypoint without creating memory layout on first lookup", async () => {

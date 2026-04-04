@@ -454,10 +454,61 @@ export interface SessionContinuityLocation {
   exists: boolean;
 }
 
+export type ContinuityStartupMode = "startup";
+
+export type ContinuityStartupProvenanceKind = "temporary-continuity";
+
+export type ContinuityStartupSectionKind =
+  | "sources"
+  | "goal"
+  | "confirmed-working"
+  | "tried-and-failed"
+  | "not-yet-tried"
+  | "incomplete-next"
+  | "files-decisions-environment";
+
+export type ContinuityStartupSourceKind = "shared" | "project-local";
+
+export type ContinuityStartupOmissionReason = "budget-trimmed";
+
+export type ContinuityStartupOmissionTarget = "source-file" | "section";
+
+export type ContinuityStartupOmissionStage = "render";
+
+export interface ContinuityStartupOmission {
+  target: ContinuityStartupOmissionTarget;
+  stage: ContinuityStartupOmissionStage;
+  reason: ContinuityStartupOmissionReason;
+  path?: string;
+  section?: ContinuityStartupSectionKind;
+  sourceKind?: ContinuityStartupSourceKind;
+}
+
 export interface CompiledSessionContinuity {
   text: string;
   lineCount: number;
+  continuityMode: ContinuityStartupMode;
+  continuityProvenanceKind: ContinuityStartupProvenanceKind;
   sourceFiles: string[];
+  candidateSourceFiles: string[];
+  continuitySourceKinds: ContinuityStartupSourceKind[];
+  continuitySectionKinds: ContinuityStartupSectionKind[];
+  sectionsRendered: {
+    sources: boolean;
+    goal: boolean;
+    confirmedWorking: boolean;
+    triedAndFailed: boolean;
+    notYetTried: boolean;
+    incompleteNext: boolean;
+    filesDecisionsEnvironment: boolean;
+  };
+  omissions: ContinuityStartupOmission[];
+  omissionCounts: Partial<Record<ContinuityStartupOmissionReason, number>>;
+  futureCompactionSeam: {
+    kind: "session-summary-placeholder";
+    rebuildsStartupSections: true;
+    keepsDurableMemorySeparate: true;
+  };
 }
 
 export type MemorySyncAuditStatus = "applied" | "no-op" | "skipped";

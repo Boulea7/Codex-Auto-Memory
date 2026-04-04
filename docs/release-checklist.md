@@ -104,6 +104,8 @@ Use this checklist before cutting any alpha or beta release of `codex-auto-memor
   - `node dist/cli.js integrations apply --help` should explicitly add the managed `AGENTS.md` guidance flow on top of install.
   - `node dist/cli.js integrations doctor --help` should stay inspect-only and Codex-only.
 - Confirm `node dist/cli.js session load --json` / `status --json` still expose `confidence` and warnings when the rollout required a conservative continuity summary.
+- Confirm `node dist/cli.js session load --json --print-startup` now also exposes the structured continuity-startup contract: truthful rendered `sourceFiles`, `candidateSourceFiles`, `sectionsRendered`, additive `omissions` / `omissionCounts`, `continuitySectionKinds`, `continuitySourceKinds`, `continuityProvenanceKind`, `continuityMode`, and `futureCompactionSeam`.
+- Confirm the same continuity-startup contract is covered in source tests, compiled smoke, and tarball smoke so rendered provenance truth does not regress outside source-only unit tests.
 - Confirm continuity reviewer warnings stay in diagnostics / audit surfaces and are not written into continuity Markdown body text.
 - Run a local smoke flow:
   - `node dist/cli.js init`
