@@ -44,6 +44,8 @@ const PROGRESS_NARRATION_PATTERNS = [
 
 const packageManagerValues = ["pnpm", "npm", "yarn", "bun"] as const;
 const repoSearchValues = ["rg", "ripgrep", "grep"] as const;
+const canonicalStoreValues = ["markdown", "database", "sqlite", "vector"] as const;
+const debuggingDependencyValues = ["redis", "postgres", "docker"] as const;
 const hedgedDirectivePattern =
   /(?:\bmaybe\b|\bperhaps\b|\bif possible\b|\bwhen possible\b|\bfor now\b|\bprobably\b|\busually\b|\bsometimes\b|\btry\b|\bconsider\b|\bmight\b|\bcould\b|尽量|如果可以|可能|暂时)/iu;
 
@@ -173,6 +175,18 @@ export function isFileWriteToolCall(toolCall: RolloutToolCall): boolean {
 }
 
 function extractFilePathFromPatch(patchText: string): string | null {
+  const managedPatchMatch = /^\*\*\* (?:Update|Add|Delete) File: (.+)$/m.exec(patchText);
+  const managedPatchCapture = managedPatchMatch?.[1];
+  if (managedPatchCapture) {
+    return managedPatchCapture.trim();
+  }
+
+  const movedPatchMatch = /^\*\*\* Move to: (.+)$/m.exec(patchText);
+  const movedPatchCapture = movedPatchMatch?.[1];
+  if (movedPatchCapture) {
+    return movedPatchCapture.trim();
+  }
+
   const diffMatch = /^diff --git a\/.+? b\/(.+)$/m.exec(patchText);
   const diffCapture = diffMatch?.[1];
   if (diffCapture) {
@@ -225,16 +239,6 @@ interface DirectiveSignal {
   key: string;
   value: string;
   authoritative: boolean;
-}
-
-function shouldWarnForConflictingDirectiveKey(key: string): boolean {
-  return (
-    key === "package-manager" ||
-    key === "repo-search" ||
-    key === "canonical-store" ||
-    key === "retrieval-flow" ||
-    key === "route-order"
-  );
 }
 
 function extractReferenceSignal(text: string): DirectiveSignal | null {
@@ -430,7 +434,11 @@ function collectWarningHints(agentMessages: string[], userMessages: string[]): s
     }
     const choices = [
       extractDirectiveChoice(message, packageManagerValues, "package-manager"),
-      extractDirectiveChoice(message, repoSearchValues, "repo-search")
+      extractDirectiveChoice(message, repoSearchValues, "repo-search"),
+      extractReferenceSignal(message),
+      extractArchitectureSignal(message),
+      extractDebuggingSignal(message),
+      ...extractPatternSignals(message)
     ].filter((choice): choice is DirectiveSignal => Boolean(choice));
 
     for (const choice of choices) {
@@ -446,7 +454,11 @@ function collectWarningHints(agentMessages: string[], userMessages: string[]): s
 
     const choices = [
       extractDirectiveChoice(message, packageManagerValues, "package-manager"),
-      extractDirectiveChoice(message, repoSearchValues, "repo-search")
+      extractDirectiveChoice(message, repoSearchValues, "repo-search"),
+      extractReferenceSignal(message),
+      extractArchitectureSignal(message),
+      extractDebuggingSignal(message),
+      ...extractPatternSignals(message)
     ].filter((choice): choice is DirectiveSignal => Boolean(choice));
 
     for (const choice of choices) {
