@@ -94,6 +94,18 @@ const REVIEWER_WARNING_PATTERNS = [
   /\bverify the current preference before trusting this continuity summary\b/iu
 ];
 
+const GENERIC_GOAL_PATTERNS = [
+  /^(?:continue|resume)\s*[.!?]*$/iu,
+  /^(?:run|rerun)\s+(?:checks|tests?|verification)\s*[.!?]*$/iu,
+  /^(?:check|verify)\s+(?:it|this|that|again)\s*[.!?]*$/iu,
+  /^(?:can|could|would)\s+you\s+(?:look|check|verify|investigate)\s+(?:into|at)?\s*(?:it|this|that)\s*[?!.\s]*$/iu,
+  /^(?:look|take a look)\s+(?:into|at)\s+(?:it|this|that)\s*[.!?]*$/iu,
+  /^(?:继续|接着)\s*[。！？!?.]*$/u,
+  /^(?:跑|重跑)\s*(?:检查|测试|校验)\s*[。！？!?.]*$/u,
+  /^(?:看看|看一下|检查一下)\s*(?:这个|这个问题|它)?\s*[。！？!?.]*$/u,
+  /^(?:能不能|可以|能否).*(?:看看|看一下|查一下).*(?:这个|这个问题|它)\s*[。！？!?.]*$/u
+] as const;
+
 function isStringArray(value: unknown): value is string[] {
   return Array.isArray(value) && value.every((item) => typeof item === "string");
 }

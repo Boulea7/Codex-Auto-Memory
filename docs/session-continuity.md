@@ -112,6 +112,8 @@ Default assignment rules:
 - exact next steps go to the local layer by default
 - file modification notes go to the local layer by default
 - project-wide prerequisites and decisions stay in the shared layer
+- file modification notes now prefer repo-relative paths when rollout evidence includes absolute paths, and they also recognize both diff-style `apply_patch` text and managed `*** Update File:` / `*** Add File:` patch syntax
+- generic latest requests such as bare `Continue` / `Run checks` / `Check it again` or vague proxy prompts like `Can you look into it?` no longer overwrite a persisted goal or synthesize a fake `incompleteNext` item when the rollout has no explicit next-step evidence; concrete question-style requests still count as meaningful goals/continuation targets
 
 ## Codex-backed extraction quality guardrails
 
@@ -125,6 +127,7 @@ Current implementation rules:
   - detected file writes
   - candidate explicit next steps
   - candidate explicit untried ideas
+- reviewer warning hints now also cover more than package-manager drift: canonical-store posture, retrieval flow, and retrieval route order are treated as reviewer-visible conflict signals, while reference pointers and required services stay additive reviewer context instead of being forced into false conflicts
 - Codex output must still pass local structural validation after the CLI writes JSON
 - if the model output is malformed, missing required layers, or returns an evidence-empty summary while the rollout clearly contains command / file / next-step evidence, the system falls back to the heuristic summarizer
 - `cam session save` and wrapper auto-save still prefer the latest primary project rollout and skip forked/subagent reviewer rollouts by default; explicit `cam session save --rollout <path>` still lets a reviewer target a specific file on purpose
