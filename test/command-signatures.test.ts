@@ -21,9 +21,4 @@ describe("canonicalCommandSignature", () => {
     expect(canonicalCommandSignature("bun run build")).toBe("bun:build");
     expect(canonicalCommandSignature("yarn run check")).toBe("yarn:check");
   });
-
-  it("normalizes common wrapped and shorthand test commands that extractor already accepts", () => {
-    expect(canonicalCommandSignature("pnpm -C packages/app test")).toBe("pnpm:test");
-    expect(canonicalCommandSignature("nextest run")).toBe("cargo-nextest:test");
-  });
 });

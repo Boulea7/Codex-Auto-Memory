@@ -1,5 +1,11 @@
 export function canonicalCommandSignature(command: string): string | null {
   const normalized = command.toLowerCase().trim();
+  const lifecycleScriptPattern = /^(pnpm|npm|bun|yarn)\s+run\s+(test|lint|build|install|check)\b/u;
+  const lifecycleRunMatch = normalized.match(lifecycleScriptPattern);
+  if (lifecycleRunMatch?.[1] && lifecycleRunMatch[2]) {
+    return `${lifecycleRunMatch[1]}:${lifecycleRunMatch[2]}`;
+  }
+
   const normalizedCommand = normalized
     .replace(/^(pnpm|npm|bun|yarn)\s+-[cC]\s+\S+\s+/u, "$1 ")
     .replace(/^(pnpm|npm|bun|yarn)\s+exec\s+/u, "")

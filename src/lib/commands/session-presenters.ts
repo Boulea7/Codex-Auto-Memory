@@ -420,7 +420,8 @@ export function buildSessionStatusJson(view: SessionInspectionView): string {
       autoSave: view.autoSave,
       localPathStyle: view.localPathStyle,
       maxLines: view.maxLines,
-      ...buildSessionInspectionPayload(view)
+      ...buildSessionInspectionPayload(view),
+      startup: view.startup
     },
     null,
     2
