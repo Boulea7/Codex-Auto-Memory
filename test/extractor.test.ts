@@ -211,6 +211,52 @@ describe("HeuristicExtractor", () => {
     );
   });
 
+  it("extracts stable directive-style memories for reference, architecture, debugging, and patterns", async () => {
+    const extractor = new HeuristicExtractor();
+    const operations = await extractor.extract(
+      baseEvidence({
+        userMessages: [
+          "The auth runbook lives at https://docs.example.com/auth-runbook.",
+          "Keep Markdown-first as the canonical store, not database-first.",
+          "Redis must be running before integration tests.",
+          "Use search -> timeline -> details for recall.",
+          "Use MCP -> local bridge -> resolved CLI for retrieval."
+        ]
+      }),
+      []
+    );
+
+    expect(operations).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          action: "upsert",
+          topic: "reference",
+          summary: "The auth runbook lives at https://docs.example.com/auth-runbook"
+        }),
+        expect.objectContaining({
+          action: "upsert",
+          topic: "architecture",
+          summary: "Keep Markdown-first as the canonical store, not database-first"
+        }),
+        expect.objectContaining({
+          action: "upsert",
+          topic: "debugging",
+          summary: "Redis must be running before integration tests"
+        }),
+        expect.objectContaining({
+          action: "upsert",
+          topic: "patterns",
+          summary: "Use search -> timeline -> details for recall"
+        }),
+        expect.objectContaining({
+          action: "upsert",
+          topic: "patterns",
+          summary: "Use MCP -> local bridge -> resolved CLI for retrieval"
+        })
+      ])
+    );
+  });
+
   it("treats bash-named tool calls with expanded success output as reusable commands", async () => {
     const extractor = new HeuristicExtractor();
     const operations = await extractor.extract(
@@ -970,6 +1016,55 @@ describe("HeuristicExtractor", () => {
     );
   });
 
+  it("keeps replacement deletes for wrapped command variants that canonicalize to the same verification tool", () => {
+    const reviewed = reviewExtractedMemoryOperations(
+      [
+        {
+          action: "delete",
+          scope: "project",
+          topic: "commands",
+          id: "vitest-command",
+          reason: "Superseded by a newer successful command extracted from the session."
+        },
+        {
+          action: "upsert",
+          scope: "project",
+          topic: "commands",
+          id: "pnpm-exec-vitest-run-test-session-command-test-ts",
+          summary: "Run `pnpm exec vitest run test/session-command.test.ts` to verify this repository.",
+          details: [
+            "Use `pnpm exec vitest run test/session-command.test.ts` as a repeatable verification command for this project."
+          ],
+          reason: "Stable command inferred from recent tool usage."
+        }
+      ],
+      [
+        {
+          id: "vitest-command",
+          scope: "project",
+          topic: "commands",
+          summary: "Run `vitest` to verify this repository.",
+          details: ["Use `vitest` as a repeatable verification command for this project."],
+          updatedAt: "2026-03-14T00:00:00.000Z",
+          sources: ["old"]
+        }
+      ]
+    );
+
+    expect(reviewed.operations).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          action: "delete",
+          id: "vitest-command"
+        }),
+        expect.objectContaining({
+          action: "upsert",
+          id: "pnpm-exec-vitest-run-test-session-command-test-ts"
+        })
+      ])
+    );
+  });
+
   it("keeps the latest high-confidence reference correction and suppresses stale same-rollout pointers", () => {
     const reviewed = reviewExtractedMemoryOperations(
       [
@@ -1022,6 +1117,124 @@ describe("HeuristicExtractor", () => {
     );
   });
 
+  it("extracts explicit reference corrections so they can replace stale durable pointers", async () => {
+    const extractor = new HeuristicExtractor();
+    const existingEntries: MemoryEntry[] = [
+      {
+        id: "auth-runbook",
+        scope: "project",
+        topic: "reference",
+        summary: "The auth runbook lives at https://old.example.com/auth-runbook",
+        details: ["Old auth runbook pointer."],
+        updatedAt: "2026-03-14T00:00:00.000Z",
+        sources: ["old"]
+      }
+    ];
+
+    const operations = await extractor.extract(
+      baseEvidence({
+        userMessages: [
+          "Actually the auth runbook lives at https://docs.example.com/auth-runbook, not https://old.example.com/auth-runbook."
+        ]
+      }),
+      existingEntries
+    );
+    const reviewed = reviewExtractedMemoryOperations(operations, existingEntries);
+
+    expect(reviewed.operations).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          action: "delete",
+          topic: "reference",
+          id: "auth-runbook"
+        }),
+        expect.objectContaining({
+          action: "upsert",
+          topic: "reference",
+          reason: "Explicit user correction that should replace stale memory."
+        })
+      ])
+    );
+  });
+
+  it("treats remember-style reference corrections as explicit replacements end-to-end", async () => {
+    const extractor = new HeuristicExtractor();
+    const existingEntries: MemoryEntry[] = [
+      {
+        id: "auth-runbook",
+        scope: "project",
+        topic: "reference",
+        summary: "The auth runbook lives at https://old.example.com/auth-runbook",
+        details: ["Old auth runbook pointer."],
+        updatedAt: "2026-03-14T00:00:00.000Z",
+        sources: ["old"]
+      }
+    ];
+
+    const operations = await extractor.extract(
+      baseEvidence({
+        userMessages: [
+          "remember that the auth runbook lives at https://docs.example.com/auth-runbook instead of https://old.example.com/auth-runbook"
+        ]
+      }),
+      existingEntries
+    );
+    const reviewed = reviewExtractedMemoryOperations(operations, existingEntries);
+
+    expect(reviewed.operations).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          action: "delete",
+          topic: "reference",
+          id: "auth-runbook"
+        }),
+        expect.objectContaining({
+          action: "upsert",
+          topic: "reference",
+          reason: "Explicit user correction that should replace stale memory."
+        })
+      ])
+    );
+  });
+
+  it("extracts explicit architecture corrections so they can replace stale canonical-store memory", async () => {
+    const extractor = new HeuristicExtractor();
+    const existingEntries: MemoryEntry[] = [
+      {
+        id: "canonical-store",
+        scope: "project",
+        topic: "architecture",
+        summary: "Use a database-first canonical store for durable memory.",
+        details: ["The canonical source of truth is SQLite."],
+        updatedAt: "2026-03-14T00:00:00.000Z",
+        sources: ["old"]
+      }
+    ];
+
+    const operations = await extractor.extract(
+      baseEvidence({
+        userMessages: ["Actually keep Markdown-first as the canonical store, not database-first."]
+      }),
+      existingEntries
+    );
+    const reviewed = reviewExtractedMemoryOperations(operations, existingEntries);
+
+    expect(reviewed.operations).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          action: "delete",
+          topic: "architecture",
+          id: "canonical-store"
+        }),
+        expect.objectContaining({
+          action: "upsert",
+          topic: "architecture",
+          reason: "Explicit user correction that should replace stale memory."
+        })
+      ])
+    );
+  });
+
   it("suppresses hedged reference updates that conflict with existing durable pointers", () => {
     const reviewed = reviewExtractedMemoryOperations(
       [
@@ -1056,6 +1269,95 @@ describe("HeuristicExtractor", () => {
           source: "existing-memory",
           candidateSummary: "Maybe the dashboard lives at https://new.example.com/dashboard",
           conflictsWith: ["The dashboard lives at https://old.example.com/dashboard"]
+        })
+      ])
+    );
+  });
+
+  it("keeps scoped exceptions when a repo-wide correction only overlaps a docs-specific note", async () => {
+    const extractor = new HeuristicExtractor();
+    const existingEntries: MemoryEntry[] = [
+      {
+        id: "docs-use-npm",
+        scope: "project",
+        topic: "preferences",
+        summary: "Use npm for docs examples.",
+        details: ["Docs snippets still use npm commands."],
+        updatedAt: "2026-03-14T00:00:00.000Z",
+        sources: ["old"]
+      }
+    ];
+
+    const operations = await extractor.extract(
+      baseEvidence({
+        userMessages: ["we use pnpm, not npm"]
+      }),
+      existingEntries
+    );
+
+    expect(operations).not.toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          action: "delete",
+          id: "docs-use-npm"
+        })
+      ])
+    );
+    expect(operations).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          action: "upsert",
+          summary: "we use pnpm, not npm"
+        })
+      ])
+    );
+  });
+
+  it("does not delete cross-scope command memories for remember-style command corrections", async () => {
+    const extractor = new HeuristicExtractor();
+    const existingEntries: MemoryEntry[] = [
+      {
+        id: "global-npm-test",
+        scope: "global",
+        topic: "commands",
+        summary: "Run `npm test` to verify projects.",
+        details: ["Global command note."],
+        updatedAt: "2026-03-14T00:00:00.000Z",
+        sources: ["old"]
+      },
+      {
+        id: "project-npm-test",
+        scope: "project",
+        topic: "commands",
+        summary: "Run `npm test` to verify this repository.",
+        details: ["Project command note."],
+        updatedAt: "2026-03-14T00:00:00.000Z",
+        sources: ["old"]
+      }
+    ];
+
+    const operations = await extractor.extract(
+      baseEvidence({
+        userMessages: ["remember that run `pnpm test`, not `npm test`"]
+      }),
+      existingEntries
+    );
+
+    expect(operations).not.toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          action: "delete",
+          scope: "global",
+          id: "global-npm-test"
+        })
+      ])
+    );
+    expect(operations).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          action: "delete",
+          scope: "project",
+          id: "project-npm-test"
         })
       ])
     );

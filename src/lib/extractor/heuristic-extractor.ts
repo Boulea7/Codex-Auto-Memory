@@ -3,10 +3,11 @@ import type { MemoryEntry, MemoryOperation, RolloutEvidence } from "../types.js"
 import type { MemoryExtractorAdapter } from "../runtime/contracts.js";
 import { slugify } from "../util/text.js";
 import { commandSucceeded, extractCommand, isCommandToolCall } from "./command-utils.js";
+import { canonicalCommandSignature } from "./command-signatures.js";
 
 interface ExplicitCorrection {
   scope: MemoryOperation["scope"];
-  topic: "preferences" | "workflow" | "commands";
+  topic: string;
   summary: string;
   staleText: string;
 }
@@ -35,6 +36,12 @@ const assistantNoisePatterns = [
   /下一步/u
 ] as const;
 
+const stableDirectiveTopics = new Set(["reference", "architecture", "debugging", "patterns"]);
+
+function isAllowedMemoryTopic(topic: string): topic is (typeof DEFAULT_MEMORY_TOPICS)[number] {
+  return DEFAULT_MEMORY_TOPICS.includes(topic as (typeof DEFAULT_MEMORY_TOPICS)[number]);
+}
+
 function inferScope(message: string): MemoryOperation["scope"] {
   if (/(all projects|across projects|globally|every repo|所有项目|全局)/iu.test(message)) {
     return "global";
@@ -48,6 +55,13 @@ function inferScope(message: string): MemoryOperation["scope"] {
 }
 
 function inferTopic(message: string): string {
+  if (
+    /search\s*->\s*timeline\s*->\s*details/iu.test(message) ||
+    /mcp\s*->\s*local bridge\s*->\s*resolved cli/iu.test(message)
+  ) {
+    return "patterns";
+  }
+
   if (
     /`[^`]*(?:pnpm|npm|bun|yarn|cargo|pytest|jest|vitest|go test|python(?:3)? -m|make)[^`]*`/iu.test(
       message
@@ -71,16 +85,16 @@ function inferTopic(message: string): string {
     return "preferences";
   }
 
-  if (/(debug|error|fix|fails|failing|redis|database|timeout|requires|must start|before running)/iu.test(message)) {
-    return "debugging";
-  }
-
   if (
     /(architecture|module|api|route|entity|service|controller|schema|markdown-first|db-first|database-first|source of truth|canonical)/iu.test(
       message
     )
   ) {
     return "architecture";
+  }
+
+  if (/(debug|error|fix|fails|failing|redis|database|timeout|requires|must start|before running)/iu.test(message)) {
+    return "debugging";
   }
 
   if (/(pattern|convention|reuse|shared)/iu.test(message)) {
@@ -93,56 +107,6 @@ function inferTopic(message: string): string {
 function extractCommandFromSummary(summary: string): string | null {
   const match = summary.match(/`([^`]+)`/u);
   return match?.[1] ?? null;
-}
-
-function commandSignature(command: string): string | null {
-  const normalized = command.toLowerCase().trim();
-  const normalizedCommand = normalized
-    .replace(/^(pnpm|npm|bun|yarn)\s+-[cC]\s+\S+\s+/u, "$1 ")
-    .replace(/^(pnpm|npm|bun|yarn)\s+exec\s+/u, "")
-    .replace(/^uv\s+run\s+/u, "")
-    .replace(/^cargo\s+nextest\s+run\b/u, "cargo-nextest run");
-  const runScriptMatch = normalized.match(/^(pnpm|npm|bun|yarn)\s+run\s+([a-z0-9:_-]+)/u);
-  if (runScriptMatch?.[1] && runScriptMatch[2]) {
-    return `${runScriptMatch[1]}:run:${runScriptMatch[2]}`;
-  }
-
-  if (/\b(?:pnpm|npm|bun|yarn)\s+(test|lint|build|install|check)\b/u.test(normalized)) {
-    const match = normalized.match(/\b(pnpm|npm|bun|yarn)\s+(test|lint|build|install|check)\b/u);
-    const tool = match?.[1];
-    const action = match?.[2];
-    return tool && action ? `${tool}:${action}` : null;
-  }
-
-  if (/\b(?:cargo)\s+(test|build|check)\b/u.test(normalizedCommand)) {
-    const match = normalizedCommand.match(/\bcargo\s+(test|build|check)\b/u);
-    const action = match?.[1];
-    return action ? `cargo:${action}` : null;
-  }
-
-  if (/\bcargo-nextest\s+run\b/u.test(normalizedCommand)) {
-    return "cargo-nextest:test";
-  }
-
-  if (/\b(?:pytest|jest|vitest|go test|dotnet test|rake)\b/u.test(normalizedCommand)) {
-    const match = normalizedCommand.match(/\b(pytest|jest|vitest|go test|dotnet test|rake)\b/u);
-    const tool = match?.[1];
-    if (!tool) {
-      return null;
-    }
-    return `${tool.replace(/\s+/gu, "-")}:test`;
-  }
-
-  if (/\b(?:tsc|vite build|next build|gradle|mvn|make)\b/u.test(normalizedCommand)) {
-    const match = normalizedCommand.match(/\b(tsc|vite build|next build|gradle|mvn|make)\b/u);
-    const tool = match?.[1];
-    if (!tool) {
-      return null;
-    }
-    return `${tool.replace(/\s+/gu, "-")}:build`;
-  }
-
-  return null;
 }
 
 function buildEntryIdentityKey(entry: Pick<MemoryEntry, "scope" | "topic" | "id">): string {
@@ -206,6 +170,62 @@ function isHighConfidenceExplicitCorrection(message: string): boolean {
   );
 }
 
+function isCorrectionSignal(message: string): boolean {
+  return /(?:\bnot\b|\binstead of\b|\brather than\b|不用|别用|不要用)/iu.test(message);
+}
+
+function isStableDirectiveSummary(topic: string, summary: string): boolean {
+  switch (topic) {
+    case "reference":
+      return /(https?:\/\/|tracked in|lives at|runbook|dashboard|docs?\b|linear|jira|issue tracker)/iu.test(
+        summary
+      );
+    case "architecture":
+      return /\b(markdown-first|db-first|database-first|source of truth|canonical)\b|主真相|规范存储/u.test(
+        summary
+      );
+    case "debugging":
+      return /\b(requires?|needs?|must be running|must run|must start|before running|before integration tests)\b|需要|必须|先启动/u.test(
+        summary
+      );
+    case "patterns":
+      return (
+        /search\s*->\s*timeline\s*->\s*details/iu.test(summary) ||
+        /mcp\s*->\s*local bridge\s*->\s*resolved cli/iu.test(summary)
+      );
+    default:
+      return false;
+  }
+}
+
+function extractStableDirectiveOperation(
+  message: string,
+  rolloutPath: string
+): MemoryOperation | null {
+  const summary = trimTrailingPunctuation(message.trim());
+  if (!summary || /[?？]$/u.test(summary) || !isHighConfidenceExplicitCorrection(summary)) {
+    return null;
+  }
+
+  const topic = inferTopic(summary);
+  if (!stableDirectiveTopics.has(topic) || !isStableDirectiveSummary(topic, summary)) {
+    return null;
+  }
+
+  return {
+    action: "upsert",
+    scope: inferScope(summary),
+    topic,
+    id: slugify(summary),
+    summary,
+    details: [summary],
+    reason: isCorrectionSignal(summary)
+      ? "Explicit user correction that should replace stale memory."
+      : "Stable directive extracted from the session.",
+    sources: [rolloutPath]
+  };
+}
+
 function extractExplicitCorrection(message: string): ExplicitCorrection | null {
   const trimmed = trimTrailingPunctuation(stripRememberPrefix(message));
   if (!isHighConfidenceExplicitCorrection(trimmed)) {
@@ -234,6 +254,18 @@ function extractExplicitCorrection(message: string): ExplicitCorrection | null {
       staleIndex: 2
     },
     {
+      pattern: /^(?:actually\s+)?run\s+(.+?),\s*not\s+(.+)$/iu,
+      staleIndex: 2
+    },
+    {
+      pattern: /^(?:actually\s+)?keep\s+(.+?),\s*not\s+(.+)$/iu,
+      staleIndex: 2
+    },
+    {
+      pattern: /^(?:actually\s+)?(.+?\b(?:lives? at|is at)\s+.+?),\s*not\s+(.+)$/iu,
+      staleIndex: 2
+    },
+    {
       pattern: /^我们用\s*(.+?)\s*[,，]\s*不用\s*(.+)$/u,
       staleIndex: 2
     },
@@ -254,10 +286,7 @@ function extractExplicitCorrection(message: string): ExplicitCorrection | null {
     }
 
     const rawTopic = inferTopic(trimmed);
-    const topic =
-      rawTopic === "preferences" || rawTopic === "workflow" || rawTopic === "commands"
-        ? rawTopic
-        : null;
+    const topic = isAllowedMemoryTopic(rawTopic) ? rawTopic : null;
     if (!topic) {
       return null;
     }
@@ -305,11 +334,22 @@ function collectExplicitCorrectionDeleteTargets(
     return haystack.includes(staleNeedle);
   });
 
-  if (directCandidates.length <= 1) {
+  if (correction.topic === "commands") {
     return directCandidates;
   }
 
   const contextTokens = summaryTokens.filter((token) => !staleTokens.has(token));
+  if (directCandidates.length <= 1) {
+    if (directCandidates.length === 0 || contextTokens.length === 0) {
+      return directCandidates;
+    }
+
+    return directCandidates.filter((entry) => {
+      const haystack = normalizeForComparison(`${entry.summary}\n${entry.details.join("\n")}`);
+      return contextTokens.some((token) => haystack.includes(token));
+    });
+  }
+
   if (contextTokens.length < 2) {
     return [];
   }
@@ -526,11 +566,9 @@ export class HeuristicExtractor implements MemoryExtractorAdapter {
 
         const scope = inferScope(message);
         const topic = inferTopic(message);
-        const correctionSignal =
-          /(?:\bnot\b|\binstead of\b|\brather than\b|不用|别用|不要用)/iu.test(message);
+        const correctionSignal = isCorrectionSignal(message);
         const shouldReplaceOverlaps =
-          correctionSignal &&
-          (topic === "preferences" || topic === "workflow" || topic === "commands");
+          correctionSignal && isAllowedMemoryTopic(topic);
         if (shouldReplaceOverlaps) {
           for (const entry of overlappingEntries(existingEntries, summary)) {
             if (entry.summary.toLowerCase() === summary.toLowerCase()) {
@@ -561,8 +599,35 @@ export class HeuristicExtractor implements MemoryExtractorAdapter {
         continue;
       }
 
+      const stableDirective = extractStableDirectiveOperation(message, evidence.rolloutPath);
+      if (stableDirective) {
+        const shouldReplaceOverlaps =
+          stableDirective.reason === "Explicit user correction that should replace stale memory.";
+        if (shouldReplaceOverlaps) {
+          for (const entry of overlappingEntries(existingEntries, stableDirective.summary ?? "")) {
+            if (
+              entry.scope !== stableDirective.scope ||
+              entry.topic !== stableDirective.topic ||
+              entry.summary.toLowerCase() === stableDirective.summary?.toLowerCase()
+            ) {
+              continue;
+            }
+            queueDelete(
+              operations,
+              queuedDeleteKeys,
+              entry,
+              "Superseded by a newer user correction.",
+              evidence.rolloutPath
+            );
+          }
+        }
+
+        queueUpsert(operations, knownOperationKeys, stableDirective);
+        continue;
+      }
+
       const insightMatch = message.match(
-        /\b(?:requires|needs|must start|must run|before running)\b(.+)/iu
+        /\b(?:requires|needs|must be running|must start|must run|before running|before integration tests)\b(.+)/iu
       );
       if (insightMatch?.[0]) {
         const summary = message.trim().replace(/[。.]$/u, "");
@@ -612,7 +677,7 @@ export class HeuristicExtractor implements MemoryExtractorAdapter {
       }
 
       const { summary, details } = commandSummary(command);
-      const signature = commandSignature(command);
+      const signature = canonicalCommandSignature(command);
 
       if (signature) {
         for (const entry of existingEntries) {
@@ -624,7 +689,7 @@ export class HeuristicExtractor implements MemoryExtractorAdapter {
             continue;
           }
           if (
-            commandSignature(existingCommand) === signature &&
+            canonicalCommandSignature(existingCommand) === signature &&
             entry.summary.toLowerCase() !== summary.toLowerCase()
           ) {
             queueDelete(
