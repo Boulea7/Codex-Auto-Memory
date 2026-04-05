@@ -1484,6 +1484,11 @@ describe("dist cli smoke", () => {
       readOnlyRetrieval: true,
       status: "ok",
       recommendedRoute: "mcp",
+      currentlyOperationalRoute: "mcp",
+      routeKind: "preferred-mcp",
+      shellDependencyLevel: "required",
+      hostMutationRequired: false,
+      currentOperationalBlockers: [],
       recommendedPreset: "state=auto, limit=8",
       applyReadiness: {
         status: "safe"
@@ -1513,6 +1518,8 @@ describe("dist cli smoke", () => {
           reviewCommand: "cam memory --recent"
         }
       },
+      preferredSkillSurface: "runtime",
+      recommendedSkillInstallCommand: "cam skills install --surface runtime",
       subchecks: {
         mcp: { status: "ok" },
         agents: { status: "ok" },
@@ -1522,6 +1529,9 @@ describe("dist cli smoke", () => {
         workflowConsistency: { status: "ok" }
       }
     });
+    expect(JSON.parse(doctorResult.stdout).routeEvidence).toEqual(
+      expect.arrayContaining(["mcp-config-present", "cam-command-available"])
+    );
   });
 
   it("surfaces blocked apply readiness from the compiled integrations doctor", async () => {

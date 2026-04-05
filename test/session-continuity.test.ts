@@ -413,6 +413,62 @@ describe("session continuity domain", () => {
     expect(localNext).toContain("add middleware");
   });
 
+  it("heuristic summarizer does not synthesize next steps from generic latest requests", async () => {
+    const existing = {
+      project: createEmptySessionContinuityState("project", "p1", "w1"),
+      projectLocal: {
+        ...createEmptySessionContinuityState("project-local", "p1", "w1"),
+        incompleteNext: ["Finish wiring the login middleware once the cookie patch lands."]
+      }
+    };
+    const evidence: RolloutEvidence = {
+      sessionId: "session-generic-next-step",
+      createdAt: "2026-03-15T00:00:00.000Z",
+      cwd: "/tmp/project",
+      userMessages: ["Continue", "Can you look into it?", "Run checks"],
+      agentMessages: [],
+      toolCalls: [],
+      rolloutPath: "/tmp/rollout.jsonl"
+    };
+
+    const summarizer = new SessionContinuitySummarizer(baseConfig("/tmp/memory-root"));
+    const result = await summarizer.summarizeWithDiagnostics(evidence, existing);
+
+    expect(result.summary.projectLocal.incompleteNext).toEqual(existing.projectLocal.incompleteNext);
+    expect(result.diagnostics.warnings).not.toEqual(
+      expect.arrayContaining([
+        expect.stringContaining("Next steps were inferred from the latest request")
+      ])
+    );
+  });
+
+  it("treats concrete question-style latest requests as meaningful goals and fallback next steps", async () => {
+    const evidence: RolloutEvidence = {
+      sessionId: "session-question-goal",
+      createdAt: "2026-03-15T00:00:00.000Z",
+      cwd: "/tmp/project",
+      userMessages: ["Why is the login cookie missing after the middleware redirect?"],
+      agentMessages: [],
+      toolCalls: [],
+      rolloutPath: "/tmp/rollout.jsonl"
+    };
+
+    const summarizer = new SessionContinuitySummarizer(baseConfig("/tmp/memory-root"));
+    const result = await summarizer.summarizeWithDiagnostics(evidence);
+
+    expect(result.summary.project.goal).toBe(
+      "Why is the login cookie missing after the middleware redirect?"
+    );
+    expect(result.summary.projectLocal.incompleteNext).toEqual([
+      "Continue with the latest request: Why is the login cookie missing after the middleware redirect?"
+    ]);
+    expect(result.diagnostics.warnings).toEqual(
+      expect.arrayContaining([
+        expect.stringContaining("Next steps were inferred from the latest request")
+      ])
+    );
+  });
+
   it("heuristic summarizer clears stale local goals so the merged goal can fall back to the shared layer", async () => {
     const evidence: RolloutEvidence = {
       sessionId: "session-clear-stale-local-goal",
@@ -747,6 +803,61 @@ describe("session continuity domain", () => {
 
     expect(result.diagnostics.warnings).toEqual([]);
     expect(result.diagnostics.confidence).toBe("high");
+  });
+
+  it("surfaces expanded continuity warning hints for true architecture and route-order conflicts", async () => {
+    const evidence: RolloutEvidence = {
+      sessionId: "session-expanded-warning-hints",
+      createdAt: "2026-03-15T00:00:00.000Z",
+      cwd: "/tmp/project",
+      userMessages: [
+        "Keep Markdown-first as the canonical store, not database-first.",
+        "Use search -> timeline -> details for recall.",
+        "Use MCP -> local bridge -> resolved CLI for retrieval."
+      ],
+      agentMessages: [
+        "Maybe move to a database-first canonical store later.",
+        "Use details -> timeline -> search for recall.",
+        "Use resolved CLI -> local bridge -> MCP for retrieval."
+      ],
+      toolCalls: [],
+      rolloutPath: "/tmp/rollout.jsonl"
+    };
+
+    const buckets = collectSessionContinuityEvidenceBuckets(evidence);
+
+    expect(buckets.warningHints).toEqual(
+      expect.arrayContaining([
+        expect.stringContaining("canonical store"),
+        expect.stringContaining("retrieval flow"),
+        expect.stringContaining("route order")
+      ])
+    );
+  });
+
+  it("does not treat additive reference pointers or multiple required services as conflicts", async () => {
+    const evidence: RolloutEvidence = {
+      sessionId: "session-additive-warning-hints",
+      createdAt: "2026-03-15T00:00:00.000Z",
+      cwd: "/tmp/project",
+      userMessages: [
+        "Use the production dashboard at https://dash.example.com for auth incidents.",
+        "Use the auth docs at https://docs.example.com/auth for incident triage.",
+        "Redis must be running before integration tests.",
+        "Postgres must be running before integration tests.",
+        "Next step: review the auth incident notes before changing the middleware."
+      ],
+      agentMessages: [],
+      toolCalls: [],
+      rolloutPath: "/tmp/rollout.jsonl"
+    };
+
+    const buckets = collectSessionContinuityEvidenceBuckets(evidence);
+    expect(buckets.warningHints).toEqual([]);
+
+    const summarizer = new SessionContinuitySummarizer(baseConfig("/tmp/memory-root"));
+    const result = await summarizer.summarizeWithDiagnostics(evidence);
+    expect(result.diagnostics.warnings).toEqual([]);
   });
 
   it("falls back after scrubbing warning-only codex output", async () => {

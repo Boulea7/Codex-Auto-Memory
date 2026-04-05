@@ -227,6 +227,142 @@ interface DirectiveSignal {
   authoritative: boolean;
 }
 
+function shouldWarnForConflictingDirectiveKey(key: string): boolean {
+  return (
+    key === "package-manager" ||
+    key === "repo-search" ||
+    key === "canonical-store" ||
+    key === "retrieval-flow" ||
+    key === "route-order"
+  );
+}
+
+function extractReferenceSignal(text: string): DirectiveSignal | null {
+  const normalized = text.toLowerCase();
+  const urlMatch = text.match(/https?:\/\/[^\s)]+/iu)?.[0];
+  const url = urlMatch?.replace(/[),.;]+$/u, "").trim().toLowerCase();
+  const category =
+    /\bdashboard\b|仪表盘/u.test(normalized)
+      ? "dashboard"
+      : /\brunbook\b|操作手册|run book/u.test(normalized)
+        ? "runbook"
+        : /\bdoc(?:s|umentation)?\b|文档/u.test(normalized)
+          ? "docs"
+          : /\b(?:linear|jira|issue tracker|issues?)\b|缺陷追踪|问题追踪/u.test(normalized)
+            ? "issue-tracker"
+            : "pointer";
+
+  if (url) {
+    return {
+      key: `reference-pointer:${category}`,
+      value: url,
+      authoritative: false
+    };
+  }
+
+  return null;
+}
+
+function extractArchitectureSignal(text: string): DirectiveSignal | null {
+  const normalized = text.toLowerCase();
+  if (
+    !/\b(canonical|source of truth|db-first|markdown-first|database-first)\b|规范存储|主真相/u.test(
+      text
+    )
+  ) {
+    return null;
+  }
+
+  if (/markdown-first|markdown.*source of truth|markdown.*canonical/u.test(normalized)) {
+    return {
+      key: "canonical-store",
+      value: "markdown",
+      authoritative: false
+    };
+  }
+
+  if (/db-first|database-first|数据库优先/u.test(normalized)) {
+    return {
+      key: "canonical-store",
+      value: "database",
+      authoritative: false
+    };
+  }
+
+  return extractDirectiveChoice(text, canonicalStoreValues, "canonical-store");
+}
+
+function extractDebuggingSignal(text: string): DirectiveSignal | null {
+  const normalized = text.toLowerCase();
+  if (
+    !/\b(requires?|needs?|start|before running|must be running|running before)\b|需要|必须|先启动/u.test(
+      text
+    )
+  ) {
+    return null;
+  }
+
+  for (const value of debuggingDependencyValues) {
+    const pattern = new RegExp(`\\b${escapeRegExp(value)}\\b`, "iu");
+    if (pattern.test(normalized)) {
+      return {
+        key: "required-service",
+        value,
+        authoritative: false
+      };
+    }
+  }
+
+  return null;
+}
+
+function extractOrderedSignal(
+  text: string,
+  tokens: ReadonlyArray<{ pattern: RegExp; value: string }>,
+  key: string
+): DirectiveSignal | null {
+  const positions = tokens
+    .map((token) => {
+      const match = token.pattern.exec(text);
+      return match ? { index: match.index, value: token.value } : null;
+    })
+    .filter((entry): entry is { index: number; value: string } => entry !== null)
+    .sort((left, right) => left.index - right.index);
+
+  if (positions.length !== tokens.length) {
+    return null;
+  }
+
+  return {
+    key,
+    value: positions.map((entry) => entry.value).join("->"),
+    authoritative: false
+  };
+}
+
+function extractPatternSignals(text: string): DirectiveSignal[] {
+  const retrievalFlow = extractOrderedSignal(
+    text,
+    [
+      { pattern: /\bsearch\b/iu, value: "search" },
+      { pattern: /\btimeline\b/iu, value: "timeline" },
+      { pattern: /\bdetails\b/iu, value: "details" }
+    ],
+    "retrieval-flow"
+  );
+  const routeOrder = extractOrderedSignal(
+    text,
+    [
+      { pattern: /\bmcp\b/iu, value: "mcp" },
+      { pattern: /\blocal bridge\b/iu, value: "local-bridge" },
+      { pattern: /\bresolved cli\b/iu, value: "resolved-cli" }
+    ],
+    "route-order"
+  );
+
+  return [retrievalFlow, routeOrder].filter((signal): signal is DirectiveSignal => Boolean(signal));
+}
+
 function extractDirectiveChoice(
   text: string,
   values: readonly string[],
@@ -326,6 +462,10 @@ function collectWarningHints(agentMessages: string[], userMessages: string[]): s
 
   for (const [key, values] of directiveValues) {
     if (values.size <= 1) {
+      continue;
+    }
+
+    if (!shouldWarnForConflictingDirectiveKey(key)) {
       continue;
     }
 
