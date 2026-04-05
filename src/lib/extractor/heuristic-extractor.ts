@@ -254,10 +254,6 @@ function extractExplicitCorrection(message: string): ExplicitCorrection | null {
       staleIndex: 2
     },
     {
-      pattern: /^(?:actually\s+)?run\s+(.+?),\s*not\s+(.+)$/iu,
-      staleIndex: 2
-    },
-    {
       pattern: /^(?:actually\s+)?keep\s+(.+?),\s*not\s+(.+)$/iu,
       staleIndex: 2
     },
@@ -334,22 +330,11 @@ function collectExplicitCorrectionDeleteTargets(
     return haystack.includes(staleNeedle);
   });
 
-  if (correction.topic === "commands") {
+  if (directCandidates.length <= 1) {
     return directCandidates;
   }
 
   const contextTokens = summaryTokens.filter((token) => !staleTokens.has(token));
-  if (directCandidates.length <= 1) {
-    if (directCandidates.length === 0 || contextTokens.length === 0) {
-      return directCandidates;
-    }
-
-    return directCandidates.filter((entry) => {
-      const haystack = normalizeForComparison(`${entry.summary}\n${entry.details.join("\n")}`);
-      return contextTokens.some((token) => haystack.includes(token));
-    });
-  }
-
   if (contextTokens.length < 2) {
     return [];
   }

@@ -542,6 +542,13 @@ describe("runSession", () => {
     const statusPayload = JSON.parse(statusResult.stdout) as {
       projectLocation: { exists: boolean; path: string };
       localLocation: { exists: boolean; path: string };
+      startup: {
+        sourceFiles: string[];
+        candidateSourceFiles: string[];
+        continuityMode: string;
+        continuityProvenanceKind: string;
+        continuitySectionKinds: string[];
+      };
     };
 
     expect(loadPayload.startup.text).toContain("# Session Continuity");
@@ -560,6 +567,11 @@ describe("runSession", () => {
       kind: "session-summary-placeholder",
       rebuildsStartupSections: true
     });
+    expect(statusPayload.startup.sourceFiles).toEqual([statusPayload.projectLocation.path]);
+    expect(statusPayload.startup.candidateSourceFiles).toEqual([statusPayload.projectLocation.path]);
+    expect(statusPayload.startup.continuityMode).toBe("startup");
+    expect(statusPayload.startup.continuityProvenanceKind).toBe("temporary-continuity");
+    expect(statusPayload.startup.continuitySectionKinds).toContain("sources");
     expect(statusPayload.projectLocation.exists).toBe(true);
     expect(statusPayload.localLocation.exists).toBe(false);
   }, 30_000);

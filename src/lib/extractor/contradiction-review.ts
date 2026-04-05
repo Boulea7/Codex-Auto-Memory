@@ -4,6 +4,7 @@ import type {
   MemoryOperation,
   MemoryScope
 } from "../types.js";
+import { canonicalCommandSignature } from "./command-signatures.js";
 
 interface DirectiveChoice {
   key: string;
@@ -24,10 +25,20 @@ export interface ReviewedMemoryOperations {
   conflicts: MemoryConflictCandidate[];
 }
 
-const reviewableTopics = new Set(["preferences", "workflow", "commands"]);
+const reviewableTopics = new Set([
+  "preferences",
+  "workflow",
+  "commands",
+  "reference",
+  "architecture",
+  "debugging",
+  "patterns"
+]);
 const replacementDeleteReasonPattern = /^Superseded by a newer /u;
 const packageManagerValues = ["pnpm", "npm", "yarn", "bun"] as const;
 const repoSearchValues = ["rg", "ripgrep", "grep"] as const;
+const canonicalStoreValues = ["markdown", "sqlite", "database", "vector"] as const;
+const debuggingDependencyValues = ["redis", "postgres", "docker"] as const;
 const hedgedCorrectionPattern =
   /(?:\bmaybe\b|\bperhaps\b|\bif possible\b|\bwhen possible\b|\bfor now\b|\bprobably\b|\busually\b|\bsometimes\b|\btry\b|\bconsider\b|\bmight\b|\bcould\b|尽量|如果可以|可能|暂时)/iu;
 
@@ -64,27 +75,6 @@ function hasCommandReplacementDelete(
   );
 }
 
-function commandSignature(command: string): string | null {
-  const normalized = command.toLowerCase().trim();
-  if (/\b(?:pnpm|npm|bun|yarn)\s+(test|lint|build|install)\b/u.test(normalized)) {
-    return normalized.match(/\b(?:pnpm|npm|bun|yarn)\s+(test|lint|build|install)\b/u)?.[1] ?? null;
-  }
-
-  if (/\bcargo\s+(test|build|check)\b/u.test(normalized)) {
-    return normalized.match(/\bcargo\s+(test|build|check)\b/u)?.[1] ?? null;
-  }
-
-  if (/\b(?:pytest|jest|vitest|go test|dotnet test|rake)\b/u.test(normalized)) {
-    return "test";
-  }
-
-  if (/\b(?:tsc|vite build|next build|gradle|mvn|make)\b/u.test(normalized)) {
-    return "build";
-  }
-
-  return null;
-}
-
 function extractCommandChoice(text: string): DirectiveChoice[] {
   const commandMatch = text.match(/`([^`]+)`/u);
   const command = commandMatch?.[1]?.trim();
@@ -92,7 +82,7 @@ function extractCommandChoice(text: string): DirectiveChoice[] {
     return [];
   }
 
-  const signature = commandSignature(command);
+  const signature = canonicalCommandSignature(command);
   if (!signature) {
     return [];
   }
@@ -145,10 +135,143 @@ function extractDirectiveChoices(operation: MemoryOperation): DirectiveChoice[] 
     return extractCommandChoice(operation.summary);
   }
 
+  if (operation.topic === "reference") {
+    return extractReferenceChoices(operation.summary);
+  }
+
+  if (operation.topic === "architecture") {
+    return extractArchitectureChoices(operation.summary);
+  }
+
+  if (operation.topic === "debugging") {
+    return extractDebuggingChoices(operation.summary);
+  }
+
+  if (operation.topic === "patterns") {
+    return extractPatternChoices(operation.summary);
+  }
+
   return [
     ...extractValueChoice(operation.summary, packageManagerValues, "package-manager"),
     ...extractValueChoice(operation.summary, repoSearchValues, "repo-search")
   ];
+}
+
+function normalizeReferenceUrl(url: string): string {
+  return url.replace(/[),.;]+$/u, "").trim().toLowerCase();
+}
+
+function extractReferenceChoices(text: string): DirectiveChoice[] {
+  const normalized = text.toLowerCase();
+  const urlMatch = text.match(/https?:\/\/[^\s)]+/iu)?.[0];
+  const url = urlMatch ? normalizeReferenceUrl(urlMatch) : null;
+  const category =
+    /\bdashboard\b|仪表盘/u.test(normalized)
+      ? "dashboard"
+      : /\brunbook\b|操作手册|run book/u.test(normalized)
+        ? "runbook"
+        : /\bdoc(?:s|umentation)?\b|文档/u.test(normalized)
+          ? "docs"
+          : /\b(?:linear|jira|issue tracker|issues?)\b|缺陷追踪|问题追踪/u.test(normalized)
+            ? "issue-tracker"
+            : "pointer";
+
+  if (url) {
+    return [
+      {
+        key: `reference:${category}`,
+        value: url
+      }
+    ];
+  }
+
+  const trackerMatch = normalized.match(/\b(linear|jira|github issues?)\b/iu)?.[1];
+  if (trackerMatch) {
+    return [
+      {
+        key: `reference:${category}`,
+        value: trackerMatch.toLowerCase()
+      }
+    ];
+  }
+
+  return [];
+}
+
+function extractArchitectureChoices(text: string): DirectiveChoice[] {
+  const normalized = text.toLowerCase();
+  if (!/\b(canonical|source of truth|db-first|markdown-first|database-first)\b|规范存储|主真相/u.test(text)) {
+    return [];
+  }
+
+  if (/markdown-first|markdown.*source of truth|markdown.*canonical/u.test(normalized)) {
+    return [
+      {
+        key: "architecture:canonical-store",
+        value: "markdown"
+      }
+    ];
+  }
+
+  const choice = extractValueChoice(normalized, canonicalStoreValues, "architecture:canonical-store");
+  if (choice.length > 0) {
+    return choice;
+  }
+
+  if (/db-first|database-first|数据库优先/u.test(normalized)) {
+    return [
+      {
+        key: "architecture:canonical-store",
+        value: "database"
+      }
+    ];
+  }
+
+  return [];
+}
+
+function extractDebuggingChoices(text: string): DirectiveChoice[] {
+  const normalized = text.toLowerCase();
+  if (!/\b(requires?|needs?|start|before running)\b|需要|必须|先启动/u.test(text)) {
+    return [];
+  }
+
+  for (const value of debuggingDependencyValues) {
+    const pattern = new RegExp(`\\b${escapeRegExp(value)}\\b`, "iu");
+    if (pattern.test(normalized)) {
+      return [
+        {
+          key: "debugging:required-service",
+          value
+        }
+      ];
+    }
+  }
+
+  return [];
+}
+
+function extractPatternChoices(text: string): DirectiveChoice[] {
+  const normalized = text.toLowerCase().replace(/\s+/gu, " ");
+  if (/search\s*->\s*timeline\s*->\s*details/u.test(normalized)) {
+    return [
+      {
+        key: "patterns:retrieval-flow",
+        value: "search->timeline->details"
+      }
+    ];
+  }
+
+  if (/mcp\s*->\s*local bridge\s*->\s*resolved cli/u.test(normalized)) {
+    return [
+      {
+        key: "patterns:route-order",
+        value: "mcp->local-bridge->resolved-cli"
+      }
+    ];
+  }
+
+  return [];
 }
 
 function choicesConflict(left: DirectiveChoice[], right: DirectiveChoice[]): boolean {
@@ -190,16 +313,47 @@ function findPreferredWithinRolloutWinner(
   return highConfidenceReviews[0] ?? null;
 }
 
-function hasRetainedHighConfidenceCandidate(
+function entryDirectiveChoices(entry: MemoryEntry): DirectiveChoice[] {
+  return extractDirectiveChoices({
+    action: "upsert",
+    scope: entry.scope,
+    topic: entry.topic,
+    id: entry.id,
+    summary: entry.summary,
+    details: entry.details,
+    sources: entry.sources,
+    reason: entry.reason
+  });
+}
+
+function shouldKeepReplacementDelete(
+  operation: MemoryOperation,
   reviews: CandidateReview[],
   retainedIndices: Set<number>,
-  groupKey: string
+  existingEntries: MemoryEntry[]
 ): boolean {
+  const targetEntry = existingEntries.find(
+    (entry) =>
+      entry.scope === operation.scope &&
+      entry.topic === operation.topic &&
+      entry.id === operation.id
+  );
+  if (!targetEntry) {
+    return true;
+  }
+
+  const targetChoices = entryDirectiveChoices(targetEntry);
+  if (targetChoices.length === 0) {
+    return true;
+  }
+
   return reviews.some(
     (review) =>
-      review.groupKey === groupKey &&
+      retainedIndices.has(review.index) &&
       review.highConfidence &&
-      retainedIndices.has(review.index)
+      review.operation.scope === operation.scope &&
+      review.operation.topic === operation.topic &&
+      choicesConflict(review.choices, targetChoices)
   );
 }
 
@@ -323,17 +477,6 @@ export function reviewExtractedMemoryOperations(
     }
   }
 
-  const groupsNeedingDeleteSuppression = new Set<string>();
-  for (const review of reviews) {
-    if (!suppressedIndices.has(review.index)) {
-      continue;
-    }
-
-    if (!hasRetainedHighConfidenceCandidate(reviews, retainedIndices, review.groupKey)) {
-      groupsNeedingDeleteSuppression.add(review.groupKey);
-    }
-  }
-
   const keptOperations = operations.filter((operation, index) => {
     if (suppressedIndices.has(index)) {
       return false;
@@ -343,7 +486,7 @@ export function reviewExtractedMemoryOperations(
       return true;
     }
 
-    return !groupsNeedingDeleteSuppression.has(buildGroupKey(operation.scope, operation.topic));
+    return shouldKeepReplacementDelete(operation, reviews, retainedIndices, existingEntries);
   });
 
   return {
