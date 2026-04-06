@@ -257,6 +257,34 @@ describe("HeuristicExtractor", () => {
     );
   });
 
+  it("extracts stable directive-style preferences and commands without an explicit remember prefix", async () => {
+    const extractor = new HeuristicExtractor();
+    const operations = await extractor.extract(
+      baseEvidence({
+        userMessages: [
+          "Use pnpm instead of npm in this repository.",
+          "Run `pnpm test` to verify this repository."
+        ]
+      }),
+      []
+    );
+
+    expect(operations).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          action: "upsert",
+          topic: "preferences",
+          summary: "Use pnpm instead of npm in this repository"
+        }),
+        expect.objectContaining({
+          action: "upsert",
+          topic: "commands",
+          summary: "Run `pnpm test` to verify this repository"
+        })
+      ])
+    );
+  });
+
   it("treats bash-named tool calls with expanded success output as reusable commands", async () => {
     const extractor = new HeuristicExtractor();
     const operations = await extractor.extract(
@@ -1190,6 +1218,47 @@ describe("HeuristicExtractor", () => {
           action: "upsert",
           topic: "architecture",
           reason: "Explicit user correction that should replace stale memory."
+        })
+      ])
+    );
+  });
+
+  it("keeps additive debugging prerequisites for different required services", () => {
+    const reviewed = reviewExtractedMemoryOperations(
+      [
+        {
+          action: "upsert",
+          scope: "project",
+          topic: "debugging",
+          id: "redis-required",
+          summary: "Redis must be running before integration tests",
+          details: ["Start Redis before running the integration suite."],
+          reason: "Stable directive extracted from the session."
+        },
+        {
+          action: "upsert",
+          scope: "project",
+          topic: "debugging",
+          id: "postgres-required",
+          summary: "Postgres must be running before integration tests",
+          details: ["Start Postgres before running the integration suite."],
+          reason: "Stable directive extracted from the session."
+        }
+      ],
+      []
+    );
+
+    expect(reviewed.suppressedOperationCount).toBe(0);
+    expect(reviewed.conflicts).toEqual([]);
+    expect(reviewed.operations).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          action: "upsert",
+          id: "redis-required"
+        }),
+        expect.objectContaining({
+          action: "upsert",
+          id: "postgres-required"
         })
       ])
     );

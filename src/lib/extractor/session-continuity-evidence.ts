@@ -2,6 +2,7 @@ import path from "node:path";
 import type {
   RolloutEvidence,
   RolloutToolCall,
+  RolloutTranscriptMessage,
   SessionContinuityEvidenceCounts
 } from "../types.js";
 import { trimText } from "../util/text.js";
@@ -146,9 +147,6 @@ export function looksLocalSpecific(text: string): boolean {
   return (
     repoRelativePathPatterns.some((pattern) => pattern.test(text)) ||
     /(?:^[A-Za-z]:|[\s"'`(])\\[\w.-]+/u.test(text) ||
-    /\b[a-z0-9_.-]+\.(?:ts|tsx|js|jsx|json|md|yml|yaml|toml|css|scss|sql|py|go|rs|sh)\b/iu.test(
-      text
-    ) ||
     /\b(worktree|branch|this branch|local only|locally|current branch|当前分支|本地工作树)\b/iu.test(
       text
     )
@@ -263,6 +261,42 @@ export function summarizeFileWrite(toolCall: RolloutToolCall, cwd?: string): str
   return `File modified: ${trimText(displayPath, 120)}`;
 }
 
+function trimmedTranscriptMessages(messages: RolloutTranscriptMessage[]): RolloutTranscriptMessage[] {
+  return messages
+    .map((entry) => ({
+      role: entry.role,
+      message: trimText(entry.message, 240)
+    }))
+    .filter((entry) => entry.message.length > 0);
+}
+
+export function collectRecentTranscriptMessages(
+  evidence: RolloutEvidence,
+  maxMessages = 20
+): RolloutTranscriptMessage[] {
+  const orderedMessages = trimmedTranscriptMessages(evidence.orderedMessages ?? []);
+  if (orderedMessages.length > 0) {
+    return orderedMessages.slice(-maxMessages);
+  }
+
+  const recentUserMessages = evidence.userMessages
+    .map((message) => trimText(message, 240))
+    .filter(Boolean)
+    .map((message) => ({
+      role: "user" as const,
+      message
+    }));
+  const recentAgentMessages = evidence.agentMessages
+    .map((message) => trimText(message, 240))
+    .filter(Boolean)
+    .map((message) => ({
+      role: "agent" as const,
+      message
+    }));
+
+  return [...recentAgentMessages.slice(-10), ...recentUserMessages.slice(-10)];
+}
+
 function escapeRegExp(value: string): string {
   return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
@@ -273,13 +307,6 @@ interface DirectiveSignal {
   authoritative: boolean;
 }
 
-function splitDirectiveClauses(text: string): string[] {
-  return text
-    .split(/\b(?:but|and)\b|[，,；;。]/u)
-    .map((clause) => clause.trim())
-    .filter(Boolean);
-}
-
 function shouldWarnForConflictingDirectiveKey(key: string): boolean {
   return (
     key === "package-manager" ||
@@ -287,7 +314,6 @@ function shouldWarnForConflictingDirectiveKey(key: string): boolean {
     key === "canonical-store" ||
     key === "retrieval-flow" ||
     key === "route-order" ||
-    key === "required-service" ||
     key.startsWith("reference-pointer:") ||
     key.startsWith("required-service:")
   );
@@ -349,39 +375,38 @@ function extractArchitectureSignal(text: string): DirectiveSignal | null {
 }
 
 function extractDebuggingSignals(text: string): DirectiveSignal[] {
+  const normalized = text.toLowerCase();
   const signals: DirectiveSignal[] = [];
 
   for (const value of debuggingDependencyValues) {
     const servicePattern = new RegExp(`\\b${escapeRegExp(value)}\\b`, "iu");
-    for (const clause of splitDirectiveClauses(text)) {
-      if (!servicePattern.test(clause.toLowerCase())) {
-        continue;
-      }
+    if (!servicePattern.test(normalized)) {
+      continue;
+    }
 
-      if (
-        /\b(?:does not require|doesn't require|is not required|not required|without)\b|不需要|无需/u.test(
-          clause
-        )
-      ) {
-        signals.push({
-          key: `required-service:${value}`,
-          value: "not-required",
-          authoritative: false
-        });
-        continue;
-      }
+    if (
+      /\b(?:does not require|doesn't require|is not required|not required|without)\b|不需要|无需/u.test(
+        text
+      )
+    ) {
+      signals.push({
+        key: `required-service:${value}`,
+        value: "not-required",
+        authoritative: false
+      });
+      continue;
+    }
 
-      if (
-        /\b(requires?|needs?|start|before running|must be running|running before|before integration tests)\b|需要|必须|先启动/u.test(
-          clause
-        )
-      ) {
-        signals.push({
-          key: `required-service:${value}`,
-          value: "required",
-          authoritative: false
-        });
-      }
+    if (
+      /\b(requires?|needs?|start|before running|must be running|running before|before integration tests)\b|需要|必须|先启动/u.test(
+        text
+      )
+    ) {
+      signals.push({
+        key: `required-service:${value}`,
+        value: "required",
+        authoritative: false
+      });
     }
   }
 
@@ -562,7 +587,7 @@ export function collectSessionContinuityEvidenceBuckets(
 ): SessionContinuityEvidenceBuckets {
   const recentUserMessages = evidence.userMessages.map((message) => trimText(message, 240));
   const recentAgentMessages = evidence.agentMessages.map((message) => trimText(message, 240));
-  const recentMessages = [...recentAgentMessages.slice(-10), ...recentUserMessages.slice(-10)];
+  const recentMessages = collectRecentTranscriptMessages(evidence).map((entry) => entry.message);
   const recentMessagesReversed = [...recentMessages].reverse();
 
   const recentSuccessfulCommands = evidence.toolCalls

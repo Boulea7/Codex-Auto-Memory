@@ -232,23 +232,39 @@ function extractArchitectureChoices(text: string): DirectiveChoice[] {
 
 function extractDebuggingChoices(text: string): DirectiveChoice[] {
   const normalized = text.toLowerCase();
-  if (!/\b(requires?|needs?|start|before running)\b|需要|必须|先启动/u.test(text)) {
-    return [];
-  }
+  const choices: DirectiveChoice[] = [];
 
   for (const value of debuggingDependencyValues) {
     const pattern = new RegExp(`\\b${escapeRegExp(value)}\\b`, "iu");
-    if (pattern.test(normalized)) {
-      return [
-        {
-          key: "debugging:required-service",
-          value
-        }
-      ];
+    if (!pattern.test(normalized)) {
+      continue;
+    }
+
+    if (
+      /\b(?:does not require|doesn't require|is not required|not required|without)\b|不需要|无需/u.test(
+        text
+      )
+    ) {
+      choices.push({
+        key: `debugging:required-service:${value}`,
+        value: "not-required"
+      });
+      continue;
+    }
+
+    if (
+      /\b(requires?|needs?|start|before running|must be running|running before|before integration tests)\b|需要|必须|先启动/u.test(
+        text
+      )
+    ) {
+      choices.push({
+        key: `debugging:required-service:${value}`,
+        value: "required"
+      });
     }
   }
 
-  return [];
+  return choices;
 }
 
 function extractPatternChoices(text: string): DirectiveChoice[] {
