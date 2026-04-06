@@ -36,7 +36,14 @@ const assistantNoisePatterns = [
   /下一步/u
 ] as const;
 
-const stableDirectiveTopics = new Set(["reference", "architecture", "debugging", "patterns"]);
+const stableDirectiveTopics = new Set([
+  "reference",
+  "architecture",
+  "debugging",
+  "patterns",
+  "preferences",
+  "commands"
+]);
 
 function isAllowedMemoryTopic(topic: string): topic is (typeof DEFAULT_MEMORY_TOPICS)[number] {
   return DEFAULT_MEMORY_TOPICS.includes(topic as (typeof DEFAULT_MEMORY_TOPICS)[number]);
@@ -187,6 +194,18 @@ function isStableDirectiveSummary(topic: string, summary: string): boolean {
     case "debugging":
       return /\b(requires?|needs?|must be running|must run|must start|before running|before integration tests)\b|需要|必须|先启动/u.test(
         summary
+      );
+    case "preferences":
+      return (
+        /\b(?:we\s+use|use|prefer|always use)\b.*\b(?:pnpm|npm|yarn|bun|rg|ripgrep|grep)\b/iu.test(
+          summary
+        ) || /(?:使用|用|优先用|优先使用).*(?:pnpm|npm|yarn|bun|rg|ripgrep|grep)/u.test(summary)
+      );
+    case "commands":
+      return (
+        /^run\s+`[^`]+`/iu.test(summary) ||
+        /^use\s+`[^`]+`/iu.test(summary) ||
+        /^运行\s*`[^`]+`/u.test(summary)
       );
     case "patterns":
       return (
