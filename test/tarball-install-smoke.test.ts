@@ -379,7 +379,7 @@ describe("tarball install smoke", () => {
         path.join(homeDir, ".codex-auto-memory", "hooks", "post-work-memory-review.sh"),
         "utf8"
       )
-    ).toContain(`cam sync --cwd ${JSON.stringify(realProjectWithSpacesDir)} "$@"`);
+    ).toContain(`cam sync --cwd ${shellQuoteArg(realProjectWithSpacesDir)} "$@"`);
 
     const cwdApplyGuidanceResult = runCommandCapture(
       camBinaryPath(installDir),
@@ -517,7 +517,7 @@ describe("tarball install smoke", () => {
       workflowContract: {
         recommendedPreset: "state=auto, limit=8",
         cliFallback: {
-          searchCommand: `cam recall search "<query>" --state auto --limit 8 --cwd ${JSON.stringify(realInstallDir)}`
+          searchCommand: `cam recall search "<query>" --state auto --limit 8 --cwd ${shellQuoteArg(realInstallDir)}`
         }
       },
       subactions: {
@@ -542,7 +542,7 @@ describe("tarball install smoke", () => {
       workflowContract: {
         recommendedPreset: "state=auto, limit=8",
         cliFallback: {
-          searchCommand: `cam recall search "<query>" --state auto --limit 8 --cwd ${JSON.stringify(realInstallDir)}`
+          searchCommand: `cam recall search "<query>" --state auto --limit 8 --cwd ${shellQuoteArg(realInstallDir)}`
         }
       },
       subactions: {

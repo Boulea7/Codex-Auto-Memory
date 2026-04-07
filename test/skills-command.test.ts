@@ -15,6 +15,10 @@ async function tempDir(prefix: string): Promise<string> {
   return dir;
 }
 
+function shellQuoteArg(value: string): string {
+  return `'${value.replace(/'/g, `'\"'\"'`)}'`;
+}
+
 afterEach(async () => {
   restoreOptionalEnv("HOME", originalHome);
   restoreOptionalEnv("CODEX_HOME", originalCodexHome);
@@ -52,14 +56,14 @@ describe("skills command", () => {
     expect(skillFile).toContain("limit: 8");
     expect(skillFile).toContain("cam recall search");
     expect(skillFile).toContain("--state auto");
-    expect(skillFile).toContain(`--cwd ${JSON.stringify(await fs.realpath(projectDir))}`);
+    expect(skillFile).toContain(`--cwd ${shellQuoteArg(await fs.realpath(projectDir))}`);
     expect(skillFile).toContain("cam recall timeline");
     expect(skillFile).toContain("cam recall details");
     expect(skillFile).toContain("cam mcp doctor");
     expect(skillFile).toContain("cam hooks install");
-    expect(skillFile).toContain(`cam sync --cwd ${JSON.stringify(await fs.realpath(projectDir))}`);
+    expect(skillFile).toContain(`cam sync --cwd ${shellQuoteArg(await fs.realpath(projectDir))}`);
     expect(skillFile).toContain(
-      `cam memory --recent --cwd ${JSON.stringify(await fs.realpath(projectDir))}`
+      `cam memory --recent --cwd ${shellQuoteArg(await fs.realpath(projectDir))}`
     );
     expect(skillFile).toContain("cam memory");
     expect(skillFile).toContain("cam session");
@@ -82,7 +86,7 @@ describe("skills command", () => {
       workflowContract: {
         recommendedPreset: "state=auto, limit=8",
         cliFallback: {
-          searchCommand: `cam recall search "<query>" --state auto --limit 8 --cwd ${JSON.stringify(await fs.realpath(projectDir))}`
+          searchCommand: `cam recall search "<query>" --state auto --limit 8 --cwd ${shellQuoteArg(await fs.realpath(projectDir))}`
         },
         postWorkSyncReview: {
           helperScript: "post-work-memory-review.sh"

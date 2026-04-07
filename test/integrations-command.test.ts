@@ -104,7 +104,7 @@ describe("integrations command", () => {
       workflowContract: {
         recommendedPreset: "state=auto, limit=8",
         cliFallback: {
-          searchCommand: `cam recall search "<query>" --state auto --limit 8 --cwd ${JSON.stringify(realProjectDir)}`
+          searchCommand: `cam recall search "<query>" --state auto --limit 8 --cwd ${shellQuoteArg(realProjectDir)}`
         }
       },
       subactions: {
@@ -391,7 +391,7 @@ describe("integrations command", () => {
     expect(payload.nextSteps).toEqual(
       expect.arrayContaining([
         expect.stringContaining(
-          `cam hooks install --cwd ${JSON.stringify(payload.projectRoot)}`
+          `cam hooks install --cwd ${shellQuoteArg(payload.projectRoot)}`
         )
       ])
     );
@@ -919,7 +919,7 @@ describe("integrations command", () => {
       workflowContract: {
         recommendedPreset: "state=auto, limit=8",
         cliFallback: {
-          searchCommand: `cam recall search "<query>" --state auto --limit 8 --cwd ${JSON.stringify(realProjectDir)}`
+          searchCommand: `cam recall search "<query>" --state auto --limit 8 --cwd ${shellQuoteArg(realProjectDir)}`
         }
       },
       subactions: {

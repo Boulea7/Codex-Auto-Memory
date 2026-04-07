@@ -394,15 +394,14 @@ describe("docs contract", () => {
     expect(readmeEn).toContain("applyReadiness");
     expect(
       claudeReferenceEn.match(
-        /### 6\. Host integration surfaces matter, but should not replace the core contract/g
+        /### 6\. `autoMemoryDirectory` has a configuration safety boundary/g
       )?.length ?? 0
     ).toBe(1);
     expect(
       claudeReferenceEn.match(
-        /### 7\. Host integration surfaces matter, but should not replace the core contract/g
+        /### 7\. Host-native breadth expands the host, not the memory model/g
       )?.length ?? 0
-    ).toBe(0);
-    expect(claudeReferenceEn).toContain("### 7. Host-native breadth expands the host, not the memory model");
+    ).toBe(1);
     expect(registerCommands).toContain(
       "Manage the local bridge / fallback helper bundle for current and upcoming integrations"
     );

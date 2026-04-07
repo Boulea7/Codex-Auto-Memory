@@ -276,9 +276,7 @@ function parseEntryBlock(block: string): MemoryEntry | null {
     scope: metadata.scope,
     topic: "workflow",
     summary: summaryRaw.trim(),
-    details: details
-      .map((line) => line.slice(2).trim())
-      .filter(Boolean),
+    details,
     updatedAt: metadata.updatedAt,
     sources: metadata.sources ?? [],
     reason: metadata.reason

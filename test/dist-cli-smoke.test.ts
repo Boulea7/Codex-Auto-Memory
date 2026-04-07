@@ -494,7 +494,6 @@ describe("dist cli smoke", () => {
       host: "claude",
       readOnlyRetrieval: true,
       serverName: "codex_auto_memory",
-      readOnlyRetrieval: true,
       targetFileHint: ".mcp.json"
     });
     expect(JSON.parse(claudeResult.stdout).workflowContract).toBeUndefined();
@@ -513,7 +512,6 @@ describe("dist cli smoke", () => {
       host: "gemini",
       readOnlyRetrieval: true,
       serverName: "codex_auto_memory",
-      readOnlyRetrieval: true,
       targetFileHint: ".gemini/settings.json"
     });
     expect(JSON.parse(geminiResult.stdout).workflowContract).toBeUndefined();
@@ -533,7 +531,6 @@ describe("dist cli smoke", () => {
       readOnlyRetrieval: true,
       serverName: "codex_auto_memory",
       targetFileHint: "Your MCP client's stdio server config",
-      readOnlyRetrieval: true,
       snippetFormat: "json"
     });
     expect(JSON.parse(genericResult.stdout).workflowContract).toBeUndefined();
@@ -1106,7 +1103,7 @@ describe("dist cli smoke", () => {
       workflowContract: {
         recommendedPreset: "state=auto, limit=8",
         cliFallback: {
-          searchCommand: `cam recall search "<query>" --state auto --limit 8 --cwd ${JSON.stringify(realProjectDir)}`
+          searchCommand: `cam recall search "<query>" --state auto --limit 8 --cwd ${shellQuoteArg(realProjectDir)}`
         }
       },
       subactions: {
@@ -1150,7 +1147,7 @@ describe("dist cli smoke", () => {
       workflowContract: {
         recommendedPreset: "state=auto, limit=8",
         cliFallback: {
-          searchCommand: `cam recall search "<query>" --state auto --limit 8 --cwd ${JSON.stringify(realProjectDir)}`
+          searchCommand: `cam recall search "<query>" --state auto --limit 8 --cwd ${shellQuoteArg(realProjectDir)}`
         }
       },
       subactions: {
@@ -1656,7 +1653,7 @@ fs.writeFileSync(${JSON.stringify(capturedArgsPath)}, JSON.stringify(process.arg
         path.join(homeDir, ".codex-auto-memory", "hooks", "post-work-memory-review.sh"),
         "utf8"
       )
-    ).toContain(`cam sync --cwd ${JSON.stringify(realProjectDir)} "$@"`);
+    ).toContain(`cam sync --cwd ${shellQuoteArg(realProjectDir)} "$@"`);
 
     const guidanceResult = runCli(
       callerDir,

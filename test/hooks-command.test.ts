@@ -33,6 +33,10 @@ async function writeCamShim(binDir: string): Promise<string> {
   return shimPath;
 }
 
+function shellQuoteArg(value: string): string {
+  return `'${value.replace(/'/g, `'\"'\"'`)}'`;
+}
+
 afterEach(async () => {
   process.env.HOME = originalHome;
   await Promise.all(tempDirs.splice(0).map((dir) => fs.rm(dir, { recursive: true, force: true })));
@@ -105,10 +109,10 @@ describe("hooks command", () => {
       `PROJECT_ROOT=${JSON.stringify(await fs.realpath(projectDir))}`
     );
     expect(postWorkReviewScript).toContain(
-      `cam sync --cwd ${JSON.stringify(await fs.realpath(projectDir))}`
+      `cam sync --cwd ${shellQuoteArg(await fs.realpath(projectDir))}`
     );
     expect(postWorkReviewScript).toContain(
-      `exec cam memory --recent --cwd ${JSON.stringify(await fs.realpath(projectDir))}`
+      `exec cam memory --recent --cwd ${shellQuoteArg(await fs.realpath(projectDir))}`
     );
   });
 
@@ -160,15 +164,15 @@ describe("hooks command", () => {
     expect(timelineScript).toContain('exec "$SCRIPT_DIR/memory-recall.sh" timeline "$@"');
     expect(detailsScript).toContain('exec "$SCRIPT_DIR/memory-recall.sh" details "$@"');
     expect(postWorkReviewScript).toContain(
-      `cam sync --cwd ${JSON.stringify(realProjectDir)} "$@"`
+      `cam sync --cwd ${shellQuoteArg(realProjectDir)} "$@"`
     );
     expect(postWorkReviewScript).toContain(
-      `exec cam memory --recent --cwd ${JSON.stringify(realProjectDir)}`
+      `exec cam memory --recent --cwd ${shellQuoteArg(realProjectDir)}`
     );
     expect(recallGuide).toContain("search_memories");
     expect(recallGuide).toContain("memory-recall.sh search");
     expect(recallGuide).toContain(
-      `cam recall search "pnpm" --state auto --limit 8 --cwd ${JSON.stringify(realProjectDir)}`
+      `cam recall search "pnpm" --state auto --limit 8 --cwd ${shellQuoteArg(realProjectDir)}`
     );
     expect(recallGuide).toContain("cam memory");
     expect(recallGuide).toContain("cam session");
