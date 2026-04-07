@@ -51,6 +51,28 @@ describe("recovery-records", () => {
     ).toBe(false);
   });
 
+  it("rejects malformed noopOperationCount values", () => {
+    expect(
+      isSyncRecoveryRecord({
+        recordedAt: "2026-03-18T00:00:00.000Z",
+        projectId: "project-1",
+        worktreeId: "worktree-1",
+        rolloutPath: "/tmp/rollout.jsonl",
+        configuredExtractorMode: "codex",
+        configuredExtractorName: "codex-ephemeral",
+        actualExtractorMode: "heuristic",
+        actualExtractorName: "heuristic",
+        status: "applied",
+        appliedCount: 1,
+        noopOperationCount: "1",
+        scopesTouched: ["project"],
+        failedStage: "audit-write",
+        failureMessage: "bad noop count",
+        auditEntryWritten: false
+      })
+    ).toBe(false);
+  });
+
   it("matches sync recovery records by logical identity fields only", () => {
     const record = buildSyncRecoveryRecord({
       projectId: "project-1",

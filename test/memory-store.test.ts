@@ -763,6 +763,47 @@ describe("MemoryStore", () => {
     expect(history[0]?.action).toBe("add");
   });
 
+  it("fails fast when an upsert mutation is missing its summary", async () => {
+    const projectDir = await tempDir("cam-store-missing-summary-project-");
+    const memoryRoot = await tempDir("cam-store-missing-summary-memory-");
+    const config: AppConfig = {
+      autoMemoryEnabled: true,
+      autoMemoryDirectory: memoryRoot,
+      extractorMode: "heuristic",
+      defaultScope: "project",
+      maxStartupLines: 200,
+      sessionContinuityAutoLoad: false,
+      sessionContinuityAutoSave: false,
+      sessionContinuityLocalPathStyle: "codex",
+      maxSessionContinuityLines: 60,
+      codexBinary: "codex"
+    };
+    const store = new MemoryStore(detectProjectContext(projectDir), config);
+    await store.ensureLayout();
+
+    const snapshot = await snapshotFiles([
+      store.getMemoryFile("project"),
+      store.getTopicFile("project", "workflow"),
+      store.getHistoryPath("project")
+    ]);
+
+    await expect(
+      store.applyMutations([
+        {
+          action: "upsert",
+          scope: "project",
+          topic: "workflow",
+          id: "missing-summary",
+          details: ["This upsert should fail before any writes."],
+          sources: ["manual"],
+          reason: "Broken mutation."
+        }
+      ])
+    ).rejects.toThrow(/summary is required/i);
+
+    expect(await snapshotFiles(Object.keys(snapshot))).toEqual(snapshot);
+  });
+
   it("fails closed when a topic file contains unsupported manual or malformed content during upsert", async () => {
     const projectDir = await tempDir("cam-store-unsafe-upsert-project-");
     const memoryRoot = await tempDir("cam-store-unsafe-upsert-memory-");
@@ -815,6 +856,59 @@ describe("MemoryStore", () => {
           id: "new-entry",
           summary: "Do not rewrite unsafe files.",
           details: ["Unsafe file should stay untouched."],
+          sources: ["manual"],
+          reason: "Manual note."
+        }
+      ])
+    ).rejects.toThrow(/Cannot rewrite topic file/);
+
+    expect(await fs.readFile(topicFile, "utf8")).toBe(originalContents);
+  });
+
+  it("fails closed when details contain unsupported non-bullet content", async () => {
+    const projectDir = await tempDir("cam-store-unsafe-details-project-");
+    const memoryRoot = await tempDir("cam-store-unsafe-details-memory-");
+    const config: AppConfig = {
+      autoMemoryEnabled: true,
+      autoMemoryDirectory: memoryRoot,
+      extractorMode: "heuristic",
+      defaultScope: "project",
+      maxStartupLines: 200,
+      sessionContinuityAutoLoad: false,
+      sessionContinuityAutoSave: false,
+      sessionContinuityLocalPathStyle: "codex",
+      maxSessionContinuityLines: 60,
+      codexBinary: "codex"
+    };
+    const store = new MemoryStore(detectProjectContext(projectDir), config);
+    await store.ensureLayout();
+
+    const topicFile = store.getTopicFile("project", "workflow");
+    const originalContents = [
+      "# Workflow",
+      "",
+      "<!-- cam:topic workflow -->",
+      "",
+      "This file is maintained by Codex Auto Memory. You may edit summaries or details directly.",
+      "",
+      "## keep-entry",
+      "<!-- cam:entry {\"id\":\"keep-entry\",\"scope\":\"project\",\"updatedAt\":\"2026-03-14T00:00:00.000Z\"} -->",
+      "Summary: Keep this valid entry.",
+      "Details:",
+      "Plain text that cannot be round-tripped safely.",
+      ""
+    ].join("\n");
+    await fs.writeFile(topicFile, originalContents, "utf8");
+
+    await expect(
+      store.applyMutations([
+        {
+          action: "upsert",
+          scope: "project",
+          topic: "workflow",
+          id: "new-entry",
+          summary: "Do not rewrite mixed detail blocks.",
+          details: ["Unsafe detail block should stay untouched."],
           sources: ["manual"],
           reason: "Manual note."
         }
@@ -879,6 +973,81 @@ describe("MemoryStore", () => {
     ).rejects.toThrow(/Cannot rewrite topic file/);
 
     expect(await fs.readFile(topicFile, "utf8")).toBe(originalContents);
+  });
+
+  it("fails closed when a target topic file changes after the commit plan is built", async () => {
+    const projectDir = await tempDir("cam-store-drift-project-");
+    const memoryRoot = await tempDir("cam-store-drift-memory-");
+    const config: AppConfig = {
+      autoMemoryEnabled: true,
+      autoMemoryDirectory: memoryRoot,
+      extractorMode: "heuristic",
+      defaultScope: "project",
+      maxStartupLines: 200,
+      sessionContinuityAutoLoad: false,
+      sessionContinuityAutoSave: false,
+      sessionContinuityLocalPathStyle: "codex",
+      maxSessionContinuityLines: 60,
+      codexBinary: "codex"
+    };
+    const store = new MemoryStore(detectProjectContext(projectDir), config);
+    await store.ensureLayout();
+    await store.remember(
+      "project",
+      "workflow",
+      "prefer-pnpm",
+      "Prefer pnpm in this repository.",
+      ["Use pnpm instead of npm in this repository."],
+      "Manual note."
+    );
+
+    const topicFile = store.getTopicFile("project", "workflow");
+    const memoryFile = store.getMemoryFile("project");
+    const originalBuildMutationCommitPlan = (store as unknown as {
+      buildMutationCommitPlan: (mutations: unknown[]) => Promise<unknown>;
+    }).buildMutationCommitPlan.bind(store);
+    const driftedContents = [
+      "# Workflow",
+      "",
+      "<!-- cam:topic workflow -->",
+      "",
+      "This file is maintained by Codex Auto Memory. You may edit summaries or details directly.",
+      "",
+      "## prefer-pnpm",
+      "<!-- cam:entry {\"id\":\"prefer-pnpm\",\"scope\":\"project\",\"updatedAt\":\"2026-03-14T00:00:01.000Z\"} -->",
+      "Summary: Concurrent edit should be preserved.",
+      "Details:",
+      "- External change landed after planning.",
+      ""
+    ].join("\n");
+
+    (store as unknown as {
+      buildMutationCommitPlan: (mutations: unknown[]) => Promise<unknown>;
+    }).buildMutationCommitPlan = async (mutations) => {
+      const plan = await originalBuildMutationCommitPlan(mutations);
+      await fs.writeFile(topicFile, driftedContents, "utf8");
+      return plan;
+    };
+
+    const memorySnapshot = await readFileIfExists(memoryFile);
+
+    await expect(
+      store.applyMutations([
+        {
+          action: "upsert",
+          scope: "project",
+          topic: "workflow",
+          id: "prefer-pnpm",
+          summary: "Planned update should fail closed on drift.",
+          details: ["The commit phase must notice topic-file drift."],
+          sources: ["manual"],
+          reason: "Manual note."
+        }
+      ])
+    ).rejects.toThrow(/changed since the mutation plan was built/i);
+
+    expect(await fs.readFile(topicFile, "utf8")).toBe(driftedContents);
+    expect(await readFileIfExists(memoryFile)).toBe(memorySnapshot);
   });
 
   it("treats source-only or reason-only changes as updates instead of noop", async () => {

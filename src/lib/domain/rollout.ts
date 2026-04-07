@@ -153,10 +153,6 @@ function compareByMtimeThenPath(left: RolloutMetaWithMtime, right: RolloutMetaWi
     return left.mtimeMs - right.mtimeMs;
   }
 
-  if (left.meta.createdAtMs !== right.meta.createdAtMs) {
-    return left.meta.createdAtMs - right.meta.createdAtMs;
-  }
-
   return left.meta.rolloutPath.localeCompare(right.meta.rolloutPath);
 }
 
@@ -262,7 +258,7 @@ export async function findRelevantRollouts(
 export async function selectLatestPrimaryRolloutFromCandidates(
   candidates: string[]
 ): Promise<string | null> {
-  const metas = (
+  const orderedPrimaryCandidates = (
     await Promise.all(
       candidates.map(async (candidate) => ({
         candidate,
@@ -274,10 +270,9 @@ export async function selectLatestPrimaryRolloutFromCandidates(
       (item): item is { candidate: string; meta: RolloutMeta } =>
         item.meta !== null && isPrimaryRolloutMeta(item.meta)
     )
-    .map((item) => item.meta);
+    .map((item) => item.candidate);
 
-  const sorted = await sortRolloutsByCreatedAtThenMtime(metas);
-  return sorted.at(-1)?.rolloutPath ?? null;
+  return orderedPrimaryCandidates.at(-1) ?? null;
 }
 
 export async function findLatestProjectRollout(
