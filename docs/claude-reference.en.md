@@ -92,7 +92,7 @@ This repository still does not claim full `/memory` interaction parity, but it m
 - users can see the actual memory files and active paths
 - users can modify memory through Markdown files or explicit commands
 
-### 6. Host integration surfaces matter, but should not replace the core contract
+### 6. `autoMemoryDirectory` has a configuration safety boundary
 
 Claude-style public configuration boundaries also imply that a shared project should not be able to silently redirect another user's durable-memory storage.
 

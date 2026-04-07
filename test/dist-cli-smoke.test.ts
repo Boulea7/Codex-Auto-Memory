@@ -55,6 +55,10 @@ async function waitForFile(pathname: string, timeoutMs = 2_000): Promise<string>
   }
 }
 
+function shellQuoteArg(value: string): string {
+  return `'${value.replace(/'/g, `'\"'\"'`)}'`;
+}
+
 afterEach(async () => {
   if (originalCodexHome === undefined) {
     delete process.env.CODEX_HOME;
@@ -310,7 +314,7 @@ describe("dist cli smoke", () => {
           preferredRoute: "mcp-first"
         },
         cliFallback: {
-          searchCommand: `cam recall search "<query>" --state auto --limit 8 --cwd ${JSON.stringify(realProjectDir)}`
+          searchCommand: `cam recall search "<query>" --state auto --limit 8 --cwd ${shellQuoteArg(realProjectDir)}`
         }
       },
       agentsGuidance: {
@@ -334,14 +338,10 @@ describe("dist cli smoke", () => {
     expect(JSON.parse(claudeResult.stdout)).toMatchObject({
       host: "claude",
       serverName: "codex_auto_memory",
-      targetFileHint: ".mcp.json",
-      workflowContract: {
-        recommendedPreset: "state=auto, limit=8",
-        cliFallback: {
-          searchCommand: `cam recall search "<query>" --state auto --limit 8 --cwd ${JSON.stringify(realProjectDir)}`
-        }
-      }
+      readOnlyRetrieval: true,
+      targetFileHint: ".mcp.json"
     });
+    expect(JSON.parse(claudeResult.stdout).workflowContract).toBeUndefined();
 
     const geminiResult = runCli(
       projectDir,
@@ -356,14 +356,10 @@ describe("dist cli smoke", () => {
     expect(JSON.parse(geminiResult.stdout)).toMatchObject({
       host: "gemini",
       serverName: "codex_auto_memory",
-      targetFileHint: ".gemini/settings.json",
-      workflowContract: {
-        recommendedPreset: "state=auto, limit=8",
-        cliFallback: {
-          searchCommand: `cam recall search "<query>" --state auto --limit 8 --cwd ${JSON.stringify(realProjectDir)}`
-        }
-      }
+      readOnlyRetrieval: true,
+      targetFileHint: ".gemini/settings.json"
     });
+    expect(JSON.parse(geminiResult.stdout).workflowContract).toBeUndefined();
 
     const genericResult = runCli(
       projectDir,
@@ -379,14 +375,10 @@ describe("dist cli smoke", () => {
       host: "generic",
       serverName: "codex_auto_memory",
       targetFileHint: "Your MCP client's stdio server config",
-      snippetFormat: "json",
-      workflowContract: {
-        recommendedPreset: "state=auto, limit=8",
-        cliFallback: {
-          searchCommand: `cam recall search "<query>" --state auto --limit 8 --cwd ${JSON.stringify(realProjectDir)}`
-        }
-      }
+      readOnlyRetrieval: true,
+      snippetFormat: "json"
     });
+    expect(JSON.parse(genericResult.stdout).workflowContract).toBeUndefined();
   });
 
   it("rejects generic MCP install from the compiled cli entrypoint because wiring stays manual-only", async () => {

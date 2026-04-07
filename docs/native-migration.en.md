@@ -2,7 +2,8 @@
 
 [简体中文](./native-migration.md) | [English](./native-migration.en.md)
 
-> This document now has a narrower job: it records how `codex-auto-memory` evaluates native Codex memory and hook signals without treating them as the only future direction. The repository is still Codex-first, but its broader product evolution now also includes non-native hook, skill, and MCP-aware integration paths.
+> This document now answers one narrower question: **when is it worth promoting native Codex memory / hooks from a readiness signal to the primary path?**  
+> It no longer carries the repository's entire integration-direction narrative. For that broader direction, see [Integration Strategy](./integration-strategy.md).
 
 ## One-page conclusion
 

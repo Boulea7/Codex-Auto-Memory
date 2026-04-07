@@ -4,6 +4,7 @@ import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { detectProjectContext } from "../src/lib/domain/project-context.js";
 import { MemoryStore } from "../src/lib/domain/memory-store.js";
+import { restoreOptionalEnv } from "./helpers/env.js";
 import {
   makeAppConfig,
   writeCamConfig
@@ -20,7 +21,7 @@ async function tempDir(prefix: string): Promise<string> {
 }
 
 afterEach(async () => {
-  process.env.HOME = originalHome;
+  restoreOptionalEnv("HOME", originalHome);
   await Promise.all(tempDirs.splice(0).map((dir) => fs.rm(dir, { recursive: true, force: true })));
 });
 
