@@ -79,6 +79,10 @@ async function readJsonFile(pathname: string): Promise<Record<string, unknown>> 
   return JSON.parse(await fs.readFile(pathname, "utf8")) as Record<string, unknown>;
 }
 
+function shellQuoteArg(value: string): string {
+  return `'${value.replace(/'/g, `'\"'\"'`)}'`;
+}
+
 async function writeCamShim(binDir: string): Promise<void> {
   if (process.platform === "win32") {
     await fs.writeFile(path.join(binDir, "cam.cmd"), "@echo off\r\nexit /b 0\r\n", "utf8");
@@ -696,7 +700,7 @@ describe("mcp command", () => {
         progressiveDisclosure: "Use progressive disclosure: search -> timeline -> details."
       },
       cliFallback: {
-        searchCommand: `cam recall search "<query>" --state auto --limit 8 --cwd ${JSON.stringify(realProjectDir)}`
+        searchCommand: `cam recall search "<query>" --state auto --limit 8 --cwd ${shellQuoteArg(realProjectDir)}`
       }
     });
     expect(payload.agentsGuidance).toMatchObject({
@@ -1176,11 +1180,7 @@ describe("mcp command", () => {
       projectRoot: realProjectDir
     });
     expect(payload.snippet).toContain(realProjectDir);
-    expect(payload.workflowContract.cliFallback).toMatchObject({
-      searchCommand: `cam recall search "<query>" --state auto --limit 8 --cwd ${JSON.stringify(realProjectDir)}`,
-      timelineCommand: `cam recall timeline "<ref>" --cwd ${JSON.stringify(realProjectDir)}`,
-      detailsCommand: `cam recall details "<ref>" --cwd ${JSON.stringify(realProjectDir)}`
-    });
+    expect(payload.workflowContract).toBeUndefined();
   });
 
   it("pins the recommended skill install command to the inspected project when mcp doctor uses --cwd", async () => {
@@ -1209,7 +1209,7 @@ describe("mcp command", () => {
     };
     expect(payload.projectRoot).toBe(await fs.realpath(projectDir));
     expect(payload.fallbackAssets.recommendedSkillInstallCommand).toBe(
-      `cam skills install --surface runtime --cwd ${JSON.stringify(payload.projectRoot)}`
+      `cam skills install --surface runtime --cwd ${shellQuoteArg(payload.projectRoot)}`
     );
   });
 
@@ -1427,14 +1427,14 @@ describe("mcp command", () => {
       recallFirst: expect.stringContaining("recall durable memory first"),
       progressiveDisclosure: "Use progressive disclosure: search -> timeline -> details.",
       cliFallback: {
-        searchCommand: `cam recall search "<query>" --state auto --limit 8 --cwd ${JSON.stringify(realProjectDir)}`,
-        timelineCommand: `cam recall timeline "<ref>" --cwd ${JSON.stringify(realProjectDir)}`,
-        detailsCommand: `cam recall details "<ref>" --cwd ${JSON.stringify(realProjectDir)}`
+        searchCommand: `cam recall search "<query>" --state auto --limit 8 --cwd ${shellQuoteArg(realProjectDir)}`,
+        timelineCommand: `cam recall timeline "<ref>" --cwd ${shellQuoteArg(realProjectDir)}`,
+        detailsCommand: `cam recall details "<ref>" --cwd ${shellQuoteArg(realProjectDir)}`
       },
       postWorkSyncReview: {
         helperScript: "post-work-memory-review.sh",
-        syncCommand: `cam sync --cwd ${JSON.stringify(realProjectDir)}`,
-        reviewCommand: `cam memory --recent --cwd ${JSON.stringify(realProjectDir)}`
+        syncCommand: `cam sync --cwd ${shellQuoteArg(realProjectDir)}`,
+        reviewCommand: `cam memory --recent --cwd ${shellQuoteArg(realProjectDir)}`
       }
     });
     expect(payload.codexStack).toMatchObject({
@@ -2211,14 +2211,14 @@ describe("mcp command", () => {
         progressiveDisclosure: "Use progressive disclosure: search -> timeline -> details."
       },
       cliFallback: {
-        searchCommand: `cam recall search "<query>" --state auto --limit 8 --cwd ${JSON.stringify(realProjectDir)}`,
-        timelineCommand: `cam recall timeline "<ref>" --cwd ${JSON.stringify(realProjectDir)}`,
-        detailsCommand: `cam recall details "<ref>" --cwd ${JSON.stringify(realProjectDir)}`
+        searchCommand: `cam recall search "<query>" --state auto --limit 8 --cwd ${shellQuoteArg(realProjectDir)}`,
+        timelineCommand: `cam recall timeline "<ref>" --cwd ${shellQuoteArg(realProjectDir)}`,
+        detailsCommand: `cam recall details "<ref>" --cwd ${shellQuoteArg(realProjectDir)}`
       },
       postWorkSyncReview: {
         helperScript: "post-work-memory-review.sh",
-        syncCommand: `cam sync --cwd ${JSON.stringify(realProjectDir)}`,
-        reviewCommand: `cam memory --recent --cwd ${JSON.stringify(realProjectDir)}`
+        syncCommand: `cam sync --cwd ${shellQuoteArg(realProjectDir)}`,
+        reviewCommand: `cam memory --recent --cwd ${shellQuoteArg(realProjectDir)}`
       }
     };
 

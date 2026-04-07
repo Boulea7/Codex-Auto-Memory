@@ -30,6 +30,10 @@ function camBinaryPath(installDir: string): string {
   );
 }
 
+function shellQuoteArg(value: string): string {
+  return `'${value.replace(/'/g, `'\"'\"'`)}'`;
+}
+
 function isolatedEnv(homeDir: string): NodeJS.ProcessEnv {
   return {
     ...process.env,
@@ -150,7 +154,7 @@ describe("tarball install smoke", () => {
           preferredRoute: "mcp-first"
         },
         cliFallback: {
-          searchCommand: `cam recall search "<query>" --state auto --limit 8 --cwd ${JSON.stringify(realInstallDir)}`
+          searchCommand: `cam recall search "<query>" --state auto --limit 8 --cwd ${shellQuoteArg(realInstallDir)}`
         }
       },
       agentsGuidance: {
@@ -167,14 +171,10 @@ describe("tarball install smoke", () => {
     expect(claudePrintConfigResult.exitCode).toBe(0);
     expect(JSON.parse(claudePrintConfigResult.stdout)).toMatchObject({
       host: "claude",
-      targetFileHint: ".mcp.json",
-      workflowContract: {
-        recommendedPreset: "state=auto, limit=8",
-        cliFallback: {
-          searchCommand: `cam recall search "<query>" --state auto --limit 8 --cwd ${JSON.stringify(realInstallDir)}`
-        }
-      }
+      readOnlyRetrieval: true,
+      targetFileHint: ".mcp.json"
     });
+    expect(JSON.parse(claudePrintConfigResult.stdout).workflowContract).toBeUndefined();
     const geminiPrintConfigResult = runCommandCapture(
       camBinaryPath(installDir),
       ["mcp", "print-config", "--host", "gemini", "--json"],
@@ -184,14 +184,10 @@ describe("tarball install smoke", () => {
     expect(geminiPrintConfigResult.exitCode).toBe(0);
     expect(JSON.parse(geminiPrintConfigResult.stdout)).toMatchObject({
       host: "gemini",
-      targetFileHint: ".gemini/settings.json",
-      workflowContract: {
-        recommendedPreset: "state=auto, limit=8",
-        cliFallback: {
-          searchCommand: `cam recall search "<query>" --state auto --limit 8 --cwd ${JSON.stringify(realInstallDir)}`
-        }
-      }
+      readOnlyRetrieval: true,
+      targetFileHint: ".gemini/settings.json"
     });
+    expect(JSON.parse(geminiPrintConfigResult.stdout).workflowContract).toBeUndefined();
     const genericPrintConfigResult = runCommandCapture(
       camBinaryPath(installDir),
       ["mcp", "print-config", "--host", "generic", "--json"],
@@ -201,14 +197,10 @@ describe("tarball install smoke", () => {
     expect(genericPrintConfigResult.exitCode).toBe(0);
     expect(JSON.parse(genericPrintConfigResult.stdout)).toMatchObject({
       host: "generic",
-      targetFileHint: "Your MCP client's stdio server config",
-      workflowContract: {
-        recommendedPreset: "state=auto, limit=8",
-        cliFallback: {
-          searchCommand: `cam recall search "<query>" --state auto --limit 8 --cwd ${JSON.stringify(realInstallDir)}`
-        }
-      }
+      readOnlyRetrieval: true,
+      targetFileHint: "Your MCP client's stdio server config"
     });
+    expect(JSON.parse(genericPrintConfigResult.stdout).workflowContract).toBeUndefined();
     const applyGuidanceResult = runCommandCapture(
       camBinaryPath(installDir),
       ["mcp", "apply-guidance", "--host", "codex", "--json"],

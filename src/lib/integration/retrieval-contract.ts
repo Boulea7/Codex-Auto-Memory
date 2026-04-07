@@ -105,12 +105,16 @@ export function hasCliCwdFlag(command: string): boolean {
   return /(?:^|\s)--cwd(?:\s|=)/u.test(command);
 }
 
+function shellQuote(value: string): string {
+  return `'${value.replace(/'/g, `'\"'\"'`)}'`;
+}
+
 export function appendCliCwdFlag(command: string, cwd?: string): string {
   if (!cwd || hasCliCwdFlag(command)) {
     return command;
   }
 
-  return `${command} --cwd ${JSON.stringify(cwd)}`;
+  return `${command} --cwd ${shellQuote(cwd)}`;
 }
 
 export function buildRecommendedCliSearchCommand(

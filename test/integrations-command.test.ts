@@ -2,6 +2,7 @@ import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
+import { restoreOptionalEnv } from "./helpers/env.js";
 import { makeAppConfig, writeCamConfig } from "./helpers/cam-test-fixtures.js";
 import { runCli } from "./helpers/cli-runner.js";
 
@@ -63,13 +64,13 @@ async function buildPathWithoutCam(extraDir: string): Promise<string> {
   return [extraDir, ...filteredEntries].join(path.delimiter);
 }
 
+function shellQuoteArg(value: string): string {
+  return `'${value.replace(/'/g, `'\"'\"'`)}'`;
+}
+
 afterEach(async () => {
-  process.env.HOME = originalHome;
-  if (originalCodexHome === undefined) {
-    delete process.env.CODEX_HOME;
-  } else {
-    process.env.CODEX_HOME = originalCodexHome;
-  }
+  restoreOptionalEnv("HOME", originalHome);
+  restoreOptionalEnv("CODEX_HOME", originalCodexHome);
   await Promise.all(tempDirs.splice(0).map((dir) => fs.rm(dir, { recursive: true, force: true })));
 });
 
@@ -262,24 +263,24 @@ describe("integrations command", () => {
     };
     expect(payload.projectRoot).toBe(await fs.realpath(projectDir));
     expect(payload.recommendedSkillInstallCommand).toBe(
-      `cam skills install --surface runtime --cwd ${JSON.stringify(payload.projectRoot)}`
+      `cam skills install --surface runtime --cwd ${shellQuoteArg(payload.projectRoot)}`
     );
     expect(payload.workflowContract.cliFallback.searchCommand).toBe(
-      `cam recall search "<query>" --state auto --limit 8 --cwd ${JSON.stringify(payload.projectRoot)}`
+      `cam recall search "<query>" --state auto --limit 8 --cwd ${shellQuoteArg(payload.projectRoot)}`
     );
     expect(payload.nextSteps).toEqual(
       expect.arrayContaining([
         expect.stringContaining(
-          `cam integrations apply --host codex --skill-surface runtime --cwd ${JSON.stringify(payload.projectRoot)}`
+          `cam integrations apply --host codex --skill-surface runtime --cwd ${shellQuoteArg(payload.projectRoot)}`
         ),
         expect.stringContaining(
-          `cam integrations install --host codex --cwd ${JSON.stringify(payload.projectRoot)}`
+          `cam integrations install --host codex --cwd ${shellQuoteArg(payload.projectRoot)}`
         ),
         expect.stringContaining(
-          `cam mcp print-config --host codex --cwd ${JSON.stringify(payload.projectRoot)}`
+          `cam mcp print-config --host codex --cwd ${shellQuoteArg(payload.projectRoot)}`
         ),
         expect.stringContaining(
-          `cam recall search "<query>" --state auto --limit 8 --cwd ${JSON.stringify(payload.projectRoot)}`
+          `cam recall search "<query>" --state auto --limit 8 --cwd ${shellQuoteArg(payload.projectRoot)}`
         )
       ])
     );
@@ -318,10 +319,10 @@ describe("integrations command", () => {
     expect(payload.nextSteps).toEqual(
       expect.arrayContaining([
         expect.stringContaining(
-          `cam mcp apply-guidance --host codex --cwd ${JSON.stringify(payload.projectRoot)}`
+          `cam mcp apply-guidance --host codex --cwd ${shellQuoteArg(payload.projectRoot)}`
         ),
         expect.stringContaining(
-          `cam mcp print-config --host codex --cwd ${JSON.stringify(payload.projectRoot)}`
+          `cam mcp print-config --host codex --cwd ${shellQuoteArg(payload.projectRoot)}`
         )
       ])
     );
@@ -647,7 +648,7 @@ describe("integrations command", () => {
       recommendedFix: expect.stringContaining("Repair")
     });
     expect(payload.applyReadiness.recommendedFix).toContain(
-      `cam mcp apply-guidance --host codex --cwd ${JSON.stringify(realProjectDir)}`
+      `cam mcp apply-guidance --host codex --cwd ${shellQuoteArg(realProjectDir)}`
     );
     expect(payload.nextSteps).not.toEqual(
       expect.arrayContaining([expect.stringContaining("cam integrations apply --host codex")])
@@ -655,7 +656,7 @@ describe("integrations command", () => {
     expect(payload.nextSteps).toEqual(
       expect.arrayContaining([
         expect.stringContaining(
-          `cam mcp apply-guidance --host codex --cwd ${JSON.stringify(realProjectDir)}`
+          `cam mcp apply-guidance --host codex --cwd ${shellQuoteArg(realProjectDir)}`
         )
       ])
     );

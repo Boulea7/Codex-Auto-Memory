@@ -21,12 +21,13 @@ export interface McpHostConfigSnippet {
   host: McpHost;
   serverName: string;
   transport: "stdio";
+  readOnlyRetrieval: true;
   targetFileHint: string;
   projectRoot: string;
   snippetFormat: "toml" | "json";
   snippet: string;
   notes: string[];
-  workflowContract: ReturnType<typeof buildWorkflowContract>;
+  workflowContract?: ReturnType<typeof buildWorkflowContract>;
   agentsGuidance?: CodexAgentsGuidance;
 }
 
@@ -43,15 +44,20 @@ export function buildMcpHostConfigSnippet(host: McpHost, projectRoot: string): M
     host,
     serverName: MEMORY_RETRIEVAL_MCP_SERVER_NAME,
     transport: "stdio",
+    readOnlyRetrieval: true,
     targetFileHint: definition.targetFileHint,
     projectRoot,
     snippetFormat: definition.snippetFormat,
     snippet: buildMcpHostSnippet(host, projectRoot),
     notes: [...definition.notes],
-    workflowContract: buildWorkflowContract({
-      cwd: projectRoot
-    }),
-    ...(host === "codex" ? { agentsGuidance: buildCodexAgentsGuidance() } : {})
+    ...(host === "codex"
+      ? {
+          workflowContract: buildWorkflowContract({
+            cwd: projectRoot
+          }),
+          agentsGuidance: buildCodexAgentsGuidance()
+        }
+      : {})
   };
 }
 

@@ -153,6 +153,7 @@ describe("docs contract", () => {
     expect(claudeReferenceEn).toContain("autoMemoryDirectory");
     expect(claudeReferenceEn).toContain("shared project config");
     expect(claudeReferenceEn).toContain("user-level memory path");
+    expect(claudeReferenceEn).toContain("### 6. `autoMemoryDirectory` has a configuration safety boundary");
     expect(nativeMigrationEn).toContain("native Codex memory and hooks are still not ready");
     expect(nativeMigrationEn).toContain("allow non-native integration expansion");
     expect(releaseChecklist).toContain("pnpm test:dist-cli-smoke");

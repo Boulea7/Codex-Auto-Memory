@@ -2,6 +2,7 @@ import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
+import { restoreOptionalEnv } from "./helpers/env.js";
 import { runCli } from "./helpers/cli-runner.js";
 
 const tempDirs: string[] = [];
@@ -15,12 +16,8 @@ async function tempDir(prefix: string): Promise<string> {
 }
 
 afterEach(async () => {
-  process.env.HOME = originalHome;
-  if (originalCodexHome === undefined) {
-    delete process.env.CODEX_HOME;
-  } else {
-    process.env.CODEX_HOME = originalCodexHome;
-  }
+  restoreOptionalEnv("HOME", originalHome);
+  restoreOptionalEnv("CODEX_HOME", originalCodexHome);
   await Promise.all(tempDirs.splice(0).map((dir) => fs.rm(dir, { recursive: true, force: true })));
 });
 
