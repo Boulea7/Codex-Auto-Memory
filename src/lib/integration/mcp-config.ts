@@ -55,7 +55,9 @@ export function buildMcpHostConfigSnippet(host: McpHost, projectRoot: string): M
           workflowContract: buildWorkflowContract({
             cwd: projectRoot
           }),
-          agentsGuidance: buildCodexAgentsGuidance()
+          agentsGuidance: buildCodexAgentsGuidance({
+            cwd: projectRoot
+          })
         }
       : {})
   };

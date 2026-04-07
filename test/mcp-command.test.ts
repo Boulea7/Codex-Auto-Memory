@@ -1268,13 +1268,13 @@ describe("mcp command", () => {
       };
     };
     expect(payload.agentsGuidance.snippet).toContain(
-      `cam recall search "<query>" --state auto --limit 8 --cwd ${JSON.stringify(realProjectDir)}`
+      `cam recall search "<query>" --state auto --limit 8 --cwd ${shellQuoteArg(realProjectDir)}`
     );
     expect(payload.agentsGuidance.snippet).toContain(
-      `cam recall timeline "<ref>" --cwd ${JSON.stringify(realProjectDir)}`
+      `cam recall timeline "<ref>" --cwd ${shellQuoteArg(realProjectDir)}`
     );
     expect(payload.agentsGuidance.snippet).toContain(
-      `cam recall details "<ref>" --cwd ${JSON.stringify(realProjectDir)}`
+      `cam recall details "<ref>" --cwd ${shellQuoteArg(realProjectDir)}`
     );
     expect(payload.agentsGuidance.snippet).toContain(
       `post-work-memory-review.sh`
@@ -1562,7 +1562,7 @@ describe("mcp command", () => {
     expect(payload.retrievalSidecar).toMatchObject({
       status: "warning",
       summary: expect.stringContaining("Markdown"),
-      repairCommand: `cam memory reindex --scope all --state all --cwd ${JSON.stringify(realProjectDir)}`,
+      repairCommand: `cam memory reindex --scope all --state all --cwd ${shellQuoteArg(realProjectDir)}`,
       checks: expect.arrayContaining([
         expect.objectContaining({
           scope: "project",
