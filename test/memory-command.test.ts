@@ -75,6 +75,16 @@ const buildProjectConfig = makeAppConfig;
 const writeProjectConfig = writeCamConfig;
 
 describe("runMemory", () => {
+  it("shows archive behavior in forget help output", async () => {
+    const projectDir = await tempDir("cam-forget-help-project-");
+
+    const result = runCli(projectDir, ["forget", "--help"]);
+
+    expect(result.exitCode).toBe(0);
+    expect(result.stdout).toContain("Delete or archive matching memory entries");
+    expect(result.stdout).toContain("Move matching entries into archive instead of deleting them");
+  });
+
   it("shows scope details and recent audit entries", async () => {
     const homeDir = await tempDir("cam-memory-home-");
     const projectDir = await tempDir("cam-memory-project-");

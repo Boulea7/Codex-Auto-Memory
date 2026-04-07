@@ -119,8 +119,8 @@ export function isSyncRecoveryRecord(value: unknown): value is SyncRecoveryRecor
         isMemoryConflictCandidate(candidate)
       )
     : [];
-  const noopOperationCount =
-    typeof record.noopOperationCount === "number" ? record.noopOperationCount : 0;
+  const hasNoopOperationCount = Object.prototype.hasOwnProperty.call(record, "noopOperationCount");
+  const noopOperationCount = hasNoopOperationCount ? record.noopOperationCount : 0;
   const suppressedOperationCount =
     typeof record.suppressedOperationCount === "number" ? record.suppressedOperationCount : 0;
   return (
@@ -135,7 +135,8 @@ export function isSyncRecoveryRecord(value: unknown): value is SyncRecoveryRecor
     typeof record.actualExtractorName === "string" &&
     (record.status === "applied" || record.status === "no-op") &&
     typeof record.appliedCount === "number" &&
-    noopOperationCount >= 0 &&
+    (!hasNoopOperationCount ||
+      (typeof noopOperationCount === "number" && noopOperationCount >= 0)) &&
     suppressedOperationCount >= 0 &&
     Array.isArray(record.scopesTouched) &&
     record.scopesTouched.every((scope) => isMemoryScope(scope)) &&

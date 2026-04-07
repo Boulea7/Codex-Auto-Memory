@@ -9,7 +9,8 @@ import {
   findRelevantRollouts,
   matchesProjectContext,
   parseRolloutEvidence,
-  readRolloutMeta
+  readRolloutMeta,
+  selectLatestPrimaryRolloutFromCandidates
 } from "../src/lib/domain/rollout.js";
 
 const tempDirs: string[] = [];
@@ -479,5 +480,49 @@ describe("rollout helpers", () => {
 
     const latest = await findLatestProjectRollout(detectProjectContext(projectDir));
     expect(latest).toBe(newerPath);
+  });
+
+  it("preserves candidate ordering when selecting the latest primary rollout from an mtime fallback list", async () => {
+    const sessionsDir = await tempDir("cam-sessions-candidate-order-");
+    const dayDir = path.join(sessionsDir, "2026", "03", "14");
+    const projectDir = await tempDir("cam-rollout-candidate-order-project-");
+    await fs.mkdir(dayDir, { recursive: true });
+    process.env.CAM_CODEX_SESSIONS_DIR = sessionsDir;
+
+    const fallbackWinner = path.join(dayDir, "rollout-b-primary.jsonl");
+    const staleCreatedAt = path.join(dayDir, "rollout-a-primary.jsonl");
+    await fs.writeFile(
+      staleCreatedAt,
+      JSON.stringify({
+        type: "session_meta",
+        payload: {
+          id: "stale-created-at",
+          timestamp: "2026-03-14T00:00:10.000Z",
+          cwd: projectDir,
+          source: "cli"
+        }
+      }),
+      "utf8"
+    );
+    await fs.writeFile(
+      fallbackWinner,
+      JSON.stringify({
+        type: "session_meta",
+        payload: {
+          id: "fallback-winner",
+          timestamp: "2026-03-14T00:00:00.000Z",
+          cwd: projectDir,
+          source: "cli"
+        }
+      }),
+      "utf8"
+    );
+
+    const latest = await selectLatestPrimaryRolloutFromCandidates([
+      staleCreatedAt,
+      fallbackWinner
+    ]);
+
+    expect(latest).toBe(fallbackWinner);
   });
 });

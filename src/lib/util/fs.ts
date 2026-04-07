@@ -47,13 +47,29 @@ function atomicTempPath(filePath: string): string {
   return path.join(path.dirname(filePath), `.${path.basename(filePath)}.${suffix}.tmp`);
 }
 
+async function syncPath(targetPath: string): Promise<void> {
+  const handle = await fs.open(targetPath, "r");
+  try {
+    await handle.sync();
+  } finally {
+    await handle.close();
+  }
+}
+
 export async function writeTextFileAtomic(filePath: string, contents: string): Promise<void> {
   await ensureDir(path.dirname(filePath));
   const tempPath = atomicTempPath(filePath);
 
   try {
-    await fs.writeFile(tempPath, contents, "utf8");
+    const tempHandle = await fs.open(tempPath, "w");
+    try {
+      await tempHandle.writeFile(contents, "utf8");
+      await tempHandle.sync();
+    } finally {
+      await tempHandle.close();
+    }
     await fs.rename(tempPath, filePath);
+    await syncPath(path.dirname(filePath));
   } catch (error) {
     await fs.rm(tempPath, { force: true }).catch(() => undefined);
     throw error;

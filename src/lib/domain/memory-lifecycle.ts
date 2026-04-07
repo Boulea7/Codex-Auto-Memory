@@ -22,11 +22,13 @@ export function buildMemoryRef(
 
 export function parseMemoryRef(ref: string): MemoryRef | null {
   const [scope, state, topic, ...idParts] = ref.split(":");
+  const id = idParts.join(":");
   if (
     !scope ||
     !state ||
     !topic ||
     idParts.length === 0 ||
+    id.length === 0 ||
     !allowedScopes.has(scope as MemoryScope) ||
     !allowedStates.has(state as MemoryRecordState)
   ) {
@@ -38,7 +40,7 @@ export function parseMemoryRef(ref: string): MemoryRef | null {
     scope: scope as MemoryScope,
     state: state as MemoryRecordState,
     topic,
-    id: idParts.join(":")
+    id
   };
 }
 

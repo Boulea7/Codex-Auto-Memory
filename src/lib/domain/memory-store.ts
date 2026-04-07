@@ -89,6 +89,7 @@ interface ScopeMutationState {
 interface MutationCommitPlan {
   applied: MemoryApplyRecord[];
   fileChanges: PlannedFileChange[];
+  expectedSnapshots: FileSnapshot[];
 }
 
 interface MemoryStoreFileOps {
@@ -155,6 +156,14 @@ function normalizeManagedText(value: string): string {
     .trim();
 }
 
+function topicFileSnapshotKey(
+  scope: MemoryScope,
+  topic: string,
+  state: MemoryRecordState
+): string {
+  return `${scope}:${state}:${topic}`;
+}
+
 function parseEntryBlock(block: string): MemoryEntry | null {
   const headingMatch = block.match(/^##\s+(.+)$/m);
   const metadataMatch = block.match(/<!-- cam:entry (.+?) -->/);
@@ -186,16 +195,19 @@ function parseEntryBlock(block: string): MemoryEntry | null {
 
   const details = detailsRaw
     .split("\n")
-    .filter((line) => line.startsWith("- "))
-    .map((line) => line.slice(2).trim())
-    .filter(Boolean);
+    .filter((line) => line.trim().length > 0);
+  if (details.some((line) => !line.startsWith("- "))) {
+    return null;
+  }
 
   return {
     id: metadata.id ?? headingRaw.trim(),
     scope: metadata.scope,
     topic: "workflow",
     summary: summaryRaw.trim(),
-    details,
+    details: details
+      .map((line) => line.slice(2).trim())
+      .filter(Boolean),
     updatedAt: metadata.updatedAt,
     sources: metadata.sources ?? [],
     reason: metadata.reason
@@ -909,6 +921,34 @@ export class MemoryStore {
   ): Promise<MutationCommitPlan> {
     const applied: MemoryApplyRecord[] = [];
     const scopeStates = new Map<MemoryScope, ScopeMutationState>();
+    const expectedSnapshots = new Map<string, FileSnapshot>();
+
+    const getTopicSnapshot = async (
+      scope: MemoryScope,
+      topic: string,
+      state: MemoryRecordState
+    ): Promise<void> => {
+      const key = topicFileSnapshotKey(scope, topic, state);
+      if (expectedSnapshots.has(key)) {
+        return;
+      }
+
+      const topicFile = this.topicFilePath(scope, topic, state);
+      const contents = await this.readTextFileIfExists(topicFile);
+      if (contents === null) {
+        expectedSnapshots.set(key, { path: topicFile, contents: null });
+        return;
+      }
+
+      const parsed = parseTopicFile(contents, topic);
+      if (!parsed.safeToRewrite) {
+        throw new Error(
+          `Cannot rewrite topic file ${topicFile} because ${parsed.unsafeReason ?? "it is not safely round-trippable"}. Fix the file manually before editing durable memory.`
+        );
+      }
+
+      expectedSnapshots.set(key, { path: topicFile, contents });
+    };
 
     for (const mutation of mutations) {
       if (!scopeStates.has(mutation.scope)) {
@@ -921,6 +961,7 @@ export class MemoryStore {
       }
 
       const topic = normalizeTopicName(mutation.topic);
+      await getTopicSnapshot(mutation.scope, topic, "active");
       const existingActive = this.findEntryInEntries(scopeState.activeEntries, topic, mutation.id);
       const existingArchived = this.findEntryInEntries(
         scopeState.archivedEntries,
@@ -928,9 +969,15 @@ export class MemoryStore {
         mutation.id
       );
 
+      if (mutation.action === "archive" || existingArchived) {
+        await getTopicSnapshot(mutation.scope, topic, "archived");
+      }
+
       if (mutation.action === "upsert") {
         if (!mutation.summary) {
-          continue;
+          throw new Error(
+            `Invalid upsert mutation for ${mutation.scope}/${topic}/${mutation.id}: summary is required.`
+          );
         }
 
         const updatedAt = new Date().toISOString();
@@ -1168,7 +1215,8 @@ export class MemoryStore {
 
     return {
       applied,
-      fileChanges
+      fileChanges,
+      expectedSnapshots: Array.from(expectedSnapshots.values())
     };
   }
 
@@ -1199,11 +1247,26 @@ export class MemoryStore {
     return rollbackErrors;
   }
 
-  private async commitPlannedFileChanges(fileChanges: PlannedFileChange[]): Promise<void> {
+  private async assertSnapshotsUnchanged(expectedSnapshots: FileSnapshot[]): Promise<void> {
+    for (const snapshot of expectedSnapshots) {
+      const currentContents = await this.readTextFileIfExists(snapshot.path);
+      if (currentContents !== snapshot.contents) {
+        throw new Error(
+          `Cannot apply durable memory changes because ${snapshot.path} changed since the mutation plan was built. Re-run the operation after reviewing the latest file contents.`
+        );
+      }
+    }
+  }
+
+  private async commitPlannedFileChanges(
+    fileChanges: PlannedFileChange[],
+    expectedSnapshots: FileSnapshot[]
+  ): Promise<void> {
     if (fileChanges.length === 0) {
       return;
     }
 
+    await this.assertSnapshotsUnchanged(expectedSnapshots);
     const snapshots = await this.captureFileSnapshots(fileChanges);
     const writes = fileChanges
       .filter((change): change is PlannedFileChange & { contents: string } => change.contents !== null)
@@ -1242,9 +1305,8 @@ export class MemoryStore {
 
   public async applyMutations(mutations: MemoryMutation[]): Promise<MemoryApplyRecord[]> {
     await this.ensureLayout();
-    await this.assertMutationTargetsAreSafe(mutations);
     const plan = await this.buildMutationCommitPlan(mutations);
-    await this.commitPlannedFileChanges(plan.fileChanges);
+    await this.commitPlannedFileChanges(plan.fileChanges, plan.expectedSnapshots);
     return plan.applied;
   }
 
