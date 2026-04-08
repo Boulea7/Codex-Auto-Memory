@@ -258,7 +258,8 @@ export async function findRelevantRollouts(
 export async function selectLatestPrimaryRolloutFromCandidates(
   candidates: string[]
 ): Promise<string | null> {
-  const orderedPrimaryCandidates = (
+  const orderedPrimaryCandidates = await sortRolloutsByCreatedAtThenMtime(
+    (
     await Promise.all(
       candidates.map(async (candidate) => ({
         candidate,
@@ -270,9 +271,10 @@ export async function selectLatestPrimaryRolloutFromCandidates(
       (item): item is { candidate: string; meta: RolloutMeta } =>
         item.meta !== null && isPrimaryRolloutMeta(item.meta)
     )
-    .map((item) => item.candidate);
+    .map((item) => item.meta)
+  );
 
-  return orderedPrimaryCandidates.at(-1) ?? null;
+  return orderedPrimaryCandidates.at(-1)?.rolloutPath ?? null;
 }
 
 export async function findLatestProjectRollout(

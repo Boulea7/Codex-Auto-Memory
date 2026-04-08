@@ -482,7 +482,7 @@ describe("rollout helpers", () => {
     expect(latest).toBe(newerPath);
   });
 
-  it("preserves candidate ordering when selecting the latest primary rollout from an mtime fallback list", async () => {
+  it("sorts primary candidates before selecting the latest rollout", async () => {
     const sessionsDir = await tempDir("cam-sessions-candidate-order-");
     const dayDir = path.join(sessionsDir, "2026", "03", "14");
     const projectDir = await tempDir("cam-rollout-candidate-order-project-");
@@ -523,6 +523,6 @@ describe("rollout helpers", () => {
       fallbackWinner
     ]);
 
-    expect(latest).toBe(fallbackWinner);
+    expect(latest).toBe(staleCreatedAt);
   });
 });

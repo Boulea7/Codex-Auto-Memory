@@ -156,14 +156,6 @@ function normalizeManagedText(value: string): string {
     .trim();
 }
 
-function topicFileSnapshotKey(
-  scope: MemoryScope,
-  topic: string,
-  state: MemoryRecordState
-): string {
-  return `${scope}:${state}:${topic}`;
-}
-
 function parseEntryBlock(block: string): MemoryEntry | null {
   const headingMatch = block.match(/^##\s+(.+)$/m);
   const metadataMatch = block.match(/<!-- cam:entry (.+?) -->/);
@@ -922,24 +914,28 @@ export class MemoryStore {
     const applied: MemoryApplyRecord[] = [];
     const scopeStates = new Map<MemoryScope, ScopeMutationState>();
     const expectedSnapshots = new Map<string, FileSnapshot>();
+    const getFileSnapshot = async (filePath: string): Promise<FileSnapshot> => ({
+      path: filePath,
+      contents: await this.readTextFileIfExists(filePath)
+    });
 
     const getTopicSnapshot = async (
       scope: MemoryScope,
       topic: string,
       state: MemoryRecordState
     ): Promise<void> => {
-      const key = topicFileSnapshotKey(scope, topic, state);
-      if (expectedSnapshots.has(key)) {
-        return;
-      }
-
       const topicFile = this.topicFilePath(scope, topic, state);
-      const contents = await this.readTextFileIfExists(topicFile);
-      if (contents === null) {
-        expectedSnapshots.set(key, { path: topicFile, contents: null });
+      if (expectedSnapshots.has(topicFile)) {
         return;
       }
 
+      const snapshot = await getFileSnapshot(topicFile);
+      if (snapshot.contents === null) {
+        expectedSnapshots.set(topicFile, snapshot);
+        return;
+      }
+
+      const contents = snapshot.contents;
       const parsed = parseTopicFile(contents, topic);
       if (!parsed.safeToRewrite) {
         throw new Error(
@@ -947,7 +943,7 @@ export class MemoryStore {
         );
       }
 
-      expectedSnapshots.set(key, { path: topicFile, contents });
+      expectedSnapshots.set(topicFile, snapshot);
     };
 
     for (const mutation of mutations) {
@@ -1211,6 +1207,13 @@ export class MemoryStore {
           contents: appendJsonlContents(scopeState.historyRaw, scopeState.historyAppends)
         });
       }
+    }
+
+    for (const change of fileChanges) {
+      if (expectedSnapshots.has(change.path)) {
+        continue;
+      }
+      expectedSnapshots.set(change.path, await getFileSnapshot(change.path));
     }
 
     return {
