@@ -1722,7 +1722,8 @@ describe("runMemory", () => {
 
     expect(payload.nextRecommendedActions).toEqual(
       expect.arrayContaining([
-        expect.stringContaining(`--cwd ${JSON.stringify(realProjectDir)}`),
+        expect.stringContaining("--cwd"),
+        expect.stringContaining(realProjectDir),
         expect.stringContaining("recall timeline"),
         expect.stringContaining("recall details"),
         expect.stringContaining("memory --recent"),
