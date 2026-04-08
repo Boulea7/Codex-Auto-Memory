@@ -100,8 +100,12 @@ function resolveInstallDir(
   return surface === "hooks" ? context.hookDir : context.skillDir;
 }
 
+function shellQuoteArg(value: string): string {
+  return `'${value.replace(/'/g, `'\"'\"'`)}'`;
+}
+
 function buildPinnedProjectRootBlock(projectRoot: string): string {
-  return `PROJECT_ROOT=${JSON.stringify(projectRoot)}
+  return `PROJECT_ROOT=${shellQuoteArg(projectRoot)}
 `;
 }
 

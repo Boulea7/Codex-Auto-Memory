@@ -2223,8 +2223,10 @@ export class MemoryStore {
     const matched =
       entries.find(
           (entry) =>
-            latestRolloutPath !== undefined &&
-            entry.rolloutPath === latestRolloutPath &&
+            ((latestRolloutPath !== undefined && entry.rolloutPath === latestRolloutPath) ||
+              (latestRolloutPath === undefined &&
+                latestSessionId !== undefined &&
+                entry.sessionId === latestSessionId)) &&
             (latestSessionId === undefined || entry.sessionId === latestSessionId) &&
             entry.operations.some(
               (operation) =>

@@ -373,7 +373,7 @@ describe("tarball install smoke", () => {
     expect(cwdHooksResult.exitCode).toBe(0);
     expect(
       await fs.readFile(path.join(homeDir, ".codex-auto-memory", "hooks", "memory-recall.sh"), "utf8")
-    ).toContain(`PROJECT_ROOT=${JSON.stringify(realProjectWithSpacesDir)}`);
+    ).toContain(`PROJECT_ROOT=${shellQuoteArg(realProjectWithSpacesDir)}`);
     expect(
       await fs.readFile(
         path.join(homeDir, ".codex-auto-memory", "hooks", "post-work-memory-review.sh"),

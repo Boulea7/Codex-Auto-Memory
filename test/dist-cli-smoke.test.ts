@@ -1647,7 +1647,7 @@ fs.writeFileSync(${JSON.stringify(capturedArgsPath)}, JSON.stringify(process.arg
         path.join(homeDir, ".codex-auto-memory", "hooks", "memory-recall.sh"),
         "utf8"
       )
-    ).toContain(`PROJECT_ROOT=${JSON.stringify(realProjectDir)}`);
+    ).toContain(`PROJECT_ROOT=${shellQuoteArg(realProjectDir)}`);
     expect(
       await fs.readFile(
         path.join(homeDir, ".codex-auto-memory", "hooks", "post-work-memory-review.sh"),
