@@ -136,7 +136,19 @@ function isExecutableOnPath(commandName: string): boolean {
       : [commandName];
 
   return pathValue.split(path.delimiter).some((directory) =>
-    executableNames.some((candidate) => fs.existsSync(path.join(directory, candidate)))
+    executableNames.some((candidate) => {
+      const candidatePath = path.join(directory, candidate);
+      try {
+        const stat = fs.statSync(candidatePath);
+        if (!stat.isFile()) {
+          return false;
+        }
+        fs.accessSync(candidatePath, fs.constants.X_OK);
+        return true;
+      } catch {
+        return false;
+      }
+    })
   );
 }
 
@@ -199,9 +211,11 @@ export function buildResolvedCliCommand(
   command: string,
   options: {
     cwd?: string;
+    launcher?: WorkflowContract["launcher"];
   } = {}
 ): string {
-  return appendCliCwdFlag(`${resolveCliLauncher().resolvedCommand} ${command}`, options.cwd);
+  const launcher = options.launcher ?? resolveCliLauncher();
+  return appendCliCwdFlag(`${launcher.resolvedCommand} ${command}`, options.cwd);
 }
 
 export function buildRecommendedCliSearchCommand(
@@ -269,6 +283,7 @@ export function buildResolvedCliSearchCommand(
     state?: MemoryRetrievalStateFilter;
     limit?: number;
     cwd?: string;
+    launcher?: WorkflowContract["launcher"];
   } = {}
 ): string {
   const state = options.state ?? RECOMMENDED_RETRIEVAL_STATE;
@@ -283,6 +298,7 @@ export function buildResolvedCliTimelineCommand(
   ref = "\"<ref>\"",
   options: {
     cwd?: string;
+    launcher?: WorkflowContract["launcher"];
   } = {}
 ): string {
   return buildResolvedCliCommand(`recall timeline ${ref}`, options);
@@ -292,6 +308,7 @@ export function buildResolvedCliDetailsCommand(
   ref = "\"<ref>\"",
   options: {
     cwd?: string;
+    launcher?: WorkflowContract["launcher"];
   } = {}
 ): string {
   return buildResolvedCliCommand(`recall details ${ref}`, options);
@@ -300,6 +317,7 @@ export function buildResolvedCliDetailsCommand(
 export function buildResolvedPostWorkSyncCommand(
   options: {
     cwd?: string;
+    launcher?: WorkflowContract["launcher"];
   } = {}
 ): string {
   return buildResolvedCliCommand("sync", options);
@@ -308,6 +326,7 @@ export function buildResolvedPostWorkSyncCommand(
 export function buildResolvedPostWorkRecentReviewCommand(
   options: {
     cwd?: string;
+    launcher?: WorkflowContract["launcher"];
   } = {}
 ): string {
   return buildResolvedCliCommand("memory --recent", options);
@@ -352,9 +371,9 @@ export function buildWorkflowContract(
       requiresCamOnPath: true
     },
     resolvedCliFallback: {
-      searchCommand: buildResolvedCliSearchCommand("\"<query>\"", options),
-      timelineCommand: buildResolvedCliTimelineCommand("\"<ref>\"", options),
-      detailsCommand: buildResolvedCliDetailsCommand("\"<ref>\"", options)
+      searchCommand: buildResolvedCliSearchCommand("\"<query>\"", { ...options, launcher }),
+      timelineCommand: buildResolvedCliTimelineCommand("\"<ref>\"", { ...options, launcher }),
+      detailsCommand: buildResolvedCliDetailsCommand("\"<ref>\"", { ...options, launcher })
     },
     postWorkSyncReview: {
       helperScript: POST_WORK_SYNC_REVIEW_HELPER,
@@ -365,8 +384,8 @@ export function buildWorkflowContract(
       requiresCamOnPath: true
     },
     resolvedPostWorkSyncReview: {
-      syncCommand: buildResolvedPostWorkSyncCommand(options),
-      reviewCommand: buildResolvedPostWorkRecentReviewCommand(options)
+      syncCommand: buildResolvedPostWorkSyncCommand({ ...options, launcher }),
+      reviewCommand: buildResolvedPostWorkRecentReviewCommand({ ...options, launcher })
     },
     boundaries: {
       memoryAudit: MEMORY_AUDIT_BOUNDARY,

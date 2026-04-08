@@ -555,7 +555,7 @@ function buildLatestAppliedLifecycle(
     previousState: event.previousState ?? null,
     nextState: event.nextState ?? null,
     summary: event.summary,
-    updateKind: event.updateKind ?? null,
+    updateKind: event.updateKind ?? (event.action === "restore" ? "restore" : null),
     sessionId: event.sessionId ?? null,
     rolloutPath: event.rolloutPath ?? null
   };
