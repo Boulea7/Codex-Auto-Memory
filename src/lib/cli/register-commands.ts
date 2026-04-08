@@ -96,7 +96,7 @@ function registerSessionCommands(program: Command): void {
   addJsonOption(
     sessionCommand
       .command("load")
-      .description("Load current session continuity summary")
+      .description("Load current session continuity summary and, with --print-startup, inspect the structured continuity startup contract")
   )
     .option("--print-startup", "Print the compiled startup continuity block")
     .action(withStdout(async (options) => runSession("load", options)));
@@ -138,12 +138,16 @@ function registerSkillCommands(program: Command): void {
   const skillSurfaceChoices = formatCodexSkillInstallSurfaceChoices();
   const skillsCommand = program
     .command("skills")
-    .description("Manage Codex skill assets for MCP-first and CLI-fallback durable memory retrieval");
+    .description(
+      "Manage Codex skill assets for MCP-first durable memory retrieval with local-bridge and resolved CLI fallback"
+    );
 
   addJsonOption(
     skillsCommand
       .command("install")
-      .description("Install a Codex skill that teaches search -> timeline -> details memory retrieval")
+      .description(
+        "Install a Codex skill that teaches search -> timeline -> details memory retrieval. Skills are guidance-only; runtime remains the default surface and official .agents/skills copies stay opt-in."
+      )
       .option(
         "--surface <surface>",
         `Skill install surface: ${skillSurfaceChoices}`,
@@ -248,7 +252,7 @@ function registerMcpCommands(program: Command): void {
   addJsonOption(
     mcpCommand
       .command("doctor")
-      .description("Inspect the recommended project-scoped MCP wiring without writing host config")
+      .description("Inspect the recommended project-scoped MCP wiring without writing host config, including route truth and operational blockers")
       .option("--host <host>", `Target host: ${supportedDoctorHosts}`, "all")
       .option("--cwd <path>", "Project directory to inspect")
   ).action(withStdout(async (options) => runMcpDoctor(options)));
@@ -263,7 +267,9 @@ function registerIntegrationCommands(program: Command): void {
   addJsonOption(
     integrationsCommand
       .command("apply")
-      .description("Install the recommended Codex integration stack and safely apply the managed AGENTS guidance block")
+      .description(
+        "Install the recommended Codex integration stack and safely apply the managed AGENTS guidance block. The runtime default stays in place unless you opt into an official copy."
+      )
       .requiredOption("--host <host>", `Target host: ${formatMcpHostChoices(["codex"])}`)
       .option(
         "--skill-surface <surface>",
@@ -276,7 +282,9 @@ function registerIntegrationCommands(program: Command): void {
   addJsonOption(
     integrationsCommand
       .command("install")
-      .description("Install the recommended project-scoped Codex integration stack")
+      .description(
+        "Install the recommended project-scoped Codex integration stack. The runtime default stays in place unless you opt into an official copy."
+      )
       .requiredOption("--host <host>", `Target host: ${formatMcpHostChoices(["codex"])}`)
       .option(
         "--skill-surface <surface>",
@@ -306,6 +314,7 @@ export function registerCommands(program: Command): void {
     .description("Inspect local memory state")
     .argument("[subaction]", "Optional memory subaction. Use reindex to rebuild retrieval sidecars.")
     .option("--json", "Print JSON output")
+    .option("--cwd <path>", "Project directory to inspect or rebuild memory for")
     .option(
       "--scope <scope>",
       "Show a single memory scope: global, project, project-local, or all",
@@ -340,16 +349,21 @@ export function registerCommands(program: Command): void {
     .command("remember")
     .description("Persist a memory entry immediately")
     .argument("<text>", "Memory summary text")
+    .option("--cwd <path>", "Project directory to anchor remember to")
     .option("--scope <scope>", "Memory scope: global, project, or project-local")
-    .option("--topic <topic>", "Topic file name", "workflow")
+    .option("--topic <topic>", "Topic file name")
     .option("--detail <detail...>", "Additional detail bullets")
     .option("--json", "Print JSON output")
     .action(withStdout(async (text, options) => runRemember(text, options)));
 
   program
     .command("forget")
-    .description("Delete or archive matching memory entries")
-    .argument("<query>", "Search query used to find memory entries")
+    .description("Delete matching memory entries")
+    .argument(
+      "<query>",
+      "Search query used to find memory entries; multi-term queries match across id/summary/details"
+    )
+    .option("--cwd <path>", "Project directory to anchor forget to")
     .option("--scope <scope>", "Specific scope to target, or all")
     .option("--archive", "Move matching entries into archive instead of deleting them")
     .option("--json", "Print JSON output")
