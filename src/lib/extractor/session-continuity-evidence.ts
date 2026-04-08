@@ -12,6 +12,7 @@ import {
   extractCommand,
   isCommandToolCall
 } from "./command-utils.js";
+import { splitDirectiveClauses } from "./directive-utils.js";
 
 const FILE_WRITE_PATTERNS = ["apply_patch", "write_file", "create_file", "edit_file"];
 
@@ -375,38 +376,39 @@ function extractArchitectureSignal(text: string): DirectiveSignal | null {
 }
 
 function extractDebuggingSignals(text: string): DirectiveSignal[] {
-  const normalized = text.toLowerCase();
   const signals: DirectiveSignal[] = [];
 
   for (const value of debuggingDependencyValues) {
     const servicePattern = new RegExp(`\\b${escapeRegExp(value)}\\b`, "iu");
-    if (!servicePattern.test(normalized)) {
-      continue;
-    }
+    for (const clause of splitDirectiveClauses(text)) {
+      if (!servicePattern.test(clause.toLowerCase())) {
+        continue;
+      }
 
-    if (
-      /\b(?:does not require|doesn't require|is not required|not required|without)\b|不需要|无需/u.test(
-        text
-      )
-    ) {
-      signals.push({
-        key: `required-service:${value}`,
-        value: "not-required",
-        authoritative: false
-      });
-      continue;
-    }
+      if (
+        /\b(?:does not require|doesn't require|is not required|not required|without)\b|不需要|无需/u.test(
+          clause
+        )
+      ) {
+        signals.push({
+          key: `required-service:${value}`,
+          value: "not-required",
+          authoritative: false
+        });
+        continue;
+      }
 
-    if (
-      /\b(requires?|needs?|start|before running|must be running|running before|before integration tests)\b|需要|必须|先启动/u.test(
-        text
-      )
-    ) {
-      signals.push({
-        key: `required-service:${value}`,
-        value: "required",
-        authoritative: false
-      });
+      if (
+        /\b(requires?|needs?|start|before running|must be running|running before|before integration tests)\b|需要|必须|先启动/u.test(
+          clause
+        )
+      ) {
+        signals.push({
+          key: `required-service:${value}`,
+          value: "required",
+          authoritative: false
+        });
+      }
     }
   }
 
