@@ -559,7 +559,7 @@ export interface RolloutMeta {
   createdAtMs: number;
   cwd: string;
   rolloutPath: string;
-  provenanceKind: RolloutProvenanceKind;
+  provenanceKind?: RolloutProvenanceKind;
   isSubagent?: boolean;
   forkedFromSessionId?: string;
 }
@@ -572,7 +572,7 @@ export interface RolloutEvidence {
   agentMessages: string[];
   toolCalls: RolloutToolCall[];
   rolloutPath: string;
-  provenanceKind: RolloutProvenanceKind;
+  provenanceKind?: RolloutProvenanceKind;
   isSubagent?: boolean;
   forkedFromSessionId?: string;
 }
