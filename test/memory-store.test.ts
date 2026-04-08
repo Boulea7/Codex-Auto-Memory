@@ -975,7 +975,7 @@ describe("MemoryStore", () => {
     expect(await fs.readFile(topicFile, "utf8")).toBe(originalContents);
   });
 
-  it("fails closed when a target topic file changes after the commit plan is built", async () => {
+  it("fails closed when planned index or history files change after the commit plan is built", async () => {
     const projectDir = await tempDir("cam-store-drift-project-");
     const memoryRoot = await tempDir("cam-store-drift-memory-");
     const config: AppConfig = {
@@ -1003,33 +1003,32 @@ describe("MemoryStore", () => {
 
     const topicFile = store.getTopicFile("project", "workflow");
     const memoryFile = store.getMemoryFile("project");
+    const historyFile = store.getHistoryPath("project");
     const originalBuildMutationCommitPlan = (store as unknown as {
       buildMutationCommitPlan: (mutations: unknown[]) => Promise<unknown>;
     }).buildMutationCommitPlan.bind(store);
-    const driftedContents = [
-      "# Workflow",
+    const driftedIndexContents = [
+      "# Project Memories",
       "",
-      "<!-- cam:topic workflow -->",
+      "<!-- cam:memory-index scope=project -->",
       "",
-      "This file is maintained by Codex Auto Memory. You may edit summaries or details directly.",
-      "",
-      "## prefer-pnpm",
-      "<!-- cam:entry {\"id\":\"prefer-pnpm\",\"scope\":\"project\",\"updatedAt\":\"2026-03-14T00:00:01.000Z\"} -->",
-      "Summary: Concurrent edit should be preserved.",
-      "Details:",
-      "- External change landed after planning.",
-      ""
+      "- workflow | Concurrent index edit should be preserved."
     ].join("\n");
+    const driftedHistoryContents =
+      '{"at":"2026-03-14T00:00:02.000Z","action":"update","scope":"project","state":"active","topic":"workflow","id":"prefer-pnpm","ref":"project:active:workflow:prefer-pnpm","summary":"Concurrent history edit should be preserved."}\n';
 
     (store as unknown as {
       buildMutationCommitPlan: (mutations: unknown[]) => Promise<unknown>;
     }).buildMutationCommitPlan = async (mutations) => {
       const plan = await originalBuildMutationCommitPlan(mutations);
-      await fs.writeFile(topicFile, driftedContents, "utf8");
+      await fs.writeFile(memoryFile, driftedIndexContents, "utf8");
+      await fs.writeFile(historyFile, driftedHistoryContents, "utf8");
       return plan;
     };
 
+    const topicSnapshot = await fs.readFile(topicFile, "utf8");
     const memorySnapshot = await readFileIfExists(memoryFile);
+    const historySnapshot = await readFileIfExists(historyFile);
 
     await expect(
       store.applyMutations([
@@ -1046,8 +1045,11 @@ describe("MemoryStore", () => {
       ])
     ).rejects.toThrow(/changed since the mutation plan was built/i);
 
-    expect(await fs.readFile(topicFile, "utf8")).toBe(driftedContents);
-    expect(await readFileIfExists(memoryFile)).toBe(memorySnapshot);
+    expect(await fs.readFile(topicFile, "utf8")).toBe(topicSnapshot);
+    expect(await fs.readFile(memoryFile, "utf8")).toBe(driftedIndexContents);
+    expect(await fs.readFile(historyFile, "utf8")).toBe(driftedHistoryContents);
+    expect(await readFileIfExists(memoryFile)).not.toBe(memorySnapshot);
+    expect(await readFileIfExists(historyFile)).not.toBe(historySnapshot);
   });
 
   it("treats source-only or reason-only changes as updates instead of noop", async () => {
