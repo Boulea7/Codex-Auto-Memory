@@ -186,7 +186,7 @@ cam integrations doctor --host codex
 cam mcp install --host codex
 cam mcp print-config --host codex
 cam mcp apply-guidance --host codex
-cam mcp doctor
+cam mcp doctor --host codex
 cam session status
 cam session refresh
 cam remember "Always use pnpm instead of npm"
@@ -207,7 +207,7 @@ cam audit
 | `cam recall search` / `timeline` / `details` | progressively retrieve durable memory through a search -> timeline -> details workflow; `search` now defaults to `state=auto, limit=8`, so active memory is checked before archived fallback while staying read-only |
 | `cam mcp serve` | start a read-only retrieval MCP server that exposes the same workflow through `search_memories`, `timeline_memories`, and `get_memory_details` |
 | `cam integrations install --host codex` | install the recommended Codex integration stack in one explicit step by writing project-scoped MCP wiring and refreshing the hook bridge bundle plus Codex skill assets; it defaults to the runtime skill target, but also accepts `--skill-surface runtime|official-user|official-project`; stays idempotent, Codex-only, and does not touch the Markdown memory store |
-| `cam integrations apply --host codex` | explicitly apply the full Codex integration state: it keeps `integrations install` unchanged, but also orchestrates `cam mcp apply-guidance --host codex`; it defaults to the runtime skill target, but also accepts `--skill-surface runtime|official-user|official-project`; if the `AGENTS.md` managed block is unsafe, the command now returns a preflight `blocked` result before any stack writes happen |
+| `cam integrations apply --host codex` | explicitly apply the full Codex integration state: it keeps `integrations install` unchanged, but also orchestrates `cam mcp apply-guidance --host codex`; it defaults to the runtime skill target, but also accepts `--skill-surface runtime|official-user|official-project`; if the `AGENTS.md` managed block is unsafe, the command now returns a preflight `blocked` result before any stack writes happen; if a staged write fails partway through, the JSON contract also reports `rollbackSucceeded`, `rollbackErrors`, per-subaction `effectiveAction`, and `rolledBack` so callers can tell the final state instead of assuming the attempted writes stuck |
 | `cam integrations doctor --host codex` | inspect the current Codex integration stack through a thin read-only aggregation surface that reports the recommended route, recommended preset, structured `workflowContract`, `applyReadiness`, subchecks, and minimum next steps; when the managed `AGENTS.md` block is unsafe, it now tells you to repair that block first instead of recommending `cam integrations apply --host codex` immediately |
 | `cam mcp install --host <codex|claude|gemini>` | explicitly write the recommended project-scoped host config for `codex_auto_memory`; only that server entry is updated, hooks/skills stay opt-in, non-canonical custom fields on that entry are preserved when safe, and `generic` remains manual-only |
 | `cam mcp print-config --host <codex|claude|gemini|generic>` | print a ready-to-paste host snippet so the read-only retrieval plane can be wired into an existing MCP client with less manual setup; for `--host codex`, it also prints a recommended `AGENTS.md` snippet and now includes the shared `workflowContract` in JSON output so future Codex agents can prefer MCP and fall back to `cam recall` only when needed |

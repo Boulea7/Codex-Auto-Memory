@@ -4,7 +4,7 @@
   <p>
     <a href="./README.md">简体中文</a> |
     <a href="./README.zh-TW.md">繁體中文</a> |
-    <a href="./README.en.md">English</a>
+    <a href="./README.en.md">English</a> |
     <a href="./README.ja.md">日本語</a>
   </p>
   <p>
@@ -191,7 +191,7 @@ cam integrations doctor --host codex
 cam mcp install --host codex
 cam mcp print-config --host codex
 cam mcp apply-guidance --host codex
-cam mcp doctor
+cam mcp doctor --host codex
 cam session status
 cam session refresh
 cam remember "Always use pnpm instead of npm"
@@ -212,7 +212,7 @@ cam audit
 | `cam recall search` / `timeline` / `details` | 以 `search -> timeline -> details` 的 progressive disclosure 检索 durable memory；`search` 默认采用 `state=auto`、`limit=8`，先查 active，未命中再回退 archived，且保持只读 retrieval |
 | `cam mcp serve` | 启动只读 retrieval MCP server，通过 `search_memories` / `timeline_memories` / `get_memory_details` 暴露同一套渐进式检索契约 |
 | `cam integrations install --host codex` | 一次性安装推荐的 Codex integration stack：写入 project-scoped MCP wiring，并刷新 hook bridge bundle 与 Codex skill 资产；默认使用 runtime skills target，也支持显式 `--skill-surface runtime|official-user|official-project`；保持显式、幂等、Codex-only，且不触碰 Markdown memory store |
-| `cam integrations apply --host codex` | 以显式、幂等、Codex-only 的方式应用完整 integration state：在保留 `integrations install` 旧语义不变的前提下，额外编排 `cam mcp apply-guidance --host codex`；默认使用 runtime skills target，也支持显式 `--skill-surface runtime|official-user|official-project`；若 `AGENTS.md` managed block 不安全，会在任何 stack 写入之前 preflight `blocked`，保持 additive / fail-closed |
+| `cam integrations apply --host codex` | 以显式、幂等、Codex-only 的方式应用完整 integration state：在保留 `integrations install` 旧语义不变的前提下，额外编排 `cam mcp apply-guidance --host codex`；默认使用 runtime skills target，也支持显式 `--skill-surface runtime|official-user|official-project`；若 `AGENTS.md` managed block 不安全，会在任何 stack 写入之前 preflight `blocked`，保持 additive / fail-closed；若 staged write 途中失败，还会显式返回 `rollbackSucceeded`、`rollbackErrors`、subaction `effectiveAction` 与 `rolledBack`，避免把“尝试写入”误读成“最终已安装” |
 | `cam integrations doctor --host codex` | 以 Codex-only、只读、薄聚合的方式汇总当前 integration stack readiness，直接给出推荐路由、推荐 preset、结构化 `workflowContract`、`applyReadiness`、子检查结果与下一步最小动作；当 AGENTS guidance 处于 unsafe managed-block 状态时，会先提示修复 `AGENTS.md`，而不是直接推荐 `cam integrations apply --host codex` |
 | `cam mcp install --host <codex|claude|gemini>` | 显式写入推荐的 project-scoped 宿主 MCP 配置；只更新 `codex_auto_memory` 这一项，不会自动安装 hooks/skills；若该 entry 已带有非 canonical 自定义字段，会在安全前提下保留它们；`generic` 继续保持 manual-only |
 | `cam mcp print-config --host <codex|claude|gemini|generic>` | 打印 ready-to-paste 的宿主接入片段，降低把 read-only retrieval plane 接进现有工作流的摩擦；其中 `--host codex` 还会额外打印推荐的 `AGENTS.md` snippet，并在 JSON payload 中附带共享 `workflowContract`，帮助未来 Codex 代理优先走 MCP、必要时再 fallback 到 `cam recall` |
