@@ -180,7 +180,7 @@ cam integrations doctor --host codex
 cam mcp install --host codex
 cam mcp print-config --host codex
 cam mcp apply-guidance --host codex
-cam mcp doctor
+cam mcp doctor --host codex
 cam session status
 cam session refresh
 cam remember "Always use pnpm instead of npm"
@@ -201,7 +201,7 @@ cam audit
 | `cam recall search` / `timeline` / `details` | `search -> timeline -> details` の progressive disclosure workflow で durable memory を段階的に取得する。`search` は `state=auto, limit=8` を既定値として使い、active を先に調べてヒットしなければ archived にフォールバックしつつ read-only を保つ |
 | `cam mcp serve` | `search_memories` / `timeline_memories` / `get_memory_details` を通じて同じ retrieval contract を公開する read-only MCP server を起動する |
 | `cam integrations install --host codex` | 推奨される Codex integration stack を一度に導入し、project-scoped MCP wiring を書き込みつつ、hook bridge bundle と Codex skill assets を更新する。skills は runtime target が既定だが、`--skill-surface runtime|official-user|official-project` も指定できる。明示的・冪等・Codex-only を保ち、Markdown memory store には触れない |
-| `cam integrations apply --host codex` | 明示的・冪等・Codex-only のまま完全な integration state を適用する。`integrations install` の既存境界は変えず、その上で `cam mcp apply-guidance --host codex` も編成する。skills は runtime target が既定だが、`--skill-surface runtime|official-user|official-project` も指定できる。`AGENTS.md` managed block が unsafe な場合は、stack への書き込み前に preflight `blocked` を返す |
+| `cam integrations apply --host codex` | 明示的・冪等・Codex-only のまま完全な integration state を適用する。`integrations install` の既存境界は変えず、その上で `cam mcp apply-guidance --host codex` も編成する。skills は runtime target が既定だが、`--skill-surface runtime|official-user|official-project` も指定できる。`AGENTS.md` managed block が unsafe な場合は、stack への書き込み前に preflight `blocked` を返す。staged write が途中で失敗した場合も、`rollbackSucceeded`、`rollbackErrors`、各 subaction の `effectiveAction`、`rolledBack` を明示的に返し、試行した書き込みと最終状態を区別できる |
 | `cam integrations doctor --host codex` | 現在の Codex integration stack を薄い read-only 集約面として点検し、推奨ルート、推奨 preset、構造化された `workflowContract`、`applyReadiness`、サブチェック結果、次の最小アクションを返す。`AGENTS.md` managed block が unsafe な場合は、まずその修復を案内し、すぐに `cam integrations apply --host codex` を勧めない |
 | `cam mcp install --host <codex|claude|gemini>` | 推奨される project-scoped 宿主設定を明示的に書き込み、`codex_auto_memory` の項目だけを更新する。hooks/skills は自動導入せず、その entry に non-canonical なカスタム項目がある場合は安全な範囲で保持する。`generic` は引き続き manual-only |
 | `cam mcp print-config --host <codex|claude|gemini|generic>` | ready-to-paste な接続スニペットを出力し、read-only retrieval plane を既存の MCP client に低摩擦で接続できるようにする。`--host codex` の場合は、将来の Codex エージェントに MCP 優先・`cam recall` フォールバックを教えるための推奨 `AGENTS.md` snippet に加えて、JSON payload に共有 `workflowContract` も含める |
