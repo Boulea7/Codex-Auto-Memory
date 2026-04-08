@@ -296,7 +296,13 @@ describe("tarball install smoke", () => {
       readOnlyRetrieval: true,
       targetFileHint: ".mcp.json"
     });
-    expect(JSON.parse(claudePrintConfigResult.stdout).workflowContract).toBeUndefined();
+    expect(JSON.parse(claudePrintConfigResult.stdout).workflowContract).toMatchObject({
+      cliFallback: {
+        searchCommand: expect.any(String),
+        timelineCommand: expect.any(String),
+        detailsCommand: expect.any(String)
+      }
+    });
     const geminiPrintConfigResult = runCommandCapture(
       camBinaryPath(installDir),
       ["mcp", "print-config", "--host", "gemini", "--json"],
@@ -309,7 +315,13 @@ describe("tarball install smoke", () => {
       readOnlyRetrieval: true,
       targetFileHint: ".gemini/settings.json"
     });
-    expect(JSON.parse(geminiPrintConfigResult.stdout).workflowContract).toBeUndefined();
+    expect(JSON.parse(geminiPrintConfigResult.stdout).workflowContract).toMatchObject({
+      cliFallback: {
+        searchCommand: expect.any(String),
+        timelineCommand: expect.any(String),
+        detailsCommand: expect.any(String)
+      }
+    });
     const genericPrintConfigResult = runCommandCapture(
       camBinaryPath(installDir),
       ["mcp", "print-config", "--host", "generic", "--json"],
@@ -322,7 +334,13 @@ describe("tarball install smoke", () => {
       readOnlyRetrieval: true,
       targetFileHint: "Your MCP client's stdio server config"
     });
-    expect(JSON.parse(genericPrintConfigResult.stdout).workflowContract).toBeUndefined();
+    expect(JSON.parse(genericPrintConfigResult.stdout).workflowContract).toMatchObject({
+      cliFallback: {
+        searchCommand: expect.any(String),
+        timelineCommand: expect.any(String),
+        detailsCommand: expect.any(String)
+      }
+    });
     const applyGuidanceResult = runCommandCapture(
       camBinaryPath(installDir),
       ["mcp", "apply-guidance", "--host", "codex", "--json"],
