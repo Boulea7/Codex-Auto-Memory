@@ -294,6 +294,32 @@ describe("SyncService", () => {
     expect(auditEntries[0]?.operations).toEqual([]);
   });
 
+  it("persists reference memories for external dashboards and issue trackers", async () => {
+    const projectDir = await tempDir("cam-sync-reference-project-");
+    const memoryRoot = await tempDir("cam-sync-reference-memory-");
+    const rolloutPath = path.join(projectDir, "reference-rollout.jsonl");
+    await fs.writeFile(rolloutPath, referenceRolloutFixture(projectDir), "utf8");
+
+    const service = new SyncService(
+      detectProjectContext(projectDir),
+      baseConfig(memoryRoot),
+      path.resolve("schemas/memory-operations.schema.json")
+    );
+
+    const result = await service.syncRollout(rolloutPath, true);
+    const projectEntries = await service.memoryStore.listEntries("project");
+
+    expect(result.skipped).toBe(false);
+    expect(
+      projectEntries.filter((entry) => entry.topic === "reference").map((entry) => entry.summary)
+    ).toEqual(
+      expect.arrayContaining([
+        "pipeline bugs are tracked in Linear project INGEST",
+        "the latency dashboard lives at https://grafana.example.com/d/api-latency"
+      ])
+    );
+  });
+
   it("treats source-only extracted changes as applied updates instead of noop", async () => {
     const projectDir = await tempDir("cam-sync-dedupe-noop-project-");
     const memoryRoot = await tempDir("cam-sync-dedupe-noop-memory-");
@@ -434,7 +460,7 @@ describe("SyncService", () => {
       rolloutPath,
       status: "no-op",
       appliedCount: 0,
-      suppressedOperationCount: 2
+      suppressedOperationCount: 1
     });
     expect(auditEntries[0]?.conflicts).toEqual(
       expect.arrayContaining([

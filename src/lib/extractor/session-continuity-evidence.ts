@@ -12,7 +12,7 @@ import {
   extractCommand,
   isCommandToolCall
 } from "./command-utils.js";
-import { splitDirectiveClauses } from "./directive-utils.js";
+import { extractReferenceResourceKey, splitDirectiveClauses } from "./directive-utils.js";
 
 const FILE_WRITE_PATTERNS = ["apply_patch", "write_file", "create_file", "edit_file"];
 
@@ -336,8 +336,9 @@ function extractReferenceSignal(text: string): DirectiveSignal | null {
             : "pointer";
 
   if (url) {
+    const resourceKey = extractReferenceResourceKey(text, category, url) ?? category;
     return {
-      key: `reference-pointer:${category}`,
+      key: `reference-pointer:${category}:${resourceKey}`,
       value: url,
       authoritative: false
     };

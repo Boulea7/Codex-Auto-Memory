@@ -1,9 +1,11 @@
 import { DEFAULT_MEMORY_TOPICS } from "../constants.js";
+import { matchesAllMemoryQueryTerms } from "../domain/memory-query.js";
 import type { MemoryEntry, MemoryOperation, RolloutEvidence } from "../types.js";
 import type { MemoryExtractorAdapter } from "../runtime/contracts.js";
 import { slugify } from "../util/text.js";
 import { commandSucceeded, extractCommand, isCommandToolCall } from "./command-utils.js";
 import { canonicalCommandSignature } from "./command-signatures.js";
+import { extractReferenceResourceKey } from "./directive-utils.js";
 
 interface ExplicitCorrection {
   scope: MemoryOperation["scope"];
@@ -245,6 +247,63 @@ function extractStableDirectiveOperation(
   };
 }
 
+function stableDirectiveReplacementKey(topic: string, summary: string): string | null {
+  if (topic === "reference") {
+    const urlMatch = summary.match(/https?:\/\/[^\s)]+/iu)?.[0];
+    const url = urlMatch?.replace(/[),.;]+$/u, "").trim().toLowerCase();
+    return `reference:${extractReferenceResourceKey(summary, "runbook", url) ?? "pointer"}`;
+  }
+
+  if (
+    topic === "architecture" &&
+    /\b(canonical|source of truth|db-first|markdown-first|database-first)\b|规范存储|主真相/u.test(
+      summary
+    )
+  ) {
+    return "architecture:canonical-store";
+  }
+
+  if (topic === "patterns") {
+    if (/search\s*->\s*timeline\s*->\s*details/iu.test(summary)) {
+      return "patterns:retrieval-flow";
+    }
+
+    if (/mcp\s*->\s*local bridge\s*->\s*resolved cli/iu.test(summary)) {
+      return "patterns:route-order";
+    }
+  }
+
+  return null;
+}
+
+function collectStableDirectiveDeleteTargets(
+  existingEntries: MemoryEntry[],
+  operation: MemoryOperation
+): MemoryEntry[] {
+  if (operation.action !== "upsert" || !operation.summary) {
+    return [];
+  }
+
+  const replacementKey = stableDirectiveReplacementKey(operation.topic, operation.summary);
+  if (!replacementKey) {
+    return [];
+  }
+
+  const candidates = existingEntries.filter((entry) => {
+    if (
+      entry.scope !== operation.scope ||
+      entry.topic !== operation.topic ||
+      normalizeForComparison(entry.summary) === normalizeForComparison(operation.summary ?? "")
+    ) {
+      return false;
+    }
+
+    return stableDirectiveReplacementKey(entry.topic, entry.summary) === replacementKey;
+  });
+
+  return candidates.length === 1 ? candidates : [];
+}
+
 function extractExplicitCorrection(message: string): ExplicitCorrection | null {
   const trimmed = trimTrailingPunctuation(stripRememberPrefix(message));
   if (!isHighConfidenceExplicitCorrection(trimmed)) {
@@ -270,6 +329,10 @@ function extractExplicitCorrection(message: string): ExplicitCorrection | null {
     },
     {
       pattern: /^(?:actually\s+)?prefer\s+(.+?)\s+over\s+(.+)$/iu,
+      staleIndex: 2
+    },
+    {
+      pattern: /^(?:actually\s+)?run\s+(.+?),\s*not\s+(.+)$/iu,
       staleIndex: 2
     },
     {
@@ -349,11 +412,22 @@ function collectExplicitCorrectionDeleteTargets(
     return haystack.includes(staleNeedle);
   });
 
-  if (directCandidates.length <= 1) {
+  if (correction.topic === "commands") {
     return directCandidates;
   }
 
   const contextTokens = summaryTokens.filter((token) => !staleTokens.has(token));
+  if (directCandidates.length <= 1) {
+    if (directCandidates.length === 0 || contextTokens.length === 0) {
+      return directCandidates;
+    }
+
+    return directCandidates.filter((entry) => {
+      const haystack = normalizeForComparison(`${entry.summary}\n${entry.details.join("\n")}`);
+      return contextTokens.some((token) => haystack.includes(token));
+    });
+  }
+
   if (contextTokens.length < 2) {
     return [];
   }
@@ -541,17 +615,11 @@ export class HeuristicExtractor implements MemoryExtractorAdapter {
 
       if (forgetMatch?.[1]) {
         const query = forgetMatch[1].trim().replace(/[。.]$/u, "");
-        const matchingEntryKeys = new Set<string>(
-          overlappingEntriesWithThreshold(existingEntries, query, 1).map((entry) =>
-            buildEntryIdentityKey(entry)
-          )
-        );
         for (const entry of existingEntries) {
-          const haystack = `${entry.id}\n${entry.summary}\n${entry.details.join("\n")}`.toLowerCase();
-          if (
-            !haystack.includes(query.toLowerCase()) &&
-            !matchingEntryKeys.has(buildEntryIdentityKey(entry))
-          ) {
+          const haystack = [entry.id, entry.topic, entry.summary, entry.details.join("\n")].join(
+            "\n"
+          );
+          if (!matchesAllMemoryQueryTerms(haystack, query)) {
             continue;
           }
           queueDelete(
@@ -605,28 +673,24 @@ export class HeuristicExtractor implements MemoryExtractorAdapter {
 
       const stableDirective = extractStableDirectiveOperation(message, evidence.rolloutPath);
       if (stableDirective) {
-        const shouldReplaceOverlaps =
-          stableDirective.reason === "Explicit user correction that should replace stale memory.";
-        if (shouldReplaceOverlaps) {
-          for (const entry of overlappingEntries(existingEntries, stableDirective.summary ?? "")) {
-            if (
-              entry.scope !== stableDirective.scope ||
-              entry.topic !== stableDirective.topic ||
-              entry.summary.toLowerCase() === stableDirective.summary?.toLowerCase()
-            ) {
-              continue;
-            }
-            queueDelete(
-              operations,
-              queuedDeleteKeys,
-              entry,
-              "Superseded by a newer user correction.",
-              evidence.rolloutPath
-            );
-          }
+        const deleteTargets = collectStableDirectiveDeleteTargets(existingEntries, stableDirective);
+        for (const entry of deleteTargets) {
+          queueDelete(
+            operations,
+            queuedDeleteKeys,
+            entry,
+            "Superseded by a newer stable directive.",
+            evidence.rolloutPath
+          );
         }
 
-        queueUpsert(operations, knownOperationKeys, stableDirective);
+        queueUpsert(operations, knownOperationKeys, {
+          ...stableDirective,
+          reason:
+            deleteTargets.length > 0
+              ? "Stable directive that should replace stale memory."
+              : stableDirective.reason
+        });
         continue;
       }
 
