@@ -848,22 +848,18 @@ describe("session continuity domain", () => {
     expect(result.diagnostics.confidence).toBe("high");
   });
 
-  it("surfaces expanded continuity warning hints for architecture, reference, required-service, and route-order conflicts", async () => {
+  it("surfaces expanded continuity warning hints for architecture and route-order conflicts", async () => {
     const evidence: RolloutEvidence = {
       sessionId: "session-expanded-warning-hints",
       createdAt: "2026-03-15T00:00:00.000Z",
       cwd: "/tmp/project",
       userMessages: [
         "Keep Markdown-first as the canonical store, not database-first.",
-        "Use the production dashboard at https://dash.example.com for auth incidents.",
-        "Redis must be running before integration tests.",
         "Use search -> timeline -> details for recall.",
         "Use MCP -> local bridge -> resolved CLI for retrieval."
       ],
       agentMessages: [
         "Maybe move to a database-first canonical store later.",
-        "Use the old dashboard at https://legacy.example.com for auth incidents.",
-        "Postgres must be running before integration tests.",
         "Use details -> timeline -> search for recall.",
         "Use resolved CLI -> local bridge -> MCP for retrieval."
       ],
@@ -876,12 +872,83 @@ describe("session continuity domain", () => {
     expect(buckets.warningHints).toEqual(
       expect.arrayContaining([
         expect.stringContaining("canonical store"),
-        expect.stringContaining("reference pointer"),
-        expect.stringContaining("required service"),
         expect.stringContaining("retrieval flow"),
         expect.stringContaining("route order")
       ])
     );
+  });
+
+  it("surfaces continuity warning hints for conflicting same-category reference pointers and same-service prerequisites", async () => {
+    const evidence: RolloutEvidence = {
+      sessionId: "session-reference-and-service-conflicts",
+      createdAt: "2026-03-15T00:00:00.000Z",
+      cwd: "/tmp/project",
+      userMessages: [
+        "Use the auth runbook at https://docs.example.com/auth-runbook.",
+        "Redis must be running before integration tests."
+      ],
+      agentMessages: [
+        "Use the auth runbook at https://old.example.com/auth-runbook.",
+        "Redis is not required before integration tests."
+      ],
+      toolCalls: [],
+      rolloutPath: "/tmp/rollout.jsonl"
+    };
+
+    const buckets = collectSessionContinuityEvidenceBuckets(evidence);
+
+    expect(buckets.warningHints).toEqual(
+      expect.arrayContaining([
+        expect.stringContaining("reference pointer:runbook"),
+        expect.stringContaining("required service:redis")
+      ])
+    );
+  });
+
+  it("does not treat additive reference pointers or multiple required services as conflicts", async () => {
+    const evidence: RolloutEvidence = {
+      sessionId: "session-additive-warning-hints",
+      createdAt: "2026-03-15T00:00:00.000Z",
+      cwd: "/tmp/project",
+      userMessages: [
+        "Use the production dashboard at https://dash.example.com for auth incidents.",
+        "Use the auth docs at https://docs.example.com/auth for incident triage.",
+        "Redis must be running before integration tests.",
+        "Postgres must be running before integration tests.",
+        "Next step: review the auth incident notes before changing the middleware."
+      ],
+      agentMessages: [],
+      toolCalls: [],
+      rolloutPath: "/tmp/rollout.jsonl"
+    };
+
+    const buckets = collectSessionContinuityEvidenceBuckets(evidence);
+    expect(buckets.warningHints).toEqual([]);
+
+    const summarizer = new SessionContinuitySummarizer(baseConfig("/tmp/memory-root"));
+    const summary = await summarizer.summarize(evidence);
+    expect(summary.projectLocal.incompleteNext).toEqual(
+      expect.arrayContaining([
+        "review the auth incident notes before changing the middleware."
+      ])
+    );
+  });
+
+  it("does not turn one required service into a conflicting not-required signal when another service is explicitly optional", () => {
+    const evidence: RolloutEvidence = {
+      sessionId: "session-mixed-service-negation",
+      createdAt: "2026-03-15T00:00:00.000Z",
+      cwd: "/tmp/project",
+      userMessages: [
+        "Redis must be running before integration tests, but Docker is not required."
+      ],
+      agentMessages: ["Redis must be running before integration tests."],
+      toolCalls: [],
+      rolloutPath: "/tmp/rollout.jsonl"
+    };
+
+    const buckets = collectSessionContinuityEvidenceBuckets(evidence);
+    expect(buckets.warningHints).toEqual([]);
   });
 
   it("falls back after scrubbing warning-only codex output", async () => {
@@ -1364,7 +1431,10 @@ describe("session continuity domain", () => {
 
     const compiled = compileSessionContinuity(
       state,
-      ["/tmp/project/shared.md", "/tmp/project/local.md"],
+      [
+        "/tmp/project/continuity/project/active.md",
+        "/tmp/project/.codex-auto-memory/sessions/active.md"
+      ],
       12
     );
 
@@ -1372,12 +1442,12 @@ describe("session continuity domain", () => {
     expect(compiled.text).toContain("# Session Continuity");
     expect(compiled.text).toContain("Source");
     expect(compiled.candidateSourceFiles).toEqual([
-      "/tmp/project/shared.md",
-      "/tmp/project/local.md"
+      "/tmp/project/continuity/project/active.md",
+      "/tmp/project/.codex-auto-memory/sessions/active.md"
     ]);
     expect(compiled.sourceFiles).toEqual([
-      "/tmp/project/shared.md",
-      "/tmp/project/local.md"
+      "/tmp/project/continuity/project/active.md",
+      "/tmp/project/.codex-auto-memory/sessions/active.md"
     ]);
     expect(compiled.continuityMode).toBe("startup");
     expect(compiled.continuityProvenanceKind).toBe("temporary-continuity");
@@ -1455,6 +1525,21 @@ describe("session continuity domain", () => {
         })
       ])
     );
+  });
+
+  it("treats unknown continuity source paths conservatively as project-local", () => {
+    const state = {
+      ...createEmptySessionContinuityState("project-local", "project-1", "worktree-1"),
+      goal: "Continue the host-local continuity workflow."
+    };
+
+    const compiled = compileSessionContinuity(
+      state,
+      ["/tmp/host-specific/local-continuity.md"],
+      12
+    );
+
+    expect(compiled.continuitySourceKinds).toEqual(["project-local"]);
   });
 });
 
