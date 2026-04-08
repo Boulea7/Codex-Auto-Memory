@@ -161,6 +161,14 @@ function isContinuityRecoveryFailedStage(
   return value === "summary-write" || value === "audit-write";
 }
 
+function isOptionalNonNegativeNumberField(
+  record: Record<string, unknown>,
+  key: "noopOperationCount" | "suppressedOperationCount" | "rejectedOperationCount"
+): boolean {
+  const value = record[key];
+  return value === undefined || (typeof value === "number" && value >= 0);
+}
+
 export function isSyncRecoveryRecord(value: unknown): value is SyncRecoveryRecord {
   if (!value || typeof value !== "object") {
     return false;
@@ -196,6 +204,9 @@ export function isSyncRecoveryRecord(value: unknown): value is SyncRecoveryRecor
     typeof record.actualExtractorName === "string" &&
     (record.status === "applied" || record.status === "no-op") &&
     typeof record.appliedCount === "number" &&
+    isOptionalNonNegativeNumberField(record, "noopOperationCount") &&
+    isOptionalNonNegativeNumberField(record, "suppressedOperationCount") &&
+    isOptionalNonNegativeNumberField(record, "rejectedOperationCount") &&
     noopOperationCount >= 0 &&
     suppressedOperationCount >= 0 &&
     rejectedOperationCount >= 0 &&
