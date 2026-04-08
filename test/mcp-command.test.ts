@@ -1259,7 +1259,13 @@ describe("mcp command", () => {
       readOnlyRetrieval: true
     });
     expect(payload.snippet).toContain(realProjectDir);
-    expect(payload.workflowContract).toBeUndefined();
+    expect(payload.workflowContract).toMatchObject({
+      cliFallback: {
+        searchCommand: expect.stringContaining(realProjectDir),
+        timelineCommand: expect.stringContaining(realProjectDir),
+        detailsCommand: expect.stringContaining(realProjectDir)
+      }
+    });
   });
 
   it("pins Codex AGENTS guidance fallback commands when print-config uses --cwd", async () => {

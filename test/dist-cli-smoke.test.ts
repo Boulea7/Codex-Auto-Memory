@@ -500,7 +500,13 @@ describe("dist cli smoke", () => {
       serverName: "codex_auto_memory",
       targetFileHint: ".mcp.json"
     });
-    expect(JSON.parse(claudeResult.stdout).workflowContract).toBeUndefined();
+    expect(JSON.parse(claudeResult.stdout).workflowContract).toMatchObject({
+      cliFallback: {
+        searchCommand: expect.any(String),
+        timelineCommand: expect.any(String),
+        detailsCommand: expect.any(String)
+      }
+    });
 
     const geminiResult = runCli(
       projectDir,
@@ -518,7 +524,13 @@ describe("dist cli smoke", () => {
       serverName: "codex_auto_memory",
       targetFileHint: ".gemini/settings.json"
     });
-    expect(JSON.parse(geminiResult.stdout).workflowContract).toBeUndefined();
+    expect(JSON.parse(geminiResult.stdout).workflowContract).toMatchObject({
+      cliFallback: {
+        searchCommand: expect.any(String),
+        timelineCommand: expect.any(String),
+        detailsCommand: expect.any(String)
+      }
+    });
 
     const genericResult = runCli(
       projectDir,
@@ -537,7 +549,13 @@ describe("dist cli smoke", () => {
       targetFileHint: "Your MCP client's stdio server config",
       snippetFormat: "json"
     });
-    expect(JSON.parse(genericResult.stdout).workflowContract).toBeUndefined();
+    expect(JSON.parse(genericResult.stdout).workflowContract).toMatchObject({
+      cliFallback: {
+        searchCommand: expect.any(String),
+        timelineCommand: expect.any(String),
+        detailsCommand: expect.any(String)
+      }
+    });
   });
 
   it("rejects generic MCP install from the compiled cli entrypoint because wiring stays manual-only", async () => {
