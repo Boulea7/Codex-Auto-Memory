@@ -44,7 +44,8 @@ const memorySearchResultSchema = z.object({
   summary: z.string(),
   updatedAt: z.string(),
   matchedFields: z.array(z.string()),
-  approxReadCost: z.number().int().nonnegative()
+  approxReadCost: z.number().int().nonnegative(),
+  globalRank: z.number().int().positive()
 });
 
 const memorySearchDiagnosticSchema = z.object({
@@ -59,17 +60,37 @@ const memorySearchDiagnosticSchema = z.object({
   generatedAt: z.string().nullable()
 });
 
+const topicFileDiagnosticSchema = z.object({
+  scope: z.enum(["global", "project", "project-local"]),
+  state: memoryRecordStateSchema,
+  topic: z.string(),
+  path: z.string(),
+  safeToRewrite: z.boolean(),
+  entryCount: z.number().int().nonnegative(),
+  invalidEntryBlockCount: z.number().int().nonnegative(),
+  manualContentDetected: z.boolean(),
+  unsafeReason: z.string().optional()
+});
+
 const memorySearchResponseSchema = z.object({
   query: z.string(),
   scope: retrievalScopeSchema,
   state: retrievalStateSchema,
   resolvedState: resolvedRetrievalStateSchema,
   searchOrder: z.array(z.string()),
+  totalMatchedCount: z.number().int().nonnegative(),
+  returnedCount: z.number().int().nonnegative(),
   globalLimitApplied: z.boolean(),
   truncatedCount: z.number().int().nonnegative(),
+  resultWindow: z.object({
+    start: z.number().int().nonnegative(),
+    end: z.number().int().nonnegative(),
+    limit: z.number().int().positive()
+  }),
   fallbackUsed: z.boolean(),
   stateFallbackUsed: z.boolean(),
   markdownFallbackUsed: z.boolean(),
+  finalRetrievalMode: z.enum(["index", "markdown-fallback"]),
   retrievalMode: z.enum(["index", "markdown-fallback"]),
   retrievalFallbackReason: z.enum(["missing", "invalid", "stale"]).optional(),
   stateResolution: z.object({
@@ -86,7 +107,8 @@ const memorySearchResponseSchema = z.object({
     anyMarkdownFallback: z.boolean(),
     fallbackReasons: z.array(z.enum(["missing", "invalid", "stale"])),
     executionModes: z.array(z.enum(["index", "markdown-fallback"])),
-    checkedPaths: z.array(memorySearchDiagnosticSchema)
+    checkedPaths: z.array(memorySearchDiagnosticSchema),
+    topicDiagnostics: z.array(topicFileDiagnosticSchema).optional()
   }),
   results: z.array(memorySearchResultSchema)
 });
@@ -156,13 +178,51 @@ const memoryLineageSummarySchema = z.object({
   rolloutConflictCount: z.number().int().nonnegative(),
   noopOperationCount: z.number().int().nonnegative(),
   suppressedOperationCount: z.number().int().nonnegative(),
-  conflictCount: z.number().int().nonnegative()
+  conflictCount: z.number().int().nonnegative(),
+  rejectedOperationCount: z.number().int().nonnegative(),
+  rejectedReasonCounts: z.record(z.string(), z.number().int().nonnegative()).optional()
 });
 
 const memoryTimelineResponseSchema = z.object({
   ref: z.string(),
   events: z.array(memoryTimelineEventSchema),
   warnings: z.array(z.string()),
+  latestAudit: z
+    .object({
+      auditPath: z.string(),
+      appliedAt: z.string(),
+      rolloutPath: z.string(),
+      sessionId: z.string().optional(),
+      status: z.enum(["applied", "no-op", "skipped"]),
+      resultSummary: z.string(),
+      matchedOperationCount: z.number().int().nonnegative(),
+      noopOperationCount: z.number().int().nonnegative(),
+      suppressedOperationCount: z.number().int().nonnegative(),
+      rejectedOperationCount: z.number().int().nonnegative(),
+      rejectedReasonCounts: z.record(z.string(), z.number().int().nonnegative()).optional(),
+      rejectedOperations: z
+        .array(
+          z.object({
+            action: z.enum(["upsert", "delete", "archive"]),
+            scope: z.enum(["global", "project", "project-local"]),
+            topic: z.string(),
+            id: z.string(),
+            reason: z.string()
+          })
+        )
+        .optional(),
+      conflicts: z.array(
+        z.object({
+          scope: z.enum(["global", "project", "project-local"]),
+          topic: z.string(),
+          candidateSummary: z.string(),
+          conflictsWith: z.array(z.string()),
+          source: z.enum(["within-rollout", "existing-memory"]),
+          resolution: z.literal("suppressed")
+        })
+      )
+    })
+    .nullable(),
   latestAppliedLifecycle: memoryAppliedLifecycleSchema.nullable(),
   latestLifecycleAttempt: memoryLifecycleAttemptSchema.nullable(),
   lineageSummary: memoryLineageSummarySchema
@@ -197,6 +257,19 @@ const memoryDetailsResponseSchema = z.object({
       matchedOperationCount: z.number().int().nonnegative(),
       noopOperationCount: z.number().int().nonnegative(),
       suppressedOperationCount: z.number().int().nonnegative(),
+      rejectedOperationCount: z.number().int().nonnegative(),
+      rejectedReasonCounts: z.record(z.string(), z.number().int().nonnegative()).optional(),
+      rejectedOperations: z
+        .array(
+          z.object({
+            action: z.enum(["upsert", "delete", "archive"]),
+            scope: z.enum(["global", "project", "project-local"]),
+            topic: z.string(),
+            id: z.string(),
+            reason: z.string()
+          })
+        )
+        .optional(),
       conflicts: z.array(
         z.object({
           scope: z.enum(["global", "project", "project-local"]),

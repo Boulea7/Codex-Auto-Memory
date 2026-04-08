@@ -3,7 +3,9 @@ import type {
   ContinuityRecoveryRecord,
   ContinuityRecoveryFailedStage,
   MemoryConflictCandidate,
+  MemoryOperationRejectionReason,
   MemoryScope,
+  RejectedMemoryOperationSummary,
   SessionContinuityConfidence,
   SessionContinuityAuditTrigger,
   SessionContinuityDiagnostics,
@@ -52,6 +54,57 @@ function isMemoryConflictCandidate(value: unknown): value is MemoryConflictCandi
     isStringArray(candidate.conflictsWith) &&
     isConflictSource(candidate.source) &&
     isConflictResolution(candidate.resolution)
+  );
+}
+
+function isMemoryOperationRejectionReason(
+  value: unknown
+): value is MemoryOperationRejectionReason {
+  return (
+    value === "unknown-topic" ||
+    value === "sensitive" ||
+    value === "volatile" ||
+    value === "empty-summary" ||
+    value === "operation-cap"
+  );
+}
+
+function isLegacyMemoryOperationRejectionReason(value: unknown): value is "detail-truncated" {
+  return value === "detail-truncated";
+}
+
+function isRejectedReasonCounts(
+  value: unknown
+): value is Partial<Record<MemoryOperationRejectionReason, number>> {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return false;
+  }
+
+  return Object.entries(value).every(
+    ([key, count]) =>
+      (isMemoryOperationRejectionReason(key) || isLegacyMemoryOperationRejectionReason(key)) &&
+      typeof count === "number" &&
+      count >= 0
+  );
+}
+
+function isRejectedMemoryOperationSummary(
+  value: unknown
+): value is RejectedMemoryOperationSummary {
+  if (!value || typeof value !== "object") {
+    return false;
+  }
+
+  const summary = value as Record<string, unknown>;
+  return (
+    (summary.action === "upsert" ||
+      summary.action === "delete" ||
+      summary.action === "archive") &&
+    isMemoryScope(summary.scope) &&
+    typeof summary.topic === "string" &&
+    typeof summary.id === "string" &&
+    (isMemoryOperationRejectionReason(summary.reason) ||
+      isLegacyMemoryOperationRejectionReason(summary.reason))
   );
 }
 
@@ -105,7 +158,7 @@ function isSyncRecoveryFailedStage(value: unknown): value is SyncRecoveryFailedS
 function isContinuityRecoveryFailedStage(
   value: unknown
 ): value is ContinuityRecoveryFailedStage {
-  return value === "audit-write";
+  return value === "summary-write" || value === "audit-write";
 }
 
 export function isSyncRecoveryRecord(value: unknown): value is SyncRecoveryRecord {
@@ -119,10 +172,18 @@ export function isSyncRecoveryRecord(value: unknown): value is SyncRecoveryRecor
         isMemoryConflictCandidate(candidate)
       )
     : [];
-  const hasNoopOperationCount = Object.prototype.hasOwnProperty.call(record, "noopOperationCount");
-  const noopOperationCount = hasNoopOperationCount ? record.noopOperationCount : 0;
+  const noopOperationCount =
+    typeof record.noopOperationCount === "number" ? record.noopOperationCount : 0;
   const suppressedOperationCount =
     typeof record.suppressedOperationCount === "number" ? record.suppressedOperationCount : 0;
+  const rejectedOperationCount =
+    typeof record.rejectedOperationCount === "number" ? record.rejectedOperationCount : 0;
+  const rejectedOperations = Array.isArray(record.rejectedOperations)
+    ? record.rejectedOperations.filter((operation): operation is RejectedMemoryOperationSummary =>
+        isRejectedMemoryOperationSummary(operation) &&
+        isMemoryOperationRejectionReason(operation.reason)
+      )
+    : [];
   return (
     typeof record.recordedAt === "string" &&
     typeof record.projectId === "string" &&
@@ -135,9 +196,11 @@ export function isSyncRecoveryRecord(value: unknown): value is SyncRecoveryRecor
     typeof record.actualExtractorName === "string" &&
     (record.status === "applied" || record.status === "no-op") &&
     typeof record.appliedCount === "number" &&
-    (!hasNoopOperationCount ||
-      (typeof noopOperationCount === "number" && noopOperationCount >= 0)) &&
+    noopOperationCount >= 0 &&
     suppressedOperationCount >= 0 &&
+    rejectedOperationCount >= 0 &&
+    (record.rejectedReasonCounts === undefined || isRejectedReasonCounts(record.rejectedReasonCounts)) &&
+    rejectedOperations.length === (Array.isArray(record.rejectedOperations) ? record.rejectedOperations.length : 0) &&
     Array.isArray(record.scopesTouched) &&
     record.scopesTouched.every((scope) => isMemoryScope(scope)) &&
     conflicts.length === (Array.isArray(record.conflicts) ? record.conflicts.length : 0) &&
@@ -145,6 +208,22 @@ export function isSyncRecoveryRecord(value: unknown): value is SyncRecoveryRecor
     typeof record.failureMessage === "string" &&
     typeof record.auditEntryWritten === "boolean"
   );
+}
+
+export function normalizeSyncRecoveryRecord(record: SyncRecoveryRecord): SyncRecoveryRecord {
+  return {
+    ...record,
+    noopOperationCount: record.noopOperationCount ?? 0,
+    suppressedOperationCount: record.suppressedOperationCount ?? 0,
+    rejectedOperationCount: record.rejectedOperationCount ?? 0,
+    rejectedReasonCounts: Object.fromEntries(
+      Object.entries(record.rejectedReasonCounts ?? {}).filter(([reason]) =>
+        isMemoryOperationRejectionReason(reason)
+      )
+    ),
+    rejectedOperations: record.rejectedOperations ?? [],
+    conflicts: record.conflicts ?? []
+  };
 }
 
 export function isContinuityRecoveryRecord(
@@ -190,6 +269,9 @@ interface BuildSyncRecoveryRecordOptions {
   appliedCount: number;
   noopOperationCount?: number;
   suppressedOperationCount?: number;
+  rejectedOperationCount?: number;
+  rejectedReasonCounts?: Partial<Record<MemoryOperationRejectionReason, number>>;
+  rejectedOperations?: RejectedMemoryOperationSummary[];
   scopesTouched: MemoryScope[];
   conflicts?: MemoryConflictCandidate[];
   failedStage: SyncRecoveryFailedStage;
@@ -200,7 +282,7 @@ interface BuildSyncRecoveryRecordOptions {
 export function buildSyncRecoveryRecord(
   options: BuildSyncRecoveryRecordOptions
 ): SyncRecoveryRecord {
-  return {
+  return normalizeSyncRecoveryRecord({
     recordedAt: new Date().toISOString(),
     projectId: options.projectId,
     worktreeId: options.worktreeId,
@@ -214,12 +296,17 @@ export function buildSyncRecoveryRecord(
     appliedCount: options.appliedCount,
     noopOperationCount: options.noopOperationCount ?? 0,
     suppressedOperationCount: options.suppressedOperationCount ?? 0,
+    rejectedOperationCount: options.rejectedOperationCount ?? 0,
+    ...(options.rejectedReasonCounts ? { rejectedReasonCounts: options.rejectedReasonCounts } : {}),
+    ...(options.rejectedOperations && options.rejectedOperations.length > 0
+      ? { rejectedOperations: options.rejectedOperations }
+      : {}),
     scopesTouched: options.scopesTouched,
     conflicts: options.conflicts ?? [],
     failedStage: options.failedStage,
     failureMessage: options.failureMessage,
     auditEntryWritten: options.auditEntryWritten
-  };
+  });
 }
 
 // Recovery identity uses 4 fields (projectId, worktreeId, rolloutPath, sessionId) rather than
@@ -264,6 +351,7 @@ export function buildContinuityRecoveryRecord(
     worktreeId: options.worktreeId,
     rolloutPath: options.diagnostics.rolloutPath,
     sourceSessionId: options.diagnostics.sourceSessionId,
+    provenanceKind: options.diagnostics.provenanceKind,
     trigger: options.trigger,
     writeMode: options.writeMode,
     scope: options.scope,
