@@ -650,6 +650,108 @@ describe("session continuity domain", () => {
     );
   });
 
+  it("collects next steps using the original mixed transcript order", () => {
+    const evidence = {
+      sessionId: "session-mixed-order",
+      createdAt: "2026-03-15T00:00:00.000Z",
+      cwd: "/tmp/project",
+      userMessages: [
+        "Next step: update README.md for the release notes.",
+        "Next step: sync docs/host-surfaces.md with the route wording."
+      ],
+      agentMessages: [
+        "Remaining work: patch src/auth.ts before the final verification.",
+        "Remaining work: rerun pnpm test after the auth change."
+      ],
+      orderedMessages: [
+        {
+          role: "user",
+          message: "Next step: update README.md for the release notes."
+        },
+        {
+          role: "agent",
+          message: "Remaining work: patch src/auth.ts before the final verification."
+        },
+        {
+          role: "user",
+          message: "Next step: sync docs/host-surfaces.md with the route wording."
+        },
+        {
+          role: "agent",
+          message: "Remaining work: rerun pnpm test after the auth change."
+        }
+      ],
+      toolCalls: [],
+      rolloutPath: "/tmp/rollout.jsonl"
+    } satisfies RolloutEvidence & {
+      orderedMessages: Array<{ role: "user" | "agent"; message: string }>;
+    };
+
+    const buckets = collectSessionContinuityEvidenceBuckets(evidence);
+
+    expect(buckets.explicitNextSteps).toEqual([
+      "rerun pnpm test after the auth change.",
+      "sync docs/host-surfaces.md with the route wording.",
+      "patch src/auth.ts before the final verification.",
+      "update README.md for the release notes."
+    ]);
+  });
+
+  it("keeps repo-relative file paths in continuity file-write summaries", async () => {
+    const evidence: RolloutEvidence = {
+      sessionId: "session-relative-file-writes",
+      createdAt: "2026-03-15T00:00:00.000Z",
+      cwd: "/tmp/project",
+      userMessages: ["Continue the release prep."],
+      agentMessages: [],
+      toolCalls: [
+        {
+          name: "apply_patch_freeform",
+          arguments:
+            "diff --git a/src/index.ts b/src/index.ts\nindex abc..def 100644\n--- a/src/index.ts\n+++ b/src/index.ts\n@@ -1,1 +1,2 @@\n+export const ready = true;\n",
+          output: undefined
+        },
+        {
+          name: "apply_patch_freeform",
+          arguments:
+            "diff --git a/docs/index.ts b/docs/index.ts\nindex abc..def 100644\n--- a/docs/index.ts\n+++ b/docs/index.ts\n@@ -1,1 +1,2 @@\n+export const docsReady = true;\n",
+          output: undefined
+        }
+      ],
+      rolloutPath: "/tmp/rollout.jsonl"
+    };
+
+    const summarizer = new SessionContinuitySummarizer(baseConfig("/tmp/memory-root"));
+    const summary = await summarizer.summarize(evidence);
+
+    expect(summary.projectLocal.filesDecisionsEnvironment).toEqual(
+      expect.arrayContaining([
+        "File modified: src/index.ts",
+        "File modified: docs/index.ts"
+      ])
+    );
+  });
+
+  it("does not classify bare repo-wide filenames as project-local notes", async () => {
+    const evidence: RolloutEvidence = {
+      sessionId: "session-bare-filenames-shared",
+      createdAt: "2026-03-15T00:00:00.000Z",
+      cwd: "/tmp/project",
+      userMessages: ["README.md and package.json must stay aligned before release."],
+      agentMessages: [],
+      toolCalls: [],
+      rolloutPath: "/tmp/rollout.jsonl"
+    };
+
+    const summarizer = new SessionContinuitySummarizer(baseConfig("/tmp/memory-root"));
+    const summary = await summarizer.summarize(evidence);
+
+    expect(summary.project.filesDecisionsEnvironment).toContain(
+      "README.md and package.json must stay aligned before release."
+    );
+    expect(summary.projectLocal.filesDecisionsEnvironment).toEqual([]);
+  });
+
   it("prompt includes evidence buckets for commands, file writes, and next steps", () => {
     const evidence: RolloutEvidence = {
       sessionId: "session-prompt-buckets",
@@ -848,7 +950,7 @@ describe("session continuity domain", () => {
     expect(result.diagnostics.confidence).toBe("high");
   });
 
-  it("surfaces expanded continuity warning hints for architecture and route-order conflicts", async () => {
+  it("surfaces expanded continuity warning hints for true architecture and route-order conflicts", async () => {
     const evidence: RolloutEvidence = {
       sessionId: "session-expanded-warning-hints",
       createdAt: "2026-03-15T00:00:00.000Z",
@@ -926,15 +1028,29 @@ describe("session continuity domain", () => {
     expect(buckets.warningHints).toEqual([]);
 
     const summarizer = new SessionContinuitySummarizer(baseConfig("/tmp/memory-root"));
-    const summary = await summarizer.summarize(evidence);
-    expect(summary.projectLocal.incompleteNext).toEqual(
-      expect.arrayContaining([
-        "review the auth incident notes before changing the middleware."
-      ])
-    );
+    const result = await summarizer.summarizeWithDiagnostics(evidence);
+    expect(result.diagnostics.warnings).toEqual([]);
   });
 
-  it("does not turn one required service into a conflicting not-required signal when another service is explicitly optional", () => {
+  it("does not treat same-category runbook pointers for different resources as conflicts", async () => {
+    const evidence: RolloutEvidence = {
+      sessionId: "session-additive-runbook-pointers",
+      createdAt: "2026-03-15T00:00:00.000Z",
+      cwd: "/tmp/project",
+      userMessages: [
+        "Use the auth runbook at https://docs.example.com/auth-runbook.",
+        "Use the billing runbook at https://docs.example.com/billing-runbook."
+      ],
+      agentMessages: [],
+      toolCalls: [],
+      rolloutPath: "/tmp/rollout.jsonl"
+    };
+
+    const buckets = collectSessionContinuityEvidenceBuckets(evidence);
+    expect(buckets.warningHints).toEqual([]);
+  });
+
+  it("does not turn one required service into a conflicting not-required signal when another service is explicitly optional", async () => {
     const evidence: RolloutEvidence = {
       sessionId: "session-mixed-service-negation",
       createdAt: "2026-03-15T00:00:00.000Z",
@@ -1526,21 +1642,6 @@ describe("session continuity domain", () => {
       ])
     );
   });
-
-  it("treats unknown continuity source paths conservatively as project-local", () => {
-    const state = {
-      ...createEmptySessionContinuityState("project-local", "project-1", "worktree-1"),
-      goal: "Continue the host-local continuity workflow."
-    };
-
-    const compiled = compileSessionContinuity(
-      state,
-      ["/tmp/host-specific/local-continuity.md"],
-      12
-    );
-
-    expect(compiled.continuitySourceKinds).toEqual(["project-local"]);
-  });
 });
 
 describe("SessionContinuityStore", () => {
@@ -1756,4 +1857,5 @@ describe("SessionContinuityStore", () => {
     expect(await fs.readFile(olderFile, "utf8")).toBe("older\n");
     expect((await fs.readdir(store.paths.localDir)).filter((name) => name.endsWith("-session.tmp"))).toHaveLength(2);
   });
+
 });

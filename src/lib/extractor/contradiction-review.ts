@@ -5,6 +5,7 @@ import type {
   MemoryScope
 } from "../types.js";
 import { canonicalCommandSignature } from "./command-signatures.js";
+import { extractReferenceResourceKey, splitDirectiveClauses } from "./directive-utils.js";
 
 interface DirectiveChoice {
   key: string;
@@ -55,7 +56,10 @@ function isHighConfidenceReplacement(operation: MemoryOperation): boolean {
     return false;
   }
 
-  if (operation.reason === "Explicit user correction that should replace stale memory.") {
+  if (
+    operation.reason === "Explicit user correction that should replace stale memory." ||
+    operation.reason === "Stable directive that should replace stale memory."
+  ) {
     return !hedgedCorrectionPattern.test(operation.summary ?? "");
   }
 
@@ -90,7 +94,7 @@ function extractCommandChoice(text: string): DirectiveChoice[] {
   return [
     {
       key: `command:${signature}`,
-      value: command.toLowerCase()
+      value: signature
     }
   ];
 }
@@ -177,9 +181,10 @@ function extractReferenceChoices(text: string): DirectiveChoice[] {
             : "pointer";
 
   if (url) {
+    const resourceKey = extractReferenceResourceKey(text, category, url) ?? category;
     return [
       {
-        key: `reference:${category}`,
+        key: `reference:${category}:${resourceKey}`,
         value: url
       }
     ];
@@ -187,9 +192,10 @@ function extractReferenceChoices(text: string): DirectiveChoice[] {
 
   const trackerMatch = normalized.match(/\b(linear|jira|github issues?)\b/iu)?.[1];
   if (trackerMatch) {
+    const resourceKey = extractReferenceResourceKey(text, category, null) ?? category;
     return [
       {
-        key: `reference:${category}`,
+        key: `reference:${category}:${resourceKey}`,
         value: trackerMatch.toLowerCase()
       }
     ];
@@ -231,36 +237,37 @@ function extractArchitectureChoices(text: string): DirectiveChoice[] {
 }
 
 function extractDebuggingChoices(text: string): DirectiveChoice[] {
-  const normalized = text.toLowerCase();
   const choices: DirectiveChoice[] = [];
 
   for (const value of debuggingDependencyValues) {
     const pattern = new RegExp(`\\b${escapeRegExp(value)}\\b`, "iu");
-    if (!pattern.test(normalized)) {
-      continue;
-    }
+    for (const clause of splitDirectiveClauses(text)) {
+      if (!pattern.test(clause.toLowerCase())) {
+        continue;
+      }
 
-    if (
-      /\b(?:does not require|doesn't require|is not required|not required|without)\b|不需要|无需/u.test(
-        text
-      )
-    ) {
-      choices.push({
-        key: `debugging:required-service:${value}`,
-        value: "not-required"
-      });
-      continue;
-    }
+      if (
+        /\b(?:does not require|doesn't require|is not required|not required|without)\b|不需要|无需/u.test(
+          clause
+        )
+      ) {
+        choices.push({
+          key: `debugging:required-service:${value}`,
+          value: "not-required"
+        });
+        continue;
+      }
 
-    if (
-      /\b(requires?|needs?|start|before running|must be running|running before|before integration tests)\b|需要|必须|先启动/u.test(
-        text
-      )
-    ) {
-      choices.push({
-        key: `debugging:required-service:${value}`,
-        value: "required"
-      });
+      if (
+        /\b(requires?|needs?|start|before running|must be running|running before|before integration tests)\b|需要|必须|先启动/u.test(
+          clause
+        )
+      ) {
+        choices.push({
+          key: `debugging:required-service:${value}`,
+          value: "required"
+        });
+      }
     }
   }
 
@@ -295,6 +302,19 @@ function choicesConflict(left: DirectiveChoice[], right: DirectiveChoice[]): boo
     right.some(
       (rightChoice) =>
         leftChoice.key === rightChoice.key && leftChoice.value !== rightChoice.value
+    )
+  );
+}
+
+function choicesEqual(left: DirectiveChoice[], right: DirectiveChoice[]): boolean {
+  if (left.length !== right.length) {
+    return false;
+  }
+
+  return left.every((leftChoice) =>
+    right.some(
+      (rightChoice) =>
+        leftChoice.key === rightChoice.key && leftChoice.value === rightChoice.value
     )
   );
 }
@@ -369,7 +389,8 @@ function shouldKeepReplacementDelete(
       review.highConfidence &&
       review.operation.scope === operation.scope &&
       review.operation.topic === operation.topic &&
-      choicesConflict(review.choices, targetChoices)
+      (choicesConflict(review.choices, targetChoices) ||
+        choicesEqual(review.choices, targetChoices))
   );
 }
 
@@ -407,7 +428,8 @@ export function reviewExtractedMemoryOperations(
         choices,
         highConfidence:
           isHighConfidenceReplacement(operation) ||
-          (operation.topic === "commands" && hasCommandReplacementDelete(operations, operation))
+          (operation.topic === "commands" &&
+            hasCommandReplacementDelete(operations, operation))
       };
     })
     .filter((review): review is CandidateReview => Boolean(review));
@@ -421,13 +443,34 @@ export function reviewExtractedMemoryOperations(
   }
 
   const suppressedIndices = new Set<number>();
+  const dedupedIndices = new Set<number>();
   const retainedIndices = new Set(reviews.map((review) => review.index));
   const conflicts: MemoryConflictCandidate[] = [];
 
   for (const review of reviews) {
+    const equivalentReviews = reviews
+      .filter(
+        (candidate) =>
+          candidate.index !== review.index &&
+          candidate.groupKey === review.groupKey &&
+          choicesEqual(review.choices, candidate.choices)
+      )
+      .sort((left, right) => right.index - left.index);
+    const preferredEquivalent = equivalentReviews[0];
+    if (preferredEquivalent && preferredEquivalent.index > review.index) {
+      dedupedIndices.add(review.index);
+      retainedIndices.delete(review.index);
+    }
+  }
+
+  for (const review of reviews) {
+    if (dedupedIndices.has(review.index)) {
+      continue;
+    }
     const conflictingReviews = reviews
       .filter(
         (candidate) =>
+          !dedupedIndices.has(candidate.index) &&
           candidate.index !== review.index &&
           candidate.groupKey === review.groupKey &&
           choicesConflict(review.choices, candidate.choices)
@@ -498,6 +541,10 @@ export function reviewExtractedMemoryOperations(
       return false;
     }
 
+    if (dedupedIndices.has(index)) {
+      return false;
+    }
+
     if (!isReplacementDelete(operation)) {
       return true;
     }
@@ -507,7 +554,7 @@ export function reviewExtractedMemoryOperations(
 
   return {
     operations: keptOperations,
-    suppressedOperationCount: operations.length - keptOperations.length,
+    suppressedOperationCount: suppressedIndices.size,
     conflicts
   };
 }
