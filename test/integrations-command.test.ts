@@ -370,7 +370,9 @@ describe("integrations command", () => {
       hookRecall: { status: "warning" },
       agents: { status: "missing" }
     });
-    expect(payload.nextSteps[0]).not.toContain("cam integrations apply --host codex");
+    expect(payload.nextSteps).not.toEqual(
+      expect.arrayContaining([expect.stringContaining("cam integrations apply --host codex")])
+    );
     expect(payload.nextSteps).toEqual(
       expect.arrayContaining([
         expect.stringContaining("cam mcp apply-guidance --host codex"),
