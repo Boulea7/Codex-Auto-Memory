@@ -1,3 +1,4 @@
+import path from "node:path";
 import type {
   RolloutEvidence,
   RolloutToolCall,
@@ -221,14 +222,45 @@ function extractFilePath(toolCall: RolloutToolCall): string | null {
   return extractFilePathFromPatch(toolCall.arguments);
 }
 
-export function summarizeFileWrite(toolCall: RolloutToolCall): string | null {
+function formatContinuityFilePath(filePath: string, cwd?: string): string {
+  const normalized = filePath.replace(/\\/gu, "/").trim();
+  if (!normalized) {
+    return "";
+  }
+
+  if (!path.isAbsolute(normalized)) {
+    return normalized.replace(/^\.\/+/u, "");
+  }
+
+  if (!cwd) {
+    return normalized;
+  }
+
+  const relative = path.relative(cwd, normalized).replace(/\\/gu, "/");
+  if (
+    relative.length > 0 &&
+    !relative.startsWith("../") &&
+    relative !== ".." &&
+    !path.isAbsolute(relative)
+  ) {
+    return relative.replace(/^\.\/+/u, "");
+  }
+
+  return normalized;
+}
+
+export function summarizeFileWrite(toolCall: RolloutToolCall, cwd?: string): string | null {
   const filePath = extractFilePath(toolCall);
   if (!filePath) {
     return null;
   }
 
-  const basename = filePath.split("/").pop() ?? filePath;
-  return `File modified: ${trimText(basename, 120)}`;
+  const displayPath = formatContinuityFilePath(filePath, cwd);
+  if (!displayPath) {
+    return null;
+  }
+
+  return `File modified: ${trimText(displayPath, 120)}`;
 }
 
 function escapeRegExp(value: string): string {
@@ -239,6 +271,19 @@ interface DirectiveSignal {
   key: string;
   value: string;
   authoritative: boolean;
+}
+
+function shouldWarnForConflictingDirectiveKey(key: string): boolean {
+  return (
+    key === "package-manager" ||
+    key === "repo-search" ||
+    key === "canonical-store" ||
+    key === "retrieval-flow" ||
+    key === "route-order" ||
+    key === "required-service" ||
+    key.startsWith("reference-pointer:") ||
+    key.startsWith("required-service:")
+  );
 }
 
 function extractReferenceSignal(text: string): DirectiveSignal | null {
@@ -515,7 +560,7 @@ export function collectSessionContinuityEvidenceBuckets(
     ...new Set(
       evidence.toolCalls
         .filter(isFileWriteToolCall)
-        .map(summarizeFileWrite)
+        .map((toolCall) => summarizeFileWrite(toolCall, evidence.cwd))
         .filter((item): item is string => Boolean(item))
     )
   ].slice(0, 6);
