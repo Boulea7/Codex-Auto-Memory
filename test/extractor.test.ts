@@ -726,7 +726,7 @@ describe("safety filter - volatile/sensitive patterns", () => {
     expect(filtered).toHaveLength(1);
   });
 
-  it("keeps volatile wording inside debugging topics", () => {
+  it("rejects volatile wording even inside debugging topics", () => {
     const filtered = filterMemoryOperations([
       {
         action: "upsert",
@@ -737,7 +737,7 @@ describe("safety filter - volatile/sensitive patterns", () => {
         details: ["Temporary but still useful while the issue is open."]
       }
     ]);
-    expect(filtered).toHaveLength(1);
+    expect(filtered).toHaveLength(0);
   });
 
   it("caps sanitized operations at 12 items", () => {
