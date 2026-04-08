@@ -43,7 +43,7 @@ afterEach(async () => {
 });
 
 describe("hooks command", () => {
-  it("supports --cwd and pins generated hook helpers to the targeted project root", async () => {
+  shellOnlyIt("supports --cwd and pins generated hook helpers to the targeted project root", async () => {
     const homeDir = await tempDir("cam-hooks-cwd-home-");
     const projectParentDir = await tempDir("cam-hooks-cwd-parent-");
     const projectDir = path.join(projectParentDir, "project with spaces");
@@ -105,9 +105,7 @@ describe("hooks command", () => {
 
     const recallScript = await fs.readFile(recallScriptPath, "utf8");
     const postWorkReviewScript = await fs.readFile(postWorkReviewScriptPath, "utf8");
-    expect(recallScript).toContain(
-      `PROJECT_ROOT=${JSON.stringify(await fs.realpath(projectDir))}`
-    );
+    expect(recallScript).toContain(`PROJECT_ROOT=${shellQuoteArg(await fs.realpath(projectDir))}`);
     expect(postWorkReviewScript).toContain(
       `cam sync --cwd ${shellQuoteArg(await fs.realpath(projectDir))}`
     );
@@ -155,7 +153,7 @@ describe("hooks command", () => {
     const realProjectDir = await fs.realpath(projectDir);
 
     expect(recallScript).toContain('exec cam recall search "$@"');
-    expect(recallScript).toContain(`PROJECT_ROOT=${JSON.stringify(realProjectDir)}`);
+    expect(recallScript).toContain(`PROJECT_ROOT=${shellQuoteArg(realProjectDir)}`);
     expect(recallScript).toContain("--state");
     expect(recallScript).toContain("auto");
     expect(recallScript).toContain("--limit");

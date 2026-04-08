@@ -2,6 +2,7 @@ import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
+import { buildMemorySyncAuditEntry } from "../src/lib/domain/memory-sync-audit.js";
 import { detectProjectContext } from "../src/lib/domain/project-context.js";
 import { MemoryStore } from "../src/lib/domain/memory-store.js";
 import { restoreOptionalEnv } from "./helpers/env.js";
@@ -53,7 +54,8 @@ describe("runRecall", () => {
       autoMemoryDirectory: memoryRoot
     });
 
-    const store = new MemoryStore(detectProjectContext(projectDir), {
+    const project = detectProjectContext(projectDir);
+    const store = new MemoryStore(project, {
       ...projectConfig,
       autoMemoryDirectory: memoryRoot
     });
@@ -124,7 +126,8 @@ describe("runRecall", () => {
       autoMemoryDirectory: memoryRoot
     });
 
-    const store = new MemoryStore(detectProjectContext(projectDir), {
+    const project = detectProjectContext(projectDir);
+    const store = new MemoryStore(project, {
       ...projectConfig,
       autoMemoryDirectory: memoryRoot
     });
@@ -187,7 +190,8 @@ describe("runRecall", () => {
       autoMemoryDirectory: memoryRoot
     });
 
-    const store = new MemoryStore(detectProjectContext(projectDir), {
+    const project = detectProjectContext(projectDir);
+    const store = new MemoryStore(project, {
       ...projectConfig,
       autoMemoryDirectory: memoryRoot
     });
@@ -249,7 +253,8 @@ describe("runRecall", () => {
       autoMemoryDirectory: memoryRoot
     });
 
-    const store = new MemoryStore(detectProjectContext(projectDir), {
+    const project = detectProjectContext(projectDir);
+    const store = new MemoryStore(project, {
       ...projectConfig,
       autoMemoryDirectory: memoryRoot
     });
@@ -601,6 +606,93 @@ describe("runRecall", () => {
         latestState: "archived",
         latestAuditStatus: null
       })
+    });
+  });
+
+  it("backfills latestAudit from a matching session-only sync audit entry", async () => {
+    const homeDir = await tempDir("cam-recall-session-only-audit-home-");
+    const projectDir = await tempDir("cam-recall-session-only-audit-project-");
+    const memoryRoot = await tempDir("cam-recall-session-only-audit-memory-");
+    process.env.HOME = homeDir;
+
+    const projectConfig = makeAppConfig();
+    await writeCamConfig(projectDir, projectConfig, {
+      autoMemoryDirectory: memoryRoot
+    });
+
+    const project = detectProjectContext(projectDir);
+    const store = new MemoryStore(project, {
+      ...projectConfig,
+      autoMemoryDirectory: memoryRoot
+    });
+    await store.ensureLayout();
+    await store.applyMutations(
+      [
+        {
+          action: "upsert",
+          scope: "project",
+          topic: "workflow",
+          id: "prefer-pnpm",
+          summary: "Prefer pnpm in this repository.",
+          details: ["Use pnpm instead of npm in this repository."],
+          reason: "Manual note.",
+          sources: ["manual"]
+        }
+      ],
+      {
+        sessionId: "session-only-audit"
+      }
+    );
+    await store.appendSyncAuditEntry(buildMemorySyncAuditEntry({
+      project,
+      config: {
+        ...projectConfig,
+        autoMemoryDirectory: memoryRoot
+      },
+      appliedAt: "2026-03-14T00:00:05.000Z",
+      rolloutPath: "rollout-without-match.jsonl",
+      sessionId: "session-only-audit",
+      configuredExtractorName: "heuristic",
+      actualExtractorMode: "heuristic",
+      actualExtractorName: "heuristic",
+      sessionSource: "manual",
+      status: "applied",
+      operations: [
+        {
+          action: "upsert",
+          scope: "project",
+          topic: "workflow",
+          id: "prefer-pnpm",
+          summary: "Prefer pnpm in this repository.",
+          details: ["Use pnpm instead of npm in this repository."]
+        }
+      ],
+      noopOperationCount: 0,
+      suppressedOperationCount: 0,
+      conflicts: []
+    }));
+
+    const detailsResult = runCli(projectDir, [
+      "recall",
+      "details",
+      "project:active:workflow:prefer-pnpm",
+      "--json"
+    ]);
+    expect(detailsResult.exitCode).toBe(0);
+    expect(JSON.parse(detailsResult.stdout)).toMatchObject({
+      latestLifecycleAction: "add",
+      latestState: "active",
+      latestSessionId: "session-only-audit",
+      latestRolloutPath: null,
+      latestAudit: {
+        auditPath: store.getSyncAuditPath(),
+        sessionId: "session-only-audit",
+        rolloutPath: "rollout-without-match.jsonl",
+        status: "applied",
+        resultSummary: "1 operation(s) applied",
+        noopOperationCount: 0,
+        suppressedOperationCount: 0
+      }
     });
   });
 
