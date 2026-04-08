@@ -140,7 +140,7 @@ function detectContinuitySourceKind(
     return "project-local";
   }
 
-  return index === 0 ? "shared" : "project-local";
+  return index === 0 && filePath.includes("/continuity/") ? "shared" : "project-local";
 }
 
 function parseFrontmatter(raw: string): { metadata: Record<string, string>; body: string } {

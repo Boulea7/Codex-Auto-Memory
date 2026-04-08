@@ -273,6 +273,13 @@ interface DirectiveSignal {
   authoritative: boolean;
 }
 
+function splitDirectiveClauses(text: string): string[] {
+  return text
+    .split(/\b(?:but|and)\b|[，,；;。]/u)
+    .map((clause) => clause.trim())
+    .filter(Boolean);
+}
+
 function shouldWarnForConflictingDirectiveKey(key: string): boolean {
   return (
     key === "package-manager" ||
@@ -341,28 +348,44 @@ function extractArchitectureSignal(text: string): DirectiveSignal | null {
   return extractDirectiveChoice(text, canonicalStoreValues, "canonical-store");
 }
 
-function extractDebuggingSignal(text: string): DirectiveSignal | null {
-  const normalized = text.toLowerCase();
-  if (
-    !/\b(requires?|needs?|start|before running|must be running|running before)\b|需要|必须|先启动/u.test(
-      text
-    )
-  ) {
-    return null;
-  }
+function extractDebuggingSignals(text: string): DirectiveSignal[] {
+  const signals: DirectiveSignal[] = [];
 
   for (const value of debuggingDependencyValues) {
-    const pattern = new RegExp(`\\b${escapeRegExp(value)}\\b`, "iu");
-    if (pattern.test(normalized)) {
-      return {
-        key: "required-service",
-        value,
-        authoritative: false
-      };
+    const servicePattern = new RegExp(`\\b${escapeRegExp(value)}\\b`, "iu");
+    for (const clause of splitDirectiveClauses(text)) {
+      if (!servicePattern.test(clause.toLowerCase())) {
+        continue;
+      }
+
+      if (
+        /\b(?:does not require|doesn't require|is not required|not required|without)\b|不需要|无需/u.test(
+          clause
+        )
+      ) {
+        signals.push({
+          key: `required-service:${value}`,
+          value: "not-required",
+          authoritative: false
+        });
+        continue;
+      }
+
+      if (
+        /\b(requires?|needs?|start|before running|must be running|running before|before integration tests)\b|需要|必须|先启动/u.test(
+          clause
+        )
+      ) {
+        signals.push({
+          key: `required-service:${value}`,
+          value: "required",
+          authoritative: false
+        });
+      }
     }
   }
 
-  return null;
+  return signals;
 }
 
 function extractOrderedSignal(
@@ -482,7 +505,7 @@ function collectWarningHints(agentMessages: string[], userMessages: string[]): s
       extractDirectiveChoice(message, repoSearchValues, "repo-search"),
       extractReferenceSignal(message),
       extractArchitectureSignal(message),
-      extractDebuggingSignal(message),
+      ...extractDebuggingSignals(message),
       ...extractPatternSignals(message)
     ].filter((choice): choice is DirectiveSignal => Boolean(choice));
 
@@ -502,7 +525,7 @@ function collectWarningHints(agentMessages: string[], userMessages: string[]): s
       extractDirectiveChoice(message, repoSearchValues, "repo-search"),
       extractReferenceSignal(message),
       extractArchitectureSignal(message),
-      extractDebuggingSignal(message),
+      ...extractDebuggingSignals(message),
       ...extractPatternSignals(message)
     ].filter((choice): choice is DirectiveSignal => Boolean(choice));
 
