@@ -76,8 +76,15 @@ describe("doctor command", () => {
     expect(payload.recommendedAction).toContain("mcp doctor --host codex");
     expect(payload.recommendedActionCommand).toContain("mcp doctor --host codex");
     expect(payload.recommendedDoctorCommand).toContain("doctor --json");
-    expect(payload.readiness.appServer?.enabled).toBe(true);
-    expect(["tui", "tui_app_server"]).toContain(payload.readiness.appServer?.name);
+    if (payload.readiness.appServer) {
+      expect(payload.readiness.appServer).toMatchObject({
+        stage: expect.any(String),
+        enabled: expect.any(Boolean)
+      });
+      expect(["tui", "tui_app_server"]).toContain(payload.readiness.appServer.name);
+    } else {
+      expect(payload.readiness.appServer).toBeNull();
+    }
     expect(payload.retrievalSidecar).toMatchObject({
       status: "warning",
       checks: expect.arrayContaining([
@@ -94,6 +101,44 @@ describe("doctor command", () => {
     });
     expect(payload.layoutDiagnostics).toEqual([]);
     expect(await pathExists(memoryRoot)).toBe(false);
+  });
+
+  it("keeps the top-level doctor contract stable when codex feature output omits app-server signals", async () => {
+    const homeDir = await tempDir("cam-doctor-no-app-server-home-");
+    const projectDir = await tempDir("cam-doctor-no-app-server-project-");
+    const memoryRootParent = await tempDir("cam-doctor-no-app-server-memory-parent-");
+    const memoryRoot = path.join(memoryRootParent, "memory-root");
+    process.env.HOME = homeDir;
+
+    await writeCamConfig(projectDir, makeAppConfig(), {
+      autoMemoryDirectory: memoryRoot
+    });
+
+    const result = runCli(projectDir, ["doctor", "--json"], {
+      env: {
+        HOME: homeDir,
+        PATH: `${path.dirname(process.execPath)}:/usr/bin:/bin`
+      }
+    });
+    expect(result.exitCode, result.stderr).toBe(0);
+
+    const payload = JSON.parse(result.stdout) as {
+      readiness: {
+        appServer?: {
+          name: string;
+          stage: string;
+          enabled: boolean;
+        } | null;
+      };
+      retrievalSidecar?: {
+        status: string;
+      };
+    };
+
+    expect(payload.readiness.appServer).toBeNull();
+    expect(payload.retrievalSidecar).toMatchObject({
+      status: "warning"
+    });
   });
 
   it("surfaces unsafe topic and layout diagnostics through cam doctor", async () => {
