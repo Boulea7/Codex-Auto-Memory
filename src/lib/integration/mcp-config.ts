@@ -53,14 +53,12 @@ export function buildMcpHostConfigSnippet(host: McpHost, projectRoot: string): M
     snippetFormat: definition.snippetFormat,
     snippet: buildMcpHostSnippet(host, projectRoot),
     notes: [...definition.notes],
-    workflowContract: buildWorkflowContract({
-      cwd: projectRoot
-    }),
     ...(host === "codex"
       ? {
-          agentsGuidance: buildCodexAgentsGuidance({
+          workflowContract: buildWorkflowContract({
             cwd: projectRoot
           }),
+          agentsGuidance: buildCodexAgentsGuidance({ cwd: projectRoot }),
           experimentalHooks: buildExperimentalCodexHooksGuidance()
         }
       : {})

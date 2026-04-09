@@ -33,11 +33,7 @@ export interface McpCanonicalConfigInspection {
 
 export const MEMORY_RETRIEVAL_MCP_SERVER_NAME = "codex_auto_memory";
 
-export const SUPPORTED_MCP_INSTALL_HOSTS: readonly Exclude<McpHost, "generic">[] = [
-  "codex",
-  "claude",
-  "gemini"
-] as const;
+export const SUPPORTED_MCP_INSTALL_HOSTS: readonly Extract<McpHost, "codex">[] = ["codex"] as const;
 export const SUPPORTED_MCP_HOSTS: readonly McpHost[] = [
   "codex",
   "claude",
@@ -69,7 +65,7 @@ const HOST_DEFINITIONS: Record<McpHost, McpHostDefinition> = {
     pinning: "cwd-arg",
     projectConfigRelativePath: ".mcp.json",
     notes: [
-      "Paste this into a project-scoped .mcp.json file. Claude Code asks for approval before using project-scoped MCP servers.",
+      "Print-config for Claude remains manual-only and snippet-first; this repository does not auto-write Claude host config.",
       "The explicit --cwd argument keeps retrieval pinned to this repository root even when the host starts the server elsewhere."
     ]
   },
@@ -81,7 +77,7 @@ const HOST_DEFINITIONS: Record<McpHost, McpHostDefinition> = {
     projectConfigRelativePath: path.join(".gemini", "settings.json"),
     userConfigHomeRelativePath: path.join(".gemini", "settings.json"),
     notes: [
-      "Paste this into .gemini/settings.json or ~/.gemini/settings.json.",
+      "Print-config for Gemini remains manual-only and snippet-first; this repository does not auto-write Gemini host config.",
       "The snippet leaves trust set to false so tool confirmations stay host-controlled."
     ]
   },
