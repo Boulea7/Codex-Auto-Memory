@@ -1087,6 +1087,79 @@ describe("runSession", () => {
     expect(payload.latestContinuityAuditEntry?.writeMode).toBe("merge");
   }, 30_000);
 
+  it("save prefers a matching recovery marker over a newer primary rollout", async () => {
+    const repoDir = await tempDir("cam-session-save-recovery-priority-repo-");
+    const memoryRoot = await tempDir("cam-session-save-recovery-priority-memory-");
+    const sessionsDir = await tempDir("cam-session-save-recovery-priority-sessions-");
+    const dayDir = path.join(sessionsDir, "2026", "03", "15");
+    process.env.CAM_CODEX_SESSIONS_DIR = sessionsDir;
+    await fs.mkdir(dayDir, { recursive: true });
+    await initRepo(repoDir);
+
+    await writeProjectConfig(repoDir, configJson(), {
+      autoMemoryDirectory: memoryRoot
+    });
+
+    const recoveryRolloutPath = path.join(repoDir, "recovery-rollout.jsonl");
+    await fs.writeFile(
+      recoveryRolloutPath,
+      rolloutFixture(repoDir, "Retry the recovery provenance for save.", {
+        sessionId: "session-save-recovery"
+      }),
+      "utf8"
+    );
+    const primaryRolloutPath = path.join(dayDir, "rollout-primary.jsonl");
+    await fs.writeFile(
+      primaryRolloutPath,
+      rolloutFixture(repoDir, "This newer primary rollout should not win.", {
+        sessionId: "session-save-primary"
+      }),
+      "utf8"
+    );
+
+    const project = detectProjectContext(repoDir);
+    const store = new SessionContinuityStore(project, {
+      ...configJson(),
+      autoMemoryDirectory: memoryRoot
+    });
+    await store.writeRecoveryRecord({
+      recordedAt: "2026-03-18T00:00:00.000Z",
+      projectId: project.projectId,
+      worktreeId: project.worktreeId,
+      rolloutPath: recoveryRolloutPath,
+      sourceSessionId: "session-save-recovery",
+      trigger: "manual-save",
+      writeMode: "merge",
+      scope: "both",
+      writtenPaths: [store.paths.sharedFile, store.paths.localFile],
+      preferredPath: "heuristic",
+      actualPath: "heuristic",
+      fallbackReason: "configured-heuristic",
+      evidenceCounts: makeEvidenceCounts(),
+      failedStage: "audit-write",
+      failureMessage: "retry the same save provenance"
+    });
+
+    const payload = JSON.parse(
+      await runSession("save", { cwd: repoDir, scope: "both", json: true })
+    ) as {
+      rolloutPath: string;
+      rolloutSelection: { kind: string; rolloutPath: string };
+      latestContinuityAuditEntry: { trigger?: string; writeMode?: string } | null;
+    };
+    expect(payload.rolloutSelection).toEqual({
+      kind: "pending-recovery-marker",
+      rolloutPath: recoveryRolloutPath
+    });
+    expect(payload.rolloutPath).toBe(recoveryRolloutPath);
+    expect(payload.latestContinuityAuditEntry?.trigger).toBe("manual-save");
+    expect(payload.latestContinuityAuditEntry?.writeMode).toBe("merge");
+
+    const merged = await store.readMergedState();
+    expect(merged?.goal).toContain("Retry the recovery provenance for save.");
+    expect(await store.readRecoveryRecord()).toBeNull();
+  }, 30_000);
+
   it("does not fall back to a lower-priority source when the selected refresh provenance cannot be read", async () => {
     const repoDir = await tempDir("cam-session-refresh-missing-provenance-repo-");
     const memoryRoot = await tempDir("cam-session-refresh-missing-provenance-memory-");
@@ -2434,6 +2507,49 @@ describe("runSession", () => {
       rolloutPath,
       failedStage: "summary-write",
       failureMessage: "continuity summary write failed",
+      scope: "both",
+      writtenPaths: []
+    });
+    expect(await store.readLatestAuditEntry()).toBeNull();
+  }, 30_000);
+
+  it("writes a summary-write recovery marker when refresh replacement fails", async () => {
+    const repoDir = await tempDir("cam-session-refresh-summary-write-recovery-repo-");
+    const memoryRoot = await tempDir("cam-session-refresh-summary-write-recovery-memory-");
+    await initRepo(repoDir);
+
+    await writeProjectConfig(repoDir, configJson(), {
+      autoMemoryDirectory: memoryRoot
+    });
+
+    const rolloutPath = path.join(repoDir, "rollout.jsonl");
+    await fs.writeFile(
+      rolloutPath,
+      rolloutFixture(repoDir, "Fail continuity replacement writes before audit append."),
+      "utf8"
+    );
+
+    const replaceSummarySpy = vi
+      .spyOn(SessionContinuityStore.prototype, "replaceSummary")
+      .mockRejectedValueOnce(new Error("continuity replace write failed"));
+
+    await expect(
+      runSession("refresh", {
+        cwd: repoDir,
+        rollout: rolloutPath,
+        scope: "both"
+      })
+    ).rejects.toThrow("continuity replace write failed");
+    replaceSummarySpy.mockRestore();
+
+    const store = new SessionContinuityStore(detectProjectContext(repoDir), {
+      ...configJson(),
+      autoMemoryDirectory: memoryRoot
+    });
+    expect(await store.readRecoveryRecord()).toMatchObject({
+      rolloutPath,
+      failedStage: "summary-write",
+      failureMessage: "continuity replace write failed",
       scope: "both",
       writtenPaths: []
     });

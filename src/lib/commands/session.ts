@@ -115,14 +115,6 @@ async function selectSaveRollout(
     };
   }
 
-  const latestPrimaryRollout = await findLatestProjectRollout(runtime.project);
-  if (latestPrimaryRollout) {
-    return {
-      kind: "latest-primary-rollout",
-      rolloutPath: latestPrimaryRollout
-    };
-  }
-
   const recoveryRecord = await runtime.sessionContinuityStore.readRecoveryRecord();
   if (recoveryRecord && matchesContinuitySelectionScope(recoveryRecord.scope, scope)) {
     return {
@@ -137,6 +129,14 @@ async function selectSaveRollout(
     return {
       kind: "latest-audit-entry",
       rolloutPath: latestAuditEntry.rolloutPath
+    };
+  }
+
+  const latestPrimaryRollout = await findLatestProjectRollout(runtime.project);
+  if (latestPrimaryRollout) {
+    return {
+      kind: "latest-primary-rollout",
+      rolloutPath: latestPrimaryRollout
     };
   }
 
