@@ -1020,6 +1020,7 @@ describe("tarball install smoke", () => {
     expect(integrationsInstallHelpResult.stdout).toContain(
       "Install the recommended project-scoped Codex integration stack"
     );
+    expect(integrationsInstallHelpResult.stdout).toMatch(/without updating\s+AGENTS\.md/);
     expect(integrationsInstallHelpResult.stdout).toContain("Target host: codex");
     expect(integrationsInstallHelpResult.stdout).toMatch(
       /Skill install surface: runtime, official-user, or\s+official-project/

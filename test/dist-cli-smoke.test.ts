@@ -1745,6 +1745,7 @@ fs.writeFileSync(${JSON.stringify(capturedArgsPath)}, JSON.stringify(process.arg
     });
     expect(integrationsHelp.exitCode, integrationsHelp.stderr).toBe(0);
     expect(integrationsHelp.stdout).toContain("Install the recommended project-scoped Codex integration stack");
+    expect(integrationsHelp.stdout).toMatch(/without updating\s+AGENTS\.md/);
     expect(integrationsHelp.stdout).toContain("Target host: codex");
     expect(integrationsHelp.stdout).toMatch(
       /Skill install surface: runtime, official-user, or\s+official-project/
