@@ -1509,6 +1509,30 @@ describe("runMemory", () => {
     expect(await store.listEntries("project")).toHaveLength(1);
   });
 
+  it("fails closed at the CLI surface when remember text is empty or whitespace-only", async () => {
+    const homeDir = await tempDir("cam-remember-empty-cli-home-");
+    const projectDir = await tempDir("cam-remember-empty-cli-project-");
+    const memoryRoot = await tempDir("cam-remember-empty-cli-root-");
+    process.env.HOME = homeDir;
+
+    const projectConfig = buildProjectConfig();
+    await writeProjectConfig(projectDir, projectConfig, {
+      autoMemoryDirectory: memoryRoot
+    });
+
+    const emptyResult = runCli(projectDir, ["remember", ""], {
+      env: { HOME: homeDir }
+    });
+    expect(emptyResult.exitCode).toBe(1);
+    expect(emptyResult.stderr).toContain("non-empty");
+
+    const blankResult = runCli(projectDir, ["remember", "   "], {
+      env: { HOME: homeDir }
+    });
+    expect(blankResult.exitCode).toBe(1);
+    expect(blankResult.stderr).toContain("non-empty");
+  });
+
   it("surfaces a structured reviewer payload for remember --json", async () => {
     const homeDir = await tempDir("cam-remember-json-home-");
     const projectDir = await tempDir("cam-remember-json-project-");
@@ -2287,43 +2311,29 @@ describe("runMemory", () => {
       uniqueAuditCount: 0,
       auditCountsDeduplicated: true,
       warningsByEntryRef: {},
-      leadEntryRef: "project:active:workflow:prefer-pnpm",
-      leadEntryIndex: 0,
+      leadEntryRef: null,
+      leadEntryIndex: null,
       detailsAvailable: false,
-      reviewRefState: "active",
+      reviewRefState: null,
       detailsUsableEntryCount: 0,
       timelineOnlyEntryCount: 1,
       matchedCount: 1,
       appliedCount: 1,
       noopCount: 0,
-      ref: "project:active:workflow:prefer-pnpm",
-      timelineRef: "project:active:workflow:prefer-pnpm",
+      ref: null,
+      timelineRef: null,
       detailsRef: null,
-      lifecycleAction: "delete",
-      latestLifecycleAction: "delete",
-      latestAppliedLifecycle: {
-        action: "delete"
-      },
-      latestLifecycleAttempt: {
-        action: "delete",
-        outcome: "applied",
-        updateKind: null
-      },
-      latestState: "deleted",
+      lifecycleAction: null,
+      latestLifecycleAction: null,
+      latestAppliedLifecycle: null,
+      latestLifecycleAttempt: null,
+      latestState: null,
       latestSessionId: null,
       latestRolloutPath: null,
       timelineWarningCount: 0,
-      lineageSummary: {
-        latestAction: "delete",
-        latestUpdateKind: null
-      },
+      lineageSummary: null,
       warnings: [],
-      entry: {
-        id: "prefer-pnpm",
-        scope: "project",
-        topic: "workflow",
-        summary: "Prefer pnpm in this repository."
-      },
+      entry: null,
       affectedRefs: ["project:active:workflow:prefer-pnpm"],
       followUp: {
         timelineRefs: ["project:active:workflow:prefer-pnpm"],
@@ -2907,8 +2917,28 @@ describe("runMemory", () => {
     expect(JSON.parse(forgetResult.stdout)).toMatchObject({
       mutationKind: "forget",
       matchedCount: 1,
-      ref: "project:active:preferences:prefer-pnpm-in-this-repository"
+      ref: null,
+      timelineRef: null,
+      detailsRef: null
     });
+  });
+
+  it("fails closed when --cwd does not point to an existing directory", async () => {
+    const homeDir = await tempDir("cam-memory-invalid-cwd-home-");
+    const callerDir = await tempDir("cam-memory-invalid-cwd-caller-");
+    const missingDir = path.join(callerDir, "missing-project-dir");
+    process.env.HOME = homeDir;
+
+    const result = runCli(
+      callerDir,
+      ["remember", "Prefer pnpm in this repository.", "--cwd", missingDir],
+      {
+        env: { HOME: homeDir }
+      }
+    );
+
+    expect(result.exitCode).toBe(1);
+    expect(result.stderr).toContain("existing directory");
   });
 
   it("surfaces startup omission reasons for low-signal, duplicate, unsafe, and budget-trimmed highlights", async () => {
@@ -4112,5 +4142,15 @@ describe("runMemory", () => {
     expect(await readFileIfExists(store.getRetrievalIndexFile("project", "active"))).toContain(
       "\"prefer-pnpm\""
     );
+  });
+
+  it("exposes memory reindex as a dedicated CLI subcommand", async () => {
+    const result = runCli(process.cwd(), ["memory", "reindex", "--help"]);
+
+    expect(result.exitCode).toBe(0);
+    expect(result.stdout).toContain("Usage: ");
+    expect(result.stdout).toContain("memory reindex");
+    expect(result.stdout).toContain("Rebuild retrieval sidecars from canonical Markdown memory");
+    expect(result.stdout).not.toContain("--enable");
   });
 });

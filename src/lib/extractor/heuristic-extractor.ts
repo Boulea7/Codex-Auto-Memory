@@ -5,7 +5,7 @@ import type { MemoryExtractorAdapter } from "../runtime/contracts.js";
 import { slugify } from "../util/text.js";
 import { commandSucceeded, extractCommand, isCommandToolCall } from "./command-utils.js";
 import { canonicalCommandSignature } from "./command-signatures.js";
-import { extractReferenceResourceKey } from "./directive-utils.js";
+import { extractReferenceResourceKey, inferReferenceCategory } from "./directive-utils.js";
 
 interface ExplicitCorrection {
   scope: MemoryOperation["scope"];
@@ -190,7 +190,7 @@ function isStableDirectiveSummary(topic: string, summary: string): boolean {
         summary
       );
     case "architecture":
-      return /\b(markdown-first|db-first|database-first|source of truth|canonical)\b|主真相|规范存储/u.test(
+      return /(markdown-first|db-first|database-first|source of truth|canonical)|主真相|规范存储/iu.test(
         summary
       );
     case "debugging":
@@ -251,7 +251,8 @@ function stableDirectiveReplacementKey(topic: string, summary: string): string |
   if (topic === "reference") {
     const urlMatch = summary.match(/https?:\/\/[^\s)]+/iu)?.[0];
     const url = urlMatch?.replace(/[),.;]+$/u, "").trim().toLowerCase();
-    return `reference:${extractReferenceResourceKey(summary, "runbook", url) ?? "pointer"}`;
+    const category = inferReferenceCategory(summary);
+    return `reference:${category}:${extractReferenceResourceKey(summary, category, url) ?? category}`;
   }
 
   if (
@@ -513,9 +514,18 @@ function extractStableAssistantSummary(message: string): {
     return null;
   }
 
+  if (!isHighConfidenceExplicitCorrection(summary)) {
+    return null;
+  }
+
+  const topic = inferTopic(summary);
+  if (!stableDirectiveTopics.has(topic) || !isStableDirectiveSummary(topic, summary)) {
+    return null;
+  }
+
   return {
     scope: inferScope(summary),
-    topic: inferTopic(summary),
+    topic,
     summary,
     details: [summary],
     reason: "Stable assistant summary extracted from the session."
