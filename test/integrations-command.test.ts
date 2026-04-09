@@ -1490,13 +1490,37 @@ describe("integrations command", () => {
 
     const { runIntegrationsApply } = await import("../src/lib/commands/integrations.js");
 
-    await expect(
-      runIntegrationsApply({
+    const payload = JSON.parse(
+      await runIntegrationsApply({
         cwd: realProjectDir,
         host: "codex",
         json: true
       })
-    ).rejects.toThrow("broken codex config");
+    ) as {
+      stackAction: string;
+      failureStage?: string;
+      failureMessage?: string;
+      rollbackApplied?: boolean;
+      subactions: {
+        mcp: { attempted: boolean };
+        agents: { attempted: boolean };
+        hooks: { attempted: boolean };
+        skills: { attempted: boolean };
+      };
+    };
+
+    expect(payload).toMatchObject({
+      stackAction: "failed",
+      failureStage: "staged-write",
+      failureMessage: expect.stringContaining("broken codex config"),
+      rollbackApplied: true,
+      subactions: {
+        mcp: { attempted: false },
+        agents: { attempted: false },
+        hooks: { attempted: false },
+        skills: { attempted: false }
+      }
+    });
 
     expect(applyGuidanceSpy).not.toHaveBeenCalled();
     expect(installAssetsSpy).not.toHaveBeenCalled();

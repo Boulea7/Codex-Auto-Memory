@@ -116,7 +116,9 @@ interface IntegrationStackInstallFailureResult {
 interface IntegrationStackApplyResult {
   host: "codex";
   projectRoot: string;
-  stackAction: IntegrationStackAction;
+  stackAction: IntegrationStackAction | "failed";
+  failureStage?: "staged-write";
+  failureMessage?: string;
   preflightBlocked?: boolean;
   blockedStage?: "agents-guidance-preflight";
   rollbackApplied?: boolean;
@@ -140,7 +142,7 @@ interface IntegrationStackApplyResult {
 interface FileRollbackSnapshot {
   path: string;
   existed: boolean;
-  kind: "file" | "symlink";
+  kind: "file" | "symlink" | "directory";
   contents: string | null;
   symlinkTarget: string | null;
   mode: number | null;
@@ -181,6 +183,17 @@ async function captureFileRollbackSnapshot(filePath: string): Promise<FileRollba
       contents: null,
       symlinkTarget: await fs.readlink(filePath),
       mode: null
+    };
+  }
+
+  if (stat.isDirectory()) {
+    return {
+      path: filePath,
+      existed: true,
+      kind: "directory",
+      contents: null,
+      symlinkTarget: null,
+      mode: stat.mode & 0o777
     };
   }
 
@@ -232,6 +245,11 @@ async function restoreRollbackSnapshots(snapshots: FileRollbackSnapshot[]): Prom
       await fs.rm(snapshot.path, { force: true, recursive: true }).catch(() => undefined);
       if (snapshot.kind === "symlink") {
         await fs.symlink(snapshot.symlinkTarget ?? "", snapshot.path);
+      } else if (snapshot.kind === "directory") {
+        await ensureDir(snapshot.path);
+        if (snapshot.mode !== null) {
+          await fs.chmod(snapshot.path, snapshot.mode);
+        }
       } else {
         await writeTextFileAtomic(snapshot.path, snapshot.contents ?? "");
         if (snapshot.mode !== null) {
@@ -447,6 +465,93 @@ function buildInstallFailureSubaction(
   };
 }
 
+function buildApplyFailureSubaction(
+  result:
+    | Awaited<ReturnType<typeof installMcpProjectConfig>>
+    | Awaited<ReturnType<typeof installIntegrationAssets>>
+    | Awaited<ReturnType<typeof applyCodexAgentsGuidance>>
+    | null,
+  options: {
+    fallbackSurface?: CodexSkillInstallSurface;
+    skipReason: string;
+    rollbackSucceeded: boolean;
+  }
+): IntegrationSubactionResult {
+  if (!result) {
+    return {
+      status: "ok",
+      action: "unchanged",
+      attempted: false,
+      skipped: true,
+      skipReason: options.skipReason,
+      surface: options.fallbackSurface,
+      readOnlyRetrieval: true,
+      notes: [options.skipReason]
+    };
+  }
+
+  if ("serverName" in result) {
+    const shared = {
+      ...toMcpSubaction(result),
+      attempted: true
+    };
+
+    if (result.action === "unchanged" || !options.rollbackSucceeded) {
+      return shared;
+    }
+
+    return {
+      ...shared,
+      rolledBack: true,
+      effectiveAction: "unchanged"
+    };
+  }
+
+  if ("installSurface" in result) {
+    const shared = {
+      status: "ok" as const,
+      action: result.action,
+      attempted: true,
+      targetDir: result.targetDir,
+      surface: result.installSurface === "skills" ? result.skillSurface : undefined,
+      readOnlyRetrieval: result.readOnlyRetrieval,
+      notes: [...result.notes]
+    };
+
+    if (result.action === "unchanged" || !options.rollbackSucceeded) {
+      return shared;
+    }
+
+    return {
+      ...shared,
+      rolledBack: true,
+      effectiveAction: "unchanged"
+    };
+  }
+
+  if ("targetPath" in result) {
+    return {
+      status: result.action === "blocked" ? "blocked" : "ok",
+      action: result.action,
+      attempted: true,
+      targetPath: result.targetPath,
+      readOnlyRetrieval: true,
+      notes: [...result.notes]
+    };
+  }
+
+  return {
+    status: "ok",
+    action: "unchanged",
+    attempted: false,
+    skipped: true,
+    skipReason: options.skipReason,
+    surface: options.fallbackSurface,
+    readOnlyRetrieval: true,
+    notes: [options.skipReason]
+  };
+}
+
 function normalizeIntegrationsHost(
   host: string | undefined,
   action: "install" | "apply" | "doctor"
@@ -461,9 +566,13 @@ function normalizeIntegrationsHost(
   return normalized;
 }
 
-function formatIntegrationApplyHeadline(action: IntegrationStackAction): string {
+function formatIntegrationApplyHeadline(action: IntegrationStackAction | "failed"): string {
   if (action === "blocked") {
     return "Codex integration apply was blocked.";
+  }
+
+  if (action === "failed") {
+    return "Codex integration apply failed.";
   }
 
   return formatIntegrationActionHeadline(action, "Codex integration apply");
@@ -1028,14 +1137,64 @@ export async function runIntegrationsApply(
     });
     agentsResult = await applyCodexAgentsGuidance(projectRoot);
   } catch (error) {
-    const { rollbackErrors } = await restoreRollbackSnapshots(rollbackSnapshots);
-    throw new Error(
-      buildRollbackFailureMessage(
-        "Codex integration apply failed after staged writes started",
-        error,
-        rollbackErrors
-      )
+    const { rollbackErrors, rollbackReport } = await restoreRollbackSnapshots(rollbackSnapshots);
+    const failureMessage = buildRollbackFailureMessage(
+      "Codex integration apply failed after staged writes started",
+      error,
+      rollbackErrors
     );
+    if (options.json) {
+      const rollbackSucceeded = rollbackErrors.length === 0;
+      const skipReason = "Skipped because integrations apply failed before this subaction ran.";
+      const result: IntegrationStackApplyResult = {
+        host: "codex",
+        projectRoot,
+        stackAction: "failed",
+        failureStage: "staged-write",
+        failureMessage,
+        rollbackApplied: true,
+        rollbackSucceeded,
+        rollbackErrors,
+        rollbackPathCount: rollbackSnapshots.length,
+        rollbackReport,
+        skillsSurface: skillSurface,
+        readOnlyRetrieval: true,
+        workflowContract: buildWorkflowContract({
+          cwd: projectRoot
+        }),
+        postApplyReadinessCommand: buildResolvedCliCommand("integrations doctor --host codex", {
+          cwd: projectRoot
+        }),
+        subactions: {
+          mcp: buildApplyFailureSubaction(mcpResult, {
+            rollbackSucceeded,
+            skipReason
+          }),
+          agents: buildApplyFailureSubaction(agentsResult, {
+            rollbackSucceeded,
+            skipReason
+          }),
+          hooks: buildApplyFailureSubaction(hooksResult, {
+            rollbackSucceeded,
+            skipReason
+          }),
+          skills: buildApplyFailureSubaction(skillsResult, {
+            fallbackSurface: skillSurface,
+            rollbackSucceeded,
+            skipReason
+          })
+        },
+        notes: [
+          "This orchestration surface is Codex-only and explicit.",
+          "Integrations apply failed after staged writes started.",
+          `Rollback processed ${rollbackReport.length} target path(s) so partial project-scoped wiring and helper assets did not remain applied.`,
+          `Failure: ${failureMessage}`
+        ]
+      };
+      return JSON.stringify(result, null, 2);
+    }
+
+    throw new Error(failureMessage);
   }
 
   if (!mcpResult || !hooksResult || !skillsResult || !agentsResult) {
