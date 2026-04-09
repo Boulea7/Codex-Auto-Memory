@@ -284,7 +284,7 @@ function registerIntegrationCommands(program: Command): void {
     integrationsCommand
       .command("install")
       .description(
-        "Install the recommended project-scoped Codex integration stack. The runtime default stays in place unless you opt into an official copy."
+        "Install the recommended project-scoped Codex integration stack without updating AGENTS.md. The runtime default stays in place unless you opt into an official copy."
       )
       .requiredOption("--host <host>", `Target host: ${formatMcpHostChoices(["codex"])}`)
       .option(
