@@ -34,6 +34,7 @@ import {
 } from "../integration/skills-paths.js";
 
 type AsyncCommandHandler<Args extends unknown[]> = (...args: Args) => Promise<string>;
+type MemoryReindexCommandOptions = NonNullable<Parameters<typeof runMemoryReindex>[0]>;
 
 function withStdout<Args extends unknown[]>(
   handler: AsyncCommandHandler<Args>
@@ -311,18 +312,12 @@ export function registerCommands(program: Command): void {
 
   const memoryCommand = program
     .command("memory")
-    .description("Inspect local memory state")
-    .argument("[subaction]", "Optional memory subaction. Use reindex to rebuild retrieval sidecars.")
+    .description("Inspect local memory state and manage local memory settings")
     .option("--json", "Print JSON output")
-    .option("--cwd <path>", "Project directory to inspect or rebuild memory for")
+    .option("--cwd <path>", "Project directory to inspect or manage local memory for")
     .option(
       "--scope <scope>",
       "Show a single memory scope: global, project, project-local, or all",
-      "all"
-    )
-    .option(
-      "--state <state>",
-      "Memory reindex only: rebuild active, archived, or all retrieval sidecars",
       "all"
     )
     .option("--recent [count]", "Show recent sync audit entries")
@@ -331,19 +326,62 @@ export function registerCommands(program: Command): void {
     .option("--config-scope <scope>", "Config scope to edit: user, project, or local", "local")
     .option("--print-startup", "Print the compiled startup memory block")
     .option("--open", "Open the memory directory in the default file browser")
-    .action(
-      withStdout(async (subaction, options) => {
-        if (!subaction) {
-          return runMemory(options);
-        }
+    .action(withStdout(async (options) => runMemory(options)));
 
-        if (subaction === "reindex") {
-          return runMemoryReindex(options);
-        }
+  addJsonOption(
+    memoryCommand
+      .command("reindex")
+      .description("Rebuild retrieval sidecars from canonical Markdown memory")
+      .option("--cwd <path>", "Project directory to rebuild retrieval sidecars for")
+      .option(
+        "--scope <scope>",
+        "Rebuild a single memory scope: global, project, project-local, or all",
+        "all"
+      )
+      .option(
+        "--state <state>",
+        "Rebuild active, archived, or all retrieval sidecars",
+        "all"
+      )
+  ).action(
+    withStdout(async (options, command) => {
+      const parent = command.parent;
+      const mergedOptions =
+        typeof command.optsWithGlobals === "function"
+          ? (command.optsWithGlobals() as Record<string, unknown>)
+          : (command.opts() as Record<string, unknown>);
+      const explicitParentOptions =
+        parent
+          ? Object.fromEntries(
+              [
+                "json",
+                "cwd",
+                "scope",
+                "recent",
+                "enable",
+                "disable",
+                "configScope",
+                "printStartup",
+                "open"
+              ]
+                .filter((key) => parent.getOptionValueSource(key) === "cli")
+                .map((key) => [key, (parent.opts() as Record<string, unknown>)[key]])
+            )
+          : {};
 
-        throw new Error(`Unsupported memory subaction "${subaction}".`);
-      })
-    );
+      return runMemoryReindex({
+        json: (options as { json?: boolean }).json ?? (mergedOptions.json as boolean | undefined),
+        cwd: (options as { cwd?: string }).cwd ?? (mergedOptions.cwd as string | undefined),
+        scope:
+          ((options as { scope?: string }).scope ??
+            (mergedOptions.scope as string | undefined)) as MemoryReindexCommandOptions["scope"],
+        state:
+          ((options as { state?: string }).state ??
+            (mergedOptions.state as string | undefined)) as MemoryReindexCommandOptions["state"],
+        ...explicitParentOptions
+      });
+    })
+  );
 
   program
     .command("remember")

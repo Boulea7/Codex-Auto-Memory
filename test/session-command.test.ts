@@ -967,6 +967,126 @@ describe("runSession", () => {
     });
   }, 30_000);
 
+  it("refresh can reuse scope=both audit provenance when refreshing only the shared project layer", async () => {
+    const repoDir = await tempDir("cam-session-refresh-project-scope-both-audit-repo-");
+    const memoryRoot = await tempDir("cam-session-refresh-project-scope-both-audit-memory-");
+    const sessionsDir = await tempDir("cam-session-refresh-project-scope-both-audit-sessions-");
+    const dayDir = path.join(sessionsDir, "2026", "03", "15");
+    process.env.CAM_CODEX_SESSIONS_DIR = sessionsDir;
+    await fs.mkdir(dayDir, { recursive: true });
+    await initRepo(repoDir);
+
+    await writeProjectConfig(repoDir, configJson(), {
+      autoMemoryDirectory: memoryRoot
+    });
+
+    const auditRolloutPath = path.join(repoDir, "matching-both-audit-rollout.jsonl");
+    await fs.writeFile(
+      auditRolloutPath,
+      rolloutFixture(repoDir, "Use the shared project audit provenance.", {
+        sessionId: "session-both-audit"
+      }),
+      "utf8"
+    );
+    const primaryRolloutPath = path.join(dayDir, "rollout-primary.jsonl");
+    await fs.writeFile(
+      primaryRolloutPath,
+      rolloutFixture(repoDir, "Fallback primary rollout should stay unused here.", {
+        sessionId: "session-primary-fallback"
+      }),
+      "utf8"
+    );
+
+    const project = detectProjectContext(repoDir);
+    const store = new SessionContinuityStore(project, {
+      ...configJson(),
+      autoMemoryDirectory: memoryRoot
+    });
+    await store.appendAuditLog({
+      generatedAt: "2026-03-18T00:01:00.000Z",
+      projectId: project.projectId,
+      worktreeId: project.worktreeId,
+      configuredExtractorMode: "heuristic",
+      trigger: "manual-save",
+      writeMode: "merge",
+      scope: "both",
+      rolloutPath: auditRolloutPath,
+      sourceSessionId: "session-both-audit",
+      preferredPath: "heuristic",
+      actualPath: "heuristic",
+      fallbackReason: "configured-heuristic",
+      evidenceCounts: makeEvidenceCounts(),
+      writtenPaths: ["/tmp/continuity-audit.md"]
+    });
+
+    const payload = JSON.parse(
+      await runSession("refresh", { cwd: repoDir, scope: "project", json: true })
+    ) as {
+      rolloutSelection: { kind: string; rolloutPath: string };
+    };
+    expect(payload.rolloutSelection).toEqual({
+      kind: "latest-audit-entry",
+      rolloutPath: auditRolloutPath
+    });
+
+    const merged = await store.readMergedState();
+    expect(merged?.goal).toContain("Use the shared project audit provenance.");
+  }, 30_000);
+
+  it("save can reuse scope=both audit provenance when saving only the local project layer", async () => {
+    const repoDir = await tempDir("cam-session-save-local-scope-both-audit-repo-");
+    const memoryRoot = await tempDir("cam-session-save-local-scope-both-audit-memory-");
+    await initRepo(repoDir);
+
+    await writeProjectConfig(repoDir, configJson(), {
+      autoMemoryDirectory: memoryRoot
+    });
+
+    const auditRolloutPath = path.join(repoDir, "matching-both-save-audit-rollout.jsonl");
+    await fs.writeFile(
+      auditRolloutPath,
+      rolloutFixture(repoDir, "Use the local project audit provenance.", {
+        sessionId: "session-both-save-audit"
+      }),
+      "utf8"
+    );
+
+    const project = detectProjectContext(repoDir);
+    const store = new SessionContinuityStore(project, {
+      ...configJson(),
+      autoMemoryDirectory: memoryRoot
+    });
+    await store.appendAuditLog({
+      generatedAt: "2026-03-18T00:01:00.000Z",
+      projectId: project.projectId,
+      worktreeId: project.worktreeId,
+      configuredExtractorMode: "heuristic",
+      trigger: "manual-save",
+      writeMode: "merge",
+      scope: "both",
+      rolloutPath: auditRolloutPath,
+      sourceSessionId: "session-both-save-audit",
+      preferredPath: "heuristic",
+      actualPath: "heuristic",
+      fallbackReason: "configured-heuristic",
+      evidenceCounts: makeEvidenceCounts(),
+      writtenPaths: ["/tmp/continuity-audit.md"]
+    });
+
+    const payload = JSON.parse(
+      await runSession("save", { cwd: repoDir, scope: "project-local", json: true })
+    ) as {
+      rolloutSelection: { kind: string; rolloutPath: string };
+      latestContinuityAuditEntry: { trigger?: string; writeMode?: string } | null;
+    };
+    expect(payload.rolloutSelection).toEqual({
+      kind: "latest-audit-entry",
+      rolloutPath: auditRolloutPath
+    });
+    expect(payload.latestContinuityAuditEntry?.trigger).toBe("manual-save");
+    expect(payload.latestContinuityAuditEntry?.writeMode).toBe("merge");
+  }, 30_000);
+
   it("does not fall back to a lower-priority source when the selected refresh provenance cannot be read", async () => {
     const repoDir = await tempDir("cam-session-refresh-missing-provenance-repo-");
     const memoryRoot = await tempDir("cam-session-refresh-missing-provenance-memory-");
@@ -2275,6 +2395,49 @@ describe("runSession", () => {
     };
     expect(saveJson.pendingContinuityRecovery).toBeNull();
     expect(await store.readRecoveryRecord()).toBeNull();
+  }, 30_000);
+
+  it("writes a summary-write recovery marker when continuity summary persistence fails", async () => {
+    const repoDir = await tempDir("cam-session-summary-write-recovery-repo-");
+    const memoryRoot = await tempDir("cam-session-summary-write-recovery-memory-");
+    await initRepo(repoDir);
+
+    await writeProjectConfig(repoDir, configJson(), {
+      autoMemoryDirectory: memoryRoot
+    });
+
+    const rolloutPath = path.join(repoDir, "rollout.jsonl");
+    await fs.writeFile(
+      rolloutPath,
+      rolloutFixture(repoDir, "Fail continuity summary writes before audit append."),
+      "utf8"
+    );
+
+    const saveSummarySpy = vi
+      .spyOn(SessionContinuityStore.prototype, "saveSummary")
+      .mockRejectedValueOnce(new Error("continuity summary write failed"));
+
+    await expect(
+      runSession("save", {
+        cwd: repoDir,
+        rollout: rolloutPath,
+        scope: "both"
+      })
+    ).rejects.toThrow("continuity summary write failed");
+    saveSummarySpy.mockRestore();
+
+    const store = new SessionContinuityStore(detectProjectContext(repoDir), {
+      ...configJson(),
+      autoMemoryDirectory: memoryRoot
+    });
+    expect(await store.readRecoveryRecord()).toMatchObject({
+      rolloutPath,
+      failedStage: "summary-write",
+      failureMessage: "continuity summary write failed",
+      scope: "both",
+      writtenPaths: []
+    });
+    expect(await store.readLatestAuditEntry()).toBeNull();
   }, 30_000);
 
   it("does not clear an unrelated continuity recovery marker after a successful save", async () => {

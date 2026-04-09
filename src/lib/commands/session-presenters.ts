@@ -290,10 +290,11 @@ export function buildPersistedSessionJson(
 ): string {
   return JSON.stringify(
     {
-      ...(action === "refresh" && rolloutSelection
+      ...(rolloutSelection
         ? {
-            action: "refresh",
-            writeMode: "replace" satisfies SessionContinuityWriteMode,
+            action,
+            writeMode:
+              (action === "refresh" ? "replace" : "merge") satisfies SessionContinuityWriteMode,
             rolloutSelection
           }
         : {}),
