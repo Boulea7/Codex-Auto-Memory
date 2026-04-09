@@ -1354,6 +1354,39 @@ describe("dist cli smoke", () => {
     expect(await fs.readFile(path.join(realProjectDir, "AGENTS.md"), "utf8")).toBe(before);
   });
 
+  it("surfaces staged-write failure payloads from the compiled integrations apply entrypoint", async () => {
+    const homeDir = await tempDir("cam-dist-integrations-apply-failed-home-");
+    const projectDir = await tempDir("cam-dist-integrations-apply-failed-project-");
+    const realProjectDir = await fs.realpath(projectDir);
+
+    await fs.mkdir(path.join(realProjectDir, ".codex", "config.toml"), { recursive: true });
+
+    const result = runCli(
+      projectDir,
+      ["integrations", "apply", "--host", "codex", "--json"],
+      {
+        entrypoint: "dist",
+        env: { HOME: homeDir }
+      }
+    );
+
+    expect(result.exitCode, result.stderr).toBe(0);
+    expect(JSON.parse(result.stdout)).toMatchObject({
+      host: "codex",
+      projectRoot: realProjectDir,
+      stackAction: "failed",
+      failureStage: "staged-write",
+      failureMessage: expect.stringContaining("directory"),
+      rollbackApplied: true,
+      subactions: {
+        mcp: { attempted: false },
+        agents: { attempted: false },
+        hooks: { attempted: false },
+        skills: { attempted: false }
+      }
+    });
+  });
+
   it("supports the official-project skill surface from the compiled integrations entrypoint", async () => {
     const homeDir = await tempDir("cam-dist-integrations-official-project-home-");
     const projectDir = await tempDir("cam-dist-integrations-official-project-project-");

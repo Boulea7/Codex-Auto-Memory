@@ -140,6 +140,25 @@ describe("tarball install smoke", () => {
     expect(loadPayload.startup.sourceFiles).toEqual([]);
     expect(loadPayload.startup.candidateSourceFiles).toEqual([]);
 
+    const doctorResult = runCommandCapture(
+      camBinaryPath(installDir),
+      ["doctor", "--json"],
+      installDir,
+      {
+        ...envWithBin,
+        PATH: `${path.dirname(process.execPath)}:/usr/bin:/bin`
+      }
+    );
+    expect(doctorResult.exitCode, doctorResult.stderr).toBe(0);
+    expect(JSON.parse(doctorResult.stdout)).toMatchObject({
+      recommendedRoute: "companion",
+      recommendedActionCommand: expect.stringContaining("mcp doctor --host codex"),
+      recommendedDoctorCommand: expect.stringContaining("doctor --json"),
+      readiness: {
+        appServer: null
+      }
+    });
+
     const memoryRoot = await tempDir("cam-tarball-memory-root-");
     const appConfig = makeAppConfig();
     await writeCamConfig(installDir, appConfig, {
@@ -862,6 +881,32 @@ describe("tarball install smoke", () => {
       }
     });
 
+    const failedProjectDir = await tempDir("cam-tarball-failed-project-");
+    const realFailedProjectDir = await fs.realpath(failedProjectDir);
+    await fs.mkdir(path.join(realFailedProjectDir, ".codex", "config.toml"), { recursive: true });
+
+    const failedIntegrationsResult = runCommandCapture(
+      camBinaryPath(installDir),
+      ["integrations", "apply", "--host", "codex", "--json"],
+      failedProjectDir,
+      envWithBin
+    );
+    expect(failedIntegrationsResult.exitCode).toBe(0);
+    expect(JSON.parse(failedIntegrationsResult.stdout)).toMatchObject({
+      host: "codex",
+      projectRoot: realFailedProjectDir,
+      stackAction: "failed",
+      failureStage: "staged-write",
+      failureMessage: expect.stringContaining("directory"),
+      rollbackApplied: true,
+      subactions: {
+        mcp: { attempted: false },
+        agents: { attempted: false },
+        hooks: { attempted: false },
+        skills: { attempted: false }
+      }
+    });
+
     const blockedIntegrationsDoctorResult = runCommandCapture(
       camBinaryPath(installDir),
       ["integrations", "doctor", "--host", "codex", "--json"],
@@ -1003,7 +1048,7 @@ describe("tarball install smoke", () => {
       /Inspect the current Codex integration stack without mutating memory or host\s+config/
     );
     expect(integrationsDoctorHelpResult.stdout).toContain("Target host: codex");
-  }, 60_000);
+  }, 180_000);
 
   it("preserves custom fields on the codex_auto_memory install entry from the packed tarball", async () => {
     const homeDir = await tempDir("cam-tarball-preserve-home-");
@@ -1076,5 +1121,5 @@ describe("tarball install smoke", () => {
         }
       }
     });
-  }, 60_000);
+  }, 180_000);
 });
