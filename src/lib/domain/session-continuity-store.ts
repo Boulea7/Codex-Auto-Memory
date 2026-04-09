@@ -271,11 +271,29 @@ export class SessionContinuityStore {
     const targets =
       scope === "both" ? (["project", "project-local"] satisfies SessionContinuityScope[]) : [scope];
     const pendingWrites: SessionContinuityPendingWrite[] = [];
+    const snapshotsByPath = new Map<string, SessionContinuityWriteSnapshot>();
+
+    const captureSnapshot = async (filePath: string): Promise<void> => {
+      if (snapshotsByPath.has(filePath)) {
+        return;
+      }
+
+      const existed = await fileExists(filePath);
+      snapshotsByPath.set(filePath, {
+        path: filePath,
+        existed,
+        contents: existed ? await readTextFile(filePath) : null
+      });
+    };
 
     for (const target of targets) {
       if (target === "project") {
         await this.ensureSharedLayout();
       } else {
+        const localIgnorePath = this.getLocalIgnorePath();
+        if (localIgnorePath) {
+          await captureSnapshot(localIgnorePath);
+        }
         await this.ensureLocalLayout();
         await this.ensureLocalIgnore();
       }
@@ -293,13 +311,14 @@ export class SessionContinuityStore {
         target === "project"
           ? this.paths.sharedFile
           : await this.resolveLocalWritePath(writeMode);
+      await captureSnapshot(filePath);
       pendingWrites.push({
         path: filePath,
         contents: renderSessionContinuity(nextState)
       });
     }
 
-    const snapshots = await this.captureWriteSnapshots(pendingWrites.map((write) => write.path));
+    const snapshots = [...snapshotsByPath.values()];
     const written: string[] = [];
 
     try {

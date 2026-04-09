@@ -1980,4 +1980,52 @@ describe("SessionContinuityStore", () => {
     expect(await fs.readFile(store.paths.localFile, "utf8")).toBe(localBefore);
   });
 
+  it("rolls back git exclude updates if a local continuity write fails", async () => {
+    const repoDir = await tempDir("cam-continuity-ignore-rollback-repo-");
+    const memoryRoot = await tempDir("cam-continuity-ignore-rollback-memory-");
+    await initRepo(repoDir);
+
+    const store = new SessionContinuityStore(detectProjectContext(repoDir), baseConfig(memoryRoot));
+    const excludePath = store.getLocalIgnorePath();
+    expect(excludePath).not.toBeNull();
+    const excludeBefore = await fs.readFile(excludePath!, "utf8");
+
+    const originalRename = fs.rename;
+    const renameSpy = vi.spyOn(fs, "rename").mockImplementation(async (from, to) => {
+      if (String(to) === store.paths.localFile) {
+        throw new Error("local continuity rename failed");
+      }
+
+      return await originalRename(from, to);
+    });
+
+    await expect(
+      store.saveSummary(
+        {
+          project: {
+            goal: "",
+            confirmedWorking: [],
+            triedAndFailed: [],
+            notYetTried: [],
+            incompleteNext: [],
+            filesDecisionsEnvironment: []
+          },
+          projectLocal: {
+            goal: "Initial local goal.",
+            confirmedWorking: [],
+            triedAndFailed: [],
+            notYetTried: [],
+            incompleteNext: ["Initial local next step."],
+            filesDecisionsEnvironment: []
+          },
+          sourceSessionId: "session-initial"
+        },
+        "project-local"
+      )
+    ).rejects.toThrow("local continuity rename failed");
+    renameSpy.mockRestore();
+
+    expect(await fs.readFile(excludePath!, "utf8")).toBe(excludeBefore);
+  });
+
 });
