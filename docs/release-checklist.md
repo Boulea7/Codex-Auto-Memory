@@ -117,9 +117,11 @@ Use this checklist before cutting any alpha or beta release of `codex-auto-memor
 - Confirm `node dist/cli.js mcp doctor --host generic --json` stays host-aware for manual-only hosts: `commandSurface.install=false`, `commandSurface.applyGuidance=false`, and Codex-only sections such as `codexStack`, `experimentalHooks`, `agentsGuidance`, and `applySafety` stay `null`.
 - Confirm `node dist/cli.js doctor --json` now also reports the app-server signal separately from `memories` / `codex_hooks`.
 - Confirm compiled smoke and tarball smoke both lock the additive `readiness.appServer` contract instead of leaving that guarantee source-test only.
+- Confirm the same compiled/tarball doctor checks still pass when the current environment does not expose a `tui` / `tui_app_server` feature signal, returning `readiness.appServer: null` instead of failing the top-level doctor contract.
 - Confirm `node dist/cli.js doctor --json` now also exposes additive `recommendedRoute`, `recommendedAction`, `recommendedActionCommand`, and `recommendedDoctorCommand`, so the top-level doctor surface can point to the next operational check without mutating anything.
 - Confirm release-facing compiled and tarball smoke now both cover that top-level `doctor --json` contract instead of leaving it source-test only.
 - Confirm `node dist/cli.js integrations apply --host codex --json` now also exposes additive `postApplyReadinessCommand`, so post-apply route confirmation is machine-readable.
+- Confirm staged-write failures in `node dist/cli.js integrations apply --host codex --json` return a structured failed payload with `stackAction: "failed"`, `failureStage: "staged-write"`, `failureMessage`, and rollback metadata instead of crashing the CLI.
 - Confirm `node dist/cli.js doctor` text now separates `Native memory/hooks readiness` from `Host/UI signals`, instead of presenting `tui_app_server` alongside native memory/hooks as if they shared the same maturity level.
 - Confirm the release notes and docs do not over-fit one local app-server feature name: current local builds may expose `tui` or `tui_app_server`, and neither should be documented as a stable public contract.
 - Confirm `workflowContract` now also exposes launcher constraints (`commandName=cam`, `requiresPathResolution=true`, `hookHelpersShellOnly=true`) so PATH and shell assumptions stay machine-visible.

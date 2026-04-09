@@ -1609,6 +1609,48 @@ describe("integrations command", () => {
     );
   });
 
+  it("returns a failed payload instead of throwing when a staged write target is a directory", async () => {
+    const homeDir = await tempDir("cam-integrations-apply-dir-fail-home-");
+    const projectDir = await tempDir("cam-integrations-apply-dir-fail-project-");
+    const realProjectDir = await fs.realpath(projectDir);
+    process.env.HOME = homeDir;
+
+    await fs.mkdir(path.join(realProjectDir, ".codex", "config.toml"), { recursive: true });
+
+    const { runIntegrationsApply } = await import("../src/lib/commands/integrations.js");
+    const payload = JSON.parse(
+      await runIntegrationsApply({
+        cwd: realProjectDir,
+        host: "codex",
+        json: true
+      })
+    ) as {
+      stackAction: string;
+      failureStage?: string;
+      failureMessage?: string;
+      rollbackApplied?: boolean;
+      subactions: {
+        mcp: { attempted: boolean };
+        agents: { attempted: boolean };
+        hooks: { attempted: boolean };
+        skills: { attempted: boolean };
+      };
+    };
+
+    expect(payload).toMatchObject({
+      stackAction: "failed",
+      failureStage: "staged-write",
+      failureMessage: expect.stringContaining("directory"),
+      rollbackApplied: true,
+      subactions: {
+        mcp: { attempted: false },
+        agents: { attempted: false },
+        hooks: { attempted: false },
+        skills: { attempted: false }
+      }
+    });
+  });
+
   it("withholds integrations apply from doctor next steps when AGENTS guidance is unsafe", async () => {
     const homeDir = await tempDir("cam-integrations-doctor-blocked-home-");
     const projectDir = await tempDir("cam-integrations-doctor-blocked-project-");
