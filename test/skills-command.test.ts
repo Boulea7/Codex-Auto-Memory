@@ -98,7 +98,7 @@ describe("skills command", () => {
       workflowContract: {
         recommendedPreset: "state=auto, limit=8",
         cliFallback: {
-          searchCommand: `cam recall search "<query>" --state auto --limit 8 --cwd ${JSON.stringify(await fs.realpath(projectDir))}`
+          searchCommand: `cam recall search "<query>" --state auto --limit 8 --cwd '${await fs.realpath(projectDir)}'`
         },
         postWorkSyncReview: {
           helperScript: "post-work-memory-review.sh"
@@ -201,8 +201,8 @@ describe("skills command", () => {
     const skillFile = await fs.readFile(officialSkillPath, "utf8");
     expect(skillFile).toContain("cam:asset-version");
     expect(skillFile).toContain("timeline_memories");
-    expect(skillFile).toContain(`--cwd ${JSON.stringify(await fs.realpath(projectDir))}`);
-    expect(skillFile).toContain(` sync --cwd ${JSON.stringify(await fs.realpath(projectDir))}`);
+    expect(skillFile).toContain(`--cwd '${await fs.realpath(projectDir)}'`);
+    expect(skillFile).toContain(` sync --cwd '${await fs.realpath(projectDir)}'`);
     expect(skillFile.includes('node "') || skillFile.includes("cam sync")).toBe(true);
 
     await expect(

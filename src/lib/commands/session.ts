@@ -123,20 +123,20 @@ async function selectSaveRollout(
     };
   }
 
+  const latestPrimaryRollout = await findLatestProjectRollout(runtime.project);
+  if (latestPrimaryRollout) {
+    return {
+      kind: "latest-primary-rollout",
+      rolloutPath: latestPrimaryRollout
+    };
+  }
+
   const latestAuditEntry =
     await runtime.sessionContinuityStore.readLatestAuditEntryMatchingScope(scope);
   if (latestAuditEntry) {
     return {
       kind: "latest-audit-entry",
       rolloutPath: latestAuditEntry.rolloutPath
-    };
-  }
-
-  const latestPrimaryRollout = await findLatestProjectRollout(runtime.project);
-  if (latestPrimaryRollout) {
-    return {
-      kind: "latest-primary-rollout",
-      rolloutPath: latestPrimaryRollout
     };
   }
 
