@@ -1,13 +1,41 @@
 import { configPaths } from "../config/load-config.js";
+import { rawProjectConfigSchema } from "../config/schema.js";
 import { MemoryStore } from "../domain/memory-store.js";
 import { detectProjectContext, getDefaultMemoryDirectory } from "../domain/project-context.js";
 import { SessionContinuityStore } from "../domain/session-continuity-store.js";
-import { updateGitignoreLine, writeJsonFile } from "../util/fs.js";
+import { buildRuntimeContext } from "../runtime/runtime-context.js";
+import { fileExists, readJsonFile, updateGitignoreLine, writeJsonFile } from "../util/fs.js";
 import type { AppConfig } from "../types.js";
 
 interface InitOptions {
   cwd?: string;
   force?: boolean;
+}
+
+async function ensureInitConfigShape(
+  filePath: string,
+  label: "project" | "local"
+): Promise<void> {
+  if (!(await fileExists(filePath))) {
+    return;
+  }
+
+  let raw: unknown;
+  try {
+    raw = await readJsonFile<unknown>(filePath);
+  } catch {
+    throw new Error(
+      `Existing ${label} config at ${filePath} is invalid. Re-run with --force to overwrite it.`
+    );
+  }
+
+  try {
+    rawProjectConfigSchema.parse(raw);
+  } catch {
+    throw new Error(
+      `Existing ${label} config at ${filePath} is invalid. Re-run with --force to overwrite it.`
+    );
+  }
 }
 
 export async function runInit(options: InitOptions = {}): Promise<string> {
@@ -26,18 +54,29 @@ export async function runInit(options: InitOptions = {}): Promise<string> {
     codexBinary: "codex"
   };
 
-  await writeJsonFile(projectConfigPath, projectConfig);
-  await writeJsonFile(localConfigPath, {
-    autoMemoryEnabled: true
-  });
+  if (!options.force) {
+    await ensureInitConfigShape(projectConfigPath, "project");
+    await ensureInitConfigShape(localConfigPath, "local");
+  }
+
+  if (options.force || !(await fileExists(projectConfigPath))) {
+    await writeJsonFile(projectConfigPath, projectConfig);
+  }
+  if (options.force || !(await fileExists(localConfigPath))) {
+    await writeJsonFile(localConfigPath, {
+      autoMemoryEnabled: true
+    });
+  }
   await updateGitignoreLine(project.projectRoot, ".codex-auto-memory.local.json");
 
-  const config: AppConfig = {
-    ...projectConfig,
-    autoMemoryDirectory: getDefaultMemoryDirectory()
-  };
+  const runtime = await buildRuntimeContext(project.projectRoot);
+  const config: AppConfig = runtime.loadedConfig.config.autoMemoryDirectory
+    ? runtime.loadedConfig.config
+    : {
+        ...runtime.loadedConfig.config,
+        autoMemoryDirectory: getDefaultMemoryDirectory()
+      };
   const store = new MemoryStore(project, config);
-  await store.ensureLayout();
   const continuityStore = new SessionContinuityStore(project, config);
   const excludePath = await continuityStore.ensureLocalIgnore();
 
