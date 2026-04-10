@@ -91,9 +91,10 @@ cam session status
 当前优先事项：
 
 1. 继续保持 issue5 stack 的 reviewer contract、help surface、release-facing smoke 一致
-2. 保持 `Markdown-first` canonical store 与 sidecar retrieval plane 的边界稳定
-3. 保持 `cam integrations install` 与 `cam integrations apply` 的 AGENTS mutation boundary 清晰
-4. 继续扩大 deterministic release gate：`lint`、`test`、`docs-contract`、`dist-cli-smoke`、`tarball-install-smoke`
+2. 把 Claude Code / Gemini CLI 的官方公开宿主能力面，与本仓当前真实支持的 manual-only host 边界继续写清楚
+3. 保持 `Markdown-first` canonical store 与 sidecar retrieval plane 的边界稳定
+4. 保持 `cam integrations install` 与 `cam integrations apply` 的 AGENTS mutation boundary 清晰
+5. 继续扩大 deterministic release gate：`lint`、`test`、`docs-contract`、`dist-cli-smoke`、`tarball-install-smoke`
 
 下一阶段建议：
 
@@ -105,3 +106,4 @@ cam session status
 
 - 2026-04-10: 新增根级 `AGENTS.md`，补齐仓库级功能说明、命令面、关键 JSON 契约与项目规划。
 - 2026-04-10: 明确 `cam integrations install --help` 与四语 README 命令表的公开边界：install 编排 stack，但不更新 `AGENTS.md`。
+- 2026-04-10: 新增 Claude Code / Gemini CLI 宿主接入边界文档，并同步收紧宿主策略文档与 README 入口，明确非 Codex 宿主当前仍是 manual-only / snippet-first。
