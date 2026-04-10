@@ -101,9 +101,13 @@ cam session status
 1. 继续做小步 stack closure，而不是重新摊大 remediation
 2. 优先把 help / docs / smoke contract 固定成同一套公开语义
 3. 在不扩张宿主边界的前提下，继续维持 Codex-first、manual-only 非 Codex host 的产品表述
+4. 将 issue5 剩余 closeout seams 继续拆成小 PR：`cam init` 幂等/`--force`、`cam session status/load` 只读化、Vitest `.worktrees/**` 边界、docs/help parity
+5. 保持发布面验证串行执行：`dist-cli-smoke` 与 `tarball-install-smoke` 不并行跑，避免 `prepack -> rimraf dist` 造成假阴性
 
 ## 变更记录
 
+- 2026-04-10: issue5 PR14 收口了三类 runtime contract seam：`mcp` 命令的空 `--cwd` 现在 fail-closed；`workflowContract` 的 resolved launcher 与显式 `launcherOverride` 保持一致；delete-only 的 forget follow-up 文案不再硬编码裸 `cam recall timeline`。
+- 2026-04-10: `test/recovery-records.test.ts` 已对齐当前 continuity 语义：`scope=both` continuity recovery marker 可以被后续 single-scope save/refresh 复用，并继续由 `session-command` 行为测试锁定。
 - 2026-04-10: 新增根级 `AGENTS.md`，补齐仓库级功能说明、命令面、关键 JSON 契约与项目规划。
 - 2026-04-10: 明确 `cam integrations install --help` 与四语 README 命令表的公开边界：install 编排 stack，但不更新 `AGENTS.md`。
 - 2026-04-10: 新增 Claude Code / Gemini CLI 宿主接入边界文档，并同步收紧宿主策略文档与 README 入口，明确非 Codex 宿主当前仍是 manual-only / snippet-first。

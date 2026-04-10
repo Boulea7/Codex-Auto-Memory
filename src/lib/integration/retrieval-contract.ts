@@ -41,6 +41,7 @@ export const MCP_SERVE_GUIDANCE =
 export function buildMcpDoctorGuidance(
   options: {
     cwd?: string;
+    launcherOverride?: WorkflowContract["launcher"];
   } = {}
 ): string {
   const fallbackCommand = buildResolvedCliCommand("mcp doctor --host codex", options);
@@ -55,6 +56,7 @@ export const ARCHIVE_BOUNDARY =
 export function buildDurableMemorySyncGuidance(
   options: {
     cwd?: string;
+    launcherOverride?: WorkflowContract["launcher"];
   } = {}
 ): string {
   const syncCommand = buildResolvedPostWorkSyncCommand(options);
@@ -265,9 +267,11 @@ export function buildResolvedCliCommand(
   command: string,
   options: {
     cwd?: string;
+    launcherOverride?: WorkflowContract["launcher"];
   } = {}
 ): string {
-  return appendCliCwdFlag(`${resolveCliLauncher().resolvedCommand} ${command}`, options.cwd);
+  const launcher = options.launcherOverride ?? resolveCliLauncher();
+  return appendCliCwdFlag(`${launcher.resolvedCommand} ${command}`, options.cwd);
 }
 
 function getInstalledHookHelperPath(helperScript: string): string {
@@ -353,6 +357,7 @@ export function buildResolvedCliSearchCommand(
     state?: MemoryRetrievalStateFilter;
     limit?: number;
     cwd?: string;
+    launcherOverride?: WorkflowContract["launcher"];
   } = {}
 ): string {
   const state = options.state ?? RECOMMENDED_RETRIEVAL_STATE;
@@ -367,6 +372,7 @@ export function buildResolvedCliTimelineCommand(
   ref = "\"<ref>\"",
   options: {
     cwd?: string;
+    launcherOverride?: WorkflowContract["launcher"];
   } = {}
 ): string {
   return buildResolvedCliCommand(`recall timeline ${ref}`, options);
@@ -376,6 +382,7 @@ export function buildResolvedCliDetailsCommand(
   ref = "\"<ref>\"",
   options: {
     cwd?: string;
+    launcherOverride?: WorkflowContract["launcher"];
   } = {}
 ): string {
   return buildResolvedCliCommand(`recall details ${ref}`, options);
@@ -384,6 +391,7 @@ export function buildResolvedCliDetailsCommand(
 export function buildResolvedPostWorkSyncCommand(
   options: {
     cwd?: string;
+    launcherOverride?: WorkflowContract["launcher"];
   } = {}
 ): string {
   return buildResolvedCliCommand("sync", options);
@@ -392,6 +400,7 @@ export function buildResolvedPostWorkSyncCommand(
 export function buildResolvedPostWorkRecentReviewCommand(
   options: {
     cwd?: string;
+    launcherOverride?: WorkflowContract["launcher"];
   } = {}
 ): string {
   return buildResolvedCliCommand("memory --recent", options);
@@ -410,7 +419,7 @@ export function buildWorkflowContract(
     localBridge: LOCAL_BRIDGE_RECALL_WORKFLOW,
     resolvedCli: RESOLVED_CLI_RECALL_WORKFLOW,
     cliFallback: CLI_FALLBACK_RECALL_WORKFLOW,
-    doctor: buildMcpDoctorGuidance(options),
+    doctor: buildMcpDoctorGuidance({ ...options, launcherOverride: launcher }),
     serve: MCP_SERVE_GUIDANCE
   };
   const recallWorkflow: WorkflowRecallWorkflow = {
@@ -439,21 +448,33 @@ export function buildWorkflowContract(
     requiresCamOnPath: true
   };
   const resolvedCliFallback: WorkflowContract["resolvedCliFallback"] = {
-    searchCommand: buildResolvedCliSearchCommand("\"<query>\"", options),
-    timelineCommand: buildResolvedCliTimelineCommand("\"<ref>\"", options),
-    detailsCommand: buildResolvedCliDetailsCommand("\"<ref>\"", options)
+    searchCommand: buildResolvedCliSearchCommand("\"<query>\"", {
+      ...options,
+      launcherOverride: launcher
+    }),
+    timelineCommand: buildResolvedCliTimelineCommand("\"<ref>\"", {
+      ...options,
+      launcherOverride: launcher
+    }),
+    detailsCommand: buildResolvedCliDetailsCommand("\"<ref>\"", {
+      ...options,
+      launcherOverride: launcher
+    })
   };
   const postWorkSyncReview: WorkflowContract["postWorkSyncReview"] = {
     helperScript: POST_WORK_SYNC_REVIEW_HELPER,
     syncCommand: buildPostWorkSyncCommand(options),
     reviewCommand: buildPostWorkRecentReviewCommand(options),
-    guidance: buildDurableMemorySyncGuidance(options),
+    guidance: buildDurableMemorySyncGuidance({ ...options, launcherOverride: launcher }),
     shellOnly: true,
     requiresCamOnPath: true
   };
   const resolvedPostWorkSyncReview: WorkflowContract["resolvedPostWorkSyncReview"] = {
-    syncCommand: buildResolvedPostWorkSyncCommand(options),
-    reviewCommand: buildResolvedPostWorkRecentReviewCommand(options)
+    syncCommand: buildResolvedPostWorkSyncCommand({ ...options, launcherOverride: launcher }),
+    reviewCommand: buildResolvedPostWorkRecentReviewCommand({
+      ...options,
+      launcherOverride: launcher
+    })
   };
   const boundaries: WorkflowContract["boundaries"] = {
     memoryAudit: MEMORY_AUDIT_BOUNDARY,
