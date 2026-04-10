@@ -55,6 +55,15 @@ async function waitForFile(pathname: string, timeoutMs = 2_000): Promise<string>
   }
 }
 
+async function pathExists(targetPath: string): Promise<boolean> {
+  try {
+    await fs.access(targetPath);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 afterEach(async () => {
   if (originalCodexHome === undefined) {
     delete process.env.CODEX_HOME;
@@ -297,6 +306,68 @@ describe("dist cli smoke", () => {
     expect(forgetPayload.followUp.timelineRefs.length).toBeGreaterThan(0);
     expect(forgetPayload.followUp.timelineRefs.length).toBeGreaterThan(0);
   }, 30_000);
+
+  it("keeps session inspection read-only from the compiled cli entrypoint", async () => {
+    const homeDir = await tempDir("cam-dist-session-readonly-home-");
+    const projectDir = await tempDir("cam-dist-session-readonly-project-");
+    const memoryRootParent = await tempDir("cam-dist-session-readonly-memory-parent-");
+    const memoryRoot = path.join(memoryRootParent, "memory-root");
+
+    await writeCamConfig(projectDir, makeAppConfig(), {
+      autoMemoryDirectory: memoryRoot
+    });
+
+    const sessionStatusResult = runCli(projectDir, ["session", "status", "--json"], {
+      entrypoint: "dist",
+      env: { HOME: homeDir }
+    });
+    const sessionLoadResult = runCli(
+      projectDir,
+      ["session", "load", "--json", "--print-startup"],
+      {
+        entrypoint: "dist",
+        env: { HOME: homeDir }
+      }
+    );
+
+    expect(sessionStatusResult.exitCode, sessionStatusResult.stderr).toBe(0);
+    expect(sessionLoadResult.exitCode, sessionLoadResult.stderr).toBe(0);
+    expect(JSON.parse(sessionStatusResult.stdout)).toMatchObject({
+      projectLocation: {
+        exists: false
+      },
+      localLocation: {
+        exists: false
+      },
+      latestContinuityAuditEntry: null,
+      latestContinuityDiagnostics: null,
+      pendingContinuityRecovery: null,
+      startup: {
+        sourceFiles: [],
+        candidateSourceFiles: [],
+        continuityMode: "startup",
+        continuityProvenanceKind: "temporary-continuity"
+      }
+    });
+    expect(JSON.parse(sessionLoadResult.stdout)).toMatchObject({
+      projectLocation: {
+        exists: false
+      },
+      localLocation: {
+        exists: false
+      },
+      latestContinuityAuditEntry: null,
+      latestContinuityDiagnostics: null,
+      pendingContinuityRecovery: null,
+      startup: {
+        sourceFiles: [],
+        candidateSourceFiles: [],
+        continuityMode: "startup",
+        continuityProvenanceKind: "temporary-continuity"
+      }
+    });
+    expect(await pathExists(memoryRoot)).toBe(false);
+  });
 
   it("uses the recommended recall search preset from the compiled cli entrypoint without creating memory layout on first lookup", async () => {
     const homeDir = await tempDir("cam-dist-recall-home-");
