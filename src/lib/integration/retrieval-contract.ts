@@ -249,12 +249,16 @@ export function hasCliCwdFlag(command: string): boolean {
   return /(?:^|\s)--cwd(?:\s|=)/u.test(command);
 }
 
+function shellQuote(value: string): string {
+  return `'${value.replace(/'/g, "'\"'\"'")}'`;
+}
+
 export function appendCliCwdFlag(command: string, cwd?: string): string {
   if (!cwd || hasCliCwdFlag(command)) {
     return command;
   }
 
-  return `${command} --cwd ${JSON.stringify(cwd)}`;
+  return `${command} --cwd ${shellQuote(cwd)}`;
 }
 
 export function buildResolvedCliCommand(
@@ -277,10 +281,10 @@ function buildHookFallbackCommand(
     cwd?: string;
   } = {}
 ): string {
-  const helperPath = JSON.stringify(getInstalledHookHelperPath("memory-recall.sh"));
+  const helperPath = shellQuote(getInstalledHookHelperPath("memory-recall.sh"));
   const invocation = `${helperPath} ${action} ${argumentPlaceholder}`;
   return options.cwd
-    ? `CAM_PROJECT_ROOT=${JSON.stringify(options.cwd)} ${invocation}`
+    ? `CAM_PROJECT_ROOT=${shellQuote(options.cwd)} ${invocation}`
     : invocation;
 }
 

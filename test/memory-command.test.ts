@@ -4153,4 +4153,57 @@ describe("runMemory", () => {
     expect(result.stdout).toContain("Rebuild retrieval sidecars from canonical Markdown memory");
     expect(result.stdout).not.toContain("--enable");
   });
+
+  it("lets memory reindex subcommand options override parent memory options", async () => {
+    const homeDir = await tempDir("cam-memory-reindex-parent-child-home-");
+    const projectDir = await tempDir("cam-memory-reindex-parent-child-project-");
+    const memoryRoot = await tempDir("cam-memory-reindex-parent-child-root-");
+    process.env.HOME = homeDir;
+
+    const projectConfig = buildProjectConfig();
+    await writeProjectConfig(projectDir, projectConfig, {
+      autoMemoryDirectory: memoryRoot
+    });
+
+    const store = new MemoryStore(detectProjectContext(projectDir), {
+      ...projectConfig,
+      autoMemoryDirectory: memoryRoot
+    });
+    await store.ensureLayout();
+    await store.remember(
+      "project",
+      "workflow",
+      "prefer-pnpm",
+      "Prefer pnpm in this repository.",
+      ["Use pnpm instead of npm in this repository."],
+      "Manual note."
+    );
+
+    const result = runCli(
+      projectDir,
+      [
+        "memory",
+        "--scope",
+        "project-local",
+        "reindex",
+        "--scope",
+        "project",
+        "--state",
+        "active",
+        "--json"
+      ],
+      { env: { HOME: homeDir } }
+    );
+    expect(result.exitCode, result.stderr).toBe(0);
+    expect(JSON.parse(result.stdout)).toMatchObject({
+      requestedScope: "project",
+      requestedState: "active",
+      rebuilt: [
+        expect.objectContaining({
+          scope: "project",
+          state: "active"
+        })
+      ]
+    });
+  });
 });

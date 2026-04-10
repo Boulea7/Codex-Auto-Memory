@@ -202,7 +202,7 @@ describe("hooks command", () => {
       workflowContract: {
         recommendedPreset: "state=auto, limit=8",
         cliFallback: {
-          searchCommand: `cam recall search "<query>" --state auto --limit 8 --cwd ${JSON.stringify(await fs.realpath(projectDir))}`
+          searchCommand: `cam recall search "<query>" --state auto --limit 8 --cwd '${await fs.realpath(projectDir)}'`
         },
         postWorkSyncReview: {
           helperScript: "post-work-memory-review.sh"

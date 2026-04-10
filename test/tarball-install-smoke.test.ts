@@ -330,7 +330,7 @@ describe("tarball install smoke", () => {
           preferredRoute: "mcp-first"
         },
         cliFallback: {
-          searchCommand: `cam recall search "<query>" --state auto --limit 8 --cwd ${JSON.stringify(realInstallDir)}`
+          searchCommand: `cam recall search "<query>" --state auto --limit 8 --cwd '${realInstallDir}'`
         }
       },
       agentsGuidance: {
@@ -563,7 +563,7 @@ describe("tarball install smoke", () => {
       workflowContract: {
         recommendedPreset: "state=auto, limit=8",
         cliFallback: {
-          searchCommand: `cam recall search "<query>" --state auto --limit 8 --cwd ${JSON.stringify(realInstallDir)}`
+          searchCommand: `cam recall search "<query>" --state auto --limit 8 --cwd '${realInstallDir}'`
         }
       },
       subactions: {
@@ -588,7 +588,7 @@ describe("tarball install smoke", () => {
       workflowContract: {
         recommendedPreset: "state=auto, limit=8",
         cliFallback: {
-          searchCommand: `cam recall search "<query>" --state auto --limit 8 --cwd ${JSON.stringify(realInstallDir)}`
+          searchCommand: `cam recall search "<query>" --state auto --limit 8 --cwd '${realInstallDir}'`
         }
       },
       subactions: {
@@ -900,7 +900,7 @@ describe("tarball install smoke", () => {
       failureMessage: expect.stringContaining("directory"),
       rollbackApplied: true,
       subactions: {
-        mcp: { attempted: false },
+        mcp: { attempted: true, status: "blocked", action: "blocked" },
         agents: { attempted: false },
         hooks: { attempted: false },
         skills: { attempted: false }
