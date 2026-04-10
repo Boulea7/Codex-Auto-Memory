@@ -327,6 +327,7 @@ export function registerCommands(program: Command): void {
     .option("--print-startup", "Print the compiled startup memory block")
     .option("--open", "Open the memory directory in the default file browser")
     .action(withStdout(async (options) => runMemory(options)));
+  memoryCommand.enablePositionalOptions();
 
   addJsonOption(
     memoryCommand
@@ -346,10 +347,23 @@ export function registerCommands(program: Command): void {
   ).action(
     withStdout(async (options, command) => {
       const parent = command.parent;
-      const mergedOptions =
-        typeof command.optsWithGlobals === "function"
-          ? (command.optsWithGlobals() as Record<string, unknown>)
-          : (command.opts() as Record<string, unknown>);
+      const subcommandOptions = command.opts() as Record<string, unknown>;
+      const subcommandJson =
+        command.getOptionValueSource("json") === "cli"
+          ? (subcommandOptions.json as boolean | undefined)
+          : undefined;
+      const subcommandCwd =
+        command.getOptionValueSource("cwd") === "cli"
+          ? (subcommandOptions.cwd as string | undefined)
+          : undefined;
+      const subcommandScope =
+        command.getOptionValueSource("scope") === "cli"
+          ? (subcommandOptions.scope as string | undefined)
+          : undefined;
+      const subcommandState =
+        command.getOptionValueSource("state") === "cli"
+          ? (subcommandOptions.state as string | undefined)
+          : undefined;
       const explicitParentOptions =
         parent
           ? Object.fromEntries(
@@ -370,15 +384,14 @@ export function registerCommands(program: Command): void {
           : {};
 
       return runMemoryReindex({
-        json: (options as { json?: boolean }).json ?? (mergedOptions.json as boolean | undefined),
-        cwd: (options as { cwd?: string }).cwd ?? (mergedOptions.cwd as string | undefined),
+        ...explicitParentOptions,
+        json: subcommandJson ?? (explicitParentOptions.json as boolean | undefined),
+        cwd: subcommandCwd ?? (explicitParentOptions.cwd as string | undefined),
         scope:
-          ((options as { scope?: string }).scope ??
-            (mergedOptions.scope as string | undefined)) as MemoryReindexCommandOptions["scope"],
-        state:
-          ((options as { state?: string }).state ??
-            (mergedOptions.state as string | undefined)) as MemoryReindexCommandOptions["state"],
-        ...explicitParentOptions
+          (subcommandScope ??
+            (explicitParentOptions.scope as string | undefined) ??
+            "all") as MemoryReindexCommandOptions["scope"],
+        state: (subcommandState ?? "all") as MemoryReindexCommandOptions["state"]
       });
     })
   );

@@ -686,7 +686,7 @@ describe("mcp command", () => {
         progressiveDisclosure: "Use progressive disclosure: search -> timeline -> details."
       },
       cliFallback: {
-        searchCommand: `cam recall search "<query>" --state auto --limit 8 --cwd ${JSON.stringify(realProjectDir)}`
+        searchCommand: `cam recall search "<query>" --state auto --limit 8 --cwd '${realProjectDir}'`
       }
     });
     expect(payload.agentsGuidance).toMatchObject({
@@ -1617,14 +1617,14 @@ describe("mcp command", () => {
       recallFirst: expect.stringContaining("recall durable memory first"),
       progressiveDisclosure: "Use progressive disclosure: search -> timeline -> details.",
       cliFallback: {
-        searchCommand: `cam recall search "<query>" --state auto --limit 8 --cwd ${JSON.stringify(realProjectDir)}`,
-        timelineCommand: `cam recall timeline "<ref>" --cwd ${JSON.stringify(realProjectDir)}`,
-        detailsCommand: `cam recall details "<ref>" --cwd ${JSON.stringify(realProjectDir)}`
+        searchCommand: `cam recall search "<query>" --state auto --limit 8 --cwd '${realProjectDir}'`,
+        timelineCommand: `cam recall timeline "<ref>" --cwd '${realProjectDir}'`,
+        detailsCommand: `cam recall details "<ref>" --cwd '${realProjectDir}'`
       },
       postWorkSyncReview: {
         helperScript: "post-work-memory-review.sh",
-        syncCommand: `cam sync --cwd ${JSON.stringify(realProjectDir)}`,
-        reviewCommand: `cam memory --recent --cwd ${JSON.stringify(realProjectDir)}`
+        syncCommand: `cam sync --cwd '${realProjectDir}'`,
+        reviewCommand: `cam memory --recent --cwd '${realProjectDir}'`
       }
     });
     expect(payload.codexStack).toMatchObject({
@@ -1662,7 +1662,7 @@ describe("mcp command", () => {
       status: "warning",
       summary: expect.stringContaining("Markdown"),
       repairCommand: expect.stringContaining(
-        `memory reindex --scope all --state all --cwd ${JSON.stringify(realProjectDir)}`
+        `memory reindex --scope all --state all --cwd '${realProjectDir}'`
       ),
       checks: expect.arrayContaining([
         expect.objectContaining({
@@ -2981,15 +2981,15 @@ describe("mcp command", () => {
         }
       },
       cliFallback: {
-        searchCommand: `cam recall search "<query>" --state auto --limit 8 --cwd ${JSON.stringify(realProjectDir)}`,
-        timelineCommand: `cam recall timeline "<ref>" --cwd ${JSON.stringify(realProjectDir)}`,
-        detailsCommand: `cam recall details "<ref>" --cwd ${JSON.stringify(realProjectDir)}`,
+        searchCommand: `cam recall search "<query>" --state auto --limit 8 --cwd '${realProjectDir}'`,
+        timelineCommand: `cam recall timeline "<ref>" --cwd '${realProjectDir}'`,
+        detailsCommand: `cam recall details "<ref>" --cwd '${realProjectDir}'`,
         requiresCamOnPath: true
       },
       postWorkSyncReview: {
         helperScript: "post-work-memory-review.sh",
-        syncCommand: `cam sync --cwd ${JSON.stringify(realProjectDir)}`,
-        reviewCommand: `cam memory --recent --cwd ${JSON.stringify(realProjectDir)}`,
+        syncCommand: `cam sync --cwd '${realProjectDir}'`,
+        reviewCommand: `cam memory --recent --cwd '${realProjectDir}'`,
         shellOnly: true,
         requiresCamOnPath: true
       }

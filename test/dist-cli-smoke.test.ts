@@ -580,7 +580,7 @@ describe("dist cli smoke", () => {
           preferredRoute: "mcp-first"
         },
         cliFallback: {
-          searchCommand: `cam recall search "<query>" --state auto --limit 8 --cwd ${JSON.stringify(realProjectDir)}`
+          searchCommand: `cam recall search "<query>" --state auto --limit 8 --cwd '${realProjectDir}'`
         }
       },
       agentsGuidance: {
@@ -1202,7 +1202,7 @@ describe("dist cli smoke", () => {
       workflowContract: {
         recommendedPreset: "state=auto, limit=8",
         cliFallback: {
-          searchCommand: `cam recall search "<query>" --state auto --limit 8 --cwd ${JSON.stringify(realProjectDir)}`
+          searchCommand: `cam recall search "<query>" --state auto --limit 8 --cwd '${realProjectDir}'`
         }
       },
       subactions: {
@@ -1246,7 +1246,7 @@ describe("dist cli smoke", () => {
       workflowContract: {
         recommendedPreset: "state=auto, limit=8",
         cliFallback: {
-          searchCommand: `cam recall search "<query>" --state auto --limit 8 --cwd ${JSON.stringify(realProjectDir)}`
+          searchCommand: `cam recall search "<query>" --state auto --limit 8 --cwd '${realProjectDir}'`
         }
       },
       subactions: {
@@ -1379,7 +1379,7 @@ describe("dist cli smoke", () => {
       failureMessage: expect.stringContaining("directory"),
       rollbackApplied: true,
       subactions: {
-        mcp: { attempted: false },
+        mcp: { attempted: true, status: "blocked", action: "blocked" },
         agents: { attempted: false },
         hooks: { attempted: false },
         skills: { attempted: false }
