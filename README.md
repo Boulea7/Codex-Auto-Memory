@@ -326,6 +326,7 @@ Session continuity：
 ### 核心设计文档
 
 - [Claude Code 参考契约（中文）](docs/claude-reference.md) | [English](docs/claude-reference.en.md)
+- [Claude Code / Gemini CLI 宿主接入边界（中文）](docs/host-integration-claude-gemini.md)
 - [架构设计（中文）](docs/architecture.md) | [English](docs/architecture.en.md)
 - [集成演进策略（中文）](docs/integration-strategy.md)
 - [宿主能力面（中文）](docs/host-surfaces.md)
