@@ -3,8 +3,8 @@ import { rawProjectConfigSchema } from "../config/schema.js";
 import { MemoryStore } from "../domain/memory-store.js";
 import { detectProjectContext, getDefaultMemoryDirectory } from "../domain/project-context.js";
 import { SessionContinuityStore } from "../domain/session-continuity-store.js";
-import { buildRuntimeContext } from "../runtime/runtime-context.js";
 import { fileExists, readJsonFile, updateGitignoreLine, writeJsonFile } from "../util/fs.js";
+import { resolveAppPath } from "../util/paths.js";
 import type { AppConfig } from "../types.js";
 
 interface InitOptions {
@@ -69,13 +69,20 @@ export async function runInit(options: InitOptions = {}): Promise<string> {
   }
   await updateGitignoreLine(project.projectRoot, ".codex-auto-memory.local.json");
 
-  const runtime = await buildRuntimeContext(project.projectRoot);
-  const config: AppConfig = runtime.loadedConfig.config.autoMemoryDirectory
-    ? runtime.loadedConfig.config
-    : {
-        ...runtime.loadedConfig.config,
-        autoMemoryDirectory: getDefaultMemoryDirectory()
-      };
+  const persistedProjectConfig = rawProjectConfigSchema.parse(
+    (await readJsonFile(projectConfigPath)) ?? projectConfig
+  );
+  const persistedLocalConfig = rawProjectConfigSchema.parse(
+    (await readJsonFile(localConfigPath)) ?? { autoMemoryEnabled: true }
+  );
+  const config: AppConfig = {
+    ...projectConfig,
+    ...persistedProjectConfig,
+    ...persistedLocalConfig,
+    autoMemoryDirectory: persistedLocalConfig.autoMemoryDirectory
+      ? resolveAppPath(persistedLocalConfig.autoMemoryDirectory)
+      : getDefaultMemoryDirectory()
+  };
   const store = new MemoryStore(project, config);
   const continuityStore = new SessionContinuityStore(project, config);
   const excludePath = await continuityStore.ensureLocalIgnore();
