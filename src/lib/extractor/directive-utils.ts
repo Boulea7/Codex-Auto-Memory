@@ -35,10 +35,6 @@ function resourceTokenFromUrl(url: string, category: string): string | null {
       .map((segment) => slugify(segment))
       .filter(Boolean);
     const tailToken = [...pathTokens].reverse().find(Boolean);
-    if (tailToken && !genericReferenceTokens.has(tailToken)) {
-      return tailToken;
-    }
-
     if (category === "issue-tracker") {
       const ticketToken =
         [...pathTokens].reverse().find((token) => /^[a-z]+-\d+$/iu.test(token) || /^\d+$/u.test(token)) ??
@@ -59,6 +55,10 @@ function resourceTokenFromUrl(url: string, category: string): string | null {
       const contextToken = nonGenericPathTokens.slice(-2).join("-") || ticketToken;
 
       return [hostContextToken, contextToken].filter(Boolean).join("-") || category;
+    }
+
+    if (tailToken && !genericReferenceTokens.has(tailToken)) {
+      return tailToken;
     }
 
     if (tailToken) {
