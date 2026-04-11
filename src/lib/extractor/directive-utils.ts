@@ -30,6 +30,8 @@ function resourceTokenFromUrl(url: string, category: string): string | null {
     const parsed = new URL(url);
     const pathTokens = parsed.pathname
       .split("/")
+      .map((segment) => segment.trim())
+      .filter(Boolean)
       .map((segment) => slugify(segment))
       .filter(Boolean);
     const tailToken = [...pathTokens].reverse().find(Boolean);
@@ -38,6 +40,9 @@ function resourceTokenFromUrl(url: string, category: string): string | null {
     }
 
     if (category === "issue-tracker") {
+      const ticketToken =
+        [...pathTokens].reverse().find((token) => /^[a-z]+-\d+$/iu.test(token) || /^\d+$/u.test(token)) ??
+        null;
       const nonGenericPathTokens = pathTokens.filter((token) => {
         if (genericReferenceTokens.has(token)) {
           return false;
@@ -51,7 +56,7 @@ function resourceTokenFromUrl(url: string, category: string): string | null {
         .filter(Boolean);
       const hostContextToken =
         hostTokens.find((token) => !genericHostTokens.has(token)) ?? slugify(parsed.hostname);
-      const contextToken = nonGenericPathTokens.slice(-2).join("-");
+      const contextToken = nonGenericPathTokens.slice(-2).join("-") || ticketToken;
 
       return [hostContextToken, contextToken].filter(Boolean).join("-") || category;
     }
