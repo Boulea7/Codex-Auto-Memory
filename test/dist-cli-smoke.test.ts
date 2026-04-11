@@ -1694,21 +1694,26 @@ describe("dist cli smoke", () => {
     });
   });
 
-  it("fails closed for invalid --cwd on the compiled integrations doctor entrypoint", async () => {
+  it("fails closed for invalid --cwd on compiled integrations entrypoints", async () => {
     const homeDir = await tempDir("cam-dist-integrations-doctor-invalid-cwd-home-");
     const projectDir = await tempDir("cam-dist-integrations-doctor-invalid-cwd-project-");
 
-    for (const cwd of ["", "   ", path.join(projectDir, "missing-project")]) {
-      const result = runCli(
-        projectDir,
-        ["integrations", "doctor", "--host", "codex", "--cwd", cwd],
-        {
-          entrypoint: "dist",
-          env: { HOME: homeDir }
-        }
-      );
-      expect(result.exitCode).toBe(1);
-      expect(result.stderr).toContain("--cwd must be a non-empty path to an existing directory.");
+    for (const command of [
+      ["integrations", "apply", "--host", "codex"] as const,
+      ["integrations", "doctor", "--host", "codex"] as const
+    ]) {
+      for (const cwd of ["", "   ", path.join(projectDir, "missing-project")]) {
+        const result = runCli(
+          projectDir,
+          [...command, "--cwd", cwd],
+          {
+            entrypoint: "dist",
+            env: { HOME: homeDir }
+          }
+        );
+        expect(result.exitCode).toBe(1);
+        expect(result.stderr).toContain("--cwd must be a non-empty path to an existing directory.");
+      }
     }
   });
 

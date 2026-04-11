@@ -51,7 +51,8 @@ function resourceTokenFromUrl(url: string, category: string): string | null {
         .map((segment) => slugify(segment))
         .filter(Boolean);
       const hostContextToken =
-        hostTokens.find((token) => !genericHostTokens.has(token)) ?? slugify(parsed.hostname);
+        hostTokens.filter((token) => !genericHostTokens.has(token)).join("-") ||
+        slugify(parsed.hostname);
       const contextToken = nonGenericPathTokens.slice(-2).join("-") || ticketToken;
 
       return [hostContextToken, contextToken].filter(Boolean).join("-") || category;

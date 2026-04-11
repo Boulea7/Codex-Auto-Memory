@@ -125,7 +125,7 @@ afterEach(async () => {
 });
 
 describe("integrations command", () => {
-  it("fails closed when integrations install and doctor use empty, whitespace-only, or missing --cwd", async () => {
+  it("fails closed when integrations install, apply, and doctor use empty, whitespace-only, or missing --cwd", async () => {
     const homeDir = await tempDir("cam-integrations-empty-cwd-home-");
     const projectDir = await tempDir("cam-integrations-empty-cwd-project-");
     process.env.HOME = homeDir;
@@ -133,6 +133,7 @@ describe("integrations command", () => {
 
     for (const command of [
       ["integrations", "install", "--host", "codex"] as const,
+      ["integrations", "apply", "--host", "codex"] as const,
       ["integrations", "doctor", "--host", "codex"] as const
     ]) {
       for (const cwd of ["", "   ", missingDir]) {
