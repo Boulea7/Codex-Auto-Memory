@@ -9,6 +9,8 @@ import {
 import { runCli } from "./helpers/cli-runner.js";
 
 const tempDirs: string[] = [];
+const originalHome = process.env.HOME;
+const originalManagedConfig = process.env.CAM_MANAGED_CONFIG;
 
 async function tempDir(prefix: string): Promise<string> {
   const dir = await fs.mkdtemp(path.join(process.env.TMPDIR ?? "/tmp", prefix));
@@ -46,6 +48,12 @@ const expectedLocalInitConfig = {
 };
 
 afterEach(async () => {
+  process.env.HOME = originalHome;
+  if (originalManagedConfig === undefined) {
+    delete process.env.CAM_MANAGED_CONFIG;
+  } else {
+    process.env.CAM_MANAGED_CONFIG = originalManagedConfig;
+  }
   await Promise.all(tempDirs.splice(0).map((dir) => fs.rm(dir, { recursive: true, force: true })));
 });
 
@@ -166,6 +174,7 @@ describe("cam init", () => {
     const homeDir = await tempDir("cam-init-invalid-user-home-");
     const repoDir = await tempDir("cam-init-invalid-user-repo-");
     await initGitRepo(repoDir);
+    process.env.HOME = homeDir;
 
     const userConfigPath = configPaths.getUserConfigPath();
     await fs.mkdir(path.dirname(userConfigPath), { recursive: true });
@@ -189,6 +198,7 @@ describe("cam init", () => {
       "config.json"
     );
     await initGitRepo(repoDir);
+    process.env.HOME = homeDir;
 
     await fs.writeFile(managedConfigPath, "{\n", "utf8");
 
