@@ -1,6 +1,7 @@
 import fs from "node:fs/promises";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
+import { configPaths } from "../src/lib/config/load-config.js";
 import {
   initGitRepo,
   writeCamConfig
@@ -158,6 +159,49 @@ describe("cam init", () => {
     );
     expect(await readJson(path.join(repoDir, ".codex-auto-memory.local.json"))).toEqual(
       expectedLocalInitConfig
+    );
+  });
+
+  it("does not let an invalid user config outside the target project block init", async () => {
+    const homeDir = await tempDir("cam-init-invalid-user-home-");
+    const repoDir = await tempDir("cam-init-invalid-user-repo-");
+    await initGitRepo(repoDir);
+
+    const userConfigPath = configPaths.getUserConfigPath();
+    await fs.mkdir(path.dirname(userConfigPath), { recursive: true });
+    await fs.writeFile(userConfigPath, "{\n", "utf8");
+
+    const result = runCli(repoDir, ["init"], {
+      env: { HOME: homeDir }
+    });
+
+    expect(result.exitCode, result.stderr).toBe(0);
+    expect(await readJson(path.join(repoDir, "codex-auto-memory.json"))).toEqual(
+      expectedProjectInitConfig
+    );
+  });
+
+  it("does not let an invalid managed config block init", async () => {
+    const homeDir = await tempDir("cam-init-invalid-managed-home-");
+    const repoDir = await tempDir("cam-init-invalid-managed-repo-");
+    const managedConfigPath = path.join(
+      await tempDir("cam-init-invalid-managed-config-"),
+      "config.json"
+    );
+    await initGitRepo(repoDir);
+
+    await fs.writeFile(managedConfigPath, "{\n", "utf8");
+
+    const result = runCli(repoDir, ["init"], {
+      env: {
+        HOME: homeDir,
+        CAM_MANAGED_CONFIG: managedConfigPath
+      }
+    });
+
+    expect(result.exitCode, result.stderr).toBe(0);
+    expect(await readJson(path.join(repoDir, "codex-auto-memory.json"))).toEqual(
+      expectedProjectInitConfig
     );
   });
 });
