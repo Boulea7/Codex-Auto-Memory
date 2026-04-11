@@ -48,7 +48,21 @@ afterEach(async () => {
 });
 
 describe("hooks command", () => {
-  it("supports --cwd while keeping generated hook helpers reusable across projects", async () => {
+  it("fails closed when --cwd is empty, whitespace-only, or missing", async () => {
+    const homeDir = await tempDir("cam-hooks-empty-cwd-home-");
+    const projectDir = await tempDir("cam-hooks-empty-cwd-project-");
+    process.env.HOME = homeDir;
+    const missingDir = path.join(projectDir, "missing-project");
+
+    for (const cwd of ["", "   ", missingDir]) {
+      const result = runCli(projectDir, ["hooks", "install", "--cwd", cwd], {
+        env: { HOME: homeDir }
+      });
+      expect(result.exitCode).toBe(1);
+      expect(result.stderr).toContain("--cwd must be a non-empty path to an existing directory.");
+    }
+  });
+  shellOnlyIt("supports --cwd while keeping generated hook helpers reusable across projects", async () => {
     const homeDir = await tempDir("cam-hooks-cwd-home-");
     const projectParentDir = await tempDir("cam-hooks-cwd-parent-");
     const projectDir = path.join(projectParentDir, "project with spaces");
