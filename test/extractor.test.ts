@@ -1366,6 +1366,93 @@ describe("HeuristicExtractor", () => {
     );
   });
 
+  it("does not collapse cross-host issue tracker URLs that share the same repo path and ticket id", async () => {
+    const extractor = new HeuristicExtractor();
+    const existingEntries: MemoryEntry[] = [
+      {
+        id: "github-foo-widgets-123",
+        scope: "project",
+        topic: "reference",
+        summary: "Issues are tracked at https://github.foo.example.com/acme/widgets/issues/123",
+        details: ["Primary GitHub Enterprise tracker pointer."],
+        updatedAt: "2026-03-14T00:00:00.000Z",
+        sources: ["old"]
+      }
+    ];
+
+    const operations = await extractor.extract(
+      baseEvidence({
+        userMessages: [
+          "Issues are tracked at https://github.bar.example.com/acme/widgets/issues/123."
+        ]
+      }),
+      existingEntries
+    );
+    const reviewed = reviewExtractedMemoryOperations(operations, existingEntries);
+
+    expect(reviewed.operations).not.toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          action: "delete",
+          topic: "reference",
+          id: "github-foo-widgets-123"
+        })
+      ])
+    );
+    expect(reviewed.operations).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          action: "upsert",
+          topic: "reference",
+          summary:
+            "Issues are tracked at https://github.bar.example.com/acme/widgets/issues/123"
+        })
+      ])
+    );
+  });
+
+  it("does not collapse cross-host issue tracker URLs that share the same ticket id behind a generic browse path", async () => {
+    const extractor = new HeuristicExtractor();
+    const existingEntries: MemoryEntry[] = [
+      {
+        id: "jira-foo-auth-123",
+        scope: "project",
+        topic: "reference",
+        summary: "Issues are tracked at https://jira.foo.example.com/browse/AUTH-123",
+        details: ["Primary Jira issue tracker pointer."],
+        updatedAt: "2026-03-14T00:00:00.000Z",
+        sources: ["old"]
+      }
+    ];
+
+    const operations = await extractor.extract(
+      baseEvidence({
+        userMessages: ["Issues are tracked at https://jira.bar.example.com/browse/AUTH-123."]
+      }),
+      existingEntries
+    );
+    const reviewed = reviewExtractedMemoryOperations(operations, existingEntries);
+
+    expect(reviewed.operations).not.toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          action: "delete",
+          topic: "reference",
+          id: "jira-foo-auth-123"
+        })
+      ])
+    );
+    expect(reviewed.operations).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          action: "upsert",
+          topic: "reference",
+          summary: "Issues are tracked at https://jira.bar.example.com/browse/AUTH-123"
+        })
+      ])
+    );
+  });
+
   it("does not suppress different issue tracker URLs when both use a generic browse tail", () => {
     const reviewed = reviewExtractedMemoryOperations(
       [
