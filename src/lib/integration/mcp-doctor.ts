@@ -51,7 +51,7 @@ import {
 } from "./skills-paths.js";
 import { fileExists, readTextFile } from "../util/fs.js";
 import { buildRuntimeContext } from "../runtime/runtime-context.js";
-import { resolveMcpProjectRoot } from "./mcp-config.js";
+import { resolveMcpProjectCwd, resolveMcpProjectRoot } from "./mcp-config.js";
 import type { RetrievalSidecarCheck } from "../domain/memory-store.js";
 import type { MemoryLayoutDiagnostic, TopicFileDiagnostic } from "../types.js";
 
@@ -1131,7 +1131,9 @@ export async function inspectMcpDoctor(options: {
   host?: string;
   explicitCwd?: boolean;
 } = {}): Promise<McpDoctorReport> {
-  const cwd = await normalizeComparablePath(options.cwd ?? process.cwd());
+  const cwd = await normalizeComparablePath(
+    options.cwd === undefined ? process.cwd() : resolveMcpProjectCwd(options.cwd)
+  );
   const projectRoot = resolveMcpProjectRoot(cwd);
   const agentsGuidancePath = path.join(projectRoot, "AGENTS.md");
   const hostSelection: McpDoctorHostSelection = normalizeMcpDoctorHostSelection(options.host);

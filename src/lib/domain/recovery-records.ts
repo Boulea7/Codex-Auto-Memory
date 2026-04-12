@@ -394,6 +394,6 @@ export function matchesContinuityRecoveryRecord(
     record.worktreeId === identity.worktreeId &&
     record.rolloutPath === identity.rolloutPath &&
     record.sourceSessionId === identity.sourceSessionId &&
-    record.scope === identity.scope
+    (record.scope === identity.scope || (record.scope === "both" && identity.scope !== "both"))
   );
 }

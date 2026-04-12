@@ -187,7 +187,12 @@ function buildNextRecommendedActions(
       )
     );
   } else {
-    steps.push("Details are unavailable for deleted refs; use cam recall timeline to review the deletion trail.");
+    steps.push(
+      `Details are unavailable for deleted refs; review the deletion trail with ${buildResolvedCliTimelineCommand(
+        JSON.stringify(timelineRefs[0]),
+        options
+      )}.`
+    );
   }
 
   steps.push(
@@ -337,8 +342,8 @@ export function toManualMutationForgetPayload(
   } = {}
 ): ManualMutationForgetPayload {
   const reviewerSummary = buildReviewerSummary(entries);
-  const primaryEntry = entries[0] ? toPrimaryEntry(entries[0]) : null;
-  const leadEntry = entries[0] ?? null;
+  const leadEntry = entries[0]?.detailsRef === null ? null : (entries[0] ?? null);
+  const primaryEntry = leadEntry ? toPrimaryEntry(leadEntry) : null;
   const summary: ManualMutationSummary = {
     matchedCount: entries.length,
     appliedCount: entries.filter((entry) => entry.lifecycleAction !== "noop").length,

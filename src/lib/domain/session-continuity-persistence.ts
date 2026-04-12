@@ -11,6 +11,7 @@ import { SessionContinuitySummarizer } from "../extractor/session-continuity-sum
 import type { RuntimeContext } from "../runtime/runtime-context.js";
 import type {
   ContinuityRecoveryRecord,
+  ContinuityRecoveryFailedStage,
   SessionContinuityAuditEntry,
   SessionContinuityAuditTrigger,
   SessionContinuitySummary,
@@ -54,6 +55,7 @@ async function writeContinuityRecoveryRecordBestEffort(
   diagnostics: SessionContinuityDiagnostics,
   scope: SessionContinuityScope | "both",
   writtenPaths: string[],
+  failedStage: ContinuityRecoveryFailedStage,
   failureMessage: string,
   trigger: SessionContinuityAuditTrigger,
   writeMode: SessionContinuityWriteMode
@@ -68,7 +70,7 @@ async function writeContinuityRecoveryRecordBestEffort(
         writeMode,
         scope,
         writtenPaths,
-        failedStage: "audit-write",
+        failedStage,
         failureMessage
       })
     );
@@ -124,16 +126,31 @@ export async function persistSessionContinuity(
 
   const summarizer = new SessionContinuitySummarizer(options.runtime.loadedConfig.config);
   const generation = await summarizer.summarizeWithDiagnostics(parsedEvidence, existing);
-  const written =
-    options.writeMode === "replace"
-      ? await options.runtime.sessionContinuityStore.replaceSummary(
-          generation.summary,
-          options.scope
-        )
-      : await options.runtime.sessionContinuityStore.saveSummary(
-          generation.summary,
-          options.scope
-        );
+  let written: string[];
+  try {
+    written =
+      options.writeMode === "replace"
+        ? await options.runtime.sessionContinuityStore.replaceSummary(
+            generation.summary,
+            options.scope
+          )
+        : await options.runtime.sessionContinuityStore.saveSummary(
+            generation.summary,
+            options.scope
+          );
+  } catch (error) {
+    await writeContinuityRecoveryRecordBestEffort(
+      options.runtime,
+      generation.diagnostics,
+      options.scope,
+      [],
+      "summary-write",
+      errorMessage(error),
+      options.trigger,
+      options.writeMode
+    );
+    throw error;
+  }
   const auditEntry = buildSessionContinuityAuditEntry(
     options.runtime.project,
     options.runtime.loadedConfig.config,
@@ -154,6 +171,7 @@ export async function persistSessionContinuity(
       generation.diagnostics,
       options.scope,
       written,
+      "audit-write",
       errorMessage(error),
       options.trigger,
       options.writeMode

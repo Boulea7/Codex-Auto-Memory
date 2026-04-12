@@ -5,7 +5,11 @@ import type {
   MemoryScope
 } from "../types.js";
 import { canonicalCommandSignature } from "./command-signatures.js";
-import { extractReferenceResourceKey, splitDirectiveClauses } from "./directive-utils.js";
+import {
+  extractReferenceResourceKey,
+  inferReferenceCategory,
+  splitDirectiveClauses
+} from "./directive-utils.js";
 
 interface DirectiveChoice {
   key: string;
@@ -166,19 +170,10 @@ function normalizeReferenceUrl(url: string): string {
 }
 
 function extractReferenceChoices(text: string): DirectiveChoice[] {
-  const normalized = text.toLowerCase();
   const urlMatch = text.match(/https?:\/\/[^\s)]+/iu)?.[0];
   const url = urlMatch ? normalizeReferenceUrl(urlMatch) : null;
-  const category =
-    /\bdashboard\b|仪表盘/u.test(normalized)
-      ? "dashboard"
-      : /\brunbook\b|操作手册|run book/u.test(normalized)
-        ? "runbook"
-        : /\bdoc(?:s|umentation)?\b|文档/u.test(normalized)
-          ? "docs"
-          : /\b(?:linear|jira|issue tracker|issues?)\b|缺陷追踪|问题追踪/u.test(normalized)
-            ? "issue-tracker"
-            : "pointer";
+  const category = inferReferenceCategory(text);
+  const normalized = text.toLowerCase();
 
   if (url) {
     const resourceKey = extractReferenceResourceKey(text, category, url) ?? category;
