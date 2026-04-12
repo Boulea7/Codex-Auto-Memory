@@ -1,4 +1,4 @@
-import { Command } from "commander";
+import { Command, Option } from "commander";
 import { runAudit } from "../commands/audit.js";
 import { runDoctor } from "../commands/doctor.js";
 import { runDream } from "../commands/dream.js";
@@ -61,6 +61,14 @@ function addSessionRolloutOption(command: Command): Command {
   return command.option("--rollout <path>", "Specific rollout JSONL file to summarize");
 }
 
+function addDreamCandidateIdOption(command: Command): Command {
+  return command.option("--candidate-id <id>", "Dream candidate id");
+}
+
+const dreamStatusChoices = ["pending", "approved", "rejected", "promoted", "stale", "blocked"];
+const dreamTargetSurfaceChoices = ["durable-memory", "instruction-memory"];
+const dreamOriginKindChoices = ["primary", "subagent"];
+
 function registerSessionCommands(program: Command): void {
   const sessionCommand = program
     .command("session")
@@ -119,7 +127,7 @@ function registerSessionCommands(program: Command): void {
 function registerDreamCommands(program: Command): void {
   const dreamCommand = program
     .command("dream")
-    .description("Build and inspect the background consolidation sidecar without mutating canonical memory");
+    .description("Build, inspect, and review the background consolidation sidecar without mutating canonical memory by default");
 
   addSessionScopeOption(
     addSessionRolloutOption(
@@ -136,6 +144,51 @@ function registerDreamCommands(program: Command): void {
       .command("inspect")
       .description("Inspect the latest dream sidecar snapshots and audit paths")
   ).action(withStdout(async (options) => runDream("inspect", options)));
+
+  addJsonOption(
+    dreamCommand
+      .command("candidates")
+      .description("List explicit dream promotion candidates from the reviewer queue")
+      .addOption(
+        new Option("--status <status>", "Filter by candidate status").choices(dreamStatusChoices)
+      )
+      .addOption(
+        new Option(
+          "--target-surface <surface>",
+          "Filter by target surface: durable-memory or instruction-memory"
+        ).choices(dreamTargetSurfaceChoices)
+      )
+      .addOption(
+        new Option(
+          "--origin-kind <kind>",
+          "Filter by origin kind: primary or subagent"
+        ).choices(dreamOriginKindChoices)
+      )
+  ).action(withStdout(async (options) => runDream("candidates", options)));
+
+  addJsonOption(
+    addDreamCandidateIdOption(
+      dreamCommand
+        .command("review")
+        .description("Review a dream candidate without mutating canonical memory")
+        .option("--approve", "Approve the candidate for explicit promotion")
+        .option("--reject", "Reject the candidate")
+        .option("--defer", "Return the candidate to the pending lane")
+        .option("--note <text>", "Reviewer note to record with the decision")
+    )
+  ).action(withStdout(async (options) => runDream("review", options)));
+
+  addJsonOption(
+    addSessionScopeOption(
+      addDreamCandidateIdOption(
+        dreamCommand
+          .command("promote")
+          .description("Explicitly promote an approved dream candidate")
+          .option("--topic <topic>", "Override the inferred durable memory topic")
+          .option("--id <id>", "Override the inferred durable memory id")
+      )
+    )
+  ).action(withStdout(async (options) => runDream("promote", options)));
 }
 
 function registerHookCommands(program: Command): void {

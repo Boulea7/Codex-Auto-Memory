@@ -1,7 +1,6 @@
 import { buildRuntimeContext } from "../runtime/runtime-context.js";
 import { MemoryRetrievalService } from "../domain/memory-retrieval.js";
-import { inspectDreamSidecar, filterDreamRelevantRefs } from "../domain/dream-sidecar.js";
-import { discoverInstructionFiles } from "../domain/instruction-memory.js";
+import { buildMemoryQuerySurfacing } from "../domain/resume-context.js";
 import type {
   MemoryDetailsResult,
   MemoryRetrievalScope,
@@ -291,19 +290,10 @@ export async function runRecall(
         limit: parseMemoryRetrievalLimit(options.limit)
       });
       if (options.json) {
-        const dreamInspection = await inspectDreamSidecar(runtime);
-        const suggestedDreamRefs = filterDreamRelevantRefs(
-          dreamInspection.projectSnapshot?.relevantMemoryRefs ?? [],
-          target
-        );
-        const suggestedInstructionFiles = await discoverInstructionFiles(runtime.project.projectRoot);
         return JSON.stringify(
           {
             ...response,
-            querySurfacing: {
-              suggestedDreamRefs,
-              suggestedInstructionFiles
-            }
+            querySurfacing: await buildMemoryQuerySurfacing(runtime, target)
           },
           null,
           2

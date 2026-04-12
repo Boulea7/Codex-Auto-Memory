@@ -123,15 +123,20 @@ describe("dist cli smoke", () => {
     const memoryRoot = await tempDir("cam-dist-memory-root-");
     const cliEnv = { HOME: homeDir };
 
-    const config = makeAppConfig();
-    await writeCamConfig(projectDir, config, {
-      autoMemoryDirectory: memoryRoot
+    const config = makeAppConfig({
+      dreamSidecarEnabled: true
     });
+    await writeCamConfig(projectDir, config, {
+      autoMemoryDirectory: memoryRoot,
+      dreamSidecarEnabled: true
+    });
+    await fs.writeFile(path.join(projectDir, "CLAUDE.md"), "# Project rules\n", "utf8");
 
     const project = detectProjectContext(projectDir);
     const memoryStore = new MemoryStore(project, {
       ...config,
-      autoMemoryDirectory: memoryRoot
+      autoMemoryDirectory: memoryRoot,
+      dreamSidecarEnabled: true
     });
     await memoryStore.ensureLayout();
     await memoryStore.remember(
@@ -198,6 +203,37 @@ describe("dist cli smoke", () => {
       },
       "project"
     );
+    const rolloutPath = path.join(projectDir, "rollout.jsonl");
+    await fs.writeFile(
+      rolloutPath,
+      JSON.stringify({
+        type: "session_meta",
+        payload: {
+          id: "session-dist-dream",
+          timestamp: "2026-04-12T10:00:00.000Z",
+          cwd: projectDir
+        }
+      }) +
+        "\n" +
+        JSON.stringify({
+          type: "event_msg",
+          payload: {
+            type: "user_message",
+            message: "Continue the release smoke review and keep using pnpm in this repository."
+          }
+        }) +
+        "\n",
+      "utf8"
+    );
+
+    const dreamBuildResult = runCli(
+      projectDir,
+      ["dream", "build", "--rollout", rolloutPath, "--json"],
+      {
+        entrypoint: "dist",
+        env: cliEnv
+      }
+    );
 
     const memoryResult = runCli(projectDir, ["memory", "--recent", "1", "--json"], {
       entrypoint: "dist",
@@ -231,19 +267,43 @@ describe("dist cli smoke", () => {
         env: cliEnv
       }
     );
+    const recallResult = runCli(projectDir, ["recall", "search", "pnpm", "--json"], {
+      entrypoint: "dist",
+      env: cliEnv
+    });
+    const dreamInspectResult = runCli(projectDir, ["dream", "inspect", "--json"], {
+      entrypoint: "dist",
+      env: cliEnv
+    });
 
+    expect(dreamBuildResult.exitCode, dreamBuildResult.stderr).toBe(0);
     expect(memoryResult.exitCode, memoryResult.stderr).toBe(0);
     expect(sessionResult.exitCode, sessionResult.stderr).toBe(0);
     expect(sessionLoadResult.exitCode, sessionLoadResult.stderr).toBe(0);
     expect(rememberResult.exitCode, rememberResult.stderr).toBe(0);
     expect(forgetResult.exitCode, forgetResult.stderr).toBe(0);
+    expect(recallResult.exitCode, recallResult.stderr).toBe(0);
+    expect(dreamInspectResult.exitCode, dreamInspectResult.stderr).toBe(0);
 
     const memoryPayload = JSON.parse(memoryResult.stdout) as {
       recentSyncAudit: Array<{ rolloutPath: string }>;
+      dreamSidecar: {
+        enabled: boolean;
+        status: string;
+      };
     };
     const sessionPayload = JSON.parse(sessionResult.stdout) as {
       projectLocation: { exists: boolean };
       latestContinuityDiagnostics: { confidence: string; fallbackReason?: string | null } | null;
+      resumeContext: {
+        goal: string;
+        instructionFiles: string[];
+        suggestedDurableRefs: Array<{ ref: string }>;
+      };
+      dreamSidecar: {
+        enabled: boolean;
+        status: string;
+      };
     };
     const sessionLoadPayload = JSON.parse(sessionLoadResult.stdout) as {
       startup: {
@@ -258,6 +318,13 @@ describe("dist cli smoke", () => {
         futureCompactionSeam: { kind: string; rebuildsStartupSections: boolean };
       };
       latestContinuityDiagnostics: { confidence: string; fallbackReason?: string | null } | null;
+      resumeContext: {
+        suggestedDurableRefs: Array<{ ref: string }>;
+      };
+      dreamSidecar: {
+        enabled: boolean;
+        status: string;
+      };
     };
     const rememberPayload = JSON.parse(rememberResult.stdout) as {
       mutationKind: string;
@@ -269,12 +336,149 @@ describe("dist cli smoke", () => {
       latestAppliedLifecycle: { action: string } | null;
       followUp: { timelineRefs: string[]; detailsRefs: string[] };
     };
+    const recallPayload = JSON.parse(recallResult.stdout) as {
+      querySurfacing: {
+        suggestedDreamRefs: Array<{ ref: string; reason: string }>;
+        suggestedInstructionFiles: string[];
+      };
+    };
+    const dreamBuildPayload = JSON.parse(dreamBuildResult.stdout) as {
+      action: string;
+      snapshot: {
+        promotionCandidates: {
+          instructionLikeCandidates: unknown[];
+          durableMemoryCandidates: unknown[];
+        };
+      };
+    };
+    const dreamInspectPayload = JSON.parse(dreamInspectResult.stdout) as {
+      enabled: boolean;
+      snapshots: {
+        project: {
+          status: string;
+          latestPath: string | null;
+        };
+      };
+    };
+    const durableDreamRolloutPath = path.join(projectDir, "dream-durable-rollout.jsonl");
+    await fs.writeFile(
+      durableDreamRolloutPath,
+      JSON.stringify({
+        type: "session_meta",
+        payload: {
+          id: "session-dist-dream-durable",
+          timestamp: "2026-03-15T00:05:00.000Z",
+          cwd: projectDir
+        }
+      }) +
+        "\n" +
+        JSON.stringify({
+          type: "event_msg",
+          payload: {
+            type: "user_message",
+            message: "The runbook lives at https://docs.example.com/runbook. Continue the release-facing CLI surface."
+          }
+        }) +
+        "\n",
+      "utf8"
+    );
+    const durableDreamBuildResult = runCli(
+      projectDir,
+      ["dream", "build", "--rollout", durableDreamRolloutPath, "--json"],
+      {
+        entrypoint: "dist",
+        env: cliEnv
+      }
+    );
+    expect(durableDreamBuildResult.exitCode, durableDreamBuildResult.stderr).toBe(0);
+
+    const dreamCandidatesResult = runCli(projectDir, ["dream", "candidates", "--json"], {
+      entrypoint: "dist",
+      env: cliEnv
+    });
+    expect(dreamCandidatesResult.exitCode, dreamCandidatesResult.stderr).toBe(0);
+    const dreamCandidatesPayload = JSON.parse(dreamCandidatesResult.stdout) as {
+      entries: Array<{
+        candidateId: string;
+        targetSurface: string;
+        summary: string;
+      }>;
+    };
+    const durableCandidate = dreamCandidatesPayload.entries.find(
+      (entry) =>
+        entry.targetSurface === "durable-memory" && entry.summary.includes("runbook lives")
+    );
+    expect(durableCandidate).toBeDefined();
+
+    const dreamReviewResult = runCli(
+      projectDir,
+      ["dream", "review", "--candidate-id", durableCandidate!.candidateId, "--approve", "--json"],
+      {
+        entrypoint: "dist",
+        env: cliEnv
+      }
+    );
+    expect(dreamReviewResult.exitCode, dreamReviewResult.stderr).toBe(0);
+
+    const dreamPromoteResult = runCli(
+      projectDir,
+      ["dream", "promote", "--candidate-id", durableCandidate!.candidateId, "--json"],
+      {
+        entrypoint: "dist",
+        env: cliEnv
+      }
+    );
+    expect(dreamPromoteResult.exitCode, dreamPromoteResult.stderr).toBe(0);
+    expect(JSON.parse(dreamPromoteResult.stdout)).toMatchObject({
+      action: "promote",
+      promotionOutcome: "applied",
+      entry: {
+        candidateId: durableCandidate!.candidateId,
+        status: "promoted",
+        targetSurface: "durable-memory"
+      },
+      durableMemory: {
+        ref: expect.stringContaining("project:active:")
+      }
+    });
 
     expect(memoryPayload.recentSyncAudit).toHaveLength(1);
     expect(memoryPayload.recentSyncAudit[0]?.rolloutPath).toBe("/tmp/rollout-dist-smoke.jsonl");
+    expect(memoryPayload.dreamSidecar).toMatchObject({
+      enabled: true,
+      status: "available"
+    });
     expect(sessionPayload.projectLocation.exists).toBe(true);
     expect(sessionPayload.latestContinuityDiagnostics).toBeNull();
+    expect(sessionPayload.resumeContext.goal).toContain("release-facing CLI surface");
+    expect(sessionPayload.resumeContext.suggestedDurableRefs).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          ref: "project:active:workflow:prefer-pnpm"
+        })
+      ])
+    );
+    expect(
+      sessionPayload.resumeContext.instructionFiles.some((filePath) =>
+        filePath.endsWith(`${path.sep}CLAUDE.md`)
+      )
+    ).toBe(true);
+    expect(sessionPayload.dreamSidecar).toMatchObject({
+      enabled: true,
+      status: "available"
+    });
     expect(sessionLoadPayload.latestContinuityDiagnostics).toBeNull();
+    expect(sessionLoadPayload.resumeContext.suggestedDurableRefs).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          ref: "project:active:workflow:prefer-pnpm"
+        })
+      ])
+    );
+    expect(sessionLoadPayload.dreamSidecar).toMatchObject({
+      enabled: true,
+      status: "available"
+    });
     expect(sessionLoadPayload.startup).toMatchObject({
       continuityMode: "startup",
       continuityProvenanceKind: "temporary-continuity",
@@ -305,6 +509,24 @@ describe("dist cli smoke", () => {
     });
     expect(forgetPayload.followUp.timelineRefs.length).toBeGreaterThan(0);
     expect(forgetPayload.followUp.timelineRefs.length).toBeGreaterThan(0);
+    expect(recallPayload.querySurfacing.suggestedDreamRefs).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          ref: "project:active:workflow:prefer-pnpm"
+        })
+      ])
+    );
+    expect(
+      recallPayload.querySurfacing.suggestedInstructionFiles.some((filePath) =>
+        filePath.endsWith(`${path.sep}CLAUDE.md`)
+      )
+    ).toBe(true);
+    expect(dreamBuildPayload.action).toBe("build");
+    expect(dreamBuildPayload.snapshot.promotionCandidates.instructionLikeCandidates).toBeDefined();
+    expect(dreamBuildPayload.snapshot.promotionCandidates.durableMemoryCandidates).toBeDefined();
+    expect(dreamInspectPayload.enabled).toBe(true);
+    expect(dreamInspectPayload.snapshots.project.status).toBe("available");
+    expect(dreamInspectPayload.snapshots.project.latestPath).toBeTruthy();
   }, 30_000);
 
   it("keeps session inspection read-only from the compiled cli entrypoint", async () => {
@@ -1772,6 +1994,41 @@ fs.writeFileSync(${JSON.stringify(capturedArgsPath)}, JSON.stringify(process.arg
     expect(recallHelp.exitCode, recallHelp.stderr).toBe(0);
     expect(recallHelp.stdout).toContain("Search compact memory candidates without loading full details");
     expect(recallHelp.stdout).toContain("Limit memory state: active, archived, all, or auto");
+
+    const dreamHelp = runCli(projectDir, ["dream", "--help"], {
+      entrypoint: "dist",
+      env
+    });
+    expect(dreamHelp.exitCode, dreamHelp.stderr).toBe(0);
+    expect(dreamHelp.stdout).toContain("dream");
+    expect(dreamHelp.stdout).toContain("candidates");
+    expect(dreamHelp.stdout).toContain("review");
+    expect(dreamHelp.stdout).toContain("promote");
+
+    const dreamCandidatesHelp = runCli(projectDir, ["dream", "candidates", "--help"], {
+      entrypoint: "dist",
+      env
+    });
+    expect(dreamCandidatesHelp.exitCode, dreamCandidatesHelp.stderr).toBe(0);
+    expect(dreamCandidatesHelp.stdout).toContain(
+      "List explicit dream promotion candidates from the reviewer queue"
+    );
+
+    const dreamReviewHelp = runCli(projectDir, ["dream", "review", "--help"], {
+      entrypoint: "dist",
+      env
+    });
+    expect(dreamReviewHelp.exitCode, dreamReviewHelp.stderr).toBe(0);
+    expect(dreamReviewHelp.stdout).toContain(
+      "Review a dream candidate without mutating canonical memory"
+    );
+
+    const dreamPromoteHelp = runCli(projectDir, ["dream", "promote", "--help"], {
+      entrypoint: "dist",
+      env
+    });
+    expect(dreamPromoteHelp.exitCode, dreamPromoteHelp.stderr).toBe(0);
+    expect(dreamPromoteHelp.stdout).toContain("Explicitly promote an approved dream candidate");
 
     const hooksHelp = runCli(projectDir, ["hooks", "install", "--help"], {
       entrypoint: "dist",

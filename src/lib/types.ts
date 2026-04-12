@@ -169,6 +169,7 @@ export interface MemorySearchResponse {
   querySurfacing?: {
     suggestedDreamRefs: DreamRelevantMemoryRef[];
     suggestedInstructionFiles: string[];
+    topDurableRefs?: DreamRelevantMemoryRef[];
   };
 }
 
@@ -605,9 +606,13 @@ export interface DreamSidecarPaths {
   sharedFile: string;
   localDir: string;
   localFile: string;
+  reviewDir: string;
+  registryFile: string;
   auditDir: string;
   auditFile: string;
   recoveryFile: string;
+  candidateAuditFile: string;
+  candidateRecoveryFile: string;
 }
 
 export interface InstructionMemoryFile {
@@ -841,6 +846,7 @@ export interface DreamPromotionCandidate {
   summary: string;
   details: string[];
   reason: string;
+  continuityScopeHint: SessionContinuityScope;
   sourceSection:
     | "goal"
     | "confirmedWorking"
@@ -853,6 +859,69 @@ export interface DreamPromotionCandidate {
 export interface DreamPromotionCandidates {
   instructionLikeCandidates: DreamPromotionCandidate[];
   durableMemoryCandidates: DreamPromotionCandidate[];
+}
+
+export type DreamCandidateTargetSurface = "durable-memory" | "instruction-memory";
+
+export type DreamCandidateOriginKind = RolloutProvenanceKind;
+
+export type DreamCandidateStatus =
+  | "pending"
+  | "approved"
+  | "rejected"
+  | "promoted"
+  | "stale"
+  | "blocked";
+
+export interface DreamCandidateReviewState {
+  decisionAt: string;
+  note?: string;
+  decision: "approved" | "rejected" | "pending";
+  reviewerSessionId?: string;
+}
+
+export interface DreamCandidatePromotionState {
+  eligible: boolean;
+  eligibleReason?: string;
+  promotedAt?: string;
+  promotionOutcome?: "applied" | "noop" | "proposal-only" | "blocked";
+  resultRef?: string;
+  resultAuditPath?: string;
+}
+
+export interface DreamCandidateRecord {
+  candidateId: string;
+  observationFingerprint: string;
+  targetSurface: DreamCandidateTargetSurface;
+  originKind: DreamCandidateOriginKind;
+  targetScopeHint: SessionContinuityScope | "unknown";
+  topicHint: string;
+  idHint: string;
+  status: DreamCandidateStatus;
+  summary: string;
+  details: string[];
+  reason: string;
+  sourceSection: DreamPromotionCandidate["sourceSection"];
+  firstSeenAt: string;
+  lastSeenAt: string;
+  lastSeenRolloutPath: string;
+  lastSeenSnapshotPath: string | null;
+  review?: DreamCandidateReviewState;
+  promotion: DreamCandidatePromotionState;
+  blockedReason?: string;
+}
+
+export interface DreamCandidateRegistry {
+  version: 1;
+  updatedAt: string;
+  entries: DreamCandidateRecord[];
+}
+
+export interface DreamQueueSummary {
+  totalCount: number;
+  statusCounts: Partial<Record<DreamCandidateStatus, number>>;
+  surfaceCounts: Partial<Record<DreamCandidateTargetSurface, number>>;
+  originCounts: Partial<Record<DreamCandidateOriginKind, number>>;
 }
 
 export interface DreamSidecarSnapshot {
@@ -896,6 +965,43 @@ export interface DreamSidecarRecoveryRecord {
   snapshotPaths: string[];
 }
 
+export type DreamCandidateAuditAction =
+  | "observed"
+  | "review-approved"
+  | "review-rejected"
+  | "review-deferred"
+  | "promotion-applied"
+  | "promotion-noop"
+  | "promotion-proposal-only"
+  | "promotion-blocked"
+  | "marked-stale";
+
+export interface DreamCandidateAuditEntry {
+  recordedAt: string;
+  candidateId: string;
+  action: DreamCandidateAuditAction;
+  status: DreamCandidateStatus;
+  targetSurface: DreamCandidateTargetSurface;
+  originKind: DreamCandidateOriginKind;
+  rolloutPath: string;
+  note?: string;
+  resultRef?: string;
+  resultAuditPath?: string;
+}
+
+export type DreamCandidateRecoveryStage =
+  | "registry-write"
+  | "candidate-audit-write"
+  | "promotion-bridge";
+
+export interface DreamCandidateRecoveryRecord {
+  recordedAt: string;
+  candidateId?: string;
+  failedStage: DreamCandidateRecoveryStage;
+  failureMessage: string;
+  registryPath: string;
+}
+
 export interface DreamSidecarSummary {
   enabled: boolean;
   autoBuild: boolean;
@@ -906,6 +1012,9 @@ export interface DreamSidecarSummary {
   relevantMemoryRefCount: number;
   pendingPromotionCount: number;
   suggestedRefCount: number;
+  queueSummary?: DreamQueueSummary;
+  candidateRegistryPath?: string;
+  candidateAuditPath?: string;
 }
 
 export interface DreamSidecarInspection {
@@ -917,6 +1026,10 @@ export interface DreamSidecarInspection {
   };
   auditPath: string;
   recoveryPath: string;
+  queueSummary: DreamQueueSummary;
+  candidateRegistryPath: string;
+  candidateAuditPath: string;
+  candidateRecoveryPath: string;
 }
 
 export type MemorySyncAuditStatus = "applied" | "no-op" | "skipped";
@@ -1168,4 +1281,6 @@ export interface SessionResumeContext {
   nextSteps: string[];
   instructionFiles: string[];
   suggestedDurableRefs: DreamRelevantMemoryRef[];
+  topDurableRefs?: DreamRelevantMemoryRef[];
+  continuitySourceFiles?: string[];
 }

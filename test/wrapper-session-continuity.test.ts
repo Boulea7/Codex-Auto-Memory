@@ -2,6 +2,8 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { runWrappedCodex } from "../src/lib/commands/wrapper.js";
+import { runDream } from "../src/lib/commands/dream.js";
+import { MemoryStore } from "../src/lib/domain/memory-store.js";
 import { detectProjectContext } from "../src/lib/domain/project-context.js";
 import { SessionContinuityStore } from "../src/lib/domain/session-continuity-store.js";
 import { SyncService } from "../src/lib/domain/sync-service.js";
@@ -13,6 +15,7 @@ import {
 import {
   cleanupTempDirs,
   createTempDir,
+  writeSessionRolloutFile,
   writeWrapperMockCodex
 } from "./helpers/session-test-support.js";
 
@@ -149,6 +152,98 @@ describe("runWrappedCodex with session continuity", () => {
     expect(merged?.goal).not.toContain("do not auto-save continuity");
     expect(await continuityStore.readLatestAuditEntry()).toBeNull();
     expect(await continuityStore.readRecoveryRecord()).toBeNull();
+  }, 30_000);
+
+  it("injects a resume context block with instruction files, dream refs, and top durable refs", async () => {
+    const repoDir = await tempDir("cam-wrapper-resume-context-repo-");
+    const memoryRoot = await tempDir("cam-wrapper-resume-context-memory-");
+    const sessionsDir = await tempDir("cam-wrapper-resume-context-rollouts-");
+    const todayDir = path.join(sessionsDir, "2026", "03", "15");
+    await initRepo(repoDir);
+    process.env.CAM_CODEX_SESSIONS_DIR = sessionsDir;
+    await fs.writeFile(path.join(repoDir, "AGENTS.md"), "# Project rules\n", "utf8");
+
+    const { capturedArgsPath, mockCodexPath } = await writeWrapperMockCodex(repoDir, sessionsDir, {
+      sessionId: "session-wrapper-resume-context",
+      message: "Continue with the shared pnpm workflow."
+    });
+
+    await writeProjectConfig(
+      repoDir,
+      configJson({
+        codexBinary: mockCodexPath,
+        dreamSidecarEnabled: true,
+        dreamSidecarAutoBuild: false,
+        sessionContinuityAutoLoad: true,
+        sessionContinuityAutoSave: false
+      }),
+      {
+        autoMemoryDirectory: memoryRoot,
+        dreamSidecarEnabled: true,
+        dreamSidecarAutoBuild: false,
+        sessionContinuityAutoLoad: true,
+        sessionContinuityAutoSave: false
+      }
+    );
+
+    const store = new MemoryStore(detectProjectContext(repoDir), {
+      ...configJson({
+        codexBinary: mockCodexPath,
+        dreamSidecarEnabled: true,
+        dreamSidecarAutoBuild: false,
+        sessionContinuityAutoLoad: true,
+        sessionContinuityAutoSave: false
+      }),
+      autoMemoryDirectory: memoryRoot
+    });
+    await store.ensureLayout();
+    await store.remember(
+      "project",
+      "workflow",
+      "prefer-pnpm",
+      "Prefer pnpm in this repository.",
+      ["Use pnpm instead of npm in this repository."],
+      "Manual note."
+    );
+
+    await writeSessionRolloutFile(
+      path.join(todayDir, "rollout-2026-03-15T00-00-00-000Z-existing.jsonl"),
+      [
+        JSON.stringify({
+          type: "session_meta",
+          payload: {
+            id: "session-wrapper-existing",
+            timestamp: "2026-03-15T00:00:00.000Z",
+            cwd: repoDir
+          }
+        }),
+        JSON.stringify({
+          type: "event_msg",
+          payload: {
+            type: "user_message",
+            message: "Continue the pnpm workflow migration."
+          }
+        })
+      ].join("\n")
+    );
+    await runDream("build", {
+      cwd: repoDir,
+      rollout: path.join(todayDir, "rollout-2026-03-15T00-00-00-000Z-existing.jsonl"),
+      scope: "both",
+      json: true
+    });
+
+    const exitCode = await runWrappedCodex(repoDir, "exec", ["continue"]);
+    expect(exitCode).toBe(0);
+
+    const capturedArgs = JSON.parse(await fs.readFile(capturedArgsPath, "utf8")) as string[];
+    const baseInstructionsArg = capturedArgs.find((arg) => arg.startsWith("base_instructions="));
+    expect(baseInstructionsArg).toContain("# Resume Context");
+    expect(baseInstructionsArg).toContain("Instruction files:");
+    expect(baseInstructionsArg).toContain("AGENTS.md");
+    expect(baseInstructionsArg).toContain("Dream refs:");
+    expect(baseInstructionsArg).toContain("project:active:workflow:prefer-pnpm");
+    expect(baseInstructionsArg).toContain("Top durable refs:");
   }, 30_000);
 
   it("injects only continuity source files that actually exist", async () => {

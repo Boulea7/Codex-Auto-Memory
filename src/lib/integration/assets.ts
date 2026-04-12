@@ -319,6 +319,7 @@ If you need both active and archived results in one pass instead of active-first
 - ${buildDurableMemorySyncGuidance(commandOptions)}
 - Use \`cam memory\` for inspect/audit surfaces, startup payload, and recent sync review.
 - Use \`cam session\` only for temporary continuity, not durable memory retrieval.
+- If the task is about resuming current work rather than retrieving stable durable memory, inspect \`${buildResolvedCliCommand("session status --json", commandOptions)}\` or \`${buildResolvedCliCommand("session load --json", commandOptions)}\` and treat resume context as additive reviewer guidance.
 - Treat archived memory as historical context that does not participate in default startup recall.
 - If recall finds nothing useful, continue with normal repository inspection instead of forcing a memory answer.
 `;

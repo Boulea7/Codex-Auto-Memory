@@ -1931,4 +1931,97 @@ describe("runRecall", () => {
       ])
     );
   });
+
+  it("merges shared and local dream snapshots when building query surfacing hints", async () => {
+    const homeDir = await tempDir("cam-recall-dream-merge-home-");
+    const projectDir = await tempDir("cam-recall-dream-merge-project-");
+    const memoryRoot = await tempDir("cam-recall-dream-merge-memory-");
+    process.env.HOME = homeDir;
+
+    const projectConfig = makeAppConfig({
+      dreamSidecarEnabled: true
+    });
+    await writeCamConfig(projectDir, projectConfig, {
+      autoMemoryDirectory: memoryRoot,
+      dreamSidecarEnabled: true
+    });
+
+    const store = new MemoryStore(detectProjectContext(projectDir), {
+      ...projectConfig,
+      autoMemoryDirectory: memoryRoot,
+      dreamSidecarEnabled: true
+    });
+    await store.ensureLayout();
+    await store.remember(
+      "project",
+      "workflow",
+      "prefer-pnpm-shared",
+      "Prefer pnpm from the shared workflow memory.",
+      ["Use pnpm across the shared project workflow."],
+      "Manual note."
+    );
+
+    const sharedRolloutPath = path.join(projectDir, "shared-rollout.jsonl");
+    await fs.writeFile(
+      sharedRolloutPath,
+      makeRolloutFixture(projectDir, "Keep using pnpm for the shared middleware workflow."),
+      "utf8"
+    );
+    await runDream("build", {
+      cwd: projectDir,
+      rollout: sharedRolloutPath,
+      scope: "project",
+      json: true
+    });
+
+    await store.remember(
+      "project-local",
+      "workflow",
+      "prefer-pnpm-local",
+      "Prefer pnpm for this local worktree retry loop.",
+      ["Use pnpm for the local worktree retry workflow."],
+      "Manual note."
+    );
+
+    const localRolloutPath = path.join(projectDir, "local-rollout.jsonl");
+    await fs.writeFile(
+      localRolloutPath,
+      makeRolloutFixture(projectDir, "Keep using pnpm for the local retry workflow."),
+      "utf8"
+    );
+    await runDream("build", {
+      cwd: projectDir,
+      rollout: localRolloutPath,
+      scope: "project-local",
+      json: true
+    });
+
+    const result = runCli(projectDir, ["recall", "search", "pnpm", "--json"]);
+    expect(result.exitCode).toBe(0);
+
+    const response = JSON.parse(result.stdout) as MemorySearchResponse & {
+      querySurfacing: {
+        suggestedDreamRefs: Array<{ ref: string; reason: string }>;
+        topDurableRefs?: Array<{ ref: string }>;
+      };
+    };
+
+    expect(response.querySurfacing.suggestedDreamRefs).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          ref: "project:active:workflow:prefer-pnpm-shared"
+        }),
+        expect.objectContaining({
+          ref: "project-local:active:workflow:prefer-pnpm-local"
+        })
+      ])
+    );
+    expect(response.querySurfacing.topDurableRefs).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          ref: "project:active:workflow:prefer-pnpm-shared"
+        })
+      ])
+    );
+  });
 });
