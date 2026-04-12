@@ -94,6 +94,19 @@ const REVIEWER_WARNING_PATTERNS = [
   /\bverify the current preference before trusting this continuity summary\b/iu
 ];
 
+const GENERIC_GOAL_PATTERNS = [
+  /^(?:continue|resume)\s*[.!?]*$/iu,
+  /^(?:run|rerun)\s+(?:checks|tests?|verification)\s*[.!?]*$/iu,
+  /^(?:check|verify)\s+(?:it|this|that|again)\s*[.!?]*$/iu,
+  /^(?:can|could|would)\s+you\b.+\b(?:it|this|that)\b[?!.\s]*$/iu,
+  /^(?:look|take a look)\s+(?:into|at)\s+(?:it|this|that)\s*[.!?]*$/iu,
+  /^(?:what about)\b.+$/iu,
+  /^(?:继续|接着)\s*[。！？!?.]*$/u,
+  /^(?:跑|重跑)\s*(?:检查|测试|校验)\s*[。！？!?.]*$/u,
+  /^(?:看看|看一下|检查一下)\s*(?:这个|这个问题|它)?\s*[。！？!?.]*$/u,
+  /^(?:能不能|可以|能否).*(?:看看|看一下|查一下).*(?:这个|这个问题|它)\s*[。！？!?.]*$/u
+] as const;
+
 function isStringArray(value: unknown): value is string[] {
   return Array.isArray(value) && value.every((item) => typeof item === "string");
 }
@@ -236,16 +249,31 @@ function heuristicSummary(
     buckets.explicitNextSteps.length > 0
       ? buckets.explicitNextSteps
       : extractPatternMatches(recentMessagesReversed, NEXT_STEP_PATTERNS, 4);
+  const latestRequest = recentUserMessages.at(-1) ?? "";
+  const latestRequestMeaningful = isMeaningfulLatestRequest(latestRequest);
   const fallbackNext =
     nextSteps.length > 0
       ? nextSteps
-      : recentUserMessages.length > 0
-        ? [`Continue with the latest request: ${recentUserMessages.at(-1)}`]
+      : latestRequestMeaningful
+        ? [`Continue with the latest request: ${latestRequest}`]
         : [];
   const notes = extractProjectNotes(recentMessages);
   const existingProject = existingState?.project;
   const existingLocal = existingState?.projectLocal;
-  const sharedGoal = recentUserMessages.at(-1) ?? existingProject?.goal ?? existingLocal?.goal ?? "";
+  const latestGoalCandidate = latestRequestMeaningful ? latestRequest : "";
+  const goalLooksLocal = latestGoalCandidate.length > 0 && looksLocalSpecific(latestGoalCandidate);
+  const sharedGoal =
+    latestGoalCandidate.length === 0
+      ? existingProject?.goal || ""
+      : goalLooksLocal
+        ? existingProject?.goal ?? ""
+        : latestGoalCandidate || existingProject?.goal || "";
+  const localGoal =
+    latestGoalCandidate.length === 0
+      ? existingLocal?.goal ?? ""
+      : goalLooksLocal
+        ? latestGoalCandidate
+        : "";
 
   return {
     summary: {
@@ -258,7 +286,7 @@ function heuristicSummary(
         filesDecisionsEnvironment: notes.project
       }),
       projectLocal: buildLayerSummary(existingLocal, {
-        goal: "",
+        goal: localGoal,
         notYetTried: localUntried,
         incompleteNext: fallbackNext,
         filesDecisionsEnvironment: [
@@ -269,6 +297,15 @@ function heuristicSummary(
     },
     usedFallbackNext: nextSteps.length === 0 && fallbackNext.length > 0
   };
+}
+
+function isMeaningfulLatestRequest(message: string): boolean {
+  const normalized = message.trim();
+  if (normalized.length < 1) {
+    return false;
+  }
+
+  return !GENERIC_GOAL_PATTERNS.some((pattern) => pattern.test(normalized));
 }
 
 function buildDiagnostics(

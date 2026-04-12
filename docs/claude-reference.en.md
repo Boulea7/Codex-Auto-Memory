@@ -92,7 +92,7 @@ This repository still does not claim full `/memory` interaction parity, but it m
 - users can see the actual memory files and active paths
 - users can modify memory through Markdown files or explicit commands
 
-### 6. `autoMemoryDirectory` has a configuration safety boundary
+### 6. Host integration surfaces matter, but should not replace the core contract
 
 Claude-style public configuration boundaries also imply that a shared project should not be able to silently redirect another user's durable-memory storage.
 
@@ -102,7 +102,7 @@ For `codex-auto-memory`, that means:
 - shared project config must not be able to hijack a user-level memory path through `autoMemoryDirectory`
 - host convenience should not weaken the repository's local-first safety boundary
 
-### 7. Host integration surfaces matter, but should not replace the core contract
+### 7. Host-native breadth expands the host, not the memory model
 
 Claude Code also exposes stronger host-native surfaces around memory:
 

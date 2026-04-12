@@ -42,6 +42,7 @@
 价值：
 
 - 提供最完整的官方 auto memory、hooks、plugins、skills、subagents 参考契约
+- 官方公开 surface 足够丰富，适合作为本仓 memory / host boundary 的高价值对照对象
 
 在当前仓库里的角色：
 
@@ -49,11 +50,24 @@
 - 用来定义产品体验与宿主能力边界
 - 不作为当前仓库直接承诺支持的主宿主
 
+当前真实可行的接入面：
+
+- `cam mcp print-config --host claude`
+- `cam mcp doctor --host claude`
+- 用户手动维护 Claude host config
+
+当前明确不做：
+
+- `cam mcp install --host claude`
+- `cam integrations install/apply --host claude`
+- 自动写 Claude hooks / plugins / skills / subagent 资产
+
 ### Gemini CLI
 
 价值：
 
 - hooks、extensions、MCP、sub-agents 能力都很强
+- 官方公开 surface 已不只是 MCP config file，还包括 `settings.json`、`GEMINI.md`、memory、skills 与 extensions
 - 适合作为未来独立 memory runtime 的优先宿主之一
 
 在当前仓库里的角色：
@@ -61,6 +75,18 @@
 - **重要参考宿主**
 - 帮助当前仓库设计未来 skill / hook / MCP surfaces
 - 但不把当前仓库直接改写成 Gemini 主仓
+
+当前真实可行的接入面：
+
+- `cam mcp print-config --host gemini`
+- `cam mcp doctor --host gemini`
+- 用户手动维护 `.gemini/settings.json`
+
+当前明确不做：
+
+- `cam mcp install --host gemini`
+- `cam integrations install/apply --host gemini`
+- 自动写 Gemini hooks / skills / extensions / memory 配置
 
 ### OpenCode
 
@@ -95,8 +121,11 @@
 - Gemini 的 extension + hooks + MCP 思路
 - OpenCode 的 plugin + MCP + AGENTS 能力面
 - OpenClaw 的“统一 memory core，不统一格式”思路
-- 针对宿主差异提供清晰分层的接入面：`cam mcp install` 负责显式写入 project-scoped host config，并在安全前提下保留 `codex_auto_memory` entry 上的非 canonical 自定义字段；`cam mcp print-config` / `cam mcp doctor` 继续负责只打印 / 只检查，其中 `doctor` 现在会把 alternate global wiring 与推荐的 project-scoped 路径分开表达；`cam mcp apply-guidance --host codex` 负责 additive 管理 repo 级 `AGENTS.md` guidance block，`cam integrations install --host codex` 负责编排不改写 `AGENTS.md` 的 stack install，`cam integrations apply --host codex` 负责显式收口整套 Codex stack apply，但现在会先做 AGENTS safety preflight；`cam integrations doctor --host codex` 继续只读汇总 readiness，并通过 `applyReadiness` 区分“可以直接 apply”与“必须先修复 managed block”；其中 skills 默认仍安装到 runtime target，但 `cam skills install --surface runtime|official-user|official-project` 与 `cam integrations install/apply --skill-surface ...` 已为官方 `.agents/skills` 路径准备显式 opt-in 兼容面；shell fallback 仍由 `cam hooks install` 提供；这条 hooks 线是本仓自带的 local bridge，不是官方 Codex hook surface
+- 针对宿主差异提供清晰分层的接入面：`cam mcp install --host codex` 负责显式写入 project-scoped Codex host config，并在安全前提下保留 `codex_auto_memory` entry 上的非 canonical 自定义字段；`claude`、`gemini` 与 `generic` 继续保持 host-mutation manual-only，但仍通过 `cam mcp print-config` / `cam mcp doctor` 暴露只打印 / 只检查的 read-only wiring guidance，而不是完全隐藏 inspect surface；其中 `print-config` / `doctor` 现在还会显式暴露官方 Codex hooks 的实验性 guidance，继续把“公开可见”和“可作为默认主路径”区分开；`doctor` 也会把 alternate global wiring 与推荐的 project-scoped 路径分开表达，并区分 hook helper 是否只是 installed 还是在当前 shell 中真正 operational；`cam mcp apply-guidance --host codex` 负责 additive 管理 repo 级 `AGENTS.md` guidance block，`cam integrations install --host codex` 负责编排不改写 `AGENTS.md` 的 stack install，`cam integrations apply --host codex` 负责显式收口整套 Codex stack apply，`cam integrations doctor --host codex` 负责只读汇总整套 stack readiness；install/apply 完成后仍需要回到 doctor 判断当前环境里究竟是 MCP、local bridge 还是 resolved CLI 在实际生效；其中 skills 默认仍安装到 runtime target，但 `cam skills install --surface runtime|official-user|official-project` 与 `cam integrations install/apply --skill-surface ...` 已为官方 `.agents/skills` 路径准备显式 opt-in 兼容面；shell fallback 仍由 `cam hooks install` 提供；这条 hooks 线是本仓自带的 local bridge，不是官方 Codex hook surface
+- `cam mcp doctor --host codex` 与 `cam integrations doctor --host codex` 现在还会把“偏好 route”和“当前可运行 route”分开表达：`recommendedRoute` 继续表示首选的 MCP-first 路径；`currentlyOperationalRoute`、`routeKind`、`routeEvidence`、`shellDependencyLevel`、`hostMutationRequired`、`preferredRouteBlockers`、`currentOperationalBlockers` 则表达当前环境里哪条 route 真正可跑、首选 route 为什么没跑起来、以及当前 fallback 自己是否还有 blocker。skills 继续被视为 guidance surface，而不是 executable fallback route
+- `cam integrations doctor --host codex` 还会显式暴露 skill-surface steering：`preferredSkillSurface`、`recommendedSkillInstallCommand`、`installedSkillSurfaces`、`readySkillSurfaces`。这些字段表达的是“当前建议把 guidance 安装到哪里”，而不是技能已经成为 executable fallback route。
 - release-facing `--help` 文案也视为宿主能力面的稳定公开接口，必须和上述 install / apply / doctor / manual-only 边界保持一致
+- 对 Claude / Gemini 这类非 Codex 宿主，当前仓库只承接 manual-only / snippet-first 接入，不把官方更强的 host-native surface 误写成本仓已经自动接管的能力
 
 不应该吸收：
 
@@ -112,6 +141,7 @@
 - 它当前服务于 Codex
 - 它会正式吸收 hooks、skills、MCP-aware integration 方向
 - 它不会在当前阶段直接承担多宿主统一平台职责
+- Claude / Gemini 当前都属于“公开能力值得研究，但本仓只支持 manual-only wiring guidance”的范围
 
 ## 与独立新仓的接口边界
 

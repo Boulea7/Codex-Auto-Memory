@@ -9,7 +9,7 @@ import {
   runIntegrationsInstall
 } from "../commands/integrations.js";
 import { runInit } from "../commands/init.js";
-import { runMemory } from "../commands/memory.js";
+import { runMemory, runMemoryReindex } from "../commands/memory.js";
 import {
   runMcpApplyGuidance,
   runMcpDoctor,
@@ -34,6 +34,7 @@ import {
 } from "../integration/skills-paths.js";
 
 type AsyncCommandHandler<Args extends unknown[]> = (...args: Args) => Promise<string>;
+type MemoryReindexCommandOptions = NonNullable<Parameters<typeof runMemoryReindex>[0]>;
 
 function withStdout<Args extends unknown[]>(
   handler: AsyncCommandHandler<Args>
@@ -96,7 +97,7 @@ function registerSessionCommands(program: Command): void {
   addJsonOption(
     sessionCommand
       .command("load")
-      .description("Load current session continuity summary")
+      .description("Load current session continuity summary and, with --print-startup, inspect the structured continuity startup contract")
   )
     .option("--print-startup", "Print the compiled startup continuity block")
     .action(withStdout(async (options) => runSession("load", options)));
@@ -117,12 +118,16 @@ function registerSessionCommands(program: Command): void {
 function registerHookCommands(program: Command): void {
   const hooksCommand = program
     .command("hooks")
-    .description("Manage the local bridge and fallback helper bundle for current and upcoming integrations");
+    .description("Manage the local bridge / fallback helper bundle for current and upcoming integrations");
 
-  hooksCommand
-    .command("install")
-    .description("Generate the local recall bridge bundle plus startup and post-session helper scripts")
-    .action(withStdout(async () => installHooks()));
+  addJsonOption(
+    hooksCommand
+      .command("install")
+      .description(
+        "Generate the local bridge / fallback helper bundle, including recall, startup, post-session, and post-work review helpers"
+      )
+      .option("--cwd <path>", "Project directory to anchor generated hook helpers to")
+  ).action(withStdout(async (options) => installHooks(options)));
 
   hooksCommand
     .command("remove")
@@ -134,18 +139,23 @@ function registerSkillCommands(program: Command): void {
   const skillSurfaceChoices = formatCodexSkillInstallSurfaceChoices();
   const skillsCommand = program
     .command("skills")
-    .description("Manage Codex skill assets for MCP-first and CLI-fallback durable memory retrieval");
+    .description(
+      "Manage Codex skill assets for MCP-first durable memory retrieval with local-bridge and resolved CLI fallback"
+    );
 
-  skillsCommand
-    .command("install")
-    .description("Install a Codex skill that teaches search -> timeline -> details memory retrieval")
-    .option(
-      "--surface <surface>",
-      `Skill install surface: ${skillSurfaceChoices}`,
-      DEFAULT_CODEX_SKILL_INSTALL_SURFACE
-    )
-    .option("--cwd <path>", "Project directory to anchor project-scoped skill installs to")
-    .action(withStdout(async (options) => installSkills(options)));
+  addJsonOption(
+    skillsCommand
+      .command("install")
+      .description(
+        "Install a Codex skill that teaches search -> timeline -> details memory retrieval. Skills are guidance-only; runtime remains the default surface and official .agents/skills copies stay opt-in."
+      )
+      .option(
+        "--surface <surface>",
+        `Skill install surface: ${skillSurfaceChoices}`,
+        DEFAULT_CODEX_SKILL_INSTALL_SURFACE
+      )
+      .option("--cwd <path>", "Project directory to anchor project-scoped skill installs to")
+  ).action(withStdout(async (options) => installSkills(options)));
 
   skillsCommand
     .command("remove")
@@ -243,7 +253,7 @@ function registerMcpCommands(program: Command): void {
   addJsonOption(
     mcpCommand
       .command("doctor")
-      .description("Inspect the recommended project-scoped MCP wiring without writing host config")
+      .description("Inspect the recommended project-scoped MCP wiring without writing host config, including route truth and operational blockers")
       .option("--host <host>", `Target host: ${supportedDoctorHosts}`, "all")
       .option("--cwd <path>", "Project directory to inspect")
   ).action(withStdout(async (options) => runMcpDoctor(options)));
@@ -258,7 +268,9 @@ function registerIntegrationCommands(program: Command): void {
   addJsonOption(
     integrationsCommand
       .command("apply")
-      .description("Install the recommended Codex integration stack and safely apply the managed AGENTS guidance block")
+      .description(
+        "Install the recommended Codex integration stack and safely apply the managed AGENTS guidance block. The runtime default stays in place unless you opt into an official copy."
+      )
       .requiredOption("--host <host>", `Target host: ${formatMcpHostChoices(["codex"])}`)
       .option(
         "--skill-surface <surface>",
@@ -271,7 +283,9 @@ function registerIntegrationCommands(program: Command): void {
   addJsonOption(
     integrationsCommand
       .command("install")
-      .description("Install the recommended project-scoped Codex integration stack")
+      .description(
+        "Install the recommended project-scoped Codex integration stack without updating AGENTS.md. The runtime default stays in place unless you opt into an official copy."
+      )
       .requiredOption("--host <host>", `Target host: ${formatMcpHostChoices(["codex"])}`)
       .option(
         "--skill-surface <surface>",
@@ -294,12 +308,14 @@ export function registerCommands(program: Command): void {
   program
     .command("init")
     .description("Initialize Codex Auto Memory in the current project")
-    .action(withStdout(async () => runInit()));
+    .option("--force", "Overwrite existing init config files with canonical defaults")
+    .action(withStdout(async (options) => runInit(options)));
 
-  program
+  const memoryCommand = program
     .command("memory")
-    .description("Inspect local memory state")
+    .description("Inspect local memory state and manage local memory settings")
     .option("--json", "Print JSON output")
+    .option("--cwd <path>", "Project directory to inspect or manage local memory for")
     .option(
       "--scope <scope>",
       "Show a single memory scope: global, project, project-local, or all",
@@ -312,22 +328,97 @@ export function registerCommands(program: Command): void {
     .option("--print-startup", "Print the compiled startup memory block")
     .option("--open", "Open the memory directory in the default file browser")
     .action(withStdout(async (options) => runMemory(options)));
+  memoryCommand.enablePositionalOptions();
+
+  addJsonOption(
+    memoryCommand
+      .command("reindex")
+      .description("Rebuild retrieval sidecars from canonical Markdown memory")
+      .option("--cwd <path>", "Project directory to rebuild retrieval sidecars for")
+      .option(
+        "--scope <scope>",
+        "Rebuild a single memory scope: global, project, project-local, or all",
+        "all"
+      )
+      .option(
+        "--state <state>",
+        "Rebuild active, archived, or all retrieval sidecars",
+        "all"
+      )
+  ).action(
+    withStdout(async (options, command) => {
+      const parent = command.parent;
+      const subcommandOptions = command.opts() as Record<string, unknown>;
+      const subcommandJson =
+        command.getOptionValueSource("json") === "cli"
+          ? (subcommandOptions.json as boolean | undefined)
+          : undefined;
+      const subcommandCwd =
+        command.getOptionValueSource("cwd") === "cli"
+          ? (subcommandOptions.cwd as string | undefined)
+          : undefined;
+      const subcommandScope =
+        command.getOptionValueSource("scope") === "cli"
+          ? (subcommandOptions.scope as string | undefined)
+          : undefined;
+      const subcommandState =
+        command.getOptionValueSource("state") === "cli"
+          ? (subcommandOptions.state as string | undefined)
+          : undefined;
+      const explicitParentOptions =
+        parent
+          ? Object.fromEntries(
+              [
+                "json",
+                "cwd",
+                "scope",
+                "recent",
+                "enable",
+                "disable",
+                "configScope",
+                "printStartup",
+                "open"
+              ]
+                .filter((key) => parent.getOptionValueSource(key) === "cli")
+                .map((key) => [key, (parent.opts() as Record<string, unknown>)[key]])
+            )
+          : {};
+
+      return runMemoryReindex({
+        ...explicitParentOptions,
+        json: subcommandJson ?? (explicitParentOptions.json as boolean | undefined),
+        cwd: subcommandCwd ?? (explicitParentOptions.cwd as string | undefined),
+        scope:
+          (subcommandScope ??
+            (explicitParentOptions.scope as string | undefined) ??
+            "all") as MemoryReindexCommandOptions["scope"],
+        state: (subcommandState ?? "all") as MemoryReindexCommandOptions["state"]
+      });
+    })
+  );
 
   program
     .command("remember")
     .description("Persist a memory entry immediately")
     .argument("<text>", "Memory summary text")
+    .option("--cwd <path>", "Project directory to anchor remember to")
     .option("--scope <scope>", "Memory scope: global, project, or project-local")
-    .option("--topic <topic>", "Topic file name", "workflow")
+    .option("--topic <topic>", "Topic file name")
     .option("--detail <detail...>", "Additional detail bullets")
+    .option("--json", "Print JSON output")
     .action(withStdout(async (text, options) => runRemember(text, options)));
 
   program
     .command("forget")
-    .description("Delete or archive matching memory entries")
-    .argument("<query>", "Search query used to find memory entries")
+    .description("Delete matching memory entries")
+    .argument(
+      "<query>",
+      "Search query used to find memory entries; multi-term queries match across id/summary/details"
+    )
+    .option("--cwd <path>", "Project directory to anchor forget to")
     .option("--scope <scope>", "Specific scope to target, or all")
     .option("--archive", "Move matching entries into archive instead of deleting them")
+    .option("--json", "Print JSON output")
     .action(withStdout(async (query, options) => runForget(query, options)));
 
   program

@@ -55,8 +55,13 @@ async function waitForFile(pathname: string, timeoutMs = 2_000): Promise<string>
   }
 }
 
-function shellQuoteArg(value: string): string {
-  return `'${value.replace(/'/g, `'\"'\"'`)}'`;
+async function pathExists(targetPath: string): Promise<boolean> {
+  try {
+    await fs.access(targetPath);
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 afterEach(async () => {
@@ -79,6 +84,37 @@ describe("dist cli smoke", () => {
 
     expect(result.exitCode).toBe(0);
     expect(result.stdout.trim()).toBe(packageJson.version);
+  });
+
+  it("surfaces the top-level doctor json contract from the compiled cli entrypoint", async () => {
+    const homeDir = await tempDir("cam-dist-doctor-home-");
+    const projectDir = await tempDir("cam-dist-doctor-project-");
+    const memoryRootParent = await tempDir("cam-dist-doctor-memory-parent-");
+    const memoryRoot = path.join(memoryRootParent, "memory-root");
+
+    await writeCamConfig(projectDir, makeAppConfig(), {
+      autoMemoryDirectory: memoryRoot
+    });
+
+    const result = runCli(projectDir, ["doctor", "--json"], {
+      entrypoint: "dist",
+      env: {
+        HOME: homeDir,
+        PATH: `${path.dirname(process.execPath)}:/usr/bin:/bin`
+      }
+    });
+    expect(result.exitCode, result.stderr).toBe(0);
+    expect(JSON.parse(result.stdout)).toMatchObject({
+      recommendedRoute: "companion",
+      recommendedActionCommand: expect.stringContaining("mcp doctor --host codex"),
+      recommendedDoctorCommand: expect.stringContaining("doctor --json"),
+      retrievalSidecar: {
+        status: "warning"
+      },
+      readiness: {
+        appServer: null
+      }
+    });
   });
 
   it("serves reviewer json surfaces from the compiled cli entrypoint", async () => {
@@ -171,21 +207,167 @@ describe("dist cli smoke", () => {
       entrypoint: "dist",
       env: cliEnv
     });
+    const sessionLoadResult = runCli(
+      projectDir,
+      ["session", "load", "--json", "--print-startup"],
+      {
+        entrypoint: "dist",
+        env: cliEnv
+      }
+    );
+    const rememberResult = runCli(
+      projectDir,
+      ["remember", "Keep release smoke on pnpm.", "--scope", "project", "--json"],
+      {
+        entrypoint: "dist",
+        env: cliEnv
+      }
+    );
+    const forgetResult = runCli(
+      projectDir,
+      ["forget", "release smoke", "--scope", "project", "--json"],
+      {
+        entrypoint: "dist",
+        env: cliEnv
+      }
+    );
 
     expect(memoryResult.exitCode, memoryResult.stderr).toBe(0);
     expect(sessionResult.exitCode, sessionResult.stderr).toBe(0);
+    expect(sessionLoadResult.exitCode, sessionLoadResult.stderr).toBe(0);
+    expect(rememberResult.exitCode, rememberResult.stderr).toBe(0);
+    expect(forgetResult.exitCode, forgetResult.stderr).toBe(0);
 
     const memoryPayload = JSON.parse(memoryResult.stdout) as {
       recentSyncAudit: Array<{ rolloutPath: string }>;
     };
     const sessionPayload = JSON.parse(sessionResult.stdout) as {
       projectLocation: { exists: boolean };
+      latestContinuityDiagnostics: { confidence: string; fallbackReason?: string | null } | null;
+    };
+    const sessionLoadPayload = JSON.parse(sessionLoadResult.stdout) as {
+      startup: {
+        continuityMode: string;
+        continuityProvenanceKind: string;
+        sourceFiles: string[];
+        candidateSourceFiles: string[];
+        continuitySectionKinds: string[];
+        continuitySourceKinds: string[];
+        sectionsRendered: { sources: boolean; goal: boolean };
+        omissionCounts: Record<string, number>;
+        futureCompactionSeam: { kind: string; rebuildsStartupSections: boolean };
+      };
+      latestContinuityDiagnostics: { confidence: string; fallbackReason?: string | null } | null;
+    };
+    const rememberPayload = JSON.parse(rememberResult.stdout) as {
+      mutationKind: string;
+      latestAppliedLifecycle: { action: string } | null;
+      followUp: { timelineRefs: string[]; detailsRefs: string[] };
+    };
+    const forgetPayload = JSON.parse(forgetResult.stdout) as {
+      mutationKind: string;
+      latestAppliedLifecycle: { action: string } | null;
+      followUp: { timelineRefs: string[]; detailsRefs: string[] };
     };
 
     expect(memoryPayload.recentSyncAudit).toHaveLength(1);
     expect(memoryPayload.recentSyncAudit[0]?.rolloutPath).toBe("/tmp/rollout-dist-smoke.jsonl");
     expect(sessionPayload.projectLocation.exists).toBe(true);
+    expect(sessionPayload.latestContinuityDiagnostics).toBeNull();
+    expect(sessionLoadPayload.latestContinuityDiagnostics).toBeNull();
+    expect(sessionLoadPayload.startup).toMatchObject({
+      continuityMode: "startup",
+      continuityProvenanceKind: "temporary-continuity",
+      continuitySectionKinds: expect.arrayContaining(["sources", "goal"]),
+      continuitySourceKinds: ["shared"],
+      sectionsRendered: {
+        sources: true,
+        goal: true
+      },
+      omissionCounts: {},
+      futureCompactionSeam: {
+        kind: "session-summary-placeholder",
+        rebuildsStartupSections: true
+      }
+    });
+    expect(sessionLoadPayload.startup.sourceFiles).toEqual(
+      sessionLoadPayload.startup.candidateSourceFiles
+    );
+    expect(rememberPayload).toMatchObject({
+      mutationKind: "remember",
+      latestAppliedLifecycle: {
+        action: "add"
+      }
+    });
+    expect(rememberPayload.followUp.timelineRefs.length).toBeGreaterThan(0);
+    expect(forgetPayload).toMatchObject({
+      mutationKind: "forget"
+    });
+    expect(forgetPayload.followUp.timelineRefs.length).toBeGreaterThan(0);
+    expect(forgetPayload.followUp.timelineRefs.length).toBeGreaterThan(0);
   }, 30_000);
+
+  it("keeps session inspection read-only from the compiled cli entrypoint", async () => {
+    const homeDir = await tempDir("cam-dist-session-readonly-home-");
+    const projectDir = await tempDir("cam-dist-session-readonly-project-");
+    const memoryRootParent = await tempDir("cam-dist-session-readonly-memory-parent-");
+    const memoryRoot = path.join(memoryRootParent, "memory-root");
+
+    await writeCamConfig(projectDir, makeAppConfig(), {
+      autoMemoryDirectory: memoryRoot
+    });
+
+    const sessionStatusResult = runCli(projectDir, ["session", "status", "--json"], {
+      entrypoint: "dist",
+      env: { HOME: homeDir }
+    });
+    const sessionLoadResult = runCli(
+      projectDir,
+      ["session", "load", "--json", "--print-startup"],
+      {
+        entrypoint: "dist",
+        env: { HOME: homeDir }
+      }
+    );
+
+    expect(sessionStatusResult.exitCode, sessionStatusResult.stderr).toBe(0);
+    expect(sessionLoadResult.exitCode, sessionLoadResult.stderr).toBe(0);
+    expect(JSON.parse(sessionStatusResult.stdout)).toMatchObject({
+      projectLocation: {
+        exists: false
+      },
+      localLocation: {
+        exists: false
+      },
+      latestContinuityAuditEntry: null,
+      latestContinuityDiagnostics: null,
+      pendingContinuityRecovery: null,
+      startup: {
+        sourceFiles: [],
+        candidateSourceFiles: [],
+        continuityMode: "startup",
+        continuityProvenanceKind: "temporary-continuity"
+      }
+    });
+    expect(JSON.parse(sessionLoadResult.stdout)).toMatchObject({
+      projectLocation: {
+        exists: false
+      },
+      localLocation: {
+        exists: false
+      },
+      latestContinuityAuditEntry: null,
+      latestContinuityDiagnostics: null,
+      pendingContinuityRecovery: null,
+      startup: {
+        sourceFiles: [],
+        candidateSourceFiles: [],
+        continuityMode: "startup",
+        continuityProvenanceKind: "temporary-continuity"
+      }
+    });
+    expect(await pathExists(memoryRoot)).toBe(false);
+  });
 
   it("uses the recommended recall search preset from the compiled cli entrypoint without creating memory layout on first lookup", async () => {
     const homeDir = await tempDir("cam-dist-recall-home-");
@@ -211,9 +393,162 @@ describe("dist cli smoke", () => {
       state: "auto",
       resolvedState: "archived",
       fallbackUsed: true,
+      stateFallbackUsed: true,
+      markdownFallbackUsed: true,
+      diagnostics: {
+        anyMarkdownFallback: true,
+        fallbackReasons: ["missing"]
+      },
       results: []
     });
     await expect(fs.access(memoryRoot)).rejects.toMatchObject({ code: "ENOENT" });
+  });
+
+  it("serves additive recall search and details JSON contract from the compiled cli entrypoint", async () => {
+    const homeDir = await tempDir("cam-dist-recall-contract-home-");
+    const projectDir = await tempDir("cam-dist-recall-contract-project-");
+    const memoryRoot = await tempDir("cam-dist-recall-contract-memory-");
+    const rolloutPath = "/tmp/rollout-dist-recall-contract.jsonl";
+    const cliEnv = { HOME: homeDir };
+
+    const config = makeAppConfig();
+    await writeCamConfig(projectDir, config, {
+      autoMemoryDirectory: memoryRoot
+    });
+
+    const project = detectProjectContext(projectDir);
+    const memoryStore = new MemoryStore(project, {
+      ...config,
+      autoMemoryDirectory: memoryRoot
+    });
+    await memoryStore.ensureLayout();
+    await memoryStore.remember(
+      "project",
+      "workflow",
+      "prefer-pnpm",
+      "Prefer pnpm in this repository.",
+      ["Use pnpm instead of npm in this repository."],
+      "Manual note."
+    );
+    await memoryStore.appendSyncAuditEntry({
+      appliedAt: "2026-03-27T08:00:00.000Z",
+      projectId: project.projectId,
+      worktreeId: project.worktreeId,
+      rolloutPath,
+      sessionId: "session-dist-recall-contract",
+      configuredExtractorMode: "heuristic",
+      configuredExtractorName: "heuristic",
+      actualExtractorMode: "heuristic",
+      actualExtractorName: "heuristic",
+      extractorMode: "heuristic",
+      extractorName: "heuristic",
+      sessionSource: "rollout-jsonl",
+      status: "applied",
+      appliedCount: 1,
+      scopesTouched: ["project"],
+      resultSummary: "1 operation(s) applied",
+      operations: [
+        {
+          action: "upsert",
+          scope: "project",
+          topic: "workflow",
+          id: "prefer-pnpm",
+          summary: "Prefer pnpm in this repository.",
+          details: ["Use pnpm instead of npm in this repository."],
+          reason: "Manual note.",
+          sources: ["manual"]
+        }
+      ]
+    });
+
+    const searchResult = runCli(
+      projectDir,
+      ["recall", "search", "prefer pnpm", "--state", "active", "--json"],
+      {
+        entrypoint: "dist",
+        env: cliEnv
+      }
+    );
+    expect(searchResult.exitCode, searchResult.stderr).toBe(0);
+    const searchPayload = JSON.parse(searchResult.stdout) as {
+      state: string;
+      resolvedState: string;
+      fallbackUsed: boolean;
+      stateFallbackUsed: boolean;
+      markdownFallbackUsed: boolean;
+      retrievalMode: string;
+      diagnostics: {
+        anyMarkdownFallback: boolean;
+        fallbackReasons: string[];
+        checkedPaths: Array<{
+          scope: string;
+          state: string;
+          retrievalMode: string;
+          matchedCount: number;
+          indexPath: string;
+          generatedAt: string | null;
+        }>;
+      };
+      results: Array<{ ref: string; state: string; topic: string }>;
+    };
+    expect(searchPayload).toMatchObject({
+      state: "active",
+      resolvedState: "active",
+      fallbackUsed: false,
+      stateFallbackUsed: false,
+      markdownFallbackUsed: false,
+      retrievalMode: "index",
+      results: [
+        {
+          ref: "project:active:workflow:prefer-pnpm",
+          state: "active",
+          topic: "workflow"
+        }
+      ]
+    });
+    expect(searchPayload.diagnostics.checkedPaths).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          scope: "project",
+          state: "active",
+          retrievalMode: "index",
+          matchedCount: 1,
+          indexPath: memoryStore.getRetrievalIndexFile("project", "active"),
+          generatedAt: expect.any(String)
+        })
+      ])
+    );
+
+    const detailsResult = runCli(
+      projectDir,
+      ["recall", "details", "project:active:workflow:prefer-pnpm", "--json"],
+      {
+        entrypoint: "dist",
+        env: cliEnv
+      }
+    );
+    expect(detailsResult.exitCode, detailsResult.stderr).toBe(0);
+    expect(JSON.parse(detailsResult.stdout)).toMatchObject({
+      ref: "project:active:workflow:prefer-pnpm",
+      path: memoryStore.getTopicFile("project", "workflow"),
+      latestLifecycleAction: "add",
+      latestState: "active",
+      latestSessionId: null,
+      latestRolloutPath: null,
+      historyPath: memoryStore.getHistoryPath("project"),
+      timelineWarningCount: 0,
+      warnings: [],
+      lineageSummary: {
+        eventCount: 1,
+        latestAction: "add",
+        latestState: "active",
+        latestAuditStatus: null,
+        noopOperationCount: 0,
+        suppressedOperationCount: 0,
+        conflictCount: 0
+      },
+      latestAudit: null
+    });
   });
 
   it("serves retrieval MCP tools from the compiled cli entrypoint", async () => {
@@ -287,6 +622,7 @@ describe("dist cli smoke", () => {
     expect(result.exitCode, result.stderr).toBe(0);
     const payload = JSON.parse(result.stdout) as {
       host: string;
+      readOnlyRetrieval: boolean;
       serverName: string;
       targetFileHint: string;
       workflowContract: {
@@ -306,6 +642,7 @@ describe("dist cli smoke", () => {
     };
     expect(payload).toMatchObject({
       host: "codex",
+      readOnlyRetrieval: true,
       serverName: "codex_auto_memory",
       targetFileHint: ".codex/config.toml",
       workflowContract: {
@@ -314,7 +651,7 @@ describe("dist cli smoke", () => {
           preferredRoute: "mcp-first"
         },
         cliFallback: {
-          searchCommand: `cam recall search "<query>" --state auto --limit 8 --cwd ${shellQuoteArg(realProjectDir)}`
+          searchCommand: `cam recall search "<query>" --state auto --limit 8 --cwd '${realProjectDir}'`
         }
       },
       agentsGuidance: {
@@ -337,8 +674,8 @@ describe("dist cli smoke", () => {
     expect(claudeResult.exitCode, claudeResult.stderr).toBe(0);
     expect(JSON.parse(claudeResult.stdout)).toMatchObject({
       host: "claude",
-      serverName: "codex_auto_memory",
       readOnlyRetrieval: true,
+      serverName: "codex_auto_memory",
       targetFileHint: ".mcp.json"
     });
     expect(JSON.parse(claudeResult.stdout).workflowContract).toBeUndefined();
@@ -355,8 +692,8 @@ describe("dist cli smoke", () => {
     expect(geminiResult.exitCode, geminiResult.stderr).toBe(0);
     expect(JSON.parse(geminiResult.stdout)).toMatchObject({
       host: "gemini",
-      serverName: "codex_auto_memory",
       readOnlyRetrieval: true,
+      serverName: "codex_auto_memory",
       targetFileHint: ".gemini/settings.json"
     });
     expect(JSON.parse(geminiResult.stdout).workflowContract).toBeUndefined();
@@ -373,9 +710,9 @@ describe("dist cli smoke", () => {
     expect(genericResult.exitCode, genericResult.stderr).toBe(0);
     expect(JSON.parse(genericResult.stdout)).toMatchObject({
       host: "generic",
+      readOnlyRetrieval: true,
       serverName: "codex_auto_memory",
       targetFileHint: "Your MCP client's stdio server config",
-      readOnlyRetrieval: true,
       snippetFormat: "json"
     });
     expect(JSON.parse(genericResult.stdout).workflowContract).toBeUndefined();
@@ -395,7 +732,7 @@ describe("dist cli smoke", () => {
     expect(result.stderr).toContain("manual-only");
   });
 
-  it("installs gemini MCP wiring from the compiled cli entrypoint", async () => {
+  it("rejects gemini MCP install from the compiled cli entrypoint because install stays Codex-only", async () => {
     const homeDir = await tempDir("cam-dist-mcp-install-gemini-home-");
     const projectDir = await tempDir("cam-dist-mcp-install-gemini-project-");
     const realProjectDir = await fs.realpath(projectDir);
@@ -405,14 +742,9 @@ describe("dist cli smoke", () => {
       env: { HOME: homeDir }
     });
 
-    expect(result.exitCode, result.stderr).toBe(0);
-    expect(JSON.parse(result.stdout)).toMatchObject({
-      host: "gemini",
-      action: "created",
-      projectRoot: realProjectDir,
-      targetPath: path.join(realProjectDir, ".gemini", "settings.json"),
-      readOnlyRetrieval: true
-    });
+    expect(result.exitCode).toBe(1);
+    expect(result.stderr).toContain("gemini");
+    expect(result.stderr).toContain("Codex-only");
   });
 
   it("applies the Codex AGENTS guidance from the compiled cli entrypoint", async () => {
@@ -582,15 +914,12 @@ describe("dist cli smoke", () => {
     expect(JSON.parse(result.stdout)).toMatchObject({
       serverName: "codex_auto_memory",
       readOnlyRetrieval: true,
-      agentsGuidance: {
-        exists: false,
-        status: "missing"
-      },
+      agentsGuidance: null,
       commandSurface: {
-        install: true,
+        install: false,
         serve: true,
         printConfig: true,
-        applyGuidance: true,
+        applyGuidance: false,
         doctor: true
       },
       hosts: [
@@ -637,14 +966,34 @@ describe("dist cli smoke", () => {
       projectRoot: realProjectDir,
       workflowContract: {
         version: expect.any(String),
+        cliFallback: {
+          searchCommand: expect.stringContaining('cam recall search "<query>" --state auto --limit 8'),
+          timelineCommand: expect.stringContaining('cam recall timeline "<ref>"'),
+          detailsCommand: expect.stringContaining('cam recall details "<ref>"')
+        },
         postWorkSyncReview: {
           helperScript: "post-work-memory-review.sh",
-          syncCommand: "cam sync",
-          reviewCommand: "cam memory --recent"
+          syncCommand: expect.any(String),
+          reviewCommand: expect.any(String)
         }
       },
       fallbackAssets: {
+        runtimeSkillPresent: true,
+        anySkillSurfaceInstalled: true,
+        anySkillSurfaceReady: true,
         postWorkReviewInstalled: true
+      },
+      retrievalSidecar: {
+        status: "warning",
+        repairCommand: expect.stringContaining("memory reindex --scope all --state all"),
+        checks: expect.arrayContaining([
+          expect.objectContaining({
+            scope: "project",
+            state: "active",
+            status: "missing",
+            fallbackReason: "missing"
+          })
+        ])
       }
     });
   });
@@ -692,16 +1041,9 @@ describe("dist cli smoke", () => {
       }
     );
 
-    expect(claudeResult.exitCode, claudeResult.stderr).toBe(0);
-    expect(JSON.parse(claudeResult.stdout)).toMatchObject({
-      host: "claude",
-      action: "created",
-      serverName: "codex_auto_memory",
-      projectRoot: realProjectDir,
-      targetPath: path.join(realProjectDir, ".mcp.json"),
-      projectPinned: true,
-      readOnlyRetrieval: true
-    });
+    expect(claudeResult.exitCode).toBe(1);
+    expect(claudeResult.stderr).toContain("claude");
+    expect(claudeResult.stderr).toContain("Codex-only");
   });
 
   it("preserves custom fields on the codex_auto_memory install entry from the compiled cli entrypoint", async () => {
@@ -752,6 +1094,7 @@ describe("dist cli smoke", () => {
   it("installs hooks and skills from the compiled cli entrypoint", async () => {
     const homeDir = await tempDir("cam-dist-hook-skill-home-");
     const projectDir = await tempDir("cam-dist-hook-skill-project-");
+    const realProjectDir = await fs.realpath(projectDir);
     const env = { HOME: homeDir };
 
     const hooksResult = runCli(projectDir, ["hooks", "install"], {
@@ -768,7 +1111,9 @@ describe("dist cli smoke", () => {
     );
     const recallGuide = await fs.readFile(path.join(hooksDir, "recall-bridge.md"), "utf8");
     expect(recallScript).toContain("cam:asset-version");
-    expect(postWorkReviewScript).toContain("cam memory --recent");
+    expect(recallScript).toContain('PROJECT_ROOT="${CAM_PROJECT_ROOT:-$PWD}"');
+    expect(postWorkReviewScript).toContain('sync --cwd "$PROJECT_ROOT"');
+    expect(postWorkReviewScript).toContain('memory --recent --cwd "$PROJECT_ROOT"');
     expect(recallGuide).toContain("cam:asset-version");
 
     const skillsResult = runCli(projectDir, ["skills", "install"], {
@@ -925,6 +1270,12 @@ describe("dist cli smoke", () => {
       stackAction: "created",
       skillsSurface: "runtime",
       readOnlyRetrieval: true,
+      workflowContract: {
+        recommendedPreset: "state=auto, limit=8",
+        cliFallback: {
+          searchCommand: `cam recall search "<query>" --state auto --limit 8 --cwd '${realProjectDir}'`
+        }
+      },
       subactions: {
         mcp: {
           action: "created",
@@ -962,11 +1313,51 @@ describe("dist cli smoke", () => {
       host: "codex",
       projectRoot: realProjectDir,
       stackAction: "created",
+      readOnlyRetrieval: true,
+      workflowContract: {
+        recommendedPreset: "state=auto, limit=8",
+        cliFallback: {
+          searchCommand: `cam recall search "<query>" --state auto --limit 8 --cwd '${realProjectDir}'`
+        }
+      },
       subactions: {
         mcp: { action: "created" },
         agents: { action: "created" },
         hooks: { action: "created" },
         skills: { action: "created" }
+      }
+    });
+  });
+
+  it("surfaces staged-write failure payloads from the compiled integrations apply entrypoint", async () => {
+    const homeDir = await tempDir("cam-dist-integrations-apply-failed-home-");
+    const projectDir = await tempDir("cam-dist-integrations-apply-failed-project-");
+    const realProjectDir = await fs.realpath(projectDir);
+
+    await fs.mkdir(path.join(realProjectDir, ".codex", "config.toml"), { recursive: true });
+
+    const result = runCli(
+      projectDir,
+      ["integrations", "apply", "--host", "codex", "--json"],
+      {
+        entrypoint: "dist",
+        env: { HOME: homeDir }
+      }
+    );
+
+    expect(result.exitCode, result.stderr).toBe(0);
+    expect(JSON.parse(result.stdout)).toMatchObject({
+      host: "codex",
+      projectRoot: realProjectDir,
+      stackAction: "failed",
+      failureStage: "staged-write",
+      failureMessage: expect.stringContaining("directory"),
+      rollbackApplied: true,
+      subactions: {
+        mcp: { attempted: true, status: "blocked", action: "blocked" },
+        agents: { attempted: false },
+        hooks: { attempted: false },
+        skills: { attempted: false }
       }
     });
   });
@@ -1032,6 +1423,39 @@ describe("dist cli smoke", () => {
       }
     });
     expect(await fs.readFile(path.join(realProjectDir, "AGENTS.md"), "utf8")).toBe(before);
+  });
+
+  it("surfaces staged-write failure payloads from the compiled integrations apply entrypoint", async () => {
+    const homeDir = await tempDir("cam-dist-integrations-apply-failed-home-");
+    const projectDir = await tempDir("cam-dist-integrations-apply-failed-project-");
+    const realProjectDir = await fs.realpath(projectDir);
+
+    await fs.mkdir(path.join(realProjectDir, ".codex", "config.toml"), { recursive: true });
+
+    const result = runCli(
+      projectDir,
+      ["integrations", "apply", "--host", "codex", "--json"],
+      {
+        entrypoint: "dist",
+        env: { HOME: homeDir }
+      }
+    );
+
+    expect(result.exitCode, result.stderr).toBe(0);
+    expect(JSON.parse(result.stdout)).toMatchObject({
+      host: "codex",
+      projectRoot: realProjectDir,
+      stackAction: "failed",
+      failureStage: "staged-write",
+      failureMessage: expect.stringContaining("directory"),
+      rollbackApplied: true,
+      subactions: {
+        mcp: { attempted: true, status: "blocked", action: "blocked" },
+        agents: { attempted: false },
+        hooks: { attempted: false },
+        skills: { attempted: false }
+      }
+    });
   });
 
   it("supports the official-project skill surface from the compiled integrations entrypoint", async () => {
@@ -1195,14 +1619,33 @@ describe("dist cli smoke", () => {
       applyReadiness: {
         status: "safe"
       },
+      retrievalSidecar: {
+        status: "warning",
+        repairCommand: "cam memory reindex --scope all --state all",
+        checks: expect.arrayContaining([
+          expect.objectContaining({
+            scope: "project",
+            state: "active",
+            status: "missing",
+            fallbackReason: "missing"
+          })
+        ])
+      },
       workflowContract: {
         version: expect.any(String),
+        cliFallback: {
+          searchCommand: 'cam recall search "<query>" --state auto --limit 8',
+          timelineCommand: 'cam recall timeline "<ref>"',
+          detailsCommand: 'cam recall details "<ref>"'
+        },
         postWorkSyncReview: {
           helperScript: "post-work-memory-review.sh",
           syncCommand: "cam sync",
           reviewCommand: "cam memory --recent"
         }
       },
+      preferredSkillSurface: "runtime",
+      recommendedSkillInstallCommand: "cam skills install --surface runtime",
       subchecks: {
         mcp: { status: "ok" },
         agents: { status: "ok" },
@@ -1246,9 +1689,32 @@ describe("dist cli smoke", () => {
       applyReadiness: {
         status: "blocked",
         reason: expect.stringContaining("managed guidance block"),
-        recommendedFix: expect.stringContaining("cam mcp apply-guidance --host codex")
+        recommendedFix: expect.stringContaining("mcp apply-guidance --host codex")
       }
     });
+  });
+
+  it("fails closed for invalid --cwd on compiled integrations entrypoints", async () => {
+    const homeDir = await tempDir("cam-dist-integrations-doctor-invalid-cwd-home-");
+    const projectDir = await tempDir("cam-dist-integrations-doctor-invalid-cwd-project-");
+
+    for (const command of [
+      ["integrations", "apply", "--host", "codex"] as const,
+      ["integrations", "doctor", "--host", "codex"] as const
+    ]) {
+      for (const cwd of ["", "   ", path.join(projectDir, "missing-project")]) {
+        const result = runCli(
+          projectDir,
+          [...command, "--cwd", cwd],
+          {
+            entrypoint: "dist",
+            env: { HOME: homeDir }
+          }
+        );
+        expect(result.exitCode).toBe(1);
+        expect(result.stderr).toContain("--cwd must be a non-empty path to an existing directory.");
+      }
+    }
   });
 
   it("routes exec through the compiled wrapper entrypoint", async () => {
@@ -1307,6 +1773,16 @@ fs.writeFileSync(${JSON.stringify(capturedArgsPath)}, JSON.stringify(process.arg
     expect(recallHelp.stdout).toContain("Search compact memory candidates without loading full details");
     expect(recallHelp.stdout).toContain("Limit memory state: active, archived, all, or auto");
 
+    const hooksHelp = runCli(projectDir, ["hooks", "install", "--help"], {
+      entrypoint: "dist",
+      env
+    });
+    expect(hooksHelp.exitCode, hooksHelp.stderr).toBe(0);
+    expect(hooksHelp.stdout).toContain(
+      "Generate the local bridge / fallback helper bundle"
+    );
+    expect(hooksHelp.stdout).toContain("Project directory to anchor generated hook helpers to");
+
     const mcpHelp = runCli(projectDir, ["mcp", "print-config", "--help"], {
       entrypoint: "dist",
       env
@@ -1323,7 +1799,7 @@ fs.writeFileSync(${JSON.stringify(capturedArgsPath)}, JSON.stringify(process.arg
     expect(mcpInstallHelp.stdout).toContain(
       "Install the recommended project-scoped MCP wiring for a supported host"
     );
-    expect(mcpInstallHelp.stdout).toContain("Target host: codex, claude, or gemini");
+    expect(mcpInstallHelp.stdout).toContain("Target host: codex");
 
     const mcpApplyGuidanceHelp = runCli(projectDir, ["mcp", "apply-guidance", "--help"], {
       entrypoint: "dist",
@@ -1363,6 +1839,7 @@ fs.writeFileSync(${JSON.stringify(capturedArgsPath)}, JSON.stringify(process.arg
     });
     expect(integrationsHelp.exitCode, integrationsHelp.stderr).toBe(0);
     expect(integrationsHelp.stdout).toContain("Install the recommended project-scoped Codex integration stack");
+    expect(integrationsHelp.stdout).toMatch(/without updating\s+AGENTS\.md/);
     expect(integrationsHelp.stdout).toContain("Target host: codex");
     expect(integrationsHelp.stdout).toMatch(
       /Skill install surface: runtime, official-user, or\s+official-project/
@@ -1417,6 +1894,28 @@ fs.writeFileSync(${JSON.stringify(capturedArgsPath)}, JSON.stringify(process.arg
         "utf8"
       )
     ).toContain("cam:asset-version");
+
+    const hooksResult = runCli(
+      callerDir,
+      ["hooks", "install", "--cwd", projectDir],
+      {
+        entrypoint: "dist",
+        env
+      }
+    );
+    expect(hooksResult.exitCode, hooksResult.stderr).toBe(0);
+    expect(
+      await fs.readFile(
+        path.join(homeDir, ".codex-auto-memory", "hooks", "memory-recall.sh"),
+        "utf8"
+      )
+    ).toContain('PROJECT_ROOT="${CAM_PROJECT_ROOT:-$PWD}"');
+    expect(
+      await fs.readFile(
+        path.join(homeDir, ".codex-auto-memory", "hooks", "post-work-memory-review.sh"),
+        "utf8"
+      )
+    ).toContain('sync --cwd "$PROJECT_ROOT" "$@"');
 
     const guidanceResult = runCli(
       callerDir,

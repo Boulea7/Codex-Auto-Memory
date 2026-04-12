@@ -4,12 +4,16 @@ import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { detectProjectContext } from "../src/lib/domain/project-context.js";
 import { MemoryStore } from "../src/lib/domain/memory-store.js";
+import {
+  buildResolvedCliCommand
+} from "../src/lib/integration/retrieval-contract.js";
 import { runCommandCapture } from "../src/lib/util/process.js";
 import { makeAppConfig, writeCamConfig } from "./helpers/cam-test-fixtures.js";
 import { resolveCliInvocation, runCli } from "./helpers/cli-runner.js";
 
 const tempDirs: string[] = [];
 const originalHome = process.env.HOME;
+const originalCodexHome = process.env.CODEX_HOME;
 const shellOnlyIt = process.platform === "win32" ? it.skip : it;
 
 async function tempDir(prefix: string): Promise<string> {
@@ -35,10 +39,103 @@ async function writeCamShim(binDir: string): Promise<string> {
 
 afterEach(async () => {
   process.env.HOME = originalHome;
+  if (originalCodexHome === undefined) {
+    delete process.env.CODEX_HOME;
+  } else {
+    process.env.CODEX_HOME = originalCodexHome;
+  }
   await Promise.all(tempDirs.splice(0).map((dir) => fs.rm(dir, { recursive: true, force: true })));
 });
 
 describe("hooks command", () => {
+  it("fails closed when --cwd is empty, whitespace-only, or missing", async () => {
+    const homeDir = await tempDir("cam-hooks-empty-cwd-home-");
+    const projectDir = await tempDir("cam-hooks-empty-cwd-project-");
+    process.env.HOME = homeDir;
+    const missingDir = path.join(projectDir, "missing-project");
+
+    for (const cwd of ["", "   ", missingDir]) {
+      const result = runCli(projectDir, ["hooks", "install", "--cwd", cwd], {
+        env: { HOME: homeDir }
+      });
+      expect(result.exitCode).toBe(1);
+      expect(result.stderr).toContain("--cwd must be a non-empty path to an existing directory.");
+    }
+  });
+  shellOnlyIt("supports --cwd while keeping generated hook helpers reusable across projects", async () => {
+    const homeDir = await tempDir("cam-hooks-cwd-home-");
+    const projectParentDir = await tempDir("cam-hooks-cwd-parent-");
+    const projectDir = path.join(projectParentDir, "project with spaces");
+    const shellDir = await tempDir("cam-hooks-cwd-shell-");
+    const memoryRoot = await tempDir("cam-hooks-cwd-memory-");
+    const binDir = await tempDir("cam-hooks-cwd-bin-");
+    process.env.HOME = homeDir;
+
+    await fs.mkdir(projectDir, { recursive: true });
+    await writeCamConfig(projectDir, makeAppConfig(), {
+      autoMemoryDirectory: memoryRoot
+    });
+
+    const store = new MemoryStore(detectProjectContext(projectDir), {
+      ...makeAppConfig(),
+      autoMemoryDirectory: memoryRoot
+    });
+    await store.ensureLayout();
+    await store.remember(
+      "project",
+      "workflow",
+      "prefer-pnpm",
+      "Prefer pnpm in this repository.",
+      ["Use pnpm instead of npm in this repository."],
+      "Manual note."
+    );
+
+    await writeCamShim(binDir);
+    const installResult = runCli(
+      shellDir,
+      ["hooks", "install", "--cwd", projectDir],
+      {
+        env: {
+          HOME: homeDir,
+          PATH: `${binDir}:${process.env.PATH ?? ""}`
+        }
+      }
+    );
+    expect(installResult.exitCode, installResult.stderr).toBe(0);
+
+    const hooksDir = path.join(homeDir, ".codex-auto-memory", "hooks");
+    const recallScriptPath = path.join(hooksDir, "memory-recall.sh");
+    const postWorkReviewScriptPath = path.join(hooksDir, "post-work-memory-review.sh");
+    const env = {
+      ...process.env,
+      HOME: homeDir,
+      CAM_PROJECT_ROOT: await fs.realpath(projectDir),
+      PATH: `${binDir}:${process.env.PATH ?? ""}`
+    };
+
+    const searchResult = runCommandCapture(
+      recallScriptPath,
+      ["search", "pnpm", "--json"],
+      shellDir,
+      env
+    );
+    expect(searchResult.exitCode, searchResult.stderr).toBe(0);
+    expect(JSON.parse(searchResult.stdout)).toMatchObject({
+      results: [
+        expect.objectContaining({
+          ref: "project:active:workflow:prefer-pnpm"
+        })
+      ]
+    });
+
+    const recallScript = await fs.readFile(recallScriptPath, "utf8");
+    const postWorkReviewScript = await fs.readFile(postWorkReviewScriptPath, "utf8");
+    expect(recallScript).not.toContain(JSON.stringify(await fs.realpath(projectDir)));
+    expect(recallScript).toContain('PROJECT_ROOT="${CAM_PROJECT_ROOT:-$PWD}"');
+    expect(postWorkReviewScript).toContain('sync --cwd "$PROJECT_ROOT"');
+    expect(postWorkReviewScript).toContain('memory --recent --cwd "$PROJECT_ROOT"');
+  });
+
   it("generates recall helper assets for hook and skill bridge flows", async () => {
     const homeDir = await tempDir("cam-hooks-home-");
     const projectDir = await tempDir("cam-hooks-project-");
@@ -59,7 +156,7 @@ describe("hooks command", () => {
     expect(result.stdout).toContain("--limit 8");
     expect(result.stdout).toContain("search_memories");
     expect(result.stdout).toContain("cam mcp serve");
-    expect(result.stdout).toContain("cam mcp doctor");
+    expect(result.stdout).toContain(buildResolvedCliCommand("mcp doctor"));
     expect(result.stdout).toContain("cam memory");
     expect(result.stdout).toContain("cam session");
     expect(result.stdout).toContain("local bridge");
@@ -75,8 +172,11 @@ describe("hooks command", () => {
       "utf8"
     );
     const recallGuide = await fs.readFile(path.join(hooksDir, "recall-bridge.md"), "utf8");
+    const realProjectDir = await fs.realpath(projectDir);
 
-    expect(recallScript).toContain('exec cam recall search "$@"');
+    expect(recallScript).toContain("recall search");
+    expect(recallScript).not.toContain(JSON.stringify(realProjectDir));
+    expect(recallScript).toContain('PROJECT_ROOT="${CAM_PROJECT_ROOT:-$PWD}"');
     expect(recallScript).toContain("--state");
     expect(recallScript).toContain("auto");
     expect(recallScript).toContain("--limit");
@@ -84,14 +184,67 @@ describe("hooks command", () => {
     expect(searchScript).toContain('exec "$SCRIPT_DIR/memory-recall.sh" search "$@"');
     expect(timelineScript).toContain('exec "$SCRIPT_DIR/memory-recall.sh" timeline "$@"');
     expect(detailsScript).toContain('exec "$SCRIPT_DIR/memory-recall.sh" details "$@"');
-    expect(postWorkReviewScript).toContain('cam sync "$@"');
-    expect(postWorkReviewScript).toContain("cam memory --recent");
+    expect(postWorkReviewScript).toMatch(
+      /(?:cam|node ".+dist\/cli\.js") sync --cwd "\$PROJECT_ROOT" "\$@"/u
+    );
+    expect(postWorkReviewScript).toMatch(
+      /(?:cam|exec node ".+dist\/cli\.js") memory --recent --cwd "\$PROJECT_ROOT"/u
+    );
     expect(recallGuide).toContain("search_memories");
     expect(recallGuide).toContain("memory-recall.sh search");
+    expect(recallGuide).toContain('recall search "pnpm"');
     expect(recallGuide).toContain("cam memory");
     expect(recallGuide).toContain("cam session");
     expect(recallGuide).toContain("local bridge");
     expect(recallGuide).toContain("not an official Codex hook surface");
+  });
+
+  it("emits a structured workflow contract in hooks install --json", async () => {
+    const homeDir = await tempDir("cam-hooks-json-home-");
+    const projectDir = await tempDir("cam-hooks-json-project-");
+    process.env.HOME = homeDir;
+
+    const result = runCli(projectDir, ["hooks", "install", "--json"]);
+    expect(result.exitCode, result.stderr).toBe(0);
+    expect(JSON.parse(result.stdout)).toMatchObject({
+      action: "created",
+      targetDir: path.join(homeDir, ".codex-auto-memory", "hooks"),
+      readOnlyRetrieval: true,
+      postInstallReadinessCommand: buildResolvedCliCommand("mcp doctor --host codex", {
+        cwd: await fs.realpath(projectDir)
+      }),
+      workflowContract: {
+        recommendedPreset: "state=auto, limit=8",
+        cliFallback: {
+          searchCommand: `cam recall search "<query>" --state auto --limit 8 --cwd '${await fs.realpath(projectDir)}'`
+        },
+        postWorkSyncReview: {
+          helperScript: "post-work-memory-review.sh"
+        }
+      },
+      assets: expect.arrayContaining([
+        expect.objectContaining({
+          id: "memory-recall"
+        })
+      ])
+    });
+  });
+
+  it("keeps hooks install working when CODEX_HOME is relative because no skill path is needed", async () => {
+    const homeDir = await tempDir("cam-hooks-relative-codex-home-");
+    const projectDir = await tempDir("cam-hooks-relative-codex-project-");
+    process.env.HOME = homeDir;
+    process.env.CODEX_HOME = "relative-codex-home";
+
+    const result = runCli(projectDir, ["hooks", "install", "--json"], {
+      env: { HOME: homeDir, CODEX_HOME: "relative-codex-home" }
+    });
+    expect(result.exitCode, result.stderr).toBe(0);
+    expect(JSON.parse(result.stdout)).toMatchObject({
+      action: "created",
+      targetDir: path.join(homeDir, ".codex-auto-memory", "hooks"),
+      readOnlyRetrieval: true
+    });
   });
 
   shellOnlyIt("executes the recall bridge bundle without overriding explicit state or limit flags", async () => {
@@ -128,20 +281,20 @@ describe("hooks command", () => {
     );
     await store.forget("project", "historical", { archive: true });
 
-    const installResult = runCli(projectDir, ["hooks", "install"], {
-      env: { HOME: homeDir }
-    });
-    expect(installResult.exitCode, installResult.stderr).toBe(0);
-
     await writeCamShim(binDir);
-    const hooksDir = path.join(homeDir, ".codex-auto-memory", "hooks");
-    const recallScriptPath = path.join(hooksDir, "memory-recall.sh");
-    const searchScriptPath = path.join(hooksDir, "memory-search.sh");
     const env = {
       ...process.env,
       HOME: homeDir,
       PATH: `${binDir}:${process.env.PATH ?? ""}`
     };
+    const installResult = runCli(projectDir, ["hooks", "install"], {
+      env
+    });
+    expect(installResult.exitCode, installResult.stderr).toBe(0);
+
+    const hooksDir = path.join(homeDir, ".codex-auto-memory", "hooks");
+    const recallScriptPath = path.join(hooksDir, "memory-recall.sh");
+    const searchScriptPath = path.join(hooksDir, "memory-search.sh");
 
     const defaultResult = runCommandCapture(
       recallScriptPath,
@@ -188,5 +341,24 @@ describe("hooks command", () => {
       fallbackUsed: false
     });
     expect(explicitPayload.results).toHaveLength(1);
+  });
+
+  it("does not overwrite user-level hook helper content with a second project's absolute path", async () => {
+    const homeDir = await tempDir("cam-hooks-scope-home-");
+    const firstProjectDir = await tempDir("cam-hooks-scope-first-project-");
+    const secondProjectDir = await tempDir("cam-hooks-scope-second-project-");
+    process.env.HOME = homeDir;
+
+    expect(runCli(firstProjectDir, ["hooks", "install"], { env: { HOME: homeDir } }).exitCode).toBe(0);
+    expect(runCli(secondProjectDir, ["hooks", "install"], { env: { HOME: homeDir } }).exitCode).toBe(0);
+
+    const recallScript = await fs.readFile(
+      path.join(homeDir, ".codex-auto-memory", "hooks", "memory-recall.sh"),
+      "utf8"
+    );
+
+    expect(recallScript).not.toContain(JSON.stringify(await fs.realpath(firstProjectDir)));
+    expect(recallScript).not.toContain(JSON.stringify(await fs.realpath(secondProjectDir)));
+    expect(recallScript).toContain('PROJECT_ROOT="${CAM_PROJECT_ROOT:-$PWD}"');
   });
 });
