@@ -2,6 +2,7 @@ import path from "node:path";
 import type {
   RolloutEvidence,
   RolloutToolCall,
+  RolloutTranscriptMessage,
   SessionContinuityEvidenceCounts
 } from "../types.js";
 import { trimText } from "../util/text.js";
@@ -11,6 +12,7 @@ import {
   extractCommand,
   isCommandToolCall
 } from "./command-utils.js";
+import { extractReferenceResourceKey, splitDirectiveClauses } from "./directive-utils.js";
 
 const FILE_WRITE_PATTERNS = ["apply_patch", "write_file", "create_file", "edit_file"];
 
@@ -146,9 +148,6 @@ export function looksLocalSpecific(text: string): boolean {
   return (
     repoRelativePathPatterns.some((pattern) => pattern.test(text)) ||
     /(?:^[A-Za-z]:|[\s"'`(])\\[\w.-]+/u.test(text) ||
-    /\b[a-z0-9_.-]+\.(?:ts|tsx|js|jsx|json|md|yml|yaml|toml|css|scss|sql|py|go|rs|sh)\b/iu.test(
-      text
-    ) ||
     /\b(worktree|branch|this branch|local only|locally|current branch|当前分支|本地工作树)\b/iu.test(
       text
     )
@@ -263,6 +262,42 @@ export function summarizeFileWrite(toolCall: RolloutToolCall, cwd?: string): str
   return `File modified: ${trimText(displayPath, 120)}`;
 }
 
+function trimmedTranscriptMessages(messages: RolloutTranscriptMessage[]): RolloutTranscriptMessage[] {
+  return messages
+    .map((entry) => ({
+      role: entry.role,
+      message: trimText(entry.message, 240)
+    }))
+    .filter((entry) => entry.message.length > 0);
+}
+
+export function collectRecentTranscriptMessages(
+  evidence: RolloutEvidence,
+  maxMessages = 20
+): RolloutTranscriptMessage[] {
+  const orderedMessages = trimmedTranscriptMessages(evidence.orderedMessages ?? []);
+  if (orderedMessages.length > 0) {
+    return orderedMessages.slice(-maxMessages);
+  }
+
+  const recentUserMessages = evidence.userMessages
+    .map((message) => trimText(message, 240))
+    .filter(Boolean)
+    .map((message) => ({
+      role: "user" as const,
+      message
+    }));
+  const recentAgentMessages = evidence.agentMessages
+    .map((message) => trimText(message, 240))
+    .filter(Boolean)
+    .map((message) => ({
+      role: "agent" as const,
+      message
+    }));
+
+  return [...recentAgentMessages.slice(-10), ...recentUserMessages.slice(-10)];
+}
+
 function escapeRegExp(value: string): string {
   return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
@@ -273,13 +308,6 @@ interface DirectiveSignal {
   authoritative: boolean;
 }
 
-function splitDirectiveClauses(text: string): string[] {
-  return text
-    .split(/\b(?:but|and)\b|[，,；;。]/u)
-    .map((clause) => clause.trim())
-    .filter(Boolean);
-}
-
 function shouldWarnForConflictingDirectiveKey(key: string): boolean {
   return (
     key === "package-manager" ||
@@ -287,7 +315,6 @@ function shouldWarnForConflictingDirectiveKey(key: string): boolean {
     key === "canonical-store" ||
     key === "retrieval-flow" ||
     key === "route-order" ||
-    key === "required-service" ||
     key.startsWith("reference-pointer:") ||
     key.startsWith("required-service:")
   );
@@ -309,8 +336,9 @@ function extractReferenceSignal(text: string): DirectiveSignal | null {
             : "pointer";
 
   if (url) {
+    const resourceKey = extractReferenceResourceKey(text, category, url) ?? category;
     return {
-      key: `reference-pointer:${category}`,
+      key: `reference-pointer:${category}:${resourceKey}`,
       value: url,
       authoritative: false
     };
@@ -562,7 +590,7 @@ export function collectSessionContinuityEvidenceBuckets(
 ): SessionContinuityEvidenceBuckets {
   const recentUserMessages = evidence.userMessages.map((message) => trimText(message, 240));
   const recentAgentMessages = evidence.agentMessages.map((message) => trimText(message, 240));
-  const recentMessages = [...recentAgentMessages.slice(-10), ...recentUserMessages.slice(-10)];
+  const recentMessages = collectRecentTranscriptMessages(evidence).map((entry) => entry.message);
   const recentMessagesReversed = [...recentMessages].reverse();
 
   const recentSuccessfulCommands = evidence.toolCalls
