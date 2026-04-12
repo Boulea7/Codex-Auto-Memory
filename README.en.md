@@ -323,6 +323,7 @@ See the architecture docs for the full boundary breakdown.
 ### Core design docs
 
 - [Claude reference contract (中文)](docs/claude-reference.md) | [English](docs/claude-reference.en.md)
+- [Claude Code / Gemini CLI host integration boundaries (中文)](docs/host-integration-claude-gemini.md)
 - [Architecture (中文)](docs/architecture.md) | [English](docs/architecture.en.md)
 - [Integration strategy (中文)](docs/integration-strategy.md)
 - [Host surfaces (中文)](docs/host-surfaces.md)
