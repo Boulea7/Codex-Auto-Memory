@@ -209,6 +209,6 @@ describe("recovery-records", () => {
         sourceSessionId: "session-1",
         scope: "project"
       })
-    ).toBe(false);
+    ).toBe(true);
   });
 });

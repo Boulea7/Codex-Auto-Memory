@@ -10,7 +10,8 @@ import {
   buildMemoryTimelineResponse,
   normalizeMemoryRetrievalScope,
   normalizeMemoryRetrievalState,
-  parseMemoryRetrievalLimit
+  parseMemoryRetrievalLimit,
+  toMemoryDetailsResultShape
 } from "../domain/memory-retrieval-contract.js";
 import { assertValidMemoryRef } from "../domain/memory-lifecycle.js";
 
@@ -48,6 +49,12 @@ function formatSearchResults(response: MemorySearchResponse): string {
 
   if (response.diagnostics.fallbackReasons.length > 0) {
     lines.push(`Fallback reasons: ${response.diagnostics.fallbackReasons.join(", ")}`);
+  }
+
+  if ((response.diagnostics.topicDiagnostics?.length ?? 0) > 0) {
+    lines.push(
+      `Unsafe topic diagnostics: ${(response.diagnostics.topicDiagnostics ?? []).map((entry) => `${entry.scope}/${entry.state}/${entry.topic}`).join(", ")}`
+    );
   }
 
   if (response.results.length === 0) {
@@ -96,7 +103,8 @@ function formatTimeline(timeline: MemoryTimelineResponse): string {
     `- Matched audit operations: ${timeline.lineageSummary.matchedAuditOperationCount}`,
     `- Rollout no-op count: ${timeline.lineageSummary.rolloutNoopOperationCount}`,
     `- Rollout suppressed count: ${timeline.lineageSummary.rolloutSuppressedOperationCount}`,
-    `- Rollout conflict count: ${timeline.lineageSummary.rolloutConflictCount}`
+    `- Rollout conflict count: ${timeline.lineageSummary.rolloutConflictCount}`,
+    `- Rollout rejected count: ${timeline.lineageSummary.rejectedOperationCount}`
   );
 
   if (timeline.latestLifecycleAttempt) {
@@ -115,6 +123,28 @@ function formatTimeline(timeline: MemoryTimelineResponse): string {
       `- ${timeline.latestAppliedLifecycle.at}: [${timeline.latestAppliedLifecycle.action}] ${timeline.latestAppliedLifecycle.summary}`,
       `- State: ${timeline.latestAppliedLifecycle.state ?? "unknown"} | Previous: ${timeline.latestAppliedLifecycle.previousState ?? "n/a"} | Next: ${timeline.latestAppliedLifecycle.nextState ?? "n/a"} | Update kind: ${timeline.latestAppliedLifecycle.updateKind ?? "n/a"}`
     );
+  }
+
+  if (timeline.latestAudit) {
+    lines.push(
+      "",
+      "Latest audit:",
+      `- ${timeline.latestAudit.status} at ${timeline.latestAudit.appliedAt}`,
+      `- Latest audit path: ${timeline.latestAudit.auditPath}`,
+      `- Latest audit summary: ${timeline.latestAudit.resultSummary}`,
+      `- Latest audit matched operations for this ref: ${timeline.latestAudit.matchedOperationCount}`,
+      `- Latest audit rollout rejected operations: ${timeline.latestAudit.rejectedOperationCount}`
+    );
+    if ((timeline.latestAudit.rejectedOperations?.length ?? 0) > 0) {
+      lines.push(
+        `- Latest audit rejected operations: ${timeline.latestAudit.rejectedOperations
+          ?.map(
+            (operation) =>
+              `[${operation.reason}] ${operation.scope}/${operation.topic}/${operation.id}`
+          )
+          .join(", ")}`
+      );
+    }
   }
 
   if (timeline.events.length === 0) {
@@ -171,8 +201,19 @@ function formatDetails(details: MemoryDetailsResult): string {
       `Latest audit: ${details.latestAudit.status} at ${details.latestAudit.appliedAt}`,
       `Latest audit path: ${details.latestAudit.auditPath}`,
       `Latest audit summary: ${details.latestAudit.resultSummary}`,
-      `Latest audit matched operations for this ref: ${details.latestAudit.matchedOperationCount}`
+      `Latest audit matched operations for this ref: ${details.latestAudit.matchedOperationCount}`,
+      `Latest audit rollout rejected operations: ${details.latestAudit.rejectedOperationCount}`
     );
+    if ((details.latestAudit.rejectedOperations?.length ?? 0) > 0) {
+      lines.push(
+        `Latest audit rejected operations: ${details.latestAudit.rejectedOperations
+          ?.map(
+            (operation) =>
+              `[${operation.reason}] ${operation.scope}/${operation.topic}/${operation.id}`
+          )
+          .join(", ")}`
+      );
+    }
   }
 
   lines.push(
@@ -192,6 +233,7 @@ function formatDetails(details: MemoryDetailsResult): string {
     `- Rollout no-op count: ${details.lineageSummary.rolloutNoopOperationCount}`,
     `- Rollout suppressed count: ${details.lineageSummary.rolloutSuppressedOperationCount}`,
     `- Rollout conflict count: ${details.lineageSummary.rolloutConflictCount}`,
+    `- Rollout rejected count: ${details.lineageSummary.rejectedOperationCount}`,
     `- Timeline warning count: ${details.timelineWarningCount}`
   );
 
@@ -262,7 +304,7 @@ export async function runRecall(
         throw new Error(`No memory details were found for ref "${target}".`);
       }
       if (options.json) {
-        return JSON.stringify(details, null, 2);
+        return JSON.stringify(toMemoryDetailsResultShape(details), null, 2);
       }
       return formatDetails(details);
     }

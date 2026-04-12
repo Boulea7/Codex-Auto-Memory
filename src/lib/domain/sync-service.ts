@@ -21,6 +21,7 @@ import type { MemoryExtractorAdapter } from "../runtime/contracts.js";
 import { RolloutSessionSource } from "../runtime/rollout-session-source.js";
 import { buildMemorySyncAuditEntry } from "./memory-sync-audit.js";
 import { buildSyncRecoveryRecord, matchesSyncRecoveryRecord } from "./recovery-records.js";
+import { isPrimaryRolloutEvidence } from "./rollout.js";
 
 interface ExtractionResult {
   operations: MemoryOperation[];
@@ -89,6 +90,28 @@ export class SyncService {
         applied: [],
         skipped: true,
         message: `Skipped ${rolloutPath}; no rollout evidence could be parsed.`
+      };
+    }
+
+    if (!isPrimaryRolloutEvidence(evidence)) {
+      await this.store.appendSyncAuditEntry(
+        buildMemorySyncAuditEntry({
+          project: this.project,
+          config: this.config,
+          rolloutPath,
+          sessionId: evidence.sessionId,
+          configuredExtractorName: this.configuredExtractorName,
+          actualExtractorMode: this.configuredExtractorMode,
+          actualExtractorName: this.configuredExtractorName,
+          sessionSource: this.sessionSource.name,
+          status: "skipped",
+          skipReason: "subagent-rollout"
+        })
+      );
+      return {
+        applied: [],
+        skipped: true,
+        message: `Skipped ${rolloutPath}; subagent rollout evidence is not eligible for durable sync.`
       };
     }
 
