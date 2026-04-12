@@ -14,6 +14,23 @@ export type MemoryLifecycleUpdateKind =
   | "semantic-overwrite"
   | "metadata-only"
   | "restore";
+export type MemoryOperationRejectionReason =
+  | "unknown-topic"
+  | "sensitive"
+  | "volatile"
+  | "empty-summary"
+  | "operation-cap";
+export type StartupMemoryOmissionReason =
+  | "low-signal"
+  | "unsafe-topic"
+  | "duplicate-summary"
+  | "budget-trimmed"
+  | "budget-not-reached"
+  | "no-eligible-entry";
+export type StartupMemoryOmissionTarget = "highlight" | "topic-file" | "scope-block";
+export type StartupMemoryOmissionStage = "selection" | "render";
+export type StartupMemoryHighlightSelectionReason = "eligible-highlight";
+export type StartupMemoryOmissionBudgetKind = "per-scope-highlight-cap" | "global-highlight-cap" | "line-budget";
 export type MemoryRetrievalScope = MemoryScope | "all";
 export type MemoryRetrievalResolvedState = MemoryRecordState | "all";
 export type MemoryRetrievalStateFilter = MemoryRetrievalResolvedState | "auto";
@@ -45,7 +62,7 @@ export interface MemoryEntry {
 }
 
 export interface MemoryOperation {
-  action: "upsert" | "delete";
+  action: "upsert" | "delete" | "archive";
   scope: MemoryScope;
   topic: string;
   id: string;
@@ -66,6 +83,14 @@ export interface MemoryMutation {
   reason?: string;
 }
 
+export interface RejectedMemoryOperationSummary {
+  action: MemoryOperation["action"];
+  scope: MemoryScope;
+  topic: string;
+  id: string;
+  reason: MemoryOperationRejectionReason;
+}
+
 export interface MemoryRef {
   ref: string;
   scope: MemoryScope;
@@ -79,6 +104,13 @@ export interface MemorySearchResult extends MemoryRef {
   updatedAt: string;
   matchedFields: string[];
   approxReadCost: number;
+  globalRank: number;
+}
+
+export interface MemorySearchResultWindow {
+  start: number;
+  end: number;
+  limit: number;
 }
 
 export interface MemorySearchDiagnosticPath {
@@ -98,6 +130,7 @@ export interface MemorySearchDiagnostics {
   fallbackReasons: MemoryRetrievalFallbackReason[];
   executionModes: MemoryRetrievalMode[];
   checkedPaths: MemorySearchDiagnosticPath[];
+  topicDiagnostics?: TopicFileDiagnostic[];
 }
 
 export interface MemorySearchStateResolution {
@@ -118,11 +151,15 @@ export interface MemorySearchResponse {
   state: MemoryRetrievalStateFilter;
   resolvedState: MemoryRetrievalResolvedState;
   searchOrder: string[];
+  totalMatchedCount: number;
+  returnedCount: number;
   globalLimitApplied: boolean;
   truncatedCount: number;
+  resultWindow: MemorySearchResultWindow;
   fallbackUsed: boolean;
   stateFallbackUsed: boolean;
   markdownFallbackUsed: boolean;
+  finalRetrievalMode: MemoryRetrievalMode;
   retrievalMode: MemoryRetrievalMode;
   retrievalFallbackReason?: MemoryRetrievalFallbackReason;
   stateResolution: MemorySearchStateResolution;
@@ -180,6 +217,7 @@ export interface MemoryTimelineResponse {
   ref: string;
   events: MemoryTimelineEvent[];
   warnings: string[];
+  latestAudit: MemorySyncAuditSummary | null;
   lineageSummary: MemoryLineageSummary;
   latestAppliedLifecycle: MemoryAppliedLifecycle | null;
   latestLifecycleAttempt: MemoryLifecycleAttempt | null;
@@ -206,6 +244,8 @@ export interface MemoryLineageSummary {
   noopOperationCount: number;
   suppressedOperationCount: number;
   conflictCount: number;
+  rejectedOperationCount: number;
+  rejectedReasonCounts?: Partial<Record<MemoryOperationRejectionReason, number>>;
 }
 
 export interface MemoryDetailsResult extends MemoryRef {
@@ -225,6 +265,159 @@ export interface MemoryDetailsResult extends MemoryRef {
   warnings: string[];
 }
 
+export interface ManualMutationFollowUp {
+  timelineRefs: string[];
+  detailsRefs: string[];
+}
+
+export interface ManualMutationSummary {
+  matchedCount: number;
+  appliedCount: number;
+  noopCount: number;
+  affectedCount: number;
+}
+
+export interface ManualMutationPrimaryEntry {
+  ref: string;
+  timelineRef: string;
+  detailsRef: string | null;
+  lifecycleAction: MemoryLifecycleAction;
+}
+
+export interface RolloutReviewerSummary {
+  matchedAuditOperationCount: number;
+  noopOperationCount: number;
+  suppressedOperationCount: number;
+  rejectedOperationCount: number;
+  rejectedReasonCounts?: Partial<Record<MemoryOperationRejectionReason, number>>;
+  rolloutConflictCount: number;
+  uniqueAuditCount: number;
+  auditCountsDeduplicated: boolean;
+  warningCount: number;
+  warningsByEntryRef?: Record<string, number>;
+}
+
+export interface ManualMutationReviewEntry {
+  ref: string;
+  timelineRef: string;
+  detailsRef: string | null;
+  scope: MemoryScope;
+  state: MemoryRecordState;
+  topic: string;
+  id: string;
+  path: string | null;
+  historyPath: string;
+  lifecycleAction: MemoryLifecycleAction;
+  latestLifecycleAction: Exclude<MemoryLifecycleAction, "noop"> | null;
+  latestAppliedLifecycle: MemoryAppliedLifecycle | null;
+  latestLifecycleAttempt: MemoryLifecycleAttempt | null;
+  latestState: MemoryHistoryRecordState;
+  latestSessionId: string | null;
+  latestRolloutPath: string | null;
+  latestAudit: MemorySyncAuditSummary | null;
+  timelineWarningCount: number;
+  lineageSummary: MemoryLineageSummary;
+  warnings: string[];
+  entry: MemoryEntry;
+}
+
+export interface ManualMutationRememberPayload {
+  action: "remember";
+  mutationKind: "remember";
+  entryCount: number;
+  warningCount: number;
+  uniqueAuditCount: number;
+  auditCountsDeduplicated: boolean;
+  warningsByEntryRef: Record<string, number>;
+  leadEntryRef: string;
+  leadEntryIndex: number;
+  detailsAvailable: boolean;
+  reviewRefState: MemoryRecordState;
+  matchedCount: number;
+  appliedCount: number;
+  noopCount: number;
+  affectedCount: number;
+  affectedRefs: string[];
+  summary: ManualMutationSummary;
+  reviewerSummary: RolloutReviewerSummary;
+  primaryEntry: ManualMutationPrimaryEntry;
+  followUp: ManualMutationFollowUp;
+  nextRecommendedActions: string[];
+  entries: ManualMutationReviewEntry[];
+  text: string;
+  scope: MemoryScope;
+  topic: string;
+  id: string;
+  ref: string;
+  timelineRef: string;
+  detailsRef: string | null;
+  path: string | null;
+  historyPath: string;
+  lifecycleAction: MemoryLifecycleAction;
+  latestLifecycleAction: Exclude<MemoryLifecycleAction, "noop"> | null;
+  latestAppliedLifecycle: MemoryAppliedLifecycle | null;
+  latestLifecycleAttempt: MemoryLifecycleAttempt | null;
+  latestState: MemoryHistoryRecordState;
+  latestSessionId: string | null;
+  latestRolloutPath: string | null;
+  latestAudit: MemorySyncAuditSummary | null;
+  timelineWarningCount: number;
+  lineageSummary: MemoryLineageSummary;
+  warnings: string[];
+  entry: MemoryEntry;
+}
+
+export interface ManualMutationForgetPayload {
+  action: "forget";
+  mutationKind: "forget";
+  entryCount: number;
+  warningCount: number;
+  uniqueAuditCount: number;
+  auditCountsDeduplicated: boolean;
+  warningsByEntryRef: Record<string, number>;
+  leadEntryRef: string | null;
+  leadEntryIndex: number | null;
+  detailsAvailable: boolean;
+  reviewRefState: MemoryRecordState | null;
+  detailsUsableEntryCount: number;
+  timelineOnlyEntryCount: number;
+  query: string;
+  scope: MemoryScope | "all";
+  archive: boolean;
+  matchedCount: number;
+  appliedCount: number;
+  noopCount: number;
+  affectedCount: number;
+  affectedRefs: string[];
+  summary: ManualMutationSummary;
+  reviewerSummary: RolloutReviewerSummary;
+  primaryEntry: ManualMutationPrimaryEntry | null;
+  followUp: ManualMutationFollowUp;
+  nextRecommendedActions: string[];
+  entries: ManualMutationReviewEntry[];
+  ref: string | null;
+  timelineRef: string | null;
+  detailsRef: string | null;
+  path: string | null;
+  historyPath: string | null;
+  lifecycleAction: MemoryLifecycleAction | null;
+  latestLifecycleAction: Exclude<MemoryLifecycleAction, "noop"> | null;
+  latestAppliedLifecycle: MemoryAppliedLifecycle | null;
+  latestLifecycleAttempt: MemoryLifecycleAttempt | null;
+  latestState: MemoryHistoryRecordState | null;
+  latestSessionId: string | null;
+  latestRolloutPath: string | null;
+  latestAudit: MemorySyncAuditSummary | null;
+  timelineWarningCount: number;
+  lineageSummary: MemoryLineageSummary | null;
+  warnings: string[];
+  entry: MemoryEntry | null;
+}
+
+export type ManualMutationPayload =
+  | ManualMutationRememberPayload
+  | ManualMutationForgetPayload;
+
 export interface MemorySyncAuditSummary {
   auditPath: string;
   appliedAt: string;
@@ -235,6 +428,9 @@ export interface MemorySyncAuditSummary {
   matchedOperationCount: number;
   noopOperationCount: number;
   suppressedOperationCount: number;
+  rejectedOperationCount: number;
+  rejectedReasonCounts?: Partial<Record<MemoryOperationRejectionReason, number>>;
+  rejectedOperations?: RejectedMemoryOperationSummary[];
   conflicts: MemoryConflictCandidate[];
 }
 
@@ -263,12 +459,86 @@ export interface CompiledStartupMemory {
   lineCount: number;
   sourceFiles: string[];
   topicFiles: TopicFileRef[];
+  highlights: StartupMemoryHighlight[];
+  omissions: StartupMemoryOmission[];
+  omissionCounts: Partial<Record<StartupMemoryOmissionReason, number>>;
+  topicFileOmissionCounts: Partial<Record<StartupMemoryOmissionReason, number>>;
+  omissionCountsByTargetAndStage: {
+    highlight: { selection: number; render: number };
+    topicFile: { selection: number; render: number };
+    scopeBlock: { selection: number; render: number };
+  };
+  omittedHighlightCount: number;
+  omittedTopicFileCount: number;
+  topicRefCountsByScope: {
+    global: { discovered: number; rendered: number; omitted: number };
+    project: { discovered: number; rendered: number; omitted: number };
+    projectLocal: { discovered: number; rendered: number; omitted: number };
+  };
+  sectionsRendered: {
+    projectLocal: boolean;
+    project: boolean;
+    global: boolean;
+    highlights: boolean;
+    topicFiles: boolean;
+  };
 }
 
 export interface TopicFileRef {
   scope: MemoryScope;
   topic: string;
   path: string;
+}
+
+export interface TopicFileDiagnostic {
+  scope: MemoryScope;
+  state: MemoryRecordState;
+  topic: string;
+  path: string;
+  safeToRewrite: boolean;
+  entryCount: number;
+  invalidEntryBlockCount: number;
+  manualContentDetected: boolean;
+  unsafeReason?: string;
+}
+
+export type MemoryLayoutDiagnosticKind =
+  | "malformed-topic-filename"
+  | "orphan-topic-markdown"
+  | "misplaced-index-markdown"
+  | "unexpected-markdown"
+  | "unexpected-sidecar"
+  | "missing-index"
+  | "index-drift";
+
+export interface MemoryLayoutDiagnostic {
+  scope: MemoryScope;
+  state: MemoryRecordState;
+  kind: MemoryLayoutDiagnosticKind;
+  path: string;
+  fileName: string;
+  message: string;
+}
+
+export interface StartupMemoryHighlight {
+  scope: MemoryScope;
+  topic: string;
+  id: string;
+  summary: string;
+  selectionReason: StartupMemoryHighlightSelectionReason;
+  selectionRank: number;
+}
+
+export interface StartupMemoryOmission {
+  scope: MemoryScope;
+  topic: string;
+  id?: string;
+  summary?: string;
+  reason: StartupMemoryOmissionReason;
+  target?: StartupMemoryOmissionTarget;
+  stage?: StartupMemoryOmissionStage;
+  budgetKind?: StartupMemoryOmissionBudgetKind;
+  unsafeTopicReason?: string;
 }
 
 export interface AppConfig {
@@ -331,12 +601,15 @@ export interface RolloutToolCall {
   output?: string;
 }
 
+export type RolloutProvenanceKind = "primary" | "subagent";
+
 export interface RolloutMeta {
   sessionId: string;
   createdAt: string;
   createdAtMs: number;
   cwd: string;
   rolloutPath: string;
+  provenanceKind?: RolloutProvenanceKind;
   isSubagent?: boolean;
   forkedFromSessionId?: string;
 }
@@ -347,10 +620,17 @@ export interface RolloutEvidence {
   cwd: string;
   userMessages: string[];
   agentMessages: string[];
+  orderedMessages?: RolloutTranscriptMessage[];
   toolCalls: RolloutToolCall[];
   rolloutPath: string;
+  provenanceKind?: RolloutProvenanceKind;
   isSubagent?: boolean;
   forkedFromSessionId?: string;
+}
+
+export interface RolloutTranscriptMessage {
+  role: "user" | "agent";
+  message: string;
 }
 
 export interface SessionContinuityState {
@@ -407,6 +687,7 @@ export interface SessionContinuityDiagnostics {
   generatedAt: string;
   rolloutPath: string;
   sourceSessionId: string;
+  provenanceKind?: RolloutProvenanceKind;
   preferredPath: SessionContinuityExtractorPath;
   actualPath: SessionContinuityExtractorPath;
   confidence: SessionContinuityConfidence;
@@ -431,6 +712,7 @@ export interface SessionContinuityAuditEntry {
   scope: SessionContinuityScope | "both";
   rolloutPath: string;
   sourceSessionId: string;
+  provenanceKind?: RolloutProvenanceKind;
   preferredPath: SessionContinuityExtractorPath;
   actualPath: SessionContinuityExtractorPath;
   confidence?: SessionContinuityConfidence;
@@ -452,15 +734,69 @@ export interface SessionContinuityLocation {
   exists: boolean;
 }
 
+export type ContinuityStartupMode = "startup";
+
+export type ContinuityStartupProvenanceKind = "temporary-continuity";
+
+export type ContinuityStartupSectionKind =
+  | "sources"
+  | "goal"
+  | "confirmed-working"
+  | "tried-and-failed"
+  | "not-yet-tried"
+  | "incomplete-next"
+  | "files-decisions-environment";
+
+export type ContinuityStartupSourceKind = "shared" | "project-local";
+
+export type ContinuityStartupOmissionReason = "budget-trimmed";
+
+export type ContinuityStartupOmissionTarget = "source-file" | "section";
+
+export type ContinuityStartupOmissionStage = "render";
+
+export interface ContinuityStartupOmission {
+  target: ContinuityStartupOmissionTarget;
+  stage: ContinuityStartupOmissionStage;
+  reason: ContinuityStartupOmissionReason;
+  path?: string;
+  section?: ContinuityStartupSectionKind;
+  sourceKind?: ContinuityStartupSourceKind;
+}
+
 export interface CompiledSessionContinuity {
   text: string;
   lineCount: number;
+  continuityMode: ContinuityStartupMode;
+  continuityProvenanceKind: ContinuityStartupProvenanceKind;
   sourceFiles: string[];
+  candidateSourceFiles: string[];
+  continuitySourceKinds: ContinuityStartupSourceKind[];
+  continuitySectionKinds: ContinuityStartupSectionKind[];
+  sectionsRendered: {
+    sources: boolean;
+    goal: boolean;
+    confirmedWorking: boolean;
+    triedAndFailed: boolean;
+    notYetTried: boolean;
+    incompleteNext: boolean;
+    filesDecisionsEnvironment: boolean;
+  };
+  omissions: ContinuityStartupOmission[];
+  omissionCounts: Partial<Record<ContinuityStartupOmissionReason, number>>;
+  futureCompactionSeam: {
+    kind: "session-summary-placeholder";
+    rebuildsStartupSections: true;
+    keepsDurableMemorySeparate: true;
+  };
 }
 
 export type MemorySyncAuditStatus = "applied" | "no-op" | "skipped";
 
-export type MemorySyncAuditSkipReason = "already-processed" | "no-rollout-evidence";
+export type MemorySyncAuditSkipReason =
+  | "already-processed"
+  | "no-rollout-evidence"
+  | "subagent-rollout";
 
 export interface MemorySyncAuditEntry {
   appliedAt: string;
@@ -481,6 +817,9 @@ export interface MemorySyncAuditEntry {
   appliedCount: number;
   noopOperationCount?: number;
   suppressedOperationCount?: number;
+  rejectedOperationCount?: number;
+  rejectedReasonCounts?: Partial<Record<MemoryOperationRejectionReason, number>>;
+  rejectedOperations?: RejectedMemoryOperationSummary[];
   scopesTouched: MemoryScope[];
   resultSummary: string;
   conflicts?: MemoryConflictCandidate[];
@@ -503,6 +842,9 @@ export interface SyncRecoveryRecord {
   appliedCount: number;
   noopOperationCount?: number;
   suppressedOperationCount?: number;
+  rejectedOperationCount?: number;
+  rejectedReasonCounts?: Partial<Record<MemoryOperationRejectionReason, number>>;
+  rejectedOperations?: RejectedMemoryOperationSummary[];
   scopesTouched: MemoryScope[];
   conflicts?: MemoryConflictCandidate[];
   failedStage: SyncRecoveryFailedStage;
@@ -537,6 +879,16 @@ export interface MemoryCommandOutput {
   startup: CompiledStartupMemory;
   loadedFiles: string[];
   topicFiles: TopicFileRef[];
+  topicDiagnostics: TopicFileDiagnostic[];
+  layoutDiagnostics: MemoryLayoutDiagnostic[];
+  startupOmissions: StartupMemoryOmission[];
+  startupOmissionCounts: Partial<Record<StartupMemoryOmissionReason, number>>;
+  topicFileOmissionCounts: Partial<Record<StartupMemoryOmissionReason, number>>;
+  startupOmissionCountsByTargetAndStage: {
+    highlight: { selection: number; render: number };
+    topicFile: { selection: number; render: number };
+    scopeBlock: { selection: number; render: number };
+  };
   startupFilesByScope: {
     global: string[];
     project: string[];
@@ -547,6 +899,21 @@ export interface MemoryCommandOutput {
     project: TopicFileRef[];
     projectLocal: TopicFileRef[];
   };
+  highlightCount: number;
+  omittedHighlightCount: number;
+  omittedTopicFileCount: number;
+  highlightsByScope: {
+    global: StartupMemoryHighlight[];
+    project: StartupMemoryHighlight[];
+    projectLocal: StartupMemoryHighlight[];
+  };
+  startupSectionsRendered: {
+    projectLocal: boolean;
+    project: boolean;
+    global: boolean;
+    highlights: boolean;
+    topicFiles: boolean;
+  };
   startupBudget: {
     usedLines: number;
     maxLines: number;
@@ -555,6 +922,11 @@ export interface MemoryCommandOutput {
     global: { startupFiles: number; topicFiles: number };
     project: { startupFiles: number; topicFiles: number };
     projectLocal: { startupFiles: number; topicFiles: number };
+  };
+  topicRefCountsByScope: {
+    global: { discovered: number; rendered: number; omitted: number };
+    project: { discovered: number; rendered: number; omitted: number };
+    projectLocal: { discovered: number; rendered: number; omitted: number };
   };
   scopes: MemoryCommandScopeSummary[];
   editTargets: {
@@ -584,6 +956,8 @@ export interface MemoryReindexOutput {
   requestedScope: MemoryScope | "all";
   requestedState: MemoryRecordState | "all";
   rebuilt: MemoryReindexCheck[];
+  topicDiagnostics: TopicFileDiagnostic[];
+  layoutDiagnostics: MemoryLayoutDiagnostic[];
   summary: string;
 }
 
@@ -593,7 +967,7 @@ export interface SyncResult {
   message: string;
 }
 
-export type ContinuityRecoveryFailedStage = "audit-write";
+export type ContinuityRecoveryFailedStage = "summary-write" | "audit-write";
 
 export interface ContinuityRecoveryRecord {
   recordedAt: string;
@@ -605,6 +979,7 @@ export interface ContinuityRecoveryRecord {
   writeMode?: SessionContinuityWriteMode;
   scope: SessionContinuityScope | "both";
   writtenPaths: string[];
+  provenanceKind?: RolloutProvenanceKind;
   preferredPath: SessionContinuityExtractorPath;
   actualPath: SessionContinuityExtractorPath;
   confidence?: SessionContinuityConfidence;

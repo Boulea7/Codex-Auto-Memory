@@ -2,8 +2,7 @@
 
 [简体中文](./native-migration.md) | [English](./native-migration.en.md)
 
-> This document now answers one narrower question: **when is it worth promoting native Codex memory / hooks from a readiness signal to the primary path?**  
-> It no longer carries the repository's entire integration-direction narrative. For that broader direction, see [Integration Strategy](./integration-strategy.md).
+> This document now has a narrower job: it records how `codex-auto-memory` evaluates native Codex memory and hook signals without treating them as the only future direction. The repository is still Codex-first, but its broader product evolution now also includes non-native hook, skill, and MCP-aware integration paths.
 
 ## One-page conclusion
 
@@ -40,6 +39,13 @@ Local runtime behavior and `cam doctor --json` also expose readiness signals:
 - rollout JSONL
 - `memories`
 - `codex_hooks`
+- the current app-server signal from `codex features list` (which may appear as `tui` or `tui_app_server`, depending on the local build)
+
+That local feature truth should still be described conservatively:
+
+- the official app-server docs describe a stable default API surface plus explicit experimental subfeatures
+- the local `codex features list` output may still show `tui_app_server` as `removed`
+- so app-server should remain a host/UI readiness signal here, not a stable primary foundation for this repository
 
 But those signals are still not enough to retire the current wrapper path or claim a stable native memory contract.
 
@@ -110,6 +116,7 @@ Those seams now support two kinds of future work:
 - keep wrapper-based startup injection
 - keep Markdown as the primary memory surface
 - keep session continuity as a separate companion layer
+- keep the temporary continuity startup contract explicit about rendered provenance, section trimming, and the future compaction seam
 - keep native migration conservative
 - allow non-native integration expansion as long as it preserves the same Markdown contract
 

@@ -107,7 +107,9 @@ describe("memory-sync-audit", () => {
 
     expect(lines[0]).toContain("[skipped] [recovery]");
     expect(lines[1]).toContain("Session: unknown");
-    expect(lines[2]).toContain("Applied: 0 | No-op: 0 | Suppressed: 0 | Scopes: none");
+    expect(lines[2]).toContain(
+      "Applied: 0 | No-op: 0 | Suppressed: 0 | Rejected: 0 | Scopes: none"
+    );
     expect(lines).toContain(
       "  Configured: codex-ephemeral (codex) -> Actual: heuristic (heuristic)"
     );
@@ -139,5 +141,64 @@ describe("memory-sync-audit", () => {
 
     expect(lines.some((line) => line.includes("Configured:"))).toBe(false);
     expect(lines.some((line) => line.includes("Skip reason:"))).toBe(false);
+  });
+
+  it("round-trips rejected reviewer fields and prints them in text output", () => {
+    const parsed = parseMemorySyncAuditEntry({
+      appliedAt: "2026-03-18T00:00:00.000Z",
+      projectId: "project-1",
+      worktreeId: "worktree-1",
+      rolloutPath: "/tmp/rollout.jsonl",
+      sessionId: "session-1",
+      configuredExtractorMode: "heuristic",
+      configuredExtractorName: "heuristic",
+      actualExtractorMode: "heuristic",
+      actualExtractorName: "heuristic",
+      extractorMode: "heuristic",
+      extractorName: "heuristic",
+      sessionSource: "rollout-jsonl",
+      status: "no-op",
+      appliedCount: 0,
+      noopOperationCount: 0,
+      suppressedOperationCount: 0,
+      rejectedOperationCount: 1,
+      rejectedReasonCounts: {
+        "unknown-topic": 1
+      },
+      rejectedOperations: [
+        {
+          action: "archive",
+          scope: "project",
+          topic: "workflow",
+          id: "dropped-topic",
+          reason: "unknown-topic"
+        }
+      ],
+      scopesTouched: [],
+      resultSummary: "0 operations applied, 1 rejected",
+      operations: []
+    });
+
+    expect(parsed).toMatchObject({
+      rejectedOperationCount: 1,
+      rejectedReasonCounts: {
+        "unknown-topic": 1
+      },
+      rejectedOperations: [
+        {
+          action: "archive",
+          scope: "project",
+          topic: "workflow",
+          id: "dropped-topic",
+          reason: "unknown-topic"
+        }
+      ]
+    });
+
+    const lines = formatMemorySyncAuditEntry(parsed!);
+    expect(lines[2]).toContain("Rejected: 1");
+    expect(lines).toContain("  Rejected reasons: unknown-topic=1");
+    expect(lines).toContain("  Rejected operations:");
+    expect(lines).toContain("    - [unknown-topic] project/workflow/dropped-topic");
   });
 });
