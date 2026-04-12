@@ -10,7 +10,8 @@ import {
   buildMemoryTimelineResponse,
   normalizeMemoryRetrievalScope,
   normalizeMemoryRetrievalState,
-  parseMemoryRetrievalLimit
+  parseMemoryRetrievalLimit,
+  toMemoryDetailsResultShape
 } from "../domain/memory-retrieval-contract.js";
 import { assertValidMemoryRef } from "../domain/memory-lifecycle.js";
 
@@ -31,7 +32,7 @@ function formatSearchResults(response: MemorySearchResponse): string {
       : response.diagnostics.checkedPaths
           .map(
             (check) =>
-              `${check.scope}/${check.state}=${check.retrievalMode}${check.retrievalFallbackReason ? `(${check.retrievalFallbackReason})` : ""}:${check.matchedCount}`
+              `${check.scope}/${check.state}=${check.retrievalMode}${check.retrievalFallbackReason ? `(${check.retrievalFallbackReason})` : ""}:${check.matchedCount}/${check.returnedCount}`
           )
           .join("; ");
   const lines = [
@@ -39,13 +40,21 @@ function formatSearchResults(response: MemorySearchResponse): string {
     `Query: ${response.query}`,
     `Scope: ${response.scope} | Requested state: ${response.state} | Resolved state: ${response.resolvedState} | Results: ${response.results.length}`,
     `Archived fallback used: ${response.fallbackUsed ? "yes" : "no"}`,
+    `State resolution: ${response.stateResolution.outcome} (${response.stateResolution.resolutionReason}) [${response.stateResolution.searchedStates.join(" -> ")}]`,
     `Markdown fallback used: ${response.markdownFallbackUsed ? "yes" : "no"}`,
     `Retrieval mode: ${response.retrievalMode}${response.retrievalFallbackReason ? ` (${response.retrievalFallbackReason})` : ""}`,
+    `Execution summary: ${response.executionSummary.mode} [${response.executionSummary.retrievalModes.join(", ")}]${response.executionSummary.fallbackReasons.length > 0 ? ` fallback=${response.executionSummary.fallbackReasons.join(",")}` : ""}`,
     `Diagnostics: ${diagnosticsSummary}`
   ];
 
   if (response.diagnostics.fallbackReasons.length > 0) {
     lines.push(`Fallback reasons: ${response.diagnostics.fallbackReasons.join(", ")}`);
+  }
+
+  if ((response.diagnostics.topicDiagnostics?.length ?? 0) > 0) {
+    lines.push(
+      `Unsafe topic diagnostics: ${(response.diagnostics.topicDiagnostics ?? []).map((entry) => `${entry.scope}/${entry.state}/${entry.topic}`).join(", ")}`
+    );
   }
 
   if (response.results.length === 0) {
@@ -82,15 +91,61 @@ function formatTimeline(timeline: MemoryTimelineResponse): string {
     "Lineage:",
     `- Latest action: ${timeline.lineageSummary.latestAction ?? "unknown"}`,
     `- Latest state: ${timeline.lineageSummary.latestState ?? "unknown"}`,
+    `- Latest attempted action: ${timeline.lineageSummary.latestAttemptedAction ?? "unknown"}`,
+    `- Latest attempted outcome: ${timeline.lineageSummary.latestAttemptedOutcome ?? "unknown"}`,
+    `- Latest update kind: ${timeline.lineageSummary.latestUpdateKind ?? "n/a"}`,
     `- Latest audit status: ${timeline.lineageSummary.latestAuditStatus ?? "unknown"}`,
     `- First seen: ${timeline.lineageSummary.firstSeenAt ?? "unknown"}`,
     `- Latest event at: ${timeline.lineageSummary.latestAt ?? "unknown"}`,
     `- Archived at: ${timeline.lineageSummary.archivedAt ?? "n/a"}`,
     `- Deleted at: ${timeline.lineageSummary.deletedAt ?? "n/a"}`,
-    `- No-op count: ${timeline.lineageSummary.noopOperationCount}`,
-    `- Suppressed count: ${timeline.lineageSummary.suppressedOperationCount}`,
-    `- Conflict count: ${timeline.lineageSummary.conflictCount}`
+    `- Ref no-op count: ${timeline.lineageSummary.refNoopCount}`,
+    `- Matched audit operations: ${timeline.lineageSummary.matchedAuditOperationCount}`,
+    `- Rollout no-op count: ${timeline.lineageSummary.rolloutNoopOperationCount}`,
+    `- Rollout suppressed count: ${timeline.lineageSummary.rolloutSuppressedOperationCount}`,
+    `- Rollout conflict count: ${timeline.lineageSummary.rolloutConflictCount}`,
+    `- Rollout rejected count: ${timeline.lineageSummary.rejectedOperationCount}`
   );
+
+  if (timeline.latestLifecycleAttempt) {
+    lines.push(
+      "",
+      "Latest attempt:",
+      `- ${timeline.latestLifecycleAttempt.at}: [${timeline.latestLifecycleAttempt.action}] ${timeline.latestLifecycleAttempt.summary}`,
+      `- Outcome: ${timeline.latestLifecycleAttempt.outcome} | State: ${timeline.latestLifecycleAttempt.state ?? "unknown"} | Previous: ${timeline.latestLifecycleAttempt.previousState ?? "n/a"} | Next: ${timeline.latestLifecycleAttempt.nextState ?? "n/a"} | Update kind: ${timeline.latestLifecycleAttempt.updateKind ?? "n/a"}`
+    );
+  }
+
+  if (timeline.latestAppliedLifecycle) {
+    lines.push(
+      "",
+      "Latest applied lifecycle:",
+      `- ${timeline.latestAppliedLifecycle.at}: [${timeline.latestAppliedLifecycle.action}] ${timeline.latestAppliedLifecycle.summary}`,
+      `- State: ${timeline.latestAppliedLifecycle.state ?? "unknown"} | Previous: ${timeline.latestAppliedLifecycle.previousState ?? "n/a"} | Next: ${timeline.latestAppliedLifecycle.nextState ?? "n/a"} | Update kind: ${timeline.latestAppliedLifecycle.updateKind ?? "n/a"}`
+    );
+  }
+
+  if (timeline.latestAudit) {
+    lines.push(
+      "",
+      "Latest audit:",
+      `- ${timeline.latestAudit.status} at ${timeline.latestAudit.appliedAt}`,
+      `- Latest audit path: ${timeline.latestAudit.auditPath}`,
+      `- Latest audit summary: ${timeline.latestAudit.resultSummary}`,
+      `- Latest audit matched operations for this ref: ${timeline.latestAudit.matchedOperationCount}`,
+      `- Latest audit rollout rejected operations: ${timeline.latestAudit.rejectedOperationCount}`
+    );
+    if ((timeline.latestAudit.rejectedOperations?.length ?? 0) > 0) {
+      lines.push(
+        `- Latest audit rejected operations: ${timeline.latestAudit.rejectedOperations
+          ?.map(
+            (operation) =>
+              `[${operation.reason}] ${operation.scope}/${operation.topic}/${operation.id}`
+          )
+          .join(", ")}`
+      );
+    }
+  }
 
   if (timeline.events.length === 0) {
     lines.push("", "No timeline events were recorded for this memory ref.");
@@ -145,24 +200,58 @@ function formatDetails(details: MemoryDetailsResult): string {
     lines.push(
       `Latest audit: ${details.latestAudit.status} at ${details.latestAudit.appliedAt}`,
       `Latest audit path: ${details.latestAudit.auditPath}`,
-      `Latest audit summary: ${details.latestAudit.resultSummary}`
+      `Latest audit summary: ${details.latestAudit.resultSummary}`,
+      `Latest audit matched operations for this ref: ${details.latestAudit.matchedOperationCount}`,
+      `Latest audit rollout rejected operations: ${details.latestAudit.rejectedOperationCount}`
     );
+    if ((details.latestAudit.rejectedOperations?.length ?? 0) > 0) {
+      lines.push(
+        `Latest audit rejected operations: ${details.latestAudit.rejectedOperations
+          ?.map(
+            (operation) =>
+              `[${operation.reason}] ${operation.scope}/${operation.topic}/${operation.id}`
+          )
+          .join(", ")}`
+      );
+    }
   }
 
   lines.push(
     "Lineage:",
     `- Latest action: ${details.lineageSummary.latestAction ?? "unknown"}`,
     `- Latest state: ${details.lineageSummary.latestState ?? details.latestState}`,
+    `- Latest attempted action: ${details.lineageSummary.latestAttemptedAction ?? "unknown"}`,
+    `- Latest attempted outcome: ${details.lineageSummary.latestAttemptedOutcome ?? "unknown"}`,
+    `- Latest update kind: ${details.lineageSummary.latestUpdateKind ?? "n/a"}`,
     `- Latest audit status: ${details.lineageSummary.latestAuditStatus ?? "unknown"}`,
     `- First seen: ${details.lineageSummary.firstSeenAt ?? "unknown"}`,
     `- Latest event at: ${details.lineageSummary.latestAt ?? "unknown"}`,
     `- Archived at: ${details.lineageSummary.archivedAt ?? "n/a"}`,
     `- Deleted at: ${details.lineageSummary.deletedAt ?? "n/a"}`,
-    `- No-op count: ${details.lineageSummary.noopOperationCount}`,
-    `- Suppressed count: ${details.lineageSummary.suppressedOperationCount}`,
-    `- Conflict count: ${details.lineageSummary.conflictCount}`,
+    `- Ref no-op count: ${details.lineageSummary.refNoopCount}`,
+    `- Matched audit operations: ${details.lineageSummary.matchedAuditOperationCount}`,
+    `- Rollout no-op count: ${details.lineageSummary.rolloutNoopOperationCount}`,
+    `- Rollout suppressed count: ${details.lineageSummary.rolloutSuppressedOperationCount}`,
+    `- Rollout conflict count: ${details.lineageSummary.rolloutConflictCount}`,
+    `- Rollout rejected count: ${details.lineageSummary.rejectedOperationCount}`,
     `- Timeline warning count: ${details.timelineWarningCount}`
   );
+
+  if (details.latestLifecycleAttempt) {
+    lines.push(
+      "Latest attempt:",
+      `- ${details.latestLifecycleAttempt.at}: [${details.latestLifecycleAttempt.action}] ${details.latestLifecycleAttempt.summary}`,
+      `- Outcome: ${details.latestLifecycleAttempt.outcome} | State: ${details.latestLifecycleAttempt.state ?? "unknown"} | Previous: ${details.latestLifecycleAttempt.previousState ?? "n/a"} | Next: ${details.latestLifecycleAttempt.nextState ?? "n/a"} | Update kind: ${details.latestLifecycleAttempt.updateKind ?? "n/a"}`
+    );
+  }
+
+  if (details.latestAppliedLifecycle) {
+    lines.push(
+      "Latest applied lifecycle:",
+      `- ${details.latestAppliedLifecycle.at}: [${details.latestAppliedLifecycle.action}] ${details.latestAppliedLifecycle.summary}`,
+      `- State: ${details.latestAppliedLifecycle.state ?? "unknown"} | Previous: ${details.latestAppliedLifecycle.previousState ?? "n/a"} | Next: ${details.latestAppliedLifecycle.nextState ?? "n/a"} | Update kind: ${details.latestAppliedLifecycle.updateKind ?? "n/a"}`
+    );
+  }
 
   if (details.warnings.length > 0) {
     lines.push("Warnings:", ...details.warnings.map((warning) => `- ${warning}`));
@@ -215,7 +304,7 @@ export async function runRecall(
         throw new Error(`No memory details were found for ref "${target}".`);
       }
       if (options.json) {
-        return JSON.stringify(details, null, 2);
+        return JSON.stringify(toMemoryDetailsResultShape(details), null, 2);
       }
       return formatDetails(details);
     }

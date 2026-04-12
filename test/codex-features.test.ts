@@ -38,4 +38,19 @@ shell_tool                       stable             true
 
     expect(readiness.summary).toContain("Native feature flags are enabled");
   });
+
+  it("accepts the renamed tui feature as the app-server signal", () => {
+    const features = parseCodexFeatures(`
+codex_hooks                      under development  false
+memories                         under development  false
+tui                              stable             true
+`);
+
+    const readiness = buildNativeReadinessReport(features);
+    expect(readiness.appServer).toMatchObject({
+      name: "tui",
+      stage: "stable",
+      enabled: true
+    });
+  });
 });

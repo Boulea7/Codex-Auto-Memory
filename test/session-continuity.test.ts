@@ -1,7 +1,7 @@
 import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   applySessionContinuityLayerSummary,
   compileSessionContinuity,
@@ -205,6 +205,48 @@ describe("session continuity domain", () => {
     expect(summary.project.confirmedWorking).toHaveLength(0);
   });
 
+  it("heuristic summarizer extracts repo-relative paths from apply_patch managed patch syntax", async () => {
+    const evidence: RolloutEvidence = {
+      sessionId: "session-managed-patch-text",
+      createdAt: "2026-03-15T00:00:00.000Z",
+      cwd: "/tmp/project",
+      userMessages: ["Finish the auth patch"],
+      agentMessages: [],
+      toolCalls: [
+        {
+          name: "apply_patch",
+          arguments: [
+            "*** Begin Patch",
+            "*** Update File: src/auth/login.ts",
+            "@@",
+            '-const cookie = "";',
+            '+const cookie = "httpOnly";',
+            "*** End Patch"
+          ].join("\n"),
+          output: undefined
+        },
+        {
+          name: "apply_patch",
+          arguments: [
+            "*** Begin Patch",
+            "*** Add File: docs/runbooks/auth-cookie.md",
+            "+# Auth Cookie Runbook",
+            "*** End Patch"
+          ].join("\n"),
+          output: undefined
+        }
+      ],
+      rolloutPath: "/tmp/rollout.jsonl"
+    };
+
+    const summarizer = new SessionContinuitySummarizer(baseConfig("/tmp/memory-root"));
+    const summary = await summarizer.summarize(evidence);
+    const fde = summary.projectLocal.filesDecisionsEnvironment.join("\n");
+
+    expect(fde).toContain("src/auth/login.ts");
+    expect(fde).toContain("docs/runbooks/auth-cookie.md");
+  });
+
   it("heuristic summarizer recognizes expanded success patterns", async () => {
     const evidence: RolloutEvidence = {
       sessionId: "session-success-patterns",
@@ -293,6 +335,59 @@ describe("session continuity domain", () => {
 
     const summary = await summarizer.summarize(evidence, existing);
     expect(summary.project.notYetTried).toContain("Try Redis cache");
+  });
+
+  it("heuristic summarizer does not let generic latest requests overwrite an existing goal", async () => {
+    const existing = {
+      project: {
+        ...createEmptySessionContinuityState("project", "p1", "w1"),
+        goal: "Keep the auth rollout aligned with shared middleware changes."
+      },
+      projectLocal: {
+        ...createEmptySessionContinuityState("project-local", "p1", "w1"),
+        goal: "Finish the current worktree patch for login cookie handling."
+      }
+    };
+    const evidence: RolloutEvidence = {
+      sessionId: "session-generic-goal",
+      createdAt: "2026-03-15T00:00:00.000Z",
+      cwd: "/tmp/project",
+      userMessages: ["Continue", "Run checks"],
+      agentMessages: [],
+      toolCalls: [],
+      rolloutPath: "/tmp/rollout.jsonl"
+    };
+
+    const summarizer = new SessionContinuitySummarizer(baseConfig("/tmp/memory-root"));
+    const summary = await summarizer.summarize(evidence, existing);
+
+    expect(summary.project.goal).toBe(existing.project.goal);
+    expect(summary.projectLocal.goal).toBe(existing.projectLocal.goal);
+  });
+
+  it("heuristic summarizer does not backfill a shared goal from an existing local-only goal", async () => {
+    const existing = {
+      project: createEmptySessionContinuityState("project", "p1", "w1"),
+      projectLocal: {
+        ...createEmptySessionContinuityState("project-local", "p1", "w1"),
+        goal: "Finish the current worktree patch for login cookie handling."
+      }
+    };
+    const evidence: RolloutEvidence = {
+      sessionId: "session-generic-local-goal",
+      createdAt: "2026-03-15T00:00:00.000Z",
+      cwd: "/tmp/project",
+      userMessages: ["Continue", "Run checks"],
+      agentMessages: [],
+      toolCalls: [],
+      rolloutPath: "/tmp/rollout.jsonl"
+    };
+
+    const summarizer = new SessionContinuitySummarizer(baseConfig("/tmp/memory-root"));
+    const summary = await summarizer.summarize(evidence, existing);
+
+    expect(summary.project.goal).toBe("");
+    expect(summary.projectLocal.goal).toBe(existing.projectLocal.goal);
   });
 
   it("heuristic summarizer drops historical in-progress pseudo-failures from existing state", async () => {
@@ -411,6 +506,62 @@ describe("session continuity domain", () => {
     const localNext = summary.projectLocal.incompleteNext.join("\n");
     expect(localNext).toContain("update src/auth/login.ts");
     expect(localNext).toContain("add middleware");
+  });
+
+  it("heuristic summarizer does not synthesize next steps from generic latest requests", async () => {
+    const existing = {
+      project: createEmptySessionContinuityState("project", "p1", "w1"),
+      projectLocal: {
+        ...createEmptySessionContinuityState("project-local", "p1", "w1"),
+        incompleteNext: ["Finish wiring the login middleware once the cookie patch lands."]
+      }
+    };
+    const evidence: RolloutEvidence = {
+      sessionId: "session-generic-next-step",
+      createdAt: "2026-03-15T00:00:00.000Z",
+      cwd: "/tmp/project",
+      userMessages: ["Continue", "Can you look into it?", "Run checks"],
+      agentMessages: [],
+      toolCalls: [],
+      rolloutPath: "/tmp/rollout.jsonl"
+    };
+
+    const summarizer = new SessionContinuitySummarizer(baseConfig("/tmp/memory-root"));
+    const result = await summarizer.summarizeWithDiagnostics(evidence, existing);
+
+    expect(result.summary.projectLocal.incompleteNext).toEqual(existing.projectLocal.incompleteNext);
+    expect(result.diagnostics.warnings).not.toEqual(
+      expect.arrayContaining([
+        expect.stringContaining("Next steps were inferred from the latest request")
+      ])
+    );
+  });
+
+  it("treats concrete question-style latest requests as meaningful goals and fallback next steps", async () => {
+    const evidence: RolloutEvidence = {
+      sessionId: "session-question-goal",
+      createdAt: "2026-03-15T00:00:00.000Z",
+      cwd: "/tmp/project",
+      userMessages: ["Why is the login cookie missing after the middleware redirect?"],
+      agentMessages: [],
+      toolCalls: [],
+      rolloutPath: "/tmp/rollout.jsonl"
+    };
+
+    const summarizer = new SessionContinuitySummarizer(baseConfig("/tmp/memory-root"));
+    const result = await summarizer.summarizeWithDiagnostics(evidence);
+
+    expect(result.summary.project.goal).toBe(
+      "Why is the login cookie missing after the middleware redirect?"
+    );
+    expect(result.summary.projectLocal.incompleteNext).toEqual([
+      "Continue with the latest request: Why is the login cookie missing after the middleware redirect?"
+    ]);
+    expect(result.diagnostics.warnings).toEqual(
+      expect.arrayContaining([
+        expect.stringContaining("Next steps were inferred from the latest request")
+      ])
+    );
   });
 
   it("heuristic summarizer clears stale local goals so the merged goal can fall back to the shared layer", async () => {
@@ -549,6 +700,108 @@ describe("session continuity domain", () => {
     expect(buckets.explicitNextSteps.join("\n")).toContain(
       "rerun pnpm test after the cookie change"
     );
+  });
+
+  it("collects next steps using the original mixed transcript order", () => {
+    const evidence = {
+      sessionId: "session-mixed-order",
+      createdAt: "2026-03-15T00:00:00.000Z",
+      cwd: "/tmp/project",
+      userMessages: [
+        "Next step: update README.md for the release notes.",
+        "Next step: sync docs/host-surfaces.md with the route wording."
+      ],
+      agentMessages: [
+        "Remaining work: patch src/auth.ts before the final verification.",
+        "Remaining work: rerun pnpm test after the auth change."
+      ],
+      orderedMessages: [
+        {
+          role: "user",
+          message: "Next step: update README.md for the release notes."
+        },
+        {
+          role: "agent",
+          message: "Remaining work: patch src/auth.ts before the final verification."
+        },
+        {
+          role: "user",
+          message: "Next step: sync docs/host-surfaces.md with the route wording."
+        },
+        {
+          role: "agent",
+          message: "Remaining work: rerun pnpm test after the auth change."
+        }
+      ],
+      toolCalls: [],
+      rolloutPath: "/tmp/rollout.jsonl"
+    } satisfies RolloutEvidence & {
+      orderedMessages: Array<{ role: "user" | "agent"; message: string }>;
+    };
+
+    const buckets = collectSessionContinuityEvidenceBuckets(evidence);
+
+    expect(buckets.explicitNextSteps).toEqual([
+      "rerun pnpm test after the auth change.",
+      "sync docs/host-surfaces.md with the route wording.",
+      "patch src/auth.ts before the final verification.",
+      "update README.md for the release notes."
+    ]);
+  });
+
+  it("keeps repo-relative file paths in continuity file-write summaries", async () => {
+    const evidence: RolloutEvidence = {
+      sessionId: "session-relative-file-writes",
+      createdAt: "2026-03-15T00:00:00.000Z",
+      cwd: "/tmp/project",
+      userMessages: ["Continue the release prep."],
+      agentMessages: [],
+      toolCalls: [
+        {
+          name: "apply_patch_freeform",
+          arguments:
+            "diff --git a/src/index.ts b/src/index.ts\nindex abc..def 100644\n--- a/src/index.ts\n+++ b/src/index.ts\n@@ -1,1 +1,2 @@\n+export const ready = true;\n",
+          output: undefined
+        },
+        {
+          name: "apply_patch_freeform",
+          arguments:
+            "diff --git a/docs/index.ts b/docs/index.ts\nindex abc..def 100644\n--- a/docs/index.ts\n+++ b/docs/index.ts\n@@ -1,1 +1,2 @@\n+export const docsReady = true;\n",
+          output: undefined
+        }
+      ],
+      rolloutPath: "/tmp/rollout.jsonl"
+    };
+
+    const summarizer = new SessionContinuitySummarizer(baseConfig("/tmp/memory-root"));
+    const summary = await summarizer.summarize(evidence);
+
+    expect(summary.projectLocal.filesDecisionsEnvironment).toEqual(
+      expect.arrayContaining([
+        "File modified: src/index.ts",
+        "File modified: docs/index.ts"
+      ])
+    );
+  });
+
+  it("does not classify bare repo-wide filenames as project-local notes", async () => {
+    const evidence: RolloutEvidence = {
+      sessionId: "session-bare-filenames-shared",
+      createdAt: "2026-03-15T00:00:00.000Z",
+      cwd: "/tmp/project",
+      userMessages: ["README.md and package.json must stay aligned before release."],
+      agentMessages: [],
+      toolCalls: [],
+      rolloutPath: "/tmp/rollout.jsonl"
+    };
+
+    const summarizer = new SessionContinuitySummarizer(baseConfig("/tmp/memory-root"));
+    const summary = await summarizer.summarize(evidence);
+
+    expect(summary.project.filesDecisionsEnvironment).toContain(
+      "README.md and package.json must stay aligned before release."
+    );
+    expect(summary.projectLocal.filesDecisionsEnvironment).toEqual([]);
   });
 
   it("prompt includes evidence buckets for commands, file writes, and next steps", () => {
@@ -747,6 +1000,123 @@ describe("session continuity domain", () => {
 
     expect(result.diagnostics.warnings).toEqual([]);
     expect(result.diagnostics.confidence).toBe("high");
+  });
+
+  it("surfaces expanded continuity warning hints for true architecture and route-order conflicts", async () => {
+    const evidence: RolloutEvidence = {
+      sessionId: "session-expanded-warning-hints",
+      createdAt: "2026-03-15T00:00:00.000Z",
+      cwd: "/tmp/project",
+      userMessages: [
+        "Keep Markdown-first as the canonical store, not database-first.",
+        "Use search -> timeline -> details for recall.",
+        "Use MCP -> local bridge -> resolved CLI for retrieval."
+      ],
+      agentMessages: [
+        "Maybe move to a database-first canonical store later.",
+        "Use details -> timeline -> search for recall.",
+        "Use resolved CLI -> local bridge -> MCP for retrieval."
+      ],
+      toolCalls: [],
+      rolloutPath: "/tmp/rollout.jsonl"
+    };
+
+    const buckets = collectSessionContinuityEvidenceBuckets(evidence);
+
+    expect(buckets.warningHints).toEqual(
+      expect.arrayContaining([
+        expect.stringContaining("canonical store"),
+        expect.stringContaining("retrieval flow"),
+        expect.stringContaining("route order")
+      ])
+    );
+  });
+
+  it("surfaces continuity warning hints for conflicting same-category reference pointers and same-service prerequisites", async () => {
+    const evidence: RolloutEvidence = {
+      sessionId: "session-reference-and-service-conflicts",
+      createdAt: "2026-03-15T00:00:00.000Z",
+      cwd: "/tmp/project",
+      userMessages: [
+        "Use the auth runbook at https://docs.example.com/auth-runbook.",
+        "Redis must be running before integration tests."
+      ],
+      agentMessages: [
+        "Use the auth runbook at https://old.example.com/auth-runbook.",
+        "Redis is not required before integration tests."
+      ],
+      toolCalls: [],
+      rolloutPath: "/tmp/rollout.jsonl"
+    };
+
+    const buckets = collectSessionContinuityEvidenceBuckets(evidence);
+
+    expect(buckets.warningHints).toEqual(
+      expect.arrayContaining([
+        expect.stringContaining("reference pointer:runbook"),
+        expect.stringContaining("required service:redis")
+      ])
+    );
+  });
+
+  it("does not treat additive reference pointers or multiple required services as conflicts", async () => {
+    const evidence: RolloutEvidence = {
+      sessionId: "session-additive-warning-hints",
+      createdAt: "2026-03-15T00:00:00.000Z",
+      cwd: "/tmp/project",
+      userMessages: [
+        "Use the production dashboard at https://dash.example.com for auth incidents.",
+        "Use the auth docs at https://docs.example.com/auth for incident triage.",
+        "Redis must be running before integration tests.",
+        "Postgres must be running before integration tests.",
+        "Next step: review the auth incident notes before changing the middleware."
+      ],
+      agentMessages: [],
+      toolCalls: [],
+      rolloutPath: "/tmp/rollout.jsonl"
+    };
+
+    const buckets = collectSessionContinuityEvidenceBuckets(evidence);
+    expect(buckets.warningHints).toEqual([]);
+
+    const summarizer = new SessionContinuitySummarizer(baseConfig("/tmp/memory-root"));
+    const result = await summarizer.summarizeWithDiagnostics(evidence);
+    expect(result.diagnostics.warnings).toEqual([]);
+  });
+
+  it("does not treat same-category runbook pointers for different resources as conflicts", async () => {
+    const evidence: RolloutEvidence = {
+      sessionId: "session-additive-runbook-pointers",
+      createdAt: "2026-03-15T00:00:00.000Z",
+      cwd: "/tmp/project",
+      userMessages: [
+        "Use the auth runbook at https://docs.example.com/auth-runbook.",
+        "Use the billing runbook at https://docs.example.com/billing-runbook."
+      ],
+      agentMessages: [],
+      toolCalls: [],
+      rolloutPath: "/tmp/rollout.jsonl"
+    };
+
+    const buckets = collectSessionContinuityEvidenceBuckets(evidence);
+    expect(buckets.warningHints).toEqual([]);
+  });
+
+  it("does not turn one required service into a conflicting not-required signal when another service is explicitly optional", async () => {
+    const evidence: RolloutEvidence = {
+      sessionId: "session-mixed-service-negation",
+      createdAt: "2026-03-15T00:00:00.000Z",
+      cwd: "/tmp/project",
+      userMessages: [
+        "Redis must be running before integration tests, but Docker is not required."
+      ],
+      agentMessages: ["Redis must be running before integration tests."],
+      toolCalls: [],
+      rolloutPath: "/tmp/rollout.jsonl"
+    };
+
+    const buckets = collectSessionContinuityEvidenceBuckets(evidence);
+    expect(buckets.warningHints).toEqual([]);
   });
 
   it("falls back after scrubbing warning-only codex output", async () => {
@@ -1229,13 +1599,39 @@ describe("session continuity domain", () => {
 
     const compiled = compileSessionContinuity(
       state,
-      ["/tmp/project/shared.md", "/tmp/project/local.md"],
+      [
+        "/tmp/project/continuity/project/active.md",
+        "/tmp/project/.codex-auto-memory/sessions/active.md"
+      ],
       12
     );
 
     expect(compiled.lineCount).toBeLessThanOrEqual(12);
     expect(compiled.text).toContain("# Session Continuity");
     expect(compiled.text).toContain("Source");
+    expect(compiled.candidateSourceFiles).toEqual([
+      "/tmp/project/continuity/project/active.md",
+      "/tmp/project/.codex-auto-memory/sessions/active.md"
+    ]);
+    expect(compiled.sourceFiles).toEqual([
+      "/tmp/project/continuity/project/active.md",
+      "/tmp/project/.codex-auto-memory/sessions/active.md"
+    ]);
+    expect(compiled.continuityMode).toBe("startup");
+    expect(compiled.continuityProvenanceKind).toBe("temporary-continuity");
+    expect(compiled.futureCompactionSeam).toMatchObject({
+      kind: "session-summary-placeholder",
+      rebuildsStartupSections: true
+    });
+    expect(compiled.continuitySectionKinds).toEqual(
+      expect.arrayContaining([
+        "sources",
+        "goal",
+        "confirmed-working"
+      ])
+    );
+    expect(compiled.continuitySourceKinds).toEqual(["shared", "project-local"]);
+    expect(compiled.sectionsRendered.sources).toBe(true);
   });
 
   it("caps the continuity startup preamble when the budget is smaller than the static intro", () => {
@@ -1245,6 +1641,58 @@ describe("session continuity domain", () => {
 
     expect(compiled.lineCount).toBeLessThanOrEqual(3);
     expect(compiled.text).not.toContain("## Goal");
+    expect(compiled.sourceFiles).toEqual([]);
+    expect(compiled.candidateSourceFiles).toEqual(["/tmp/project/local.md"]);
+    expect(compiled.sectionsRendered.sources).toBe(false);
+    expect(compiled.sectionsRendered.goal).toBe(false);
+    expect(compiled.omissionCounts["budget-trimmed"]).toBeGreaterThan(0);
+    expect(compiled.omissions).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          target: "source-file",
+          stage: "render",
+          reason: "budget-trimmed",
+          path: "/tmp/project/local.md"
+        }),
+        expect.objectContaining({
+          target: "section",
+          stage: "render",
+          reason: "budget-trimmed",
+          section: "goal"
+        })
+      ])
+    );
+  });
+
+  it("reports only rendered source files when the source provenance itself is trimmed by budget", () => {
+    const state = {
+      ...createEmptySessionContinuityState("project-local", "project-1", "worktree-1"),
+      goal: "Continue the rollout-backed continuity work."
+    };
+
+    const compiled = compileSessionContinuity(
+      state,
+      ["/tmp/project/shared.md", "/tmp/project/local.md"],
+      5
+    );
+
+    expect(compiled.text).toContain('"/tmp/project/shared.md"');
+    expect(compiled.text).not.toContain('"/tmp/project/local.md"');
+    expect(compiled.sourceFiles).toEqual(["/tmp/project/shared.md"]);
+    expect(compiled.candidateSourceFiles).toEqual([
+      "/tmp/project/shared.md",
+      "/tmp/project/local.md"
+    ]);
+    expect(compiled.omissions).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          target: "source-file",
+          stage: "render",
+          reason: "budget-trimmed",
+          path: "/tmp/project/local.md"
+        })
+      ])
+    );
   });
 });
 
@@ -1461,4 +1909,123 @@ describe("SessionContinuityStore", () => {
     expect(await fs.readFile(olderFile, "utf8")).toBe("older\n");
     expect((await fs.readdir(store.paths.localDir)).filter((name) => name.endsWith("-session.tmp"))).toHaveLength(2);
   });
+
+  it("rolls back shared and local continuity files if one summary write fails", async () => {
+    const repoDir = await tempDir("cam-continuity-atomic-repo-");
+    const memoryRoot = await tempDir("cam-continuity-atomic-memory-");
+    await initRepo(repoDir);
+
+    const store = new SessionContinuityStore(detectProjectContext(repoDir), baseConfig(memoryRoot));
+    await store.saveSummary(
+      {
+        project: {
+          goal: "Initial shared goal.",
+          confirmedWorking: ["Initial shared success."],
+          triedAndFailed: [],
+          notYetTried: [],
+          incompleteNext: [],
+          filesDecisionsEnvironment: []
+        },
+        projectLocal: {
+          goal: "Initial local goal.",
+          confirmedWorking: [],
+          triedAndFailed: [],
+          notYetTried: [],
+          incompleteNext: ["Initial local next step."],
+          filesDecisionsEnvironment: []
+        },
+        sourceSessionId: "session-initial"
+      },
+      "both"
+    );
+
+    const sharedBefore = await fs.readFile(store.paths.sharedFile, "utf8");
+    const localBefore = await fs.readFile(store.paths.localFile, "utf8");
+    const originalRename = fs.rename;
+    const renameSpy = vi.spyOn(fs, "rename").mockImplementation(async (from, to) => {
+      if (String(to) === store.paths.localFile) {
+        throw new Error("local continuity rename failed");
+      }
+
+      return await originalRename(from, to);
+    });
+
+    await expect(
+      store.saveSummary(
+        {
+          project: {
+            goal: "Updated shared goal.",
+            confirmedWorking: ["Updated shared success."],
+            triedAndFailed: [],
+            notYetTried: [],
+            incompleteNext: [],
+            filesDecisionsEnvironment: []
+          },
+          projectLocal: {
+            goal: "Updated local goal.",
+            confirmedWorking: [],
+            triedAndFailed: [],
+            notYetTried: [],
+            incompleteNext: ["Updated local next step."],
+            filesDecisionsEnvironment: []
+          },
+          sourceSessionId: "session-updated"
+        },
+        "both"
+      )
+    ).rejects.toThrow("local continuity rename failed");
+    renameSpy.mockRestore();
+
+    expect(await fs.readFile(store.paths.sharedFile, "utf8")).toBe(sharedBefore);
+    expect(await fs.readFile(store.paths.localFile, "utf8")).toBe(localBefore);
+  });
+
+  it("rolls back git exclude updates if a local continuity write fails", async () => {
+    const repoDir = await tempDir("cam-continuity-ignore-rollback-repo-");
+    const memoryRoot = await tempDir("cam-continuity-ignore-rollback-memory-");
+    await initRepo(repoDir);
+
+    const store = new SessionContinuityStore(detectProjectContext(repoDir), baseConfig(memoryRoot));
+    const excludePath = store.getLocalIgnorePath();
+    expect(excludePath).not.toBeNull();
+    const excludeBefore = await fs.readFile(excludePath!, "utf8");
+
+    const originalRename = fs.rename;
+    const renameSpy = vi.spyOn(fs, "rename").mockImplementation(async (from, to) => {
+      if (String(to) === store.paths.localFile) {
+        throw new Error("local continuity rename failed");
+      }
+
+      return await originalRename(from, to);
+    });
+
+    await expect(
+      store.saveSummary(
+        {
+          project: {
+            goal: "",
+            confirmedWorking: [],
+            triedAndFailed: [],
+            notYetTried: [],
+            incompleteNext: [],
+            filesDecisionsEnvironment: []
+          },
+          projectLocal: {
+            goal: "Initial local goal.",
+            confirmedWorking: [],
+            triedAndFailed: [],
+            notYetTried: [],
+            incompleteNext: ["Initial local next step."],
+            filesDecisionsEnvironment: []
+          },
+          sourceSessionId: "session-initial"
+        },
+        "project-local"
+      )
+    ).rejects.toThrow("local continuity rename failed");
+    renameSpy.mockRestore();
+
+    expect(await fs.readFile(excludePath!, "utf8")).toBe(excludeBefore);
+  });
+
 });

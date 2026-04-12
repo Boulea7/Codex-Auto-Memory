@@ -41,9 +41,20 @@ export class MemoryRetrievalService {
           scope,
           state,
           "active",
+          activeSearch.searchOrder,
+          activeSearch.totalMatchedCount,
+          activeSearch.returnedCount,
+          activeSearch.globalLimitApplied,
+          activeSearch.truncatedCount,
+          activeSearch.resultWindow,
           false,
           activeSearch.retrievalMode,
           activeSearch.retrievalFallbackReason,
+          {
+            outcome: "active-hit",
+            searchedStates: ["active"],
+            resolutionReason: "active-match-found"
+          },
           activeSearch.diagnostics,
           activeSearch.results
         );
@@ -60,12 +71,29 @@ export class MemoryRetrievalService {
         scope,
         state,
         "archived",
+        [...activeSearch.searchOrder, ...archivedSearch.searchOrder],
+        activeSearch.totalMatchedCount + archivedSearch.totalMatchedCount,
+        archivedSearch.returnedCount,
+        activeSearch.globalLimitApplied || archivedSearch.globalLimitApplied,
+        activeSearch.truncatedCount + archivedSearch.truncatedCount,
+        archivedSearch.resultWindow,
         true,
         archivedSearch.retrievalMode,
         archivedSearch.retrievalFallbackReason,
+        {
+          outcome: archivedSearch.results.length > 0 ? "archived-hit" : "miss-after-both",
+          searchedStates: ["active", "archived"],
+          resolutionReason:
+            archivedSearch.results.length > 0
+              ? "active-empty-archived-match-found"
+              : "no-match-after-auto-search"
+        },
         normalizeMemorySearchDiagnostics([
           ...activeSearch.diagnostics.checkedPaths,
           ...archivedSearch.diagnostics.checkedPaths
+        ], [
+          ...(activeSearch.diagnostics.topicDiagnostics ?? []),
+          ...(archivedSearch.diagnostics.topicDiagnostics ?? [])
         ]),
         archivedSearch.results
       );
@@ -82,9 +110,21 @@ export class MemoryRetrievalService {
       scope,
       state,
       state,
+      search.searchOrder,
+      search.totalMatchedCount,
+      search.returnedCount,
+      search.globalLimitApplied,
+      search.truncatedCount,
+      search.resultWindow,
       false,
       search.retrievalMode,
       search.retrievalFallbackReason,
+      {
+        outcome: "explicit-state",
+        searchedStates: state === "all" ? ["active", "archived"] : [state],
+        resolutionReason:
+          state === "all" ? "explicit-all-state-requested" : `explicit-${state}-state-requested`
+      },
       search.diagnostics,
       search.results
     );

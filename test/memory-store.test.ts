@@ -1,8 +1,9 @@
 import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { detectProjectContext } from "../src/lib/domain/project-context.js";
+import { MemoryRetrievalService } from "../src/lib/domain/memory-retrieval.js";
 import { MemoryStore } from "../src/lib/domain/memory-store.js";
 import { compileStartupMemory } from "../src/lib/domain/startup-memory.js";
 import type { AppConfig } from "../src/lib/types.js";
@@ -32,6 +33,23 @@ async function snapshotFiles(filePaths: string[]): Promise<Record<string, string
       filePaths.map(async (filePath) => [filePath, await readFileIfExists(filePath)] as const)
     )
   );
+}
+
+function buildParseableUnsafeTopicContents(entryId: string, summary: string, detail: string): string {
+  return [
+    "# Workflow",
+    "",
+    "<!-- cam:topic workflow -->",
+    "",
+    "Manual notes outside managed entries.",
+    "",
+    `## ${entryId}`,
+    `<!-- cam:entry {"id":"${entryId}","scope":"project","updatedAt":"2026-03-31T00:00:00.000Z"} -->`,
+    `Summary: ${summary}`,
+    "Details:",
+    `- ${detail}`,
+    ""
+  ].join("\n");
 }
 
 function createInjectedFileOps(target: {
@@ -117,7 +135,7 @@ describe("MemoryStore", () => {
     expect(entries.some((e) => e.id === "bad-entry")).toBe(false);
   });
 
-  it("builds startup memory from indexes and topic file references without parsing topic entries", async () => {
+  it("keeps malformed topic files out of startup refs while still compiling from canonical index files", async () => {
     const projectDir = await tempDir("cam-store-startup-ref-");
     const memoryRoot = await tempDir("cam-store-startup-ref-mem-");
     const config: AppConfig = {
@@ -154,8 +172,8 @@ describe("MemoryStore", () => {
 
     const startup = await compileStartupMemory(store, 200);
 
-    expect(startup.text).toContain("### Topic files");
-    expect(startup.text).toContain(store.getTopicFile("project", "workflow"));
+    expect(startup.text).not.toContain("### Topic files");
+    expect(startup.text).not.toContain(store.getTopicFile("project", "workflow"));
     expect(startup.text).not.toContain("Broken entry that should not be parsed during startup compile.");
     expect(startup.sourceFiles).not.toContain(store.getTopicFile("project", "workflow"));
     expect(startup.sourceFiles).toEqual([
@@ -163,10 +181,51 @@ describe("MemoryStore", () => {
       store.getMemoryFile("project"),
       store.getMemoryFile("global")
     ]);
-    expect(startup.topicFiles).toContainEqual({
+    expect(startup.topicFiles).not.toContainEqual({
       scope: "project",
       topic: "workflow",
       path: store.getTopicFile("project", "workflow")
+    });
+  });
+
+  it("scans topic diagnostics on recall search so unsafe topics stay fail-closed even with a healthy sidecar", async () => {
+    const projectDir = await tempDir("cam-store-search-sidecar-project-");
+    const memoryRoot = await tempDir("cam-store-search-sidecar-mem-");
+    const config: AppConfig = {
+      autoMemoryEnabled: true,
+      autoMemoryDirectory: memoryRoot,
+      extractorMode: "heuristic",
+      defaultScope: "project",
+      maxStartupLines: 200,
+      sessionContinuityAutoLoad: false,
+      sessionContinuityAutoSave: false,
+      sessionContinuityLocalPathStyle: "codex",
+      maxSessionContinuityLines: 60,
+      codexBinary: "codex"
+    };
+    const store = new MemoryStore(detectProjectContext(projectDir), config);
+    await store.ensureLayout();
+    await store.remember(
+      "project",
+      "workflow",
+      "prefer-pnpm",
+      "Prefer pnpm in this repository.",
+      ["Use pnpm instead of npm in this repository."],
+      "Manual note."
+    );
+
+    const inspectTopicFilesSpy = vi.spyOn(store, "inspectTopicFiles");
+    const retrieval = new MemoryRetrievalService(store);
+    const result = await retrieval.searchMemories("pnpm", {
+      state: "active",
+      limit: 8
+    });
+
+    expect(result.retrievalMode).toBe("index");
+    expect(inspectTopicFilesSpy).toHaveBeenCalledTimes(1);
+    expect(inspectTopicFilesSpy).toHaveBeenCalledWith({
+      scope: "all",
+      state: "active"
     });
   });
 
@@ -316,15 +375,220 @@ describe("MemoryStore", () => {
 
     expect(projectMemory).toContain("workflow.md");
     expect(startup.lineCount).toBeLessThanOrEqual(200);
+    expect(startup.text).toContain("### Highlights");
     expect(startup.text).toContain("workflow.md");
     expect(startup.text).toContain("### Topic files");
     expect(startup.text).toContain(store.getTopicFile("project", "workflow"));
-    expect(startup.text).not.toContain("Prefer pnpm in this repository.");
+    expect(startup.text).toContain("Prefer pnpm in this repository.");
     expect(startup.text).toContain("\"scope\":\"project\"");
     expect(startup.text).toContain("\"topic\":\"workflow\"");
+    expect(startup.highlights).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          scope: "project",
+          topic: "workflow",
+          id: "prefer-pnpm",
+          summary: "Prefer pnpm in this repository."
+        })
+      ])
+    );
     expect(deleted).toHaveLength(1);
     expect(await store.listEntries("project-local")).toHaveLength(0);
     await expect(fs.stat(debuggingTopicFile)).rejects.toThrow();
+  });
+
+  it("includes latest summary previews in MEMORY.md so startup indexes carry durable fact hints", async () => {
+    const projectDir = await tempDir("cam-store-index-preview-project-");
+    const memoryRoot = await tempDir("cam-store-index-preview-memory-");
+    const config: AppConfig = {
+      autoMemoryEnabled: true,
+      autoMemoryDirectory: memoryRoot,
+      extractorMode: "heuristic",
+      defaultScope: "project",
+      maxStartupLines: 200,
+      sessionContinuityAutoLoad: false,
+      sessionContinuityAutoSave: false,
+      sessionContinuityLocalPathStyle: "codex",
+      maxSessionContinuityLines: 60,
+      codexBinary: "codex"
+    };
+    const store = new MemoryStore(detectProjectContext(projectDir), config);
+    await store.ensureLayout();
+
+    await store.remember(
+      "project",
+      "preferences",
+      "prefer-pnpm",
+      "Prefer pnpm in this repository.",
+      ["Use pnpm instead of npm in this repository."],
+      "Manual note."
+    );
+    await store.remember(
+      "project",
+      "commands",
+      "run-tests",
+      "Use `pnpm test` to run the test suite.",
+      ["Run `pnpm test` from the repository root."],
+      "Manual note."
+    );
+
+    const projectMemory = await fs.readFile(store.getMemoryFile("project"), "utf8");
+
+    expect(projectMemory).toContain("- [preferences.md](preferences.md): 1 entry");
+    expect(projectMemory).toContain("  - Latest: Prefer pnpm in this repository.");
+    expect(projectMemory).toContain("- [commands.md](commands.md): 1 entry");
+    expect(projectMemory).toContain("  - Latest: Use `pnpm test` to run the test suite.");
+  });
+
+  it("keeps startup highlights active-only while archived notes stay out of default startup recall", async () => {
+    const projectDir = await tempDir("cam-store-startup-highlights-project-");
+    const memoryRoot = await tempDir("cam-store-startup-highlights-memory-");
+    const config: AppConfig = {
+      autoMemoryEnabled: true,
+      autoMemoryDirectory: memoryRoot,
+      extractorMode: "heuristic",
+      defaultScope: "project",
+      maxStartupLines: 200,
+      sessionContinuityAutoLoad: false,
+      sessionContinuityAutoSave: false,
+      sessionContinuityLocalPathStyle: "codex",
+      maxSessionContinuityLines: 60,
+      codexBinary: "codex"
+    };
+    const store = new MemoryStore(detectProjectContext(projectDir), config);
+    await store.ensureLayout();
+
+    await store.remember(
+      "project",
+      "workflow",
+      "prefer-pnpm",
+      "Prefer pnpm in this repository.",
+      ["Use pnpm instead of npm in this repository."],
+      "Manual note."
+    );
+    await store.remember(
+      "project",
+      "workflow",
+      "historical-pnpm",
+      "Historical pnpm migration note.",
+      ["Old pnpm migration note kept for history."],
+      "Manual note."
+    );
+    await store.forget("project", "Historical pnpm migration note", { archive: true });
+
+    const startup = await compileStartupMemory(store, 200);
+
+    expect(startup.text).toContain("### Highlights");
+    expect(startup.text).toContain("Prefer pnpm in this repository.");
+    expect(startup.text).not.toContain("Historical pnpm migration note.");
+    expect(startup.highlights).toEqual([
+      expect.objectContaining({
+        scope: "project",
+        topic: "workflow",
+        id: "prefer-pnpm",
+        summary: "Prefer pnpm in this repository."
+      })
+    ]);
+  });
+
+  it("deduplicates identical startup highlight summaries across scopes", async () => {
+    const projectDir = await tempDir("cam-store-cross-scope-highlight-project-");
+    const memoryRoot = await tempDir("cam-store-cross-scope-highlight-memory-");
+    const config: AppConfig = {
+      autoMemoryEnabled: true,
+      autoMemoryDirectory: memoryRoot,
+      extractorMode: "heuristic",
+      defaultScope: "project",
+      maxStartupLines: 200,
+      sessionContinuityAutoLoad: false,
+      sessionContinuityAutoSave: false,
+      sessionContinuityLocalPathStyle: "codex",
+      maxSessionContinuityLines: 60,
+      codexBinary: "codex"
+    };
+    const store = new MemoryStore(detectProjectContext(projectDir), config);
+    await store.ensureLayout();
+
+    await store.remember(
+      "project-local",
+      "workflow",
+      "prefer-pnpm-local",
+      "Prefer pnpm in this repository.",
+      ["Use pnpm instead of npm in this worktree."],
+      "Manual note."
+    );
+    await store.remember(
+      "project",
+      "workflow",
+      "prefer-pnpm-project",
+      "Prefer pnpm in this repository.",
+      ["Use pnpm instead of npm in this repository."],
+      "Manual note."
+    );
+
+    const startup = await compileStartupMemory(store, 200);
+
+    expect(
+      startup.highlights.filter((highlight) => highlight.summary === "Prefer pnpm in this repository.")
+    ).toHaveLength(1);
+  });
+
+  it("prefers descriptive startup highlights over placeholder id-only summaries", async () => {
+    const projectDir = await tempDir("cam-store-descriptive-startup-highlight-project-");
+    const memoryRoot = await tempDir("cam-store-descriptive-startup-highlight-memory-");
+    const config: AppConfig = {
+      autoMemoryEnabled: true,
+      autoMemoryDirectory: memoryRoot,
+      extractorMode: "heuristic",
+      defaultScope: "project",
+      maxStartupLines: 200,
+      sessionContinuityAutoLoad: false,
+      sessionContinuityAutoSave: false,
+      sessionContinuityLocalPathStyle: "codex",
+      maxSessionContinuityLines: 60,
+      codexBinary: "codex"
+    };
+    const store = new MemoryStore(detectProjectContext(projectDir), config);
+    await store.ensureLayout();
+
+    await store.remember(
+      "project",
+      "workflow",
+      "prefer-pnpm",
+      "Prefer pnpm in this repository.",
+      ["Use pnpm instead of npm in this repository."],
+      "Manual note."
+    );
+    await store.remember(
+      "project",
+      "commands",
+      "npm-pack-dry-run",
+      "Use `npm pack --dry-run` when working in this repository.",
+      ["Use `npm pack --dry-run` to verify tarball contents before release."],
+      "Manual note."
+    );
+    await store.remember(
+      "project",
+      "workflow",
+      "plan-mode-temp-memory",
+      "plan-mode-temp-memory",
+      ["Temporary planning note."],
+      "Manual note."
+    );
+
+    const startup = await compileStartupMemory(store, 200);
+
+    expect(startup.highlights).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ id: "prefer-pnpm" }),
+        expect.objectContaining({ id: "npm-pack-dry-run" })
+      ])
+    );
+    expect(startup.highlights).not.toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ id: "plan-mode-temp-memory" })
+      ])
+    );
   });
 
   it("truncates topic file references to the startup line budget", async () => {
@@ -364,6 +628,198 @@ describe("MemoryStore", () => {
     expect(topicLines.length).toBeGreaterThan(0);
     expect(topicLines.length).toBeLessThan(50);
     expect(startup.topicFiles).toHaveLength(topicLines.length);
+    expect(startup.omittedHighlightCount).toBeGreaterThan(0);
+    expect(startup.omittedTopicFileCount).toBe(50 - topicLines.length);
+    expect(startup.omissionCounts).toMatchObject({
+      "budget-trimmed": expect.any(Number)
+    });
+    expect(startup.topicFileOmissionCounts).toMatchObject({
+      "budget-trimmed": 50 - topicLines.length
+    });
+    expect(startup.omissions).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          topic: expect.stringMatching(/^topic-/),
+          reason: "budget-trimmed",
+          target: "topic-file",
+          stage: "render"
+        })
+      ])
+    );
+    expect(startup.topicRefCountsByScope.project).toEqual({
+      discovered: 50,
+      rendered: topicLines.length,
+      omitted: 50 - topicLines.length
+    });
+  });
+
+  it("omits unsafe topic files from startup topic refs and records reviewer omissions", async () => {
+    const projectDir = await tempDir("cam-store-unsafe-topic-refs-project-");
+    const memoryRoot = await tempDir("cam-store-unsafe-topic-refs-memory-");
+    const config: AppConfig = {
+      autoMemoryEnabled: true,
+      autoMemoryDirectory: memoryRoot,
+      extractorMode: "heuristic",
+      defaultScope: "project",
+      maxStartupLines: 200,
+      sessionContinuityAutoLoad: false,
+      sessionContinuityAutoSave: false,
+      sessionContinuityLocalPathStyle: "codex",
+      maxSessionContinuityLines: 60,
+      codexBinary: "codex"
+    };
+    const store = new MemoryStore(detectProjectContext(projectDir), config);
+    await store.ensureLayout();
+
+    await store.remember(
+      "project",
+      "commands",
+      "unsafe-command",
+      "Run the unsafe command.",
+      ["Unsafe detail."],
+      "Manual note."
+    );
+    await fs.writeFile(
+      store.getTopicFile("project", "commands"),
+      [
+        "# Commands",
+        "",
+        "<!-- cam:topic commands -->",
+        "",
+        "This file is maintained by Codex Auto Memory. You may edit summaries or details directly.",
+        "",
+        "Manual note that cannot be round-tripped safely.",
+        "",
+        "## unsafe-command",
+        '<!-- cam:entry {"id":"unsafe-command","scope":"project","updatedAt":"2026-03-14T00:00:00.000Z"} -->',
+        "Summary: Run the unsafe command.",
+        "Details:",
+        "- Unsafe detail.",
+        ""
+      ].join("\n"),
+      "utf8"
+    );
+
+    const startup = await compileStartupMemory(store, 200);
+
+    expect(startup.topicFiles).toEqual([]);
+    expect(startup.omittedTopicFileCount).toBe(1);
+    expect(startup.topicFileOmissionCounts).toMatchObject({
+      "unsafe-topic": 1
+    });
+    expect(startup.omissions).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          scope: "project",
+          topic: "commands",
+          reason: "unsafe-topic",
+          target: "topic-file",
+          stage: "selection"
+        })
+      ])
+    );
+    expect(startup.topicRefCountsByScope.project).toEqual({
+      discovered: 1,
+      rendered: 0,
+      omitted: 1
+    });
+    expect(startup.text).not.toContain(store.getTopicFile("project", "commands"));
+    expect(startup.text).not.toContain("[commands.md](commands.md)");
+  });
+
+  it("preserves at least one startup highlight before low-signal empty scope blocks when the budget is tight", async () => {
+    const projectDir = await tempDir("cam-store-tight-startup-highlight-project-");
+    const memoryRoot = await tempDir("cam-store-tight-startup-highlight-memory-");
+    const config: AppConfig = {
+      autoMemoryEnabled: true,
+      autoMemoryDirectory: memoryRoot,
+      extractorMode: "heuristic",
+      defaultScope: "project",
+      maxStartupLines: 200,
+      sessionContinuityAutoLoad: false,
+      sessionContinuityAutoSave: false,
+      sessionContinuityLocalPathStyle: "codex",
+      maxSessionContinuityLines: 60,
+      codexBinary: "codex"
+    };
+    const store = new MemoryStore(detectProjectContext(projectDir), config);
+    await store.ensureLayout();
+
+    await store.remember(
+      "project",
+      "workflow",
+      "prefer-pnpm",
+      "Prefer pnpm in this repository.",
+      ["Use pnpm instead of npm in this repository."],
+      "Manual note."
+    );
+
+    const startup = await compileStartupMemory(store, 28);
+
+    expect(startup.lineCount).toBeLessThanOrEqual(28);
+    expect(startup.highlights).toEqual([
+      expect.objectContaining({
+        scope: "project",
+        topic: "workflow",
+        id: "prefer-pnpm"
+      })
+    ]);
+    expect(startup.text).toContain("### Highlights");
+  });
+
+  it("preserves at least one startup highlight before non-empty scope blocks exhaust the budget", async () => {
+    const projectDir = await tempDir("cam-store-tight-nonempty-startup-highlight-project-");
+    const memoryRoot = await tempDir("cam-store-tight-nonempty-startup-highlight-memory-");
+    const config: AppConfig = {
+      autoMemoryEnabled: true,
+      autoMemoryDirectory: memoryRoot,
+      extractorMode: "heuristic",
+      defaultScope: "project",
+      maxStartupLines: 200,
+      sessionContinuityAutoLoad: false,
+      sessionContinuityAutoSave: false,
+      sessionContinuityLocalPathStyle: "codex",
+      maxSessionContinuityLines: 60,
+      codexBinary: "codex"
+    };
+    const store = new MemoryStore(detectProjectContext(projectDir), config);
+    await store.ensureLayout();
+
+    await store.remember(
+      "project-local",
+      "workflow",
+      "local-habit",
+      "Keep local workflow notes concise.",
+      ["Project-local startup blocks should still leave room for highlights."],
+      "Manual note."
+    );
+    await store.remember(
+      "project",
+      "workflow",
+      "prefer-pnpm",
+      "Prefer pnpm in this repository.",
+      ["Use pnpm instead of npm in this repository."],
+      "Manual note."
+    );
+    await store.remember(
+      "global",
+      "workflow",
+      "verify-before-claiming-complete",
+      "Verify before claiming work is complete.",
+      ["Do not claim completion without fresh verification output."],
+      "Manual note."
+    );
+
+    const startup = await compileStartupMemory(store, 32);
+
+    expect(startup.lineCount).toBeLessThanOrEqual(32);
+    expect(startup.highlights.length).toBeGreaterThan(0);
+    expect(startup.text).toContain("### Highlights");
+    expect(
+      startup.highlights.some((highlight) =>
+        ["local-habit", "prefer-pnpm", "verify-before-claiming-complete"].includes(highlight.id)
+      )
+    ).toBe(true);
   });
 
   it("archives entries outside startup recall and exposes archived refs for retrieval", async () => {
@@ -422,6 +878,320 @@ describe("MemoryStore", () => {
       path: store.getArchiveTopicFile("project", "workflow")
     });
     expect(timeline.map((event) => event.action)).toEqual(["archive", "add"]);
+  });
+
+  it("surfaces restore and ref-local noop attempts without collapsing them into a plain update", async () => {
+    const projectDir = await tempDir("cam-store-restore-project-");
+    const memoryRoot = await tempDir("cam-store-restore-memory-");
+    const config: AppConfig = {
+      autoMemoryEnabled: true,
+      autoMemoryDirectory: memoryRoot,
+      extractorMode: "heuristic",
+      defaultScope: "project",
+      maxStartupLines: 200,
+      sessionContinuityAutoLoad: false,
+      sessionContinuityAutoSave: false,
+      sessionContinuityLocalPathStyle: "codex",
+      maxSessionContinuityLines: 60,
+      codexBinary: "codex"
+    };
+    const store = new MemoryStore(detectProjectContext(projectDir), config);
+    await store.ensureLayout();
+
+    await store.remember(
+      "project",
+      "workflow",
+      "prefer-pnpm",
+      "Prefer pnpm in this repository.",
+      ["Use pnpm instead of npm in this repository."],
+      "Manual note."
+    );
+    await store.forget("project", "pnpm", { archive: true });
+    await store.remember(
+      "project",
+      "workflow",
+      "prefer-pnpm",
+      "Prefer pnpm in this repository again.",
+      ["Use pnpm instead of npm in this repository."],
+      "Manual restore."
+    );
+    await store.remember(
+      "project",
+      "workflow",
+      "prefer-pnpm",
+      "Prefer pnpm in this repository again.",
+      ["Use pnpm instead of npm in this repository."],
+      "Manual restore."
+    );
+
+    const ref = "project:active:workflow:prefer-pnpm";
+    const timeline = await store.readTimelineWithDiagnostics(ref);
+    const details = await store.getEntryByRef(ref);
+
+    expect(timeline.events.map((event) => event.action)).toEqual(["restore", "archive", "add"]);
+    expect(timeline.latestLifecycleAttempt).toMatchObject({
+      action: "noop",
+      outcome: "noop",
+      state: "active",
+      previousState: "active",
+      nextState: "active"
+    });
+    expect(timeline.lineageSummary).toMatchObject({
+      latestAction: "restore",
+      latestAttemptedAction: "noop",
+      latestAttemptedOutcome: "noop",
+      latestUpdateKind: "restore",
+      refNoopCount: 1
+    });
+    expect(details).toMatchObject({
+      latestLifecycleAction: "restore",
+      latestAppliedLifecycle: {
+        action: "restore",
+        outcome: "applied",
+        state: "active"
+      },
+      latestLifecycleAttempt: {
+        action: "noop",
+        outcome: "noop",
+        state: "active"
+      },
+      lineageSummary: {
+        latestAction: "restore",
+        latestAttemptedAction: "noop",
+        latestAttemptedOutcome: "noop",
+        latestUpdateKind: "restore",
+        refNoopCount: 1
+      }
+    });
+    expect(details?.timelineWarningCount).toBe(0);
+    expect(details?.warnings).toEqual(
+      expect.arrayContaining([
+        expect.stringContaining("ref-local no-op attempt")
+      ])
+    );
+  });
+
+  it("does not duplicate missing sync audit warnings in details and keeps timelineWarningCount scoped to timeline warnings", async () => {
+    const projectDir = await tempDir("cam-store-missing-audit-warning-project-");
+    const memoryRoot = await tempDir("cam-store-missing-audit-warning-memory-");
+    const config: AppConfig = {
+      autoMemoryEnabled: true,
+      autoMemoryDirectory: memoryRoot,
+      extractorMode: "heuristic",
+      defaultScope: "project",
+      maxStartupLines: 200,
+      sessionContinuityAutoLoad: false,
+      sessionContinuityAutoSave: false,
+      sessionContinuityLocalPathStyle: "codex",
+      maxSessionContinuityLines: 60,
+      codexBinary: "codex"
+    };
+    const store = new MemoryStore(detectProjectContext(projectDir), config);
+    await store.ensureLayout();
+
+    await store.remember(
+      "project",
+      "workflow",
+      "prefer-pnpm",
+      "Prefer pnpm in this repository.",
+      ["Use pnpm instead of npm in this repository."],
+      "Manual note."
+    );
+    await store.applyMutations(
+      [
+        {
+          action: "upsert",
+          scope: "project",
+          topic: "workflow",
+          id: "prefer-pnpm",
+          summary: "Prefer pnpm in this repository.",
+          details: ["Use pnpm instead of npm in this repository."],
+          reason: "No-op update for warning coverage.",
+          sources: ["manual"]
+        }
+      ],
+      {
+        sessionId: "session-missing-audit",
+        rolloutPath: "/tmp/missing-audit-rollout.jsonl"
+      }
+    );
+
+    const details = await store.getEntryByRef("project:active:workflow:prefer-pnpm");
+
+    expect(
+      details?.warnings.filter((warning) => warning.includes("no matching sync audit entry was found"))
+    ).toHaveLength(1);
+    expect(details?.timelineWarningCount).toBe(1);
+    expect(details?.warnings).toEqual(
+      expect.arrayContaining([
+        expect.stringContaining("no matching sync audit entry was found")
+      ])
+    );
+  });
+
+  it("fails closed for details when the referenced topic file is unsafe to rewrite", async () => {
+    const projectDir = await tempDir("cam-store-unsafe-details-project-");
+    const memoryRoot = await tempDir("cam-store-unsafe-details-memory-");
+    const config: AppConfig = {
+      autoMemoryEnabled: true,
+      autoMemoryDirectory: memoryRoot,
+      extractorMode: "heuristic",
+      defaultScope: "project",
+      maxStartupLines: 200,
+      sessionContinuityAutoLoad: false,
+      sessionContinuityAutoSave: false,
+      sessionContinuityLocalPathStyle: "codex",
+      maxSessionContinuityLines: 60,
+      codexBinary: "codex"
+    };
+    const store = new MemoryStore(detectProjectContext(projectDir), config);
+    await store.ensureLayout();
+
+    await fs.writeFile(
+      store.getTopicFile("project", "workflow"),
+      [
+        "# Workflow",
+        "",
+        "<!-- cam:topic workflow -->",
+        "",
+        "This file is maintained by Codex Auto Memory. You may edit summaries or details directly.",
+        "",
+        "## prefer-pnpm",
+        '<!-- cam:entry {"id":"prefer-pnpm","scope":"project","updatedAt":"2026-03-31T00:00:00.000Z"} -->',
+        "Summary: Prefer pnpm in this repository.",
+        "Details:",
+        "- Use pnpm instead of npm in this repository.",
+        "",
+        "Manual notes outside managed entries"
+      ].join("\n"),
+      "utf8"
+    );
+
+    expect(await store.getEntryByRef("project:active:workflow:prefer-pnpm")).toBeNull();
+  });
+
+  it("fails closed for details when an unsafe topic file still contains parseable managed entries", async () => {
+    const projectDir = await tempDir("cam-store-parseable-unsafe-details-project-");
+    const memoryRoot = await tempDir("cam-store-parseable-unsafe-details-memory-");
+    const config: AppConfig = {
+      autoMemoryEnabled: true,
+      autoMemoryDirectory: memoryRoot,
+      extractorMode: "heuristic",
+      defaultScope: "project",
+      maxStartupLines: 200,
+      sessionContinuityAutoLoad: false,
+      sessionContinuityAutoSave: false,
+      sessionContinuityLocalPathStyle: "codex",
+      maxSessionContinuityLines: 60,
+      codexBinary: "codex"
+    };
+    const store = new MemoryStore(detectProjectContext(projectDir), config);
+    await store.ensureLayout();
+
+    await fs.writeFile(
+      store.getTopicFile("project", "workflow"),
+      buildParseableUnsafeTopicContents(
+        "prefer-pnpm",
+        "Prefer pnpm in this repository.",
+        "Use pnpm instead of npm in this repository."
+      ),
+      "utf8"
+    );
+
+    expect(await store.getEntryByRef("project:active:workflow:prefer-pnpm")).toBeNull();
+  });
+
+  it("distinguishes metadata-only updates from semantic overwrites in lifecycle reviewer surfaces", async () => {
+    const projectDir = await tempDir("cam-store-update-kind-project-");
+    const memoryRoot = await tempDir("cam-store-update-kind-memory-");
+    const config: AppConfig = {
+      autoMemoryEnabled: true,
+      autoMemoryDirectory: memoryRoot,
+      extractorMode: "heuristic",
+      defaultScope: "project",
+      maxStartupLines: 200,
+      sessionContinuityAutoLoad: false,
+      sessionContinuityAutoSave: false,
+      sessionContinuityLocalPathStyle: "codex",
+      maxSessionContinuityLines: 60,
+      codexBinary: "codex"
+    };
+    const store = new MemoryStore(detectProjectContext(projectDir), config);
+    await store.ensureLayout();
+
+    await store.remember(
+      "project",
+      "workflow",
+      "prefer-pnpm",
+      "Prefer pnpm in this repository.",
+      ["Use pnpm instead of npm in this repository."],
+      "Manual note."
+    );
+    await store.applyMutations([
+      {
+        action: "upsert",
+        scope: "project",
+        topic: "workflow",
+        id: "prefer-pnpm",
+        summary: "Prefer pnpm in this repository.",
+        details: ["Use pnpm instead of npm in this repository."],
+        reason: "Updated source note.",
+        sources: ["manual", "rollout.jsonl"]
+      }
+    ]);
+    await store.applyMutations([
+      {
+        action: "upsert",
+        scope: "project",
+        topic: "workflow",
+        id: "prefer-pnpm",
+        summary: "Prefer pnpm and corepack in this repository.",
+        details: ["Use pnpm via corepack instead of npm in this repository."],
+        reason: "Semantic correction.",
+        sources: ["manual"]
+      }
+    ]);
+
+    const ref = "project:active:workflow:prefer-pnpm";
+    const timeline = await store.readTimelineWithDiagnostics(ref);
+    const details = await store.getEntryByRef(ref);
+
+    expect(timeline.events.slice(0, 3)).toMatchObject([
+      { action: "update", updateKind: "semantic-overwrite" },
+      { action: "update", updateKind: "metadata-only" },
+      { action: "add" }
+    ]);
+    expect(timeline.latestLifecycleAttempt).toMatchObject({
+      action: "update",
+      outcome: "applied",
+      updateKind: "semantic-overwrite"
+    });
+    expect(timeline.lineageSummary).toMatchObject({
+      latestAction: "update",
+      latestAttemptedAction: "update",
+      latestAttemptedOutcome: "applied",
+      latestUpdateKind: "semantic-overwrite"
+    });
+    expect(details).toMatchObject({
+      latestLifecycleAction: "update",
+      latestAppliedLifecycle: {
+        action: "update",
+        outcome: "applied",
+        updateKind: "semantic-overwrite"
+      },
+      latestLifecycleAttempt: {
+        action: "update",
+        outcome: "applied",
+        updateKind: "semantic-overwrite"
+      },
+      lineageSummary: {
+        latestUpdateKind: "semantic-overwrite"
+      },
+      entry: {
+        summary: "Prefer pnpm and corepack in this repository.",
+        details: ["Use pnpm via corepack instead of npm in this repository."]
+      }
+    });
   });
 
   it("maintains thin retrieval sidecar indexes and falls back safely when one is invalid", async () => {
@@ -854,8 +1624,14 @@ describe("MemoryStore", () => {
       previousState: undefined,
       nextState: undefined
     });
-    expect(history).toHaveLength(1);
-    expect(history[0]?.action).toBe("add");
+    expect(history).toHaveLength(2);
+    expect(history.map((event) => event.action)).toEqual(["noop", "add"]);
+    expect(history[0]).toMatchObject({
+      action: "noop",
+      outcome: "noop",
+      previousState: "active",
+      nextState: "active"
+    });
   });
 
   it("rejects empty or whitespace-only forget queries at the store layer", async () => {
@@ -887,47 +1663,6 @@ describe("MemoryStore", () => {
     await expect(store.forget("project", "")).rejects.toThrow(/non-empty/i);
     await expect(store.forget("project", "   ")).rejects.toThrow(/non-empty/i);
     expect(await store.listEntries("project")).toHaveLength(1);
-  });
-
-  it("fails fast when an upsert mutation is missing its summary", async () => {
-    const projectDir = await tempDir("cam-store-missing-summary-project-");
-    const memoryRoot = await tempDir("cam-store-missing-summary-memory-");
-    const config: AppConfig = {
-      autoMemoryEnabled: true,
-      autoMemoryDirectory: memoryRoot,
-      extractorMode: "heuristic",
-      defaultScope: "project",
-      maxStartupLines: 200,
-      sessionContinuityAutoLoad: false,
-      sessionContinuityAutoSave: false,
-      sessionContinuityLocalPathStyle: "codex",
-      maxSessionContinuityLines: 60,
-      codexBinary: "codex"
-    };
-    const store = new MemoryStore(detectProjectContext(projectDir), config);
-    await store.ensureLayout();
-
-    const snapshot = await snapshotFiles([
-      store.getMemoryFile("project"),
-      store.getTopicFile("project", "workflow"),
-      store.getHistoryPath("project")
-    ]);
-
-    await expect(
-      store.applyMutations([
-        {
-          action: "upsert",
-          scope: "project",
-          topic: "workflow",
-          id: "missing-summary",
-          details: ["This upsert should fail before any writes."],
-          sources: ["manual"],
-          reason: "Broken mutation."
-        }
-      ])
-    ).rejects.toThrow(/summary is required/i);
-
-    expect(await snapshotFiles(Object.keys(snapshot))).toEqual(snapshot);
   });
 
   it("fails closed when details contain non-bullet manual text inside an entry block", async () => {
@@ -1045,59 +1780,6 @@ describe("MemoryStore", () => {
     expect(await fs.readFile(topicFile, "utf8")).toBe(originalContents);
   });
 
-  it("fails closed when details contain unsupported non-bullet content", async () => {
-    const projectDir = await tempDir("cam-store-unsafe-details-project-");
-    const memoryRoot = await tempDir("cam-store-unsafe-details-memory-");
-    const config: AppConfig = {
-      autoMemoryEnabled: true,
-      autoMemoryDirectory: memoryRoot,
-      extractorMode: "heuristic",
-      defaultScope: "project",
-      maxStartupLines: 200,
-      sessionContinuityAutoLoad: false,
-      sessionContinuityAutoSave: false,
-      sessionContinuityLocalPathStyle: "codex",
-      maxSessionContinuityLines: 60,
-      codexBinary: "codex"
-    };
-    const store = new MemoryStore(detectProjectContext(projectDir), config);
-    await store.ensureLayout();
-
-    const topicFile = store.getTopicFile("project", "workflow");
-    const originalContents = [
-      "# Workflow",
-      "",
-      "<!-- cam:topic workflow -->",
-      "",
-      "This file is maintained by Codex Auto Memory. You may edit summaries or details directly.",
-      "",
-      "## keep-entry",
-      "<!-- cam:entry {\"id\":\"keep-entry\",\"scope\":\"project\",\"updatedAt\":\"2026-03-14T00:00:00.000Z\"} -->",
-      "Summary: Keep this valid entry.",
-      "Details:",
-      "Plain text that cannot be round-tripped safely.",
-      ""
-    ].join("\n");
-    await fs.writeFile(topicFile, originalContents, "utf8");
-
-    await expect(
-      store.applyMutations([
-        {
-          action: "upsert",
-          scope: "project",
-          topic: "workflow",
-          id: "new-entry",
-          summary: "Do not rewrite mixed detail blocks.",
-          details: ["Unsafe detail block should stay untouched."],
-          sources: ["manual"],
-          reason: "Manual note."
-        }
-      ])
-    ).rejects.toThrow(/Cannot rewrite topic file/);
-
-    expect(await fs.readFile(topicFile, "utf8")).toBe(originalContents);
-  });
-
   it("fails closed when a topic file contains unsupported manual or malformed content during delete", async () => {
     const projectDir = await tempDir("cam-store-unsafe-delete-project-");
     const memoryRoot = await tempDir("cam-store-unsafe-delete-memory-");
@@ -1153,83 +1835,6 @@ describe("MemoryStore", () => {
     ).rejects.toThrow(/Cannot rewrite topic file/);
 
     expect(await fs.readFile(topicFile, "utf8")).toBe(originalContents);
-  });
-
-  it("fails closed when planned index or history files change after the commit plan is built", async () => {
-    const projectDir = await tempDir("cam-store-drift-project-");
-    const memoryRoot = await tempDir("cam-store-drift-memory-");
-    const config: AppConfig = {
-      autoMemoryEnabled: true,
-      autoMemoryDirectory: memoryRoot,
-      extractorMode: "heuristic",
-      defaultScope: "project",
-      maxStartupLines: 200,
-      sessionContinuityAutoLoad: false,
-      sessionContinuityAutoSave: false,
-      sessionContinuityLocalPathStyle: "codex",
-      maxSessionContinuityLines: 60,
-      codexBinary: "codex"
-    };
-    const store = new MemoryStore(detectProjectContext(projectDir), config);
-    await store.ensureLayout();
-    await store.remember(
-      "project",
-      "workflow",
-      "prefer-pnpm",
-      "Prefer pnpm in this repository.",
-      ["Use pnpm instead of npm in this repository."],
-      "Manual note."
-    );
-
-    const topicFile = store.getTopicFile("project", "workflow");
-    const memoryFile = store.getMemoryFile("project");
-    const historyFile = store.getHistoryPath("project");
-    const originalBuildMutationCommitPlan = (store as unknown as {
-      buildMutationCommitPlan: (mutations: unknown[]) => Promise<unknown>;
-    }).buildMutationCommitPlan.bind(store);
-    const driftedIndexContents = [
-      "# Project Memories",
-      "",
-      "<!-- cam:memory-index scope=project -->",
-      "",
-      "- workflow | Concurrent index edit should be preserved."
-    ].join("\n");
-    const driftedHistoryContents =
-      '{"at":"2026-03-14T00:00:02.000Z","action":"update","scope":"project","state":"active","topic":"workflow","id":"prefer-pnpm","ref":"project:active:workflow:prefer-pnpm","summary":"Concurrent history edit should be preserved."}\n';
-
-    (store as unknown as {
-      buildMutationCommitPlan: (mutations: unknown[]) => Promise<unknown>;
-    }).buildMutationCommitPlan = async (mutations) => {
-      const plan = await originalBuildMutationCommitPlan(mutations);
-      await fs.writeFile(memoryFile, driftedIndexContents, "utf8");
-      await fs.writeFile(historyFile, driftedHistoryContents, "utf8");
-      return plan;
-    };
-
-    const topicSnapshot = await fs.readFile(topicFile, "utf8");
-    const memorySnapshot = await readFileIfExists(memoryFile);
-    const historySnapshot = await readFileIfExists(historyFile);
-
-    await expect(
-      store.applyMutations([
-        {
-          action: "upsert",
-          scope: "project",
-          topic: "workflow",
-          id: "prefer-pnpm",
-          summary: "Planned update should fail closed on drift.",
-          details: ["The commit phase must notice topic-file drift."],
-          sources: ["manual"],
-          reason: "Manual note."
-        }
-      ])
-    ).rejects.toThrow(/changed since the mutation plan was built/i);
-
-    expect(await fs.readFile(topicFile, "utf8")).toBe(topicSnapshot);
-    expect(await fs.readFile(memoryFile, "utf8")).toBe(driftedIndexContents);
-    expect(await fs.readFile(historyFile, "utf8")).toBe(driftedHistoryContents);
-    expect(await readFileIfExists(memoryFile)).not.toBe(memorySnapshot);
-    expect(await readFileIfExists(historyFile)).not.toBe(historySnapshot);
   });
 
   it("treats source-only or reason-only changes as updates instead of noop", async () => {
@@ -1448,5 +2053,91 @@ describe("MemoryStore", () => {
     await fs.mkdir(path.dirname(store.getSyncRecoveryPath()), { recursive: true });
     await fs.writeFile(store.getSyncRecoveryPath(), '{"recordedAt":123}', "utf8");
     await expect(store.readSyncRecoveryRecord()).rejects.toThrow(/Invalid sync recovery record/);
+  });
+
+  it("surfaces canonical layout diagnostics for malformed topics, orphan markdown, misplaced indexes, unexpected sidecars, and index drift", async () => {
+    const projectDir = await tempDir("cam-store-layout-diagnostics-project-");
+    const memoryRoot = await tempDir("cam-store-layout-diagnostics-memory-");
+    const config: AppConfig = {
+      autoMemoryEnabled: true,
+      autoMemoryDirectory: memoryRoot,
+      extractorMode: "heuristic",
+      defaultScope: "project",
+      maxStartupLines: 200,
+      sessionContinuityAutoLoad: false,
+      sessionContinuityAutoSave: false,
+      sessionContinuityLocalPathStyle: "codex",
+      maxSessionContinuityLines: 60,
+      codexBinary: "codex"
+    };
+    const store = new MemoryStore(detectProjectContext(projectDir), config);
+    await store.ensureLayout();
+    await store.remember(
+      "project",
+      "workflow",
+      "prefer-pnpm",
+      "Prefer pnpm in this repository.",
+      ["Use pnpm instead of npm in this repository."],
+      "Manual note."
+    );
+
+    await fs.writeFile(
+      path.join(path.dirname(store.getMemoryFile("project")), "Bad Topic.md"),
+      "# stray\n",
+      "utf8"
+    );
+    await fs.writeFile(
+      path.join(path.dirname(store.getMemoryFile("project")), "orphan-topic.md"),
+      [
+        "# Orphan Topic",
+        "",
+        "<!-- cam:topic orphan-topic -->",
+        "",
+        "This file is maintained by Codex Auto Memory. You may edit summaries or details directly.",
+        ""
+      ].join("\n"),
+      "utf8"
+    );
+    await fs.writeFile(
+      path.join(path.dirname(store.getMemoryFile("project")), "ARCHIVE.md"),
+      "# Archived Project Memory\n",
+      "utf8"
+    );
+    await fs.writeFile(
+      path.join(path.dirname(store.getMemoryFile("project")), "retrieval-index.backup.json"),
+      "{}\n",
+      "utf8"
+    );
+    await fs.writeFile(store.getMemoryFile("project"), "# Project Memory\n\nDrifted index.\n", "utf8");
+
+    const diagnostics = await store.inspectLayoutDiagnostics({
+      scope: "project",
+      state: "active"
+    });
+
+    expect(diagnostics).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          kind: "malformed-topic-filename",
+          fileName: "Bad Topic.md"
+        }),
+        expect.objectContaining({
+          kind: "orphan-topic-markdown",
+          fileName: "orphan-topic.md"
+        }),
+        expect.objectContaining({
+          kind: "misplaced-index-markdown",
+          fileName: "ARCHIVE.md"
+        }),
+        expect.objectContaining({
+          kind: "unexpected-sidecar",
+          fileName: "retrieval-index.backup.json"
+        }),
+        expect.objectContaining({
+          kind: "index-drift",
+          fileName: "MEMORY.md"
+        })
+      ])
+    );
   });
 });
