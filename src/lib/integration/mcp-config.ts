@@ -1,9 +1,12 @@
+import fs from "node:fs";
 import path from "node:path";
 import { detectProjectContext } from "../domain/project-context.js";
 import {
   buildCodexAgentsGuidance,
+  buildExperimentalCodexHooksGuidance,
   READ_ONLY_RETRIEVAL_NOTE,
-  type CodexAgentsGuidance
+  type CodexAgentsGuidance,
+  type ExperimentalCodexHooksGuidance
 } from "./codex-stack.js";
 import { buildWorkflowContract } from "./retrieval-contract.js";
 import {
@@ -29,12 +32,33 @@ export interface McpHostConfigSnippet {
   notes: string[];
   workflowContract?: ReturnType<typeof buildWorkflowContract>;
   agentsGuidance?: CodexAgentsGuidance;
+  experimentalHooks?: ExperimentalCodexHooksGuidance;
 }
 
 export { normalizeMcpHost };
 
+export function resolveMcpProjectCwd(cwd = process.cwd()): string {
+  if (!cwd.trim()) {
+    throw new Error("--cwd must be a non-empty path to an existing directory.");
+  }
+
+  const resolved = path.resolve(cwd);
+  let stat;
+  try {
+    stat = fs.statSync(resolved);
+  } catch {
+    throw new Error("--cwd must be a non-empty path to an existing directory.");
+  }
+
+  if (!stat.isDirectory()) {
+    throw new Error("--cwd must be a non-empty path to an existing directory.");
+  }
+
+  return resolved;
+}
+
 export function resolveMcpProjectRoot(cwd = process.cwd()): string {
-  return detectProjectContext(path.resolve(cwd)).projectRoot;
+  return detectProjectContext(resolveMcpProjectCwd(cwd)).projectRoot;
 }
 
 export function buildMcpHostConfigSnippet(host: McpHost, projectRoot: string): McpHostConfigSnippet {
@@ -55,9 +79,8 @@ export function buildMcpHostConfigSnippet(host: McpHost, projectRoot: string): M
           workflowContract: buildWorkflowContract({
             cwd: projectRoot
           }),
-          agentsGuidance: buildCodexAgentsGuidance({
-            cwd: projectRoot
-          })
+          agentsGuidance: buildCodexAgentsGuidance({ cwd: projectRoot }),
+          experimentalHooks: buildExperimentalCodexHooksGuidance()
         }
       : {})
   };
@@ -85,6 +108,19 @@ export function formatMcpHostConfigSnippet(snippet: McpHostConfigSnippet): strin
       "",
       "AGENTS notes:",
       ...snippet.agentsGuidance.notes.map((note) => `- ${note}`)
+    );
+  }
+
+  if (snippet.experimentalHooks) {
+    lines.push(
+      "",
+      "Experimental Codex hooks:",
+      `Target file hint: ${snippet.experimentalHooks.targetFileHint}`,
+      "",
+      snippet.experimentalHooks.snippet,
+      "",
+      "Experimental hooks notes:",
+      ...snippet.experimentalHooks.notes.map((note) => `- ${note}`)
     );
   }
 

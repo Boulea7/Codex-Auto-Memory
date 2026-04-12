@@ -2,12 +2,15 @@ import type {
   MemoryDetailsResult,
   MemorySearchDiagnosticPath,
   MemorySearchDiagnostics,
+  MemorySearchExecutionSummary,
   MemoryRetrievalFallbackReason,
   MemoryRetrievalMode,
   MemoryRecordState,
   MemoryRetrievalResolvedState,
   MemoryRetrievalScope,
   MemoryRetrievalStateFilter,
+  MemorySearchResultWindow,
+  MemorySearchStateResolution,
   MemoryScope,
   MemorySearchResponse,
   MemorySearchResult,
@@ -74,30 +77,50 @@ export function buildMemorySearchResponse(
   scope: MemoryRetrievalScope,
   state: MemoryRetrievalStateFilter,
   resolvedState: MemoryRetrievalResolvedState,
+  searchOrder: string[],
+  totalMatchedCount: number,
+  returnedCount: number,
+  globalLimitApplied: boolean,
+  truncatedCount: number,
+  resultWindow: MemorySearchResultWindow,
   fallbackUsed: boolean,
   retrievalMode: MemoryRetrievalMode,
   retrievalFallbackReason: MemoryRetrievalFallbackReason | undefined,
+  stateResolution: MemorySearchStateResolution,
   diagnostics: MemorySearchDiagnostics,
   results: MemorySearchResult[]
 ): MemorySearchResponse {
-  const normalizedDiagnostics = normalizeMemorySearchDiagnostics(diagnostics.checkedPaths);
+  const normalizedDiagnostics = normalizeMemorySearchDiagnostics(
+    diagnostics.checkedPaths,
+    diagnostics.topicDiagnostics
+  );
   return {
     query,
     scope,
     state,
     resolvedState,
+    searchOrder: [...searchOrder],
+    totalMatchedCount,
+    returnedCount,
+    globalLimitApplied,
+    truncatedCount,
+    resultWindow: { ...resultWindow },
     fallbackUsed,
     stateFallbackUsed: fallbackUsed,
     markdownFallbackUsed: normalizedDiagnostics.anyMarkdownFallback,
+    finalRetrievalMode: retrievalMode,
     retrievalMode,
     retrievalFallbackReason,
+    stateResolution,
+    executionSummary: buildMemorySearchExecutionSummary(normalizedDiagnostics),
     diagnostics: normalizedDiagnostics,
     results
   };
 }
 
 export function normalizeMemorySearchDiagnostics(
-  checkedPaths: MemorySearchDiagnosticPath[]
+  checkedPaths: MemorySearchDiagnosticPath[],
+  topicDiagnostics: MemorySearchDiagnostics["topicDiagnostics"] = []
 ): MemorySearchDiagnostics {
   const fallbackReasons = Array.from(
     new Set(
@@ -112,7 +135,31 @@ export function normalizeMemorySearchDiagnostics(
       (check) => check.retrievalMode === "markdown-fallback"
     ),
     fallbackReasons,
-    checkedPaths
+    executionModes: Array.from(new Set(checkedPaths.map((check) => check.retrievalMode))),
+    checkedPaths,
+    ...(topicDiagnostics && topicDiagnostics.length > 0
+      ? {
+          topicDiagnostics: topicDiagnostics.map((diagnostic) => ({
+            ...diagnostic
+          }))
+        }
+      : {})
+  };
+}
+
+export function buildMemorySearchExecutionSummary(
+  diagnostics: MemorySearchDiagnostics
+): MemorySearchExecutionSummary {
+  const retrievalModes = [...diagnostics.executionModes];
+  return {
+    mode:
+      retrievalModes.length <= 1
+        ? retrievalModes[0] === "markdown-fallback"
+          ? "markdown-fallback-only"
+          : "index-only"
+        : "mixed",
+    retrievalModes,
+    fallbackReasons: [...diagnostics.fallbackReasons]
   };
 }
 
@@ -123,6 +170,7 @@ export function buildMemoryTimelineResponse(
     | {
         events: MemoryTimelineEvent[];
         warnings?: string[];
+        latestAudit?: MemoryTimelineResponse["latestAudit"];
         lineageSummary?: MemoryTimelineResponse["lineageSummary"];
       }
 ): MemoryTimelineResponse {
@@ -130,6 +178,22 @@ export function buildMemoryTimelineResponse(
     ref,
     events: [...timeline.events],
     warnings: [...(timeline.warnings ?? [])],
+    latestAudit:
+      timeline.latestAudit !== undefined && timeline.latestAudit !== null
+        ? {
+            ...timeline.latestAudit,
+            conflicts: [...timeline.latestAudit.conflicts],
+            rejectedOperations: [...(timeline.latestAudit.rejectedOperations ?? [])]
+          }
+        : null,
+    latestAppliedLifecycle:
+      "latestAppliedLifecycle" in timeline && timeline.latestAppliedLifecycle
+        ? { ...timeline.latestAppliedLifecycle }
+        : null,
+    latestLifecycleAttempt:
+      "latestLifecycleAttempt" in timeline && timeline.latestLifecycleAttempt
+        ? { ...timeline.latestLifecycleAttempt }
+        : null,
     lineageSummary:
       timeline.lineageSummary !== undefined
         ? { ...timeline.lineageSummary }
@@ -139,12 +203,22 @@ export function buildMemoryTimelineResponse(
             latestAt: null,
             latestAction: null,
             latestState: null,
+            latestAttemptedAction: null,
+            latestAttemptedState: null,
+            latestAttemptedOutcome: null,
+            latestUpdateKind: null,
             archivedAt: null,
             deletedAt: null,
             latestAuditStatus: null,
+            refNoopCount: 0,
+            matchedAuditOperationCount: 0,
+            rolloutNoopOperationCount: 0,
+            rolloutSuppressedOperationCount: 0,
+            rolloutConflictCount: 0,
             noopOperationCount: 0,
             suppressedOperationCount: 0,
-            conflictCount: 0
+            conflictCount: 0,
+            rejectedOperationCount: 0
           }
   };
 }
@@ -166,6 +240,7 @@ export interface MemorySearchResultShape {
   updatedAt: string;
   matchedFields: string[];
   approxReadCost: number;
+  globalRank: number;
 }
 
 export function toMemorySearchRequest(options: {
@@ -192,7 +267,8 @@ export function toMemorySearchResultShape(result: MemorySearchResult): MemorySea
     summary: result.summary,
     updatedAt: result.updatedAt,
     matchedFields: [...result.matchedFields],
-    approxReadCost: result.approxReadCost
+    approxReadCost: result.approxReadCost,
+    globalRank: result.globalRank
   };
 }
 
@@ -208,11 +284,18 @@ export function toMemoryDetailsResultShape(details: MemoryDetailsResult): Memory
     lineageSummary: {
       ...details.lineageSummary
     },
+    latestAppliedLifecycle: details.latestAppliedLifecycle
+      ? { ...details.latestAppliedLifecycle }
+      : null,
+    latestLifecycleAttempt: details.latestLifecycleAttempt
+      ? { ...details.latestLifecycleAttempt }
+      : null,
     warnings: [...details.warnings],
     latestAudit: details.latestAudit
       ? {
           ...details.latestAudit,
-          conflicts: [...details.latestAudit.conflicts]
+          conflicts: [...details.latestAudit.conflicts],
+          rejectedOperations: [...(details.latestAudit.rejectedOperations ?? [])]
         }
       : null,
     entry: {
