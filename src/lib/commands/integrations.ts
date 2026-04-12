@@ -242,11 +242,21 @@ async function restoreRollbackSnapshots(snapshots: FileRollbackSnapshot[]): Prom
 
     try {
       await ensureDir(path.dirname(snapshot.path));
-      await fs.rm(snapshot.path, { force: true, recursive: true }).catch(() => undefined);
+      if (snapshot.kind === "directory") {
+        const currentStat = await fs.lstat(snapshot.path).catch(() => null);
+        if (!currentStat?.isDirectory()) {
+          await fs.rm(snapshot.path, { force: true, recursive: true }).catch(() => undefined);
+          await ensureDir(snapshot.path);
+        }
+        if (snapshot.mode !== null) {
+          await fs.chmod(snapshot.path, snapshot.mode);
+        }
+      } else {
+        await fs.rm(snapshot.path, { force: true, recursive: true }).catch(() => undefined);
+      }
       if (snapshot.kind === "symlink") {
         await fs.symlink(snapshot.symlinkTarget ?? "", snapshot.path);
       } else if (snapshot.kind === "directory") {
-        await ensureDir(snapshot.path);
         if (snapshot.mode !== null) {
           await fs.chmod(snapshot.path, snapshot.mode);
         }
@@ -465,6 +475,33 @@ function buildInstallFailureSubaction(
   };
 }
 
+type ApplyFailureSubactionName = "mcp" | "agents" | "hooks" | "skills";
+
+function inferFailedApplySubaction(
+  mcpResult: Awaited<ReturnType<typeof installMcpProjectConfig>> | null,
+  hooksResult: Awaited<ReturnType<typeof installIntegrationAssets>> | null,
+  skillsResult: Awaited<ReturnType<typeof installIntegrationAssets>> | null,
+  agentsResult: Awaited<ReturnType<typeof applyCodexAgentsGuidance>> | null
+): ApplyFailureSubactionName | null {
+  if (!mcpResult) {
+    return "mcp";
+  }
+
+  if (!hooksResult) {
+    return "hooks";
+  }
+
+  if (!skillsResult) {
+    return "skills";
+  }
+
+  if (!agentsResult) {
+    return "agents";
+  }
+
+  return null;
+}
+
 function buildApplyFailureSubaction(
   result:
     | Awaited<ReturnType<typeof installMcpProjectConfig>>
@@ -472,12 +509,26 @@ function buildApplyFailureSubaction(
     | Awaited<ReturnType<typeof applyCodexAgentsGuidance>>
     | null,
   options: {
+    currentSubaction: ApplyFailureSubactionName;
+    failedSubaction: ApplyFailureSubactionName | null;
     fallbackSurface?: CodexSkillInstallSurface;
+    failureMessage: string;
     skipReason: string;
     rollbackSucceeded: boolean;
   }
 ): IntegrationSubactionResult {
   if (!result) {
+    if (options.currentSubaction === options.failedSubaction) {
+      return {
+        status: "blocked",
+        action: "blocked",
+        attempted: true,
+        surface: options.fallbackSurface,
+        readOnlyRetrieval: true,
+        notes: [options.failureMessage]
+      };
+    }
+
     return {
       status: "ok",
       action: "unchanged",
@@ -1166,23 +1217,45 @@ export async function runIntegrationsApply(
           cwd: projectRoot
         }),
         subactions: {
+          ...(function () {
+            const failedSubaction = inferFailedApplySubaction(
+              mcpResult,
+              hooksResult,
+              skillsResult,
+              agentsResult
+            );
+            return {
           mcp: buildApplyFailureSubaction(mcpResult, {
+            currentSubaction: "mcp",
+            failedSubaction,
             rollbackSucceeded,
+            failureMessage,
             skipReason
           }),
           agents: buildApplyFailureSubaction(agentsResult, {
+            currentSubaction: "agents",
+            failedSubaction,
             rollbackSucceeded,
+            failureMessage,
             skipReason
           }),
           hooks: buildApplyFailureSubaction(hooksResult, {
+            currentSubaction: "hooks",
+            failedSubaction,
             rollbackSucceeded,
+            failureMessage,
             skipReason
           }),
           skills: buildApplyFailureSubaction(skillsResult, {
+            currentSubaction: "skills",
+            failedSubaction,
             fallbackSurface: skillSurface,
             rollbackSucceeded,
+            failureMessage,
             skipReason
           })
+            };
+          })()
         },
         notes: [
           "This orchestration surface is Codex-only and explicit.",
