@@ -34,6 +34,43 @@ async function readFileIfExists(filePath: string): Promise<string | null> {
   }
 }
 
+async function pathExists(pathname: string): Promise<boolean> {
+  try {
+    await fs.access(pathname);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+async function pathContainsCam(dir: string): Promise<boolean> {
+  const candidates =
+    process.platform === "win32"
+      ? [path.join(dir, "cam.cmd"), path.join(dir, "cam.exe")]
+      : [path.join(dir, "cam")];
+
+  for (const candidate of candidates) {
+    if (await pathExists(candidate)) {
+      return true;
+    }
+  }
+
+  return false;
+}
+
+async function buildPathWithoutCam(extraDir: string): Promise<string> {
+  const baseEntries = (process.env.PATH ?? "").split(path.delimiter).filter(Boolean);
+  const filteredEntries: string[] = [];
+
+  for (const entry of baseEntries) {
+    if (!(await pathContainsCam(entry))) {
+      filteredEntries.push(entry);
+    }
+  }
+
+  return [extraDir, ...filteredEntries].join(path.delimiter);
+}
+
 async function snapshotFiles(filePaths: string[]): Promise<Record<string, string | null>> {
   return Object.fromEntries(
     await Promise.all(
@@ -1509,6 +1546,30 @@ describe("runMemory", () => {
     expect(await store.listEntries("project")).toHaveLength(1);
   });
 
+  it("fails closed at the CLI surface when remember text is empty or whitespace-only", async () => {
+    const homeDir = await tempDir("cam-remember-empty-cli-home-");
+    const projectDir = await tempDir("cam-remember-empty-cli-project-");
+    const memoryRoot = await tempDir("cam-remember-empty-cli-root-");
+    process.env.HOME = homeDir;
+
+    const projectConfig = buildProjectConfig();
+    await writeProjectConfig(projectDir, projectConfig, {
+      autoMemoryDirectory: memoryRoot
+    });
+
+    const emptyResult = runCli(projectDir, ["remember", ""], {
+      env: { HOME: homeDir }
+    });
+    expect(emptyResult.exitCode).toBe(1);
+    expect(emptyResult.stderr).toContain("non-empty");
+
+    const blankResult = runCli(projectDir, ["remember", "   "], {
+      env: { HOME: homeDir }
+    });
+    expect(blankResult.exitCode).toBe(1);
+    expect(blankResult.stderr).toContain("non-empty");
+  });
+
   it("surfaces a structured reviewer payload for remember --json", async () => {
     const homeDir = await tempDir("cam-remember-json-home-");
     const projectDir = await tempDir("cam-remember-json-project-");
@@ -2287,43 +2348,29 @@ describe("runMemory", () => {
       uniqueAuditCount: 0,
       auditCountsDeduplicated: true,
       warningsByEntryRef: {},
-      leadEntryRef: "project:active:workflow:prefer-pnpm",
-      leadEntryIndex: 0,
+      leadEntryRef: null,
+      leadEntryIndex: null,
       detailsAvailable: false,
-      reviewRefState: "active",
+      reviewRefState: null,
       detailsUsableEntryCount: 0,
       timelineOnlyEntryCount: 1,
       matchedCount: 1,
       appliedCount: 1,
       noopCount: 0,
-      ref: "project:active:workflow:prefer-pnpm",
-      timelineRef: "project:active:workflow:prefer-pnpm",
+      ref: null,
+      timelineRef: null,
       detailsRef: null,
-      lifecycleAction: "delete",
-      latestLifecycleAction: "delete",
-      latestAppliedLifecycle: {
-        action: "delete"
-      },
-      latestLifecycleAttempt: {
-        action: "delete",
-        outcome: "applied",
-        updateKind: null
-      },
-      latestState: "deleted",
+      lifecycleAction: null,
+      latestLifecycleAction: null,
+      latestAppliedLifecycle: null,
+      latestLifecycleAttempt: null,
+      latestState: null,
       latestSessionId: null,
       latestRolloutPath: null,
       timelineWarningCount: 0,
-      lineageSummary: {
-        latestAction: "delete",
-        latestUpdateKind: null
-      },
+      lineageSummary: null,
       warnings: [],
-      entry: {
-        id: "prefer-pnpm",
-        scope: "project",
-        topic: "workflow",
-        summary: "Prefer pnpm in this repository."
-      },
+      entry: null,
       affectedRefs: ["project:active:workflow:prefer-pnpm"],
       followUp: {
         timelineRefs: ["project:active:workflow:prefer-pnpm"],
@@ -2795,6 +2842,62 @@ describe("runMemory", () => {
     expect(result.stdout).toContain("memory reindex");
   });
 
+  it("keeps delete-only forget follow-up commands aligned with the resolved launcher and pinned cwd", async () => {
+    const homeDir = await tempDir("cam-forget-delete-only-home-");
+    const projectDir = await tempDir("cam-forget-delete-only-project-");
+    const callerDir = await tempDir("cam-forget-delete-only-caller-");
+    const memoryRoot = await tempDir("cam-forget-delete-only-root-");
+    const emptyPathDir = await tempDir("cam-forget-delete-only-empty-path-");
+    const fakeDistDir = await tempDir("cam-forget-delete-only-dist-");
+    const fakeDistCliPath = path.join(fakeDistDir, "cli.js");
+    const realProjectDir = await fs.realpath(projectDir);
+    process.env.HOME = homeDir;
+
+    await fs.writeFile(
+      fakeDistCliPath,
+      "#!/usr/bin/env node\nconsole.log('fake dist cli');\n",
+      "utf8"
+    );
+
+    const projectConfig = buildProjectConfig();
+    await writeProjectConfig(projectDir, projectConfig, {
+      autoMemoryDirectory: memoryRoot
+    });
+
+    const project = detectProjectContext(projectDir);
+    const store = new MemoryStore(project, {
+      ...projectConfig,
+      autoMemoryDirectory: memoryRoot
+    });
+    await store.ensureLayout();
+    await store.remember(
+      "project",
+      "workflow",
+      "prefer-pnpm",
+      "Prefer pnpm in this repository.",
+      ["Use pnpm instead of npm in this repository."],
+      "Manual note."
+    );
+
+    const result = runCli(
+      callerDir,
+      ["forget", "pnpm", "--scope", "project", "--cwd", projectDir],
+      {
+        env: {
+          HOME: homeDir,
+          PATH: await buildPathWithoutCam(emptyPathDir),
+          CODEX_AUTO_MEMORY_DIST_CLI_PATH: fakeDistCliPath
+        }
+      }
+    );
+    expect(result.exitCode, result.stderr).toBe(0);
+    expect(result.stdout).toContain(
+      `node ${JSON.stringify(fakeDistCliPath)} recall timeline "project:active:workflow:prefer-pnpm" --cwd '${realProjectDir}'`
+    );
+    expect(result.stdout).toContain("node ");
+    expect(result.stdout).not.toContain("use cam recall timeline to review the deletion trail");
+  });
+
   it("surfaces an additive empty reviewer payload for forget --json when nothing matches", async () => {
     const homeDir = await tempDir("cam-forget-empty-json-home-");
     const projectDir = await tempDir("cam-forget-empty-json-project-");
@@ -2907,8 +3010,28 @@ describe("runMemory", () => {
     expect(JSON.parse(forgetResult.stdout)).toMatchObject({
       mutationKind: "forget",
       matchedCount: 1,
-      ref: "project:active:preferences:prefer-pnpm-in-this-repository"
+      ref: null,
+      timelineRef: null,
+      detailsRef: null
     });
+  });
+
+  it("fails closed when --cwd does not point to an existing directory", async () => {
+    const homeDir = await tempDir("cam-memory-invalid-cwd-home-");
+    const callerDir = await tempDir("cam-memory-invalid-cwd-caller-");
+    const missingDir = path.join(callerDir, "missing-project-dir");
+    process.env.HOME = homeDir;
+
+    const result = runCli(
+      callerDir,
+      ["remember", "Prefer pnpm in this repository.", "--cwd", missingDir],
+      {
+        env: { HOME: homeDir }
+      }
+    );
+
+    expect(result.exitCode).toBe(1);
+    expect(result.stderr).toContain("existing directory");
   });
 
   it("surfaces startup omission reasons for low-signal, duplicate, unsafe, and budget-trimmed highlights", async () => {
@@ -4112,5 +4235,68 @@ describe("runMemory", () => {
     expect(await readFileIfExists(store.getRetrievalIndexFile("project", "active"))).toContain(
       "\"prefer-pnpm\""
     );
+  });
+
+  it("exposes memory reindex as a dedicated CLI subcommand", async () => {
+    const result = runCli(process.cwd(), ["memory", "reindex", "--help"]);
+
+    expect(result.exitCode).toBe(0);
+    expect(result.stdout).toContain("Usage: ");
+    expect(result.stdout).toContain("memory reindex");
+    expect(result.stdout).toContain("Rebuild retrieval sidecars from canonical Markdown memory");
+    expect(result.stdout).not.toContain("--enable");
+  });
+
+  it("lets memory reindex subcommand options override parent memory options", async () => {
+    const homeDir = await tempDir("cam-memory-reindex-parent-child-home-");
+    const projectDir = await tempDir("cam-memory-reindex-parent-child-project-");
+    const memoryRoot = await tempDir("cam-memory-reindex-parent-child-root-");
+    process.env.HOME = homeDir;
+
+    const projectConfig = buildProjectConfig();
+    await writeProjectConfig(projectDir, projectConfig, {
+      autoMemoryDirectory: memoryRoot
+    });
+
+    const store = new MemoryStore(detectProjectContext(projectDir), {
+      ...projectConfig,
+      autoMemoryDirectory: memoryRoot
+    });
+    await store.ensureLayout();
+    await store.remember(
+      "project",
+      "workflow",
+      "prefer-pnpm",
+      "Prefer pnpm in this repository.",
+      ["Use pnpm instead of npm in this repository."],
+      "Manual note."
+    );
+
+    const result = runCli(
+      projectDir,
+      [
+        "memory",
+        "--scope",
+        "project-local",
+        "reindex",
+        "--scope",
+        "project",
+        "--state",
+        "active",
+        "--json"
+      ],
+      { env: { HOME: homeDir } }
+    );
+    expect(result.exitCode, result.stderr).toBe(0);
+    expect(JSON.parse(result.stdout)).toMatchObject({
+      requestedScope: "project",
+      requestedState: "active",
+      rebuilt: [
+        expect.objectContaining({
+          scope: "project",
+          state: "active"
+        })
+      ]
+    });
   });
 });
