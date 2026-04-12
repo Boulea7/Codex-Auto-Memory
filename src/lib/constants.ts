@@ -7,6 +7,7 @@ export const DEFAULT_MEMORY_TOPICS = [
   "commands",
   "debugging",
   "architecture",
+  "reference",
   "workflow",
   "preferences",
   "patterns"

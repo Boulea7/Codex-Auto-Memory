@@ -290,10 +290,11 @@ export function buildPersistedSessionJson(
 ): string {
   return JSON.stringify(
     {
-      ...(action === "refresh" && rolloutSelection
+      ...(rolloutSelection
         ? {
-            action: "refresh",
-            writeMode: "replace" satisfies SessionContinuityWriteMode,
+            action,
+            writeMode:
+              (action === "refresh" ? "replace" : "merge") satisfies SessionContinuityWriteMode,
             rolloutSelection
           }
         : {}),
@@ -395,7 +396,19 @@ export function formatSessionLoadText(
   ];
 
   if (printStartup) {
-    lines.push("", "Startup continuity:", view.startup.text.trimEnd());
+    lines.push(
+      "",
+      "Startup continuity:",
+      `- Rendered source files: ${view.startup.sourceFiles.length}/${view.startup.candidateSourceFiles.length}`,
+      `- Rendered sections: ${view.startup.continuitySectionKinds.join(", ") || "none"}`,
+      `- Startup omissions: ${view.startup.omissions.length}`,
+      view.startup.omissions.length > 0
+        ? `- Omission counts: ${Object.entries(view.startup.omissionCounts)
+            .map(([reason, count]) => `${reason}=${count}`)
+            .join(", ")}`
+        : "- Omission counts: none",
+      view.startup.text.trimEnd()
+    );
   }
 
   return lines.join("\n");
@@ -408,7 +421,8 @@ export function buildSessionStatusJson(view: SessionInspectionView): string {
       autoSave: view.autoSave,
       localPathStyle: view.localPathStyle,
       maxLines: view.maxLines,
-      ...buildSessionInspectionPayload(view)
+      ...buildSessionInspectionPayload(view),
+      startup: view.startup
     },
     null,
     2

@@ -63,6 +63,7 @@ Startup currently does the following:
 Important traits:
 
 - `MEMORY.md` files are injected as quoted startup files
+- a few active-only content highlights are injected to improve startup recall without dumping topic bodies
 - topic files are represented as on-demand lookup refs
 - topic entry bodies are not eagerly loaded at startup
 - session continuity, when enabled, is injected as a separate block
@@ -124,7 +125,7 @@ The repository now treats the following as first-class evolution targets rather 
 
 - compact retrieval or correction workflows should eventually be expressible as reusable skill content
 - skill-based usage should not require abandoning the current file layout or reviewer surfaces
-- `cam skills install` now provides a concrete Codex-facing skill surface that teaches the same MCP-first, CLI-fallback progressive durable-memory retrieval workflow
+- `cam skills install` now provides a concrete Codex-facing skill surface that teaches the same `MCP -> local bridge -> resolved CLI` progressive durable-memory retrieval workflow
 
 ### MCP-aware surfaces
 
@@ -132,7 +133,7 @@ The repository now treats the following as first-class evolution targets rather 
 - future MCP tools should search indexes, inspect timelines, and load specific memory details from Markdown-backed state
 - `cam recall search` now defaults to `state=auto, limit=8`, providing the active-first, archived-fallback read-only CLI retrieval path for the same contract
 - `cam mcp serve` now provides the first read-only retrieval MCP path for that contract
-- `cam mcp install --host <codex|claude|gemini>` now writes the recommended project-scoped host wiring for that retrieval plane without touching the Markdown store
+- `cam mcp install --host codex` now writes the recommended project-scoped Codex wiring for that retrieval plane without touching the Markdown store; `claude`, `gemini`, and `generic` stay manual-only / snippet-first through `cam mcp print-config`
 - `cam mcp print-config --host ...` now prints ready-to-paste host snippets so the same retrieval plane is easier to wire into existing MCP clients
 - `cam mcp apply-guidance --host codex` now manages the repository-level `AGENTS.md` guidance block through the existing additive, marker-scoped, fail-closed flow
 - `cam mcp doctor` now inspects the recommended project-scoped retrieval wiring, project pinning, and hook / skill fallback assets without mutating host config files
@@ -174,6 +175,7 @@ The implementation is not required to expose all of these immediately, but the a
     │   ├── MEMORY.md
     │   ├── commands.md
     │   ├── architecture.md
+    │   ├── reference.md
     │   ├── memory-history.jsonl
     │   └── archive/
     │       ├── ARCHIVE.md
@@ -206,7 +208,7 @@ The architecture now allows sidecar retrieval indexes, but they must remain rebu
 | Scope | Purpose | Typical examples |
 | :-- | :-- | :-- |
 | global | cross-project personal preferences | preferred package manager, review habits |
-| project | repository-level durable knowledge | build/test commands, architecture constraints |
+| project | repository-level durable knowledge | build/test commands, architecture constraints, external dashboard / issue-tracker / runbook pointers |
 | project-local | worktree-local or machine-local knowledge | local workflow, worktree notes |
 
 These boundaries matter because otherwise:
