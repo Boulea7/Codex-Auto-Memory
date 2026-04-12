@@ -55,6 +55,15 @@ async function waitForFile(pathname: string, timeoutMs = 2_000): Promise<string>
   }
 }
 
+async function pathExists(targetPath: string): Promise<boolean> {
+  try {
+    await fs.access(targetPath);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 afterEach(async () => {
   if (originalCodexHome === undefined) {
     delete process.env.CODEX_HOME;
@@ -297,6 +306,68 @@ describe("dist cli smoke", () => {
     expect(forgetPayload.followUp.timelineRefs.length).toBeGreaterThan(0);
     expect(forgetPayload.followUp.timelineRefs.length).toBeGreaterThan(0);
   }, 30_000);
+
+  it("keeps session inspection read-only from the compiled cli entrypoint", async () => {
+    const homeDir = await tempDir("cam-dist-session-readonly-home-");
+    const projectDir = await tempDir("cam-dist-session-readonly-project-");
+    const memoryRootParent = await tempDir("cam-dist-session-readonly-memory-parent-");
+    const memoryRoot = path.join(memoryRootParent, "memory-root");
+
+    await writeCamConfig(projectDir, makeAppConfig(), {
+      autoMemoryDirectory: memoryRoot
+    });
+
+    const sessionStatusResult = runCli(projectDir, ["session", "status", "--json"], {
+      entrypoint: "dist",
+      env: { HOME: homeDir }
+    });
+    const sessionLoadResult = runCli(
+      projectDir,
+      ["session", "load", "--json", "--print-startup"],
+      {
+        entrypoint: "dist",
+        env: { HOME: homeDir }
+      }
+    );
+
+    expect(sessionStatusResult.exitCode, sessionStatusResult.stderr).toBe(0);
+    expect(sessionLoadResult.exitCode, sessionLoadResult.stderr).toBe(0);
+    expect(JSON.parse(sessionStatusResult.stdout)).toMatchObject({
+      projectLocation: {
+        exists: false
+      },
+      localLocation: {
+        exists: false
+      },
+      latestContinuityAuditEntry: null,
+      latestContinuityDiagnostics: null,
+      pendingContinuityRecovery: null,
+      startup: {
+        sourceFiles: [],
+        candidateSourceFiles: [],
+        continuityMode: "startup",
+        continuityProvenanceKind: "temporary-continuity"
+      }
+    });
+    expect(JSON.parse(sessionLoadResult.stdout)).toMatchObject({
+      projectLocation: {
+        exists: false
+      },
+      localLocation: {
+        exists: false
+      },
+      latestContinuityAuditEntry: null,
+      latestContinuityDiagnostics: null,
+      pendingContinuityRecovery: null,
+      startup: {
+        sourceFiles: [],
+        candidateSourceFiles: [],
+        continuityMode: "startup",
+        continuityProvenanceKind: "temporary-continuity"
+      }
+    });
+    expect(await pathExists(memoryRoot)).toBe(false);
+  });
 
   it("uses the recommended recall search preset from the compiled cli entrypoint without creating memory layout on first lookup", async () => {
     const homeDir = await tempDir("cam-dist-recall-home-");
@@ -580,7 +651,7 @@ describe("dist cli smoke", () => {
           preferredRoute: "mcp-first"
         },
         cliFallback: {
-          searchCommand: `cam recall search "<query>" --state auto --limit 8 --cwd ${JSON.stringify(realProjectDir)}`
+          searchCommand: `cam recall search "<query>" --state auto --limit 8 --cwd '${realProjectDir}'`
         }
       },
       agentsGuidance: {
@@ -1202,7 +1273,7 @@ describe("dist cli smoke", () => {
       workflowContract: {
         recommendedPreset: "state=auto, limit=8",
         cliFallback: {
-          searchCommand: `cam recall search "<query>" --state auto --limit 8 --cwd ${JSON.stringify(realProjectDir)}`
+          searchCommand: `cam recall search "<query>" --state auto --limit 8 --cwd '${realProjectDir}'`
         }
       },
       subactions: {
@@ -1246,7 +1317,7 @@ describe("dist cli smoke", () => {
       workflowContract: {
         recommendedPreset: "state=auto, limit=8",
         cliFallback: {
-          searchCommand: `cam recall search "<query>" --state auto --limit 8 --cwd ${JSON.stringify(realProjectDir)}`
+          searchCommand: `cam recall search "<query>" --state auto --limit 8 --cwd '${realProjectDir}'`
         }
       },
       subactions: {
@@ -1283,7 +1354,7 @@ describe("dist cli smoke", () => {
       failureMessage: expect.stringContaining("directory"),
       rollbackApplied: true,
       subactions: {
-        mcp: { attempted: false },
+        mcp: { attempted: true, status: "blocked", action: "blocked" },
         agents: { attempted: false },
         hooks: { attempted: false },
         skills: { attempted: false }
@@ -1352,6 +1423,39 @@ describe("dist cli smoke", () => {
       }
     });
     expect(await fs.readFile(path.join(realProjectDir, "AGENTS.md"), "utf8")).toBe(before);
+  });
+
+  it("surfaces staged-write failure payloads from the compiled integrations apply entrypoint", async () => {
+    const homeDir = await tempDir("cam-dist-integrations-apply-failed-home-");
+    const projectDir = await tempDir("cam-dist-integrations-apply-failed-project-");
+    const realProjectDir = await fs.realpath(projectDir);
+
+    await fs.mkdir(path.join(realProjectDir, ".codex", "config.toml"), { recursive: true });
+
+    const result = runCli(
+      projectDir,
+      ["integrations", "apply", "--host", "codex", "--json"],
+      {
+        entrypoint: "dist",
+        env: { HOME: homeDir }
+      }
+    );
+
+    expect(result.exitCode, result.stderr).toBe(0);
+    expect(JSON.parse(result.stdout)).toMatchObject({
+      host: "codex",
+      projectRoot: realProjectDir,
+      stackAction: "failed",
+      failureStage: "staged-write",
+      failureMessage: expect.stringContaining("directory"),
+      rollbackApplied: true,
+      subactions: {
+        mcp: { attempted: true, status: "blocked", action: "blocked" },
+        agents: { attempted: false },
+        hooks: { attempted: false },
+        skills: { attempted: false }
+      }
+    });
   });
 
   it("supports the official-project skill surface from the compiled integrations entrypoint", async () => {
@@ -1590,6 +1694,29 @@ describe("dist cli smoke", () => {
     });
   });
 
+  it("fails closed for invalid --cwd on compiled integrations entrypoints", async () => {
+    const homeDir = await tempDir("cam-dist-integrations-doctor-invalid-cwd-home-");
+    const projectDir = await tempDir("cam-dist-integrations-doctor-invalid-cwd-project-");
+
+    for (const command of [
+      ["integrations", "apply", "--host", "codex"] as const,
+      ["integrations", "doctor", "--host", "codex"] as const
+    ]) {
+      for (const cwd of ["", "   ", path.join(projectDir, "missing-project")]) {
+        const result = runCli(
+          projectDir,
+          [...command, "--cwd", cwd],
+          {
+            entrypoint: "dist",
+            env: { HOME: homeDir }
+          }
+        );
+        expect(result.exitCode).toBe(1);
+        expect(result.stderr).toContain("--cwd must be a non-empty path to an existing directory.");
+      }
+    }
+  });
+
   it("routes exec through the compiled wrapper entrypoint", async () => {
     const repoDir = await tempDir("cam-dist-wrapper-repo-");
     const homeDir = await tempDir("cam-dist-wrapper-home-");
@@ -1712,6 +1839,7 @@ fs.writeFileSync(${JSON.stringify(capturedArgsPath)}, JSON.stringify(process.arg
     });
     expect(integrationsHelp.exitCode, integrationsHelp.stderr).toBe(0);
     expect(integrationsHelp.stdout).toContain("Install the recommended project-scoped Codex integration stack");
+    expect(integrationsHelp.stdout).toMatch(/without updating\s+AGENTS\.md/);
     expect(integrationsHelp.stdout).toContain("Target host: codex");
     expect(integrationsHelp.stdout).toMatch(
       /Skill install surface: runtime, official-user, or\s+official-project/
