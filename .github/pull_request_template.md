@@ -6,9 +6,9 @@ Describe the behavior change in user-facing terms.
 
 - 
 
-## Claude parity
+## Product impact
 
-Explain whether this change improves Claude Code auto memory parity, preserves it, or intentionally diverges.
+Explain whether this change improves, preserves, or intentionally changes the current product contract.
 
 ## Validation
 
@@ -19,7 +19,6 @@ Explain whether this change improves Claude Code auto memory parity, preserves i
 ## Docs
 
 - [ ] README updated if onboarding changed
-- [ ] `docs/claude-reference.md` updated if parity behavior changed
 - [ ] `docs/architecture.md` updated if internals changed
 - [ ] `docs/native-migration.md` updated if migration assumptions changed
 

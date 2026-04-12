@@ -66,7 +66,7 @@ Claude Code 已经公开了一套相对清晰的 auto memory 产品契约：
 - 同一仓库的不同 worktree 共享 project memory
 - `/memory` 用来审查和编辑 memory
 
-而今天的 Codex CLI 已经具备很多可利用的基础能力，但仍没有公开同等完整、稳定、可验证的 memory 产品面：
+而今天的 Codex CLI 已经具备不少可利用的基础能力，但仍没有一套完整、稳定、可验证的本地记忆产品面：
 
 - `AGENTS.md`
 - multi-agent workflows
@@ -279,7 +279,7 @@ flowchart TD
 
 ### 为什么不是直接上 native memory
 
-- 官方公开文档尚未给出完整、稳定、等价于 Claude Code 的 native memory 契约
+- 官方公开文档尚未给出完整、稳定、可直接替代当前实现的 native memory 契约
 - 本地 `cam doctor --json` 仍把 `memories` / `codex_hooks` 视为 readiness signal，而不是 trusted primary path；与此同时它现在也会把 `Native memory/hooks readiness` 与 `Host/UI signals` 分段表达，并继续补充 app-server signal、retrieval sidecar、unsafe topic 与 canonical layout 的只读诊断
 - 因此当前实现仍然保持 `companion-first`
 - 但产品方向已经明确：当 hooks、skills、MCP 与 retrieval surfaces 能以不破坏 Markdown-first 契约的方式进入主线时，会正式纳入，而不是永远停留在 bridge status
@@ -325,8 +325,6 @@ Session continuity：
 
 ### 核心设计文档
 
-- [Claude Code 参考契约（中文）](docs/claude-reference.md) | [English](docs/claude-reference.en.md)
-- [Claude Code / Gemini CLI 宿主接入边界（中文）](docs/host-integration-claude-gemini.md)
 - [架构设计（中文）](docs/architecture.md) | [English](docs/architecture.en.md)
 - [集成演进策略（中文）](docs/integration-strategy.md)
 - [宿主能力面（中文）](docs/host-surfaces.md)

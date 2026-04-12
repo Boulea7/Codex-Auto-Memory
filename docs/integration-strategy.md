@@ -90,7 +90,7 @@
 - 当前推荐的渐进式检索 preset 统一为：`state=auto`、`limit=8`
 - `cam mcp install --host codex` 会显式写入推荐的 project-scoped Codex 宿主配置，继续降低接线摩擦，但不改变 retrieval 的只读语义；若已有 `codex_auto_memory` entry 带有非 canonical 自定义字段，会在安全前提下保留它们
 - `claude`、`gemini` 与 `generic` host 都保持 manual-only / snippet-first：不提供自动写入的 install 分支，只通过 `cam mcp print-config --host <claude|gemini|generic>` 暴露 ready-to-paste snippet
-- 这里的 manual-only 是有意的产品边界，不是“尚未补完的小缺口”：Claude Code 与 Gemini CLI 虽然都公开了比当前本仓接线更丰富的 host-native surface，但当前仓库仍然只承接 MCP wiring guidance，而不自动写它们的 host config、hooks、skills、extensions 或 memory-specific assets
+- 这里的 manual-only 是有意的产品边界，不是“尚未补完的小缺口”：其他宿主虽然公开了比当前本仓接线更丰富的 host-native surface，但当前仓库仍然只承接 MCP wiring guidance，而不自动写它们的 host config、hooks、skills、extensions 或 memory-specific assets
 - `cam mcp print-config --host ...` 会打印 ready-to-paste 宿主接入片段；其中 `--host codex` 现在还会额外打印推荐的 `AGENTS.md` snippet，并在 JSON 输出里附带共享 `workflowContract`，把 durable memory workflow 正式接到 Codex 当前公开稳定 surface 上
 - `cam mcp apply-guidance --host codex` 会以 additive、可审计、fail-closed 的方式创建或更新 repo 根 `AGENTS.md` 中由本仓维护的 guidance block，继续降低手工粘贴成本
 - `cam integrations install --host codex` 现在提供显式的一次性 stack install 入口：统一编排 project-scoped MCP wiring、hooks 与 skills，但不触碰 `AGENTS.md`

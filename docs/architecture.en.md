@@ -219,7 +219,7 @@ These boundaries matter because otherwise:
 
 ## 7. Why the current architecture does not jump to a plugin-native rewrite
 
-The repository still targets Codex first, and public Codex surfaces are not yet symmetric with Claude Code, Gemini CLI, or OpenCode in terms of hooks and packaged integrations.
+The repository still targets Codex first, and public Codex surfaces are not yet symmetric with several adjacent tool ecosystems in terms of hooks and packaged integrations.
 
 That means:
 

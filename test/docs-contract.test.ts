@@ -23,8 +23,6 @@ describe("docs contract", () => {
     const readmeJa = await readDoc("README.ja.md");
     const docsReadme = await readDoc("docs/README.md");
     const docsReadmeEn = await readDoc("docs/README.en.md");
-    const claudeReference = await readDoc("docs/claude-reference.md");
-    const claudeReferenceEn = await readDoc("docs/claude-reference.en.md");
     const nativeMigrationEn = await readDoc("docs/native-migration.en.md");
     const releaseChecklist = await readDoc("docs/release-checklist.md");
     const contributing = await readDoc("CONTRIBUTING.md");
@@ -303,11 +301,6 @@ describe("docs contract", () => {
     expect(docsReadmeEn).toContain("highlightCount");
     expect(docsReadmeEn).toContain("startupSectionsRendered");
     expect(docsReadmeEn).toContain("content highlights");
-    expect(claudeReference).toContain("autoMemoryDirectory");
-    expect(claudeReference).toContain("共享项目劫持用户 memory 路径");
-    expect(claudeReferenceEn).toContain("autoMemoryDirectory");
-    expect(claudeReferenceEn).toContain("shared project config");
-    expect(claudeReferenceEn).toContain("user-level memory path");
     expect(nativeMigrationEn).toContain("native Codex memory and hooks are still not ready");
     expect(nativeMigrationEn).toContain("allow non-native integration expansion");
     expect(releaseChecklist).toContain("pnpm test:dist-cli-smoke");
@@ -490,7 +483,6 @@ describe("docs contract", () => {
     const hostSurfaces = await readDoc("docs/host-surfaces.md");
     const readme = await readDoc("README.md");
     const readmeEn = await readDoc("README.en.md");
-    const claudeReferenceEn = await readDoc("docs/claude-reference.en.md");
     const registerCommands = await readDoc("src/lib/cli/register-commands.ts");
 
     expect(continuityDoc).toContain("save` keeps merge semantics");
@@ -578,17 +570,6 @@ describe("docs contract", () => {
     expect(readmeEn).toContain("workflowContract");
     expect(readmeEn).toContain("preflight `blocked`");
     expect(readmeEn).toContain("applyReadiness");
-    expect(
-      claudeReferenceEn.match(
-        /### 6\. Host integration surfaces matter, but should not replace the core contract/g
-      )?.length ?? 0
-    ).toBe(1);
-    expect(
-      claudeReferenceEn.match(
-        /### 7\. Host integration surfaces matter, but should not replace the core contract/g
-      )?.length ?? 0
-    ).toBe(0);
-    expect(claudeReferenceEn).toContain("### 7. Host-native breadth expands the host, not the memory model");
     expect(registerCommands).toContain(
       "Manage the local bridge / fallback helper bundle for current and upcoming integrations"
     );

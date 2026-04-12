@@ -18,11 +18,10 @@ What user pain does this solve?
 
 Describe the desired behavior or interface.
 
-## Claude parity impact
+## Product contract impact
 
-Does this move the project closer to, or intentionally away from, Claude Code auto memory behavior?
+Does this move the project closer to, or intentionally away from, the current `codex-auto-memory` product contract?
 
 ## Alternatives considered
 
 List any simpler or safer alternatives you have considered.
-
