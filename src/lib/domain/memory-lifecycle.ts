@@ -2,6 +2,7 @@ import type {
   MemoryEntry,
   MemoryHistoryRecordState,
   MemoryLifecycleAction,
+  MemoryLifecycleUpdateKind,
   MemoryRecordState,
   MemoryRef,
   MemoryScope
@@ -80,16 +81,51 @@ export function areEquivalentMemoryEntries(left: MemoryEntry, right: MemoryEntry
   );
 }
 
+function hasSemanticMemoryEntryDiff(left: MemoryEntry, right: MemoryEntry): boolean {
+  return (
+    normalizeString(left.summary) !== normalizeString(right.summary) ||
+    JSON.stringify(normalizeStringArray(left.details)) !==
+      JSON.stringify(normalizeStringArray(right.details))
+  );
+}
+
+function hasMetadataMemoryEntryDiff(left: MemoryEntry, right: MemoryEntry): boolean {
+  return (
+    JSON.stringify(normalizeStringArray(left.sources)) !==
+      JSON.stringify(normalizeStringArray(right.sources)) ||
+    normalizeString(left.reason) !== normalizeString(right.reason)
+  );
+}
+
+export function classifyUpdateKind(
+  existingActive: MemoryEntry,
+  nextEntry: MemoryEntry
+): Extract<MemoryLifecycleUpdateKind, "semantic-overwrite" | "metadata-only"> {
+  if (hasSemanticMemoryEntryDiff(existingActive, nextEntry)) {
+    return "semantic-overwrite";
+  }
+
+  if (hasMetadataMemoryEntryDiff(existingActive, nextEntry)) {
+    return "metadata-only";
+  }
+
+  return "semantic-overwrite";
+}
+
 export function classifyUpsertLifecycle(
   existingActive: MemoryEntry | null,
   existingArchived: MemoryEntry | null,
   nextEntry: MemoryEntry
-): Extract<MemoryLifecycleAction, "add" | "update" | "noop"> {
+): Extract<MemoryLifecycleAction, "add" | "update" | "restore" | "noop"> {
   if (existingActive && areEquivalentMemoryEntries(existingActive, nextEntry)) {
     return "noop";
   }
 
-  return existingActive || existingArchived ? "update" : "add";
+  if (existingArchived && !existingActive) {
+    return "restore";
+  }
+
+  return existingActive ? "update" : "add";
 }
 
 export function nextHistoryStateForLifecycle(
@@ -98,6 +134,7 @@ export function nextHistoryStateForLifecycle(
   switch (action) {
     case "add":
     case "update":
+    case "restore":
       return "active";
     case "archive":
       return "archived";

@@ -1,6 +1,8 @@
+import path from "node:path";
 import type {
   RolloutEvidence,
   RolloutToolCall,
+  RolloutTranscriptMessage,
   SessionContinuityEvidenceCounts
 } from "../types.js";
 import { trimText } from "../util/text.js";
@@ -10,6 +12,7 @@ import {
   extractCommand,
   isCommandToolCall
 } from "./command-utils.js";
+import { extractReferenceResourceKey, splitDirectiveClauses } from "./directive-utils.js";
 
 const FILE_WRITE_PATTERNS = ["apply_patch", "write_file", "create_file", "edit_file"];
 
@@ -44,6 +47,8 @@ const PROGRESS_NARRATION_PATTERNS = [
 
 const packageManagerValues = ["pnpm", "npm", "yarn", "bun"] as const;
 const repoSearchValues = ["rg", "ripgrep", "grep"] as const;
+const canonicalStoreValues = ["markdown", "database", "sqlite", "vector"] as const;
+const debuggingDependencyValues = ["redis", "postgres", "docker"] as const;
 const hedgedDirectivePattern =
   /(?:\bmaybe\b|\bperhaps\b|\bif possible\b|\bwhen possible\b|\bfor now\b|\bprobably\b|\busually\b|\bsometimes\b|\btry\b|\bconsider\b|\bmight\b|\bcould\b|尽量|如果可以|可能|暂时)/iu;
 
@@ -143,9 +148,6 @@ export function looksLocalSpecific(text: string): boolean {
   return (
     repoRelativePathPatterns.some((pattern) => pattern.test(text)) ||
     /(?:^[A-Za-z]:|[\s"'`(])\\[\w.-]+/u.test(text) ||
-    /\b[a-z0-9_.-]+\.(?:ts|tsx|js|jsx|json|md|yml|yaml|toml|css|scss|sql|py|go|rs|sh)\b/iu.test(
-      text
-    ) ||
     /\b(worktree|branch|this branch|local only|locally|current branch|当前分支|本地工作树)\b/iu.test(
       text
     )
@@ -173,6 +175,18 @@ export function isFileWriteToolCall(toolCall: RolloutToolCall): boolean {
 }
 
 function extractFilePathFromPatch(patchText: string): string | null {
+  const managedPatchMatch = /^\*\*\* (?:Update|Add|Delete) File: (.+)$/m.exec(patchText);
+  const managedPatchCapture = managedPatchMatch?.[1];
+  if (managedPatchCapture) {
+    return managedPatchCapture.trim();
+  }
+
+  const movedPatchMatch = /^\*\*\* Move to: (.+)$/m.exec(patchText);
+  const movedPatchCapture = movedPatchMatch?.[1];
+  if (movedPatchCapture) {
+    return movedPatchCapture.trim();
+  }
+
   const diffMatch = /^diff --git a\/.+? b\/(.+)$/m.exec(patchText);
   const diffCapture = diffMatch?.[1];
   if (diffCapture) {
@@ -207,14 +221,81 @@ function extractFilePath(toolCall: RolloutToolCall): string | null {
   return extractFilePathFromPatch(toolCall.arguments);
 }
 
-export function summarizeFileWrite(toolCall: RolloutToolCall): string | null {
+function formatContinuityFilePath(filePath: string, cwd?: string): string {
+  const normalized = filePath.replace(/\\/gu, "/").trim();
+  if (!normalized) {
+    return "";
+  }
+
+  if (!path.isAbsolute(normalized)) {
+    return normalized.replace(/^\.\/+/u, "");
+  }
+
+  if (!cwd) {
+    return normalized;
+  }
+
+  const relative = path.relative(cwd, normalized).replace(/\\/gu, "/");
+  if (
+    relative.length > 0 &&
+    !relative.startsWith("../") &&
+    relative !== ".." &&
+    !path.isAbsolute(relative)
+  ) {
+    return relative.replace(/^\.\/+/u, "");
+  }
+
+  return normalized;
+}
+
+export function summarizeFileWrite(toolCall: RolloutToolCall, cwd?: string): string | null {
   const filePath = extractFilePath(toolCall);
   if (!filePath) {
     return null;
   }
 
-  const basename = filePath.split("/").pop() ?? filePath;
-  return `File modified: ${trimText(basename, 120)}`;
+  const displayPath = formatContinuityFilePath(filePath, cwd);
+  if (!displayPath) {
+    return null;
+  }
+
+  return `File modified: ${trimText(displayPath, 120)}`;
+}
+
+function trimmedTranscriptMessages(messages: RolloutTranscriptMessage[]): RolloutTranscriptMessage[] {
+  return messages
+    .map((entry) => ({
+      role: entry.role,
+      message: trimText(entry.message, 240)
+    }))
+    .filter((entry) => entry.message.length > 0);
+}
+
+export function collectRecentTranscriptMessages(
+  evidence: RolloutEvidence,
+  maxMessages = 20
+): RolloutTranscriptMessage[] {
+  const orderedMessages = trimmedTranscriptMessages(evidence.orderedMessages ?? []);
+  if (orderedMessages.length > 0) {
+    return orderedMessages.slice(-maxMessages);
+  }
+
+  const recentUserMessages = evidence.userMessages
+    .map((message) => trimText(message, 240))
+    .filter(Boolean)
+    .map((message) => ({
+      role: "user" as const,
+      message
+    }));
+  const recentAgentMessages = evidence.agentMessages
+    .map((message) => trimText(message, 240))
+    .filter(Boolean)
+    .map((message) => ({
+      role: "agent" as const,
+      message
+    }));
+
+  return [...recentAgentMessages.slice(-10), ...recentUserMessages.slice(-10)];
 }
 
 function escapeRegExp(value: string): string {
@@ -225,6 +306,161 @@ interface DirectiveSignal {
   key: string;
   value: string;
   authoritative: boolean;
+}
+
+function shouldWarnForConflictingDirectiveKey(key: string): boolean {
+  return (
+    key === "package-manager" ||
+    key === "repo-search" ||
+    key === "canonical-store" ||
+    key === "retrieval-flow" ||
+    key === "route-order" ||
+    key.startsWith("reference-pointer:") ||
+    key.startsWith("required-service:")
+  );
+}
+
+function extractReferenceSignal(text: string): DirectiveSignal | null {
+  const normalized = text.toLowerCase();
+  const urlMatch = text.match(/https?:\/\/[^\s)]+/iu)?.[0];
+  const url = urlMatch?.replace(/[),.;]+$/u, "").trim().toLowerCase();
+  const category =
+    /\bdashboard\b|仪表盘/u.test(normalized)
+      ? "dashboard"
+      : /\brunbook\b|操作手册|run book/u.test(normalized)
+        ? "runbook"
+        : /\bdoc(?:s|umentation)?\b|文档/u.test(normalized)
+          ? "docs"
+          : /\b(?:linear|jira|issue tracker|issues?)\b|缺陷追踪|问题追踪/u.test(normalized)
+            ? "issue-tracker"
+            : "pointer";
+
+  if (url) {
+    const resourceKey = extractReferenceResourceKey(text, category, url) ?? category;
+    return {
+      key: `reference-pointer:${category}:${resourceKey}`,
+      value: url,
+      authoritative: false
+    };
+  }
+
+  return null;
+}
+
+function extractArchitectureSignal(text: string): DirectiveSignal | null {
+  const normalized = text.toLowerCase();
+  if (
+    !/\b(canonical|source of truth|db-first|markdown-first|database-first)\b|规范存储|主真相/u.test(
+      text
+    )
+  ) {
+    return null;
+  }
+
+  if (/markdown-first|markdown.*source of truth|markdown.*canonical/u.test(normalized)) {
+    return {
+      key: "canonical-store",
+      value: "markdown",
+      authoritative: false
+    };
+  }
+
+  if (/db-first|database-first|数据库优先/u.test(normalized)) {
+    return {
+      key: "canonical-store",
+      value: "database",
+      authoritative: false
+    };
+  }
+
+  return extractDirectiveChoice(text, canonicalStoreValues, "canonical-store");
+}
+
+function extractDebuggingSignals(text: string): DirectiveSignal[] {
+  const signals: DirectiveSignal[] = [];
+
+  for (const value of debuggingDependencyValues) {
+    const servicePattern = new RegExp(`\\b${escapeRegExp(value)}\\b`, "iu");
+    for (const clause of splitDirectiveClauses(text)) {
+      if (!servicePattern.test(clause.toLowerCase())) {
+        continue;
+      }
+
+      if (
+        /\b(?:does not require|doesn't require|is not required|not required|without)\b|不需要|无需/u.test(
+          clause
+        )
+      ) {
+        signals.push({
+          key: `required-service:${value}`,
+          value: "not-required",
+          authoritative: false
+        });
+        continue;
+      }
+
+      if (
+        /\b(requires?|needs?|start|before running|must be running|running before|before integration tests)\b|需要|必须|先启动/u.test(
+          clause
+        )
+      ) {
+        signals.push({
+          key: `required-service:${value}`,
+          value: "required",
+          authoritative: false
+        });
+      }
+    }
+  }
+
+  return signals;
+}
+
+function extractOrderedSignal(
+  text: string,
+  tokens: ReadonlyArray<{ pattern: RegExp; value: string }>,
+  key: string
+): DirectiveSignal | null {
+  const positions = tokens
+    .map((token) => {
+      const match = token.pattern.exec(text);
+      return match ? { index: match.index, value: token.value } : null;
+    })
+    .filter((entry): entry is { index: number; value: string } => entry !== null)
+    .sort((left, right) => left.index - right.index);
+
+  if (positions.length !== tokens.length) {
+    return null;
+  }
+
+  return {
+    key,
+    value: positions.map((entry) => entry.value).join("->"),
+    authoritative: false
+  };
+}
+
+function extractPatternSignals(text: string): DirectiveSignal[] {
+  const retrievalFlow = extractOrderedSignal(
+    text,
+    [
+      { pattern: /\bsearch\b/iu, value: "search" },
+      { pattern: /\btimeline\b/iu, value: "timeline" },
+      { pattern: /\bdetails\b/iu, value: "details" }
+    ],
+    "retrieval-flow"
+  );
+  const routeOrder = extractOrderedSignal(
+    text,
+    [
+      { pattern: /\bmcp\b/iu, value: "mcp" },
+      { pattern: /\blocal bridge\b/iu, value: "local-bridge" },
+      { pattern: /\bresolved cli\b/iu, value: "resolved-cli" }
+    ],
+    "route-order"
+  );
+
+  return [retrievalFlow, routeOrder].filter((signal): signal is DirectiveSignal => Boolean(signal));
 }
 
 function extractDirectiveChoice(
@@ -294,7 +530,11 @@ function collectWarningHints(agentMessages: string[], userMessages: string[]): s
     }
     const choices = [
       extractDirectiveChoice(message, packageManagerValues, "package-manager"),
-      extractDirectiveChoice(message, repoSearchValues, "repo-search")
+      extractDirectiveChoice(message, repoSearchValues, "repo-search"),
+      extractReferenceSignal(message),
+      extractArchitectureSignal(message),
+      ...extractDebuggingSignals(message),
+      ...extractPatternSignals(message)
     ].filter((choice): choice is DirectiveSignal => Boolean(choice));
 
     for (const choice of choices) {
@@ -310,7 +550,11 @@ function collectWarningHints(agentMessages: string[], userMessages: string[]): s
 
     const choices = [
       extractDirectiveChoice(message, packageManagerValues, "package-manager"),
-      extractDirectiveChoice(message, repoSearchValues, "repo-search")
+      extractDirectiveChoice(message, repoSearchValues, "repo-search"),
+      extractReferenceSignal(message),
+      extractArchitectureSignal(message),
+      ...extractDebuggingSignals(message),
+      ...extractPatternSignals(message)
     ].filter((choice): choice is DirectiveSignal => Boolean(choice));
 
     for (const choice of choices) {
@@ -329,6 +573,10 @@ function collectWarningHints(agentMessages: string[], userMessages: string[]): s
       continue;
     }
 
+    if (!shouldWarnForConflictingDirectiveKey(key)) {
+      continue;
+    }
+
     warnings.add(
       `Conflicting ${key.replace(/-/g, " ")} signals were detected in the rollout; verify the current preference before trusting this continuity summary.`
     );
@@ -342,7 +590,7 @@ export function collectSessionContinuityEvidenceBuckets(
 ): SessionContinuityEvidenceBuckets {
   const recentUserMessages = evidence.userMessages.map((message) => trimText(message, 240));
   const recentAgentMessages = evidence.agentMessages.map((message) => trimText(message, 240));
-  const recentMessages = [...recentAgentMessages.slice(-10), ...recentUserMessages.slice(-10)];
+  const recentMessages = collectRecentTranscriptMessages(evidence).map((entry) => entry.message);
   const recentMessagesReversed = [...recentMessages].reverse();
 
   const recentSuccessfulCommands = evidence.toolCalls
@@ -363,7 +611,7 @@ export function collectSessionContinuityEvidenceBuckets(
     ...new Set(
       evidence.toolCalls
         .filter(isFileWriteToolCall)
-        .map(summarizeFileWrite)
+        .map((toolCall) => summarizeFileWrite(toolCall, evidence.cwd))
         .filter((item): item is string => Boolean(item))
     )
   ].slice(0, 6);

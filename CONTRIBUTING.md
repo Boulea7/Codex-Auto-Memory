@@ -4,7 +4,7 @@ Thanks for helping build `codex-auto-memory`.
 
 ## What we are building
 
-This project is not a generic note-taking tool. It is a Codex companion that tries to reproduce the observable behavior of Claude Code auto memory:
+This project is not a generic note-taking tool. It is a Codex-first Hybrid memory runtime that currently delivers its strongest experience through the companion CLI and wrapper path while preserving a Markdown-first memory contract:
 
 - automatic memory capture after work
 - local Markdown storage
@@ -13,6 +13,7 @@ This project is not a generic note-taking tool. It is a Codex companion that tri
 - worktree-aware repository memory sharing
 - temporary cross-session continuity through `cam session`
 - repository privacy auditing through `cam audit`
+- future hook / skill / MCP-aware integration surfaces that must preserve the same auditable memory semantics
 
 When proposing changes, evaluate them against that product contract first.
 
@@ -44,13 +45,16 @@ Use Node 20+ and `pnpm`.
 - Include screenshots or terminal output only when it helps explain the UX.
 - If you touch release-facing CLI behavior, validate `node dist/cli.js` or `pnpm test:dist-cli-smoke`.
 - If you touch packaging, release verification, or install-time CLI behavior, also validate `pnpm test:tarball-install-smoke`.
+- If you touch `cam integrations`, `cam mcp doctor`, or shared readiness guidance, treat the change as release-facing even when the implementation is only additive.
+- If you touch `cam mcp print-config`, `cam mcp apply-guidance`, `cam integrations apply`, Codex `AGENTS.md` guidance, or shared MCP/AGENTS snippet builders, treat the change as release-facing too.
+- If you touch `cam skills install`, skill surface selection, or runtime vs official `.agents/skills` compatibility wording, treat the change as release-facing and verify both source tests and dist/tarball smoke.
 
 ## Current maintainer focus
 
-- Prefer structural simplification over feature expansion in the next phase.
+- Prefer structural simplification over unnecessary sprawl, but treat the issue-level memory goals and the new integration surfaces as intentional product expansion.
 - If you refactor repository structure, keep the command surface stable unless a behavior change is intentional and documented.
-- Before borrowing ideas from similar tools such as `mem0`, first inspect their current public docs or repository context and extract only patterns that fit this project's companion-first posture.
-- Use external research to improve module boundaries, reviewer surfaces, and maintainability, not to broaden the product scope by default.
+- Before borrowing ideas from similar tools such as `mem0` or `claude-mem`, first inspect their current public docs or repository context and extract only patterns that fit this project's Markdown-first and Codex-first posture.
+- Use external research to improve module boundaries, reviewer surfaces, lifecycle semantics, and integration surfaces, while keeping the current repository out of multi-host platform sprawl.
 
 ## Coding Guidelines
 
@@ -79,6 +83,7 @@ If your change affects one of these areas, update the matching file:
 - reviewer continuity contract: `docs/session-continuity.md`
 - release-time reviewer checks: `docs/release-checklist.md`
 - future native compatibility: `docs/native-migration.md`
+- integration direction and host boundaries: `docs/integration-strategy.md`, `docs/host-surfaces.md`
 - onboarding and positioning: `README.md` and `README.en.md`
 
 The repository now uses a bilingual public-doc setup:
@@ -87,6 +92,7 @@ The repository now uses a bilingual public-doc setup:
 - `README.en.md` is the English landing page
 - `docs/claude-reference.*`, `docs/architecture.*`, and `docs/native-migration.*` are maintained in both Chinese and English
 - `docs/session-continuity.md` and `docs/release-checklist.md` are English-first maintainer/reviewer docs and should still be updated when reviewer surfaces or command contracts change
+- `docs/integration-strategy.md` and `docs/host-surfaces.md` are currently Chinese-first strategy docs and should be kept aligned with the public README posture
 
 If you change shared meaning in one of those files, update the sibling language version in the same task or explicitly note the follow-up gap in your handoff.
 

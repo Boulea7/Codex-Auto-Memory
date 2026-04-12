@@ -112,6 +112,8 @@ Default assignment rules:
 - exact next steps go to the local layer by default
 - file modification notes go to the local layer by default
 - project-wide prerequisites and decisions stay in the shared layer
+- file modification notes now prefer repo-relative paths when rollout evidence includes absolute paths, and they also recognize both diff-style `apply_patch` text and managed `*** Update File:` / `*** Add File:` patch syntax
+- generic latest requests such as bare `Continue` / `Run checks` / `Check it again` or vague proxy prompts like `Can you look into it?` no longer overwrite a persisted goal or synthesize a fake `incompleteNext` item when the rollout has no explicit next-step evidence; concrete question-style requests still count as meaningful goals/continuation targets
 
 ## Codex-backed extraction quality guardrails
 
@@ -125,6 +127,7 @@ Current implementation rules:
   - detected file writes
   - candidate explicit next steps
   - candidate explicit untried ideas
+- reviewer warning hints now also cover more than package-manager drift: canonical-store posture, retrieval flow, and retrieval route order are treated as reviewer-visible conflict signals, while reference pointers and required services stay additive reviewer context instead of being forced into false conflicts
 - Codex output must still pass local structural validation after the CLI writes JSON
 - if the model output is malformed, missing required layers, or returns an evidence-empty summary while the rollout clearly contains command / file / next-step evidence, the system falls back to the heuristic summarizer
 - `cam session save` and wrapper auto-save still prefer the latest primary project rollout and skip forked/subagent reviewer rollouts by default; explicit `cam session save --rollout <path>` still lets a reviewer target a specific file on purpose
@@ -245,6 +248,19 @@ This block:
 - is framed as temporary working state
 - should be verified against the current codebase and user request
 
+The compiled startup reviewer surface now also exposes explicit additive metadata:
+
+- `sourceFiles`: only the source continuity files that actually rendered into the bounded startup block
+- `candidateSourceFiles`: all candidate continuity files that were considered before the line budget was applied
+- `sectionsRendered`: whether each startup section (`sources`, `goal`, `confirmedWorking`, `triedAndFailed`, `notYetTried`, `incompleteNext`, `filesDecisionsEnvironment`) actually rendered
+- `omissions` / `omissionCounts`: reviewer-visible budget trimming for source provenance and sections
+- `continuitySectionKinds` / `continuitySourceKinds`: compact structural summaries for what kinds of startup continuity were present
+- `continuityProvenanceKind`: currently `temporary-continuity`
+- `continuityMode`: currently `startup`
+- `futureCompactionSeam`: a structured placeholder that marks where future compact/session-summary rebuilds should re-enter the startup contract
+
+This keeps temporary continuity startup payloads reviewer-auditable in the same spirit as durable startup memory, while still keeping `cam session` separate from durable memory retrieval.
+
 ## Config: `sessionContinuityLocalPathStyle`
 
 Controls the local-path layout for project-local continuity files.
@@ -281,6 +297,7 @@ Therefore the current implementation is:
 - companion-first
 - Codex-first in path defaults and command surface
 - Claude-compatible through path-style and workflow adapters
+- wrapper-first in day-to-day operation, while future hook / skill / MCP-aware paths remain required to preserve the same continuity contract
 
 Claude-specific community patterns are useful reference material, but they do not override the Codex-first design rule.
 
@@ -310,6 +327,8 @@ These sources justify the current implementation choice:
 - Codex-first path defaults
 - wrapper-based startup injection
 - optional automation rather than assuming stable native hooks
+- future integration surfaces should consume continuity as auditable working state, not collapse it into opaque host-native session state
+- the continuity startup contract should stay explicit about rendered provenance, section trimming, and rebuild boundaries instead of hiding them inside implementation details
 
 ### Community reference: `affaan-m/everything-claude-code`
 
@@ -324,4 +343,4 @@ Important differences from this project:
 - `codex-auto-memory` does **not** adopt `~/.claude/sessions/` as its primary canonical store
 - `codex-auto-memory` keeps shared project continuity in the companion root so worktrees can share it safely
 - Claude-style session file paths are supported only as an adapter path style, not as the main product model
-- learned skills / instincts remain future companion ideas, not part of the current durable memory or continuity contract
+- learned skills or hook-driven recall paths may eventually consume continuity outputs, but they are still downstream integration surfaces rather than part of the continuity body itself
