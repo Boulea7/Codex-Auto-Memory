@@ -1,7 +1,7 @@
 {
   "name": "codex-auto-memory",
   "version": "0.1.0",
-  "description": "Claude-style auto memory for Codex, implemented as a local companion CLI.",
+  "description": "A Markdown-first, local-first memory runtime for Codex with wrapper, hook, MCP, skill, and AGENTS integration surfaces.",
   "type": "module",
   "bin": {
     "cam": "dist/cli.js"
@@ -28,10 +28,10 @@
     "pack:check": "npm pack --dry-run",
     "prepack": "pnpm build",
     "test": "vitest run --exclude test/dist-cli-smoke.test.ts --exclude test/tarball-install-smoke.test.ts",
-    "test:cli-smoke": "vitest run test/audit.test.ts test/memory-command.test.ts test/session-command.test.ts test/wrapper-session-continuity.test.ts",
+    "test:cli-smoke": "vitest run test/audit.test.ts test/doctor-command.test.ts test/hooks-command.test.ts test/integrations-command.test.ts test/mcp-command.test.ts test/skills-command.test.ts test/memory-command.test.ts test/recall-command.test.ts test/session-command.test.ts test/wrapper-session-continuity.test.ts",
     "test:dist-cli-smoke": "vitest run test/dist-cli-smoke.test.ts",
     "test:docs-contract": "vitest run test/docs-contract.test.ts",
-    "test:reviewer-smoke": "vitest run test/docs-contract.test.ts test/memory-command.test.ts test/session-command.test.ts test/wrapper-session-continuity.test.ts test/session-continuity.test.ts",
+    "test:reviewer-smoke": "vitest run test/docs-contract.test.ts test/doctor-command.test.ts test/hooks-command.test.ts test/integrations-command.test.ts test/mcp-command.test.ts test/skills-command.test.ts test/memory-command.test.ts test/recall-command.test.ts test/session-command.test.ts test/wrapper-session-continuity.test.ts test/session-continuity.test.ts",
     "test:tarball-install-smoke": "vitest run test/tarball-install-smoke.test.ts",
     "test:watch": "vitest",
     "verify:release": "pnpm lint && pnpm test:docs-contract && pnpm test:reviewer-smoke && pnpm test:cli-smoke && pnpm test && pnpm build && pnpm test:dist-cli-smoke && pnpm pack:check && pnpm test:tarball-install-smoke"
@@ -54,6 +54,7 @@
   },
   "homepage": "https://github.com/Boulea7/Codex-Auto-Memory#readme",
   "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.27.1",
     "commander": "^14.0.1",
     "smol-toml": "^1.4.1",
     "zod": "^3.25.76"
