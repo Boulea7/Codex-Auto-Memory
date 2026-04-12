@@ -924,6 +924,24 @@ describe("tarball install smoke", () => {
       }
     });
 
+    for (const command of [
+      ["integrations", "apply", "--host", "codex"] as const,
+      ["integrations", "doctor", "--host", "codex"] as const
+    ]) {
+      for (const cwd of ["", "   ", path.join(realBlockedProjectDir, "missing-project")]) {
+        const invalidResult = runCommandCapture(
+          camBinaryPath(installDir),
+          [...command, "--cwd", cwd],
+          blockedProjectDir,
+          envWithBin
+        );
+        expect(invalidResult.exitCode).toBe(1);
+        expect(invalidResult.stderr).toContain(
+          "--cwd must be a non-empty path to an existing directory."
+        );
+      }
+    }
+
     const recallHelpResult = runCommandCapture(
       camBinaryPath(installDir),
       ["recall", "search", "--help"],
