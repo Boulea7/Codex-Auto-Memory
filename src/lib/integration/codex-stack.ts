@@ -1,5 +1,11 @@
+import * as path from "node:path";
 import {
   appendCliCwdFlag,
+  buildDurableMemorySyncGuidance,
+  buildResolvedCliCommand,
+  buildResolvedCliDetailsCommand,
+  buildResolvedCliSearchCommand,
+  buildResolvedCliTimelineCommand,
   buildCliDetailsCommand,
   buildPostWorkRecentReviewCommand,
   buildPostWorkSyncCommand,
@@ -8,8 +14,12 @@ import {
   buildRecommendedMcpSearchInstruction,
   buildSharedWorkflowDisciplineLines,
   buildWorkflowContract,
-  DURABLE_MEMORY_SYNC_GUIDANCE,
-  formatRecommendedRetrievalPreset
+  formatRecommendedRetrievalPreset,
+  RECALL_FIRST_GUIDANCE,
+  PROGRESSIVE_DISCLOSURE_GUIDANCE,
+  MEMORY_AUDIT_BOUNDARY,
+  SESSION_CONTINUITY_BOUNDARY,
+  ARCHIVE_BOUNDARY
 } from "./retrieval-contract.js";
 import {
   RETRIEVAL_MCP_DETAILS_TOOL,
@@ -27,8 +37,11 @@ export interface CodexStackReadiness {
   mcpOperationalReady: boolean;
   camCommandAvailable: boolean;
   hookCaptureReady: boolean;
+  hookCaptureOperationalReady: boolean;
   hookRecallReady: boolean;
+  hookRecallOperationalReady: boolean;
   skillReady: boolean;
+  workflowAssetsConsistent: boolean;
   workflowConsistent: boolean;
 }
 
@@ -57,6 +70,16 @@ export interface CodexAgentsGuidance {
   snippetFormat: "markdown";
   snippet: string;
   notes: string[];
+}
+
+export interface ExperimentalCodexHooksGuidance {
+  status: "experimental";
+  featureFlag: "codex_hooks";
+  targetFileHint: ".codex/config.toml";
+  snippetFormat: "toml";
+  snippet: string;
+  notes: string[];
+  docs: string[];
 }
 
 export interface CodexAgentsGuidanceInspection {
@@ -92,6 +115,8 @@ export const READ_ONLY_RETRIEVAL_NOTE =
   "Codex Auto Memory exposes a read-only retrieval MCP plane. Markdown remains the canonical memory surface.";
 export const LOCAL_BRIDGE_BUNDLE_NOTE =
   "Hook assets in this repository are local bridge and fallback helpers, not an official Codex hook surface.";
+export const EXPERIMENTAL_CODEX_HOOKS_NOTE =
+  "Official Codex hooks are a public but experimental opt-in surface and are not the default path in this repository.";
 export const CODEX_AGENTS_TARGET_FILE_HINT = "AGENTS.md";
 export const CODEX_AGENTS_GUIDANCE_VERSION = "codex-agents-guidance-v1";
 export const CODEX_AGENTS_GUIDANCE_VERSION_MARKER = "cam:agents-guidance-version";
@@ -101,7 +126,7 @@ export const CODEX_AGENTS_REQUIRED_SIGNATURES = [
   RETRIEVAL_MCP_SEARCH_TOOL,
   RETRIEVAL_MCP_TIMELINE_TOOL,
   RETRIEVAL_MCP_DETAILS_TOOL,
-  "cam recall search",
+  "memory-recall.sh",
   "post-work-memory-review.sh",
   "cam memory",
   "cam session",
@@ -217,11 +242,14 @@ function isClosingFence(line: string, fence: GuidanceFenceState): boolean {
 }
 
 export function buildCodexAgentsManagedBlock(
-  lineEnding: "\n" | "\r\n" | "\r" = "\n"
+  lineEnding: "\n" | "\r\n" | "\r" = "\n",
+  options: {
+    cwd?: string;
+  } = {}
 ): string {
   return [
     CODEX_AGENTS_MANAGED_BLOCK_START,
-    buildCodexAgentsGuidance().snippet,
+    buildCodexAgentsGuidance(options).snippet,
     CODEX_AGENTS_MANAGED_BLOCK_END
   ].join("\n").replace(/\n/g, lineEnding);
 }
@@ -320,13 +348,13 @@ export function formatIntegrationActionHeadline(
 }
 
 export function resolveCodexIntegrationRoute(
-  readiness: Pick<CodexStackReadiness, "mcpOperationalReady" | "hookRecallReady">
+  readiness: Pick<CodexStackReadiness, "mcpOperationalReady" | "hookRecallOperationalReady">
 ): CodexIntegrationRoute {
   if (readiness.mcpOperationalReady) {
     return "mcp";
   }
 
-  if (readiness.hookRecallReady) {
+  if (readiness.hookRecallOperationalReady) {
     return "hooks-fallback";
   }
 
@@ -351,33 +379,78 @@ export function summarizeCodexIntegrationStatus(
   return hasOk ? "ok" : "missing";
 }
 
-export function buildCodexStackNotes(): string[] {
-  const workflowContract = buildWorkflowContract();
+export function buildCodexStackNotes(
+  options: {
+    cwd?: string;
+  } = {}
+): string[] {
+  const workflowContract = buildWorkflowContract(options);
   return [
     READ_ONLY_RETRIEVAL_NOTE,
     LOCAL_BRIDGE_BUNDLE_NOTE,
+    EXPERIMENTAL_CODEX_HOOKS_NOTE,
+    "Shell-based hook helpers are operational only when their embedded launcher still resolves correctly in the current environment.",
     "Recommended route prefers project-scoped MCP, then local bridge recall helpers, then direct cam recall CLI usage.",
     `Recommended retrieval preset: ${workflowContract.recommendedPreset}.`,
-    ...buildSharedWorkflowDisciplineLines().slice(2),
-    `When the local bridge bundle is installed, prefer \`${workflowContract.postWorkSyncReview.helperScript}\` to combine \`${buildPostWorkSyncCommand()}\` with \`${buildPostWorkRecentReviewCommand()}\`.`,
-    "Run `cam mcp print-config --host codex` to inspect the recommended project-scoped MCP wiring together with an AGENTS.md snippet for Codex agents.",
-    "Run `cam mcp apply-guidance --host codex` to create or update the managed Codex Auto Memory block inside the repository-level AGENTS.md.",
+    ...buildSharedWorkflowDisciplineLines(options).slice(2),
+    `When the local bridge bundle is installed, prefer \`${workflowContract.postWorkSyncReview.helperScript}\` to combine \`${workflowContract.resolvedPostWorkSyncReview.syncCommand}\` with \`${workflowContract.resolvedPostWorkSyncReview.reviewCommand}\`.`,
+    `Run \`${buildResolvedCliCommand("mcp print-config --host codex", options)}\` to inspect the recommended project-scoped MCP wiring together with an AGENTS.md snippet for Codex agents.`,
+    `Run \`${buildResolvedCliCommand("mcp apply-guidance --host codex", options)}\` to create or update the managed Codex Auto Memory block inside the repository-level AGENTS.md.`,
     "Codex skill readiness is guidance-only and does not replace executable hook fallback helpers.",
-    "Workflow consistency expects the shared search -> timeline -> details contract and the recommended preset to stay aligned across hooks and skills."
+    "Workflow consistency expects AGENTS guidance, hooks, and skills to stay aligned on the shared search -> timeline -> details contract and recommended preset."
   ];
 }
 
-export function buildCodexAgentsGuidance(): CodexAgentsGuidance {
-  const workflowContract = buildWorkflowContract();
+export function buildExperimentalCodexHooksGuidance(): ExperimentalCodexHooksGuidance {
+  return {
+    status: "experimental",
+    featureFlag: "codex_hooks",
+    targetFileHint: ".codex/config.toml",
+    snippetFormat: "toml",
+    snippet: "codex_hooks = true",
+    notes: [
+      "Experimental: the public Codex hooks page labels hooks as Experimental.",
+      "Under development: the Codex config docs still label the `codex_hooks` feature flag as Under development.",
+      "Paste this line inside an existing [features] table, or create that table once if it does not exist yet.",
+      "Keep this as an explicit opt-in route. Do not treat it as the default or stable path for Codex Auto Memory.",
+      LOCAL_BRIDGE_BUNDLE_NOTE
+    ],
+    docs: [
+      "https://developers.openai.com/codex/hooks",
+      "https://developers.openai.com/codex/config-basic",
+      "https://developers.openai.com/codex/config-reference",
+      "https://developers.openai.com/codex/feature-maturity"
+    ]
+  };
+}
+
+export function buildCodexAgentsGuidance(
+  options: {
+    cwd?: string;
+    launcherOverride?: ReturnType<typeof buildWorkflowContract>["launcher"];
+  } = {}
+): CodexAgentsGuidance {
+  void options.launcherOverride;
+  const canonicalCliSearchCommand = buildRecommendedCliSearchCommand();
+  const canonicalCliTimelineCommand = buildCliTimelineCommand();
+  const canonicalCliDetailsCommand = buildCliDetailsCommand();
+  const canonicalSyncCommand = buildPostWorkSyncCommand();
+  const canonicalRecentReviewCommand = buildPostWorkRecentReviewCommand();
   const snippet = [
     "## Codex Auto Memory",
     "",
     `<!-- ${CODEX_AGENTS_GUIDANCE_VERSION_MARKER} ${CODEX_AGENTS_GUIDANCE_VERSION} -->`,
-    `- ${workflowContract.routePreference.mcpFirst}`,
+    `- ${RECALL_FIRST_GUIDANCE}`,
+    `- ${PROGRESSIVE_DISCLOSURE_GUIDANCE}`,
+    `- Prefer retrieval MCP when it is already wired in: search_memories -> timeline_memories -> get_memory_details.`,
     `- ${buildRecommendedMcpSearchInstruction()}`,
-    `- If the retrieval MCP server is unavailable, fall back to \`${buildRecommendedCliSearchCommand()}\`, then \`cam recall timeline \"<ref>\"\`, then \`cam recall details \"<ref>\"\`.`,
-    ...buildSharedWorkflowDisciplineLines().slice(2).map((line) => `- ${line}`),
-    `- When the local bridge bundle is installed, \`${workflowContract.postWorkSyncReview.helperScript}\` combines \`${workflowContract.postWorkSyncReview.syncCommand}\` with \`${workflowContract.postWorkSyncReview.reviewCommand}\`.`,
+    `- If the retrieval MCP server is unavailable and the local bridge bundle is installed, fall back to \`memory-recall.sh search "<query>"\`, then \`memory-recall.sh timeline "<ref>"\`, then \`memory-recall.sh details "<ref>"\`.`,
+    `- If the local bridge bundle is unavailable, fall back to \`${canonicalCliSearchCommand}\`, then \`${canonicalCliTimelineCommand}\`, then \`${canonicalCliDetailsCommand}\`.`,
+    `- After finishing work that should affect durable memory, run \`${canonicalSyncCommand}\` or review \`${canonicalRecentReviewCommand}\` instead of assuming temporary continuity already updated Markdown memory.`,
+    `- ${MEMORY_AUDIT_BOUNDARY}`,
+    `- ${SESSION_CONTINUITY_BOUNDARY}`,
+    `- ${ARCHIVE_BOUNDARY}`,
+    `- When the local bridge bundle is installed, \`post-work-memory-review.sh\` combines \`${canonicalSyncCommand}\` with \`${canonicalRecentReviewCommand}\`.`,
     `- ${LOCAL_BRIDGE_BUNDLE_NOTE}`
   ].join("\n");
 
@@ -401,12 +474,12 @@ export function detectCodexAgentsGuidanceVersion(contents: string): string | nul
 }
 
 export function inspectCodexAgentsGuidance(
-  path: string,
+  filePath: string,
   contents: string | null
 ): CodexAgentsGuidanceInspection {
   if (contents === null) {
     return {
-      path,
+      path: filePath,
       exists: false,
       status: "missing",
       expectedVersion: CODEX_AGENTS_GUIDANCE_VERSION,
@@ -419,7 +492,11 @@ export function inspectCodexAgentsGuidance(
   const parsed = parseCodexAgentsGuidanceContents(contents);
   const inspectionTarget = parsed.managedBlock?.body ?? parsed.visibleText;
   const normalizedTarget = normalizeLineEndings(inspectionTarget);
-  const expectedSnippet = normalizeLineEndings(buildCodexAgentsGuidance().snippet);
+  const expectedSnippet = normalizeLineEndings(
+    buildCodexAgentsGuidance({
+      cwd: path.dirname(filePath)
+    }).snippet
+  );
   const detectedVersion = detectCodexAgentsGuidanceVersion(normalizedTarget);
   const matchedSignatures = CODEX_AGENTS_REQUIRED_SIGNATURES.filter((signature) =>
     normalizedTarget.includes(signature)
@@ -432,7 +509,7 @@ export function inspectCodexAgentsGuidance(
     : normalizeLineEndings(parsed.visibleText).includes(expectedSnippet);
 
   return {
-    path,
+    path: filePath,
     exists: true,
     status: hasCurrentGuidance ? "ok" : "warning",
     expectedVersion: CODEX_AGENTS_GUIDANCE_VERSION,
@@ -462,10 +539,16 @@ export function buildCodexIntegrationSubchecks(
               "Project-scoped retrieval MCP wiring is present, but the current shell could not resolve `cam` on PATH."
           },
     hookCapture: readiness.hookCaptureReady
-      ? {
+      ? readiness.hookCaptureOperationalReady
+        ? {
           status: "ok",
           summary: "Capture helpers are ready for post-session sync and startup diagnostics."
         }
+        : {
+            status: "warning",
+            summary:
+              "Capture helpers are installed, but their embedded launcher is not operational yet."
+          }
       : assetAvailability.hasCaptureAssets
         ? {
             status: "warning",
@@ -475,11 +558,17 @@ export function buildCodexIntegrationSubchecks(
             status: "missing",
             summary: "No capture helper bundle is installed yet."
           },
-    hookRecall: readiness.hookRecallReady
+    hookRecall: readiness.hookRecallOperationalReady
       ? {
           status: "ok",
           summary: "Recall helpers are ready for shell-based search -> timeline -> details fallback."
         }
+      : readiness.hookRecallReady
+        ? {
+            status: "warning",
+            summary:
+              "Recall helpers are installed, but their embedded launcher is not operational yet."
+          }
       : assetAvailability.hasRecallAssets
         ? {
             status: "warning",
@@ -492,12 +581,14 @@ export function buildCodexIntegrationSubchecks(
     skill: readiness.skillReady
       ? {
           status: "ok",
-          summary: "Codex skill guidance is installed for MCP-first, CLI-fallback retrieval."
+          summary:
+            "The preferred Codex skill surface is installed and aligned as guidance for the shared MCP-first retrieval workflow."
         }
       : assetAvailability.hasSkillAssets
         ? {
             status: "warning",
-            summary: "Skill assets exist, but the installed guidance is stale."
+            summary:
+              "Skill assets exist, but the preferred skill surface is missing, stale, or not aligned yet."
           }
         : {
             status: "missing",
@@ -507,17 +598,17 @@ export function buildCodexIntegrationSubchecks(
       ? {
           status: "ok",
           summary:
-            "Hooks and skills agree on the shared search -> timeline -> details workflow and preset."
+            "AGENTS guidance, hooks, and the preferred skill surface agree on the shared search -> timeline -> details workflow and preset."
         }
       : assetAvailability.hasWorkflowAssets
         ? {
             status: "warning",
             summary:
-              "Some integration assets exist, but they do not fully agree on the shared retrieval workflow yet."
+              "Some AGENTS, hook, or skill assets exist, but they do not fully agree on the shared retrieval workflow yet."
           }
         : {
             status: "missing",
-            summary: "Shared retrieval workflow assets have not been installed yet."
+            summary: "Shared AGENTS, hook, and skill workflow assets have not been installed yet."
           }
   };
 }
@@ -525,7 +616,7 @@ export function buildCodexIntegrationSubchecks(
 export function buildCodexRouteSummary(route: CodexIntegrationRoute): string {
   switch (route) {
     case "mcp":
-      return "Project-scoped retrieval MCP is ready and should be the default route.";
+      return "Project-scoped retrieval MCP is the preferred route; check the current operational route to see what is runnable in this environment right now.";
     case "hooks-fallback":
       return "Use the hook recall bundle for now; MCP is not fully operational yet.";
     case "cli-direct":
@@ -545,23 +636,29 @@ export function buildCodexIntegrationNextSteps(
   } = {}
 ): string[] {
   const route = resolveCodexIntegrationRoute(readiness);
+  const workflowContract = buildWorkflowContract({
+    cwd: options.projectRoot
+  });
   const skillInstallCommand = appendProjectRootFlag(
     options.skillInstallCommand ?? "cam skills install",
     options.projectRoot
   );
-  const integrationsInstallCommand = appendProjectRootFlag(
-    "cam integrations install --host codex",
-    options.projectRoot
+  const integrationsInstallCommand = buildResolvedCliCommand(
+    "integrations install --host codex",
+    { cwd: options.projectRoot }
   );
-  const mcpInstallCommand = appendProjectRootFlag(
-    "cam mcp install --host codex",
-    options.projectRoot
-  );
-  const mcpPrintConfigCommand = appendProjectRootFlag(
-    "cam mcp print-config --host codex",
-    options.projectRoot
-  );
-  const hooksInstallCommand = appendProjectRootFlag("cam hooks install", options.projectRoot);
+  const mcpInstallCommand = buildResolvedCliCommand("mcp install --host codex", {
+    cwd: options.projectRoot
+  });
+  const mcpPrintConfigCommand = buildResolvedCliCommand("mcp print-config --host codex", {
+    cwd: options.projectRoot
+  });
+  const hooksInstallCommand = buildResolvedCliCommand("hooks install", {
+    cwd: options.projectRoot
+  });
+  const directCliSearchCommand = readiness.camCommandAvailable
+    ? buildRecommendedCliSearchCommand("\"<query>\"", { cwd: options.projectRoot })
+    : buildResolvedCliSearchCommand("\"<query>\"", { cwd: options.projectRoot });
   const nextSteps: string[] = [];
 
   if (
@@ -572,7 +669,10 @@ export function buildCodexIntegrationNextSteps(
   ) {
     return [
       `Run \`${integrationsInstallCommand}\` to install the recommended Codex integration stack in one step.`,
-      `Until the stack is installed, use \`${buildRecommendedCliSearchCommand("\"<query>\"", { cwd: options.projectRoot })}\` directly.`,
+      `Until the stack is installed, use \`${directCliSearchCommand}\` directly.`,
+      workflowContract.launcher.verified
+        ? `If \`cam\` is unavailable on PATH, use \`${buildResolvedCliSearchCommand("\"<query>\"", { cwd: options.projectRoot })}\` as the verified fallback.`
+        : `If \`cam\` is unavailable on PATH, use \`${buildResolvedCliSearchCommand("\"<query>\"", { cwd: options.projectRoot })}\` as the unverified direct command until the launcher becomes resolvable.`,
       `Run \`${mcpPrintConfigCommand}\` to print the recommended project-scoped MCP wiring and AGENTS.md snippet.`
     ];
   }
@@ -591,6 +691,14 @@ export function buildCodexIntegrationNextSteps(
     nextSteps.push(
       `Run \`${hooksInstallCommand}\` to refresh the shared hook helper bundle for capture and recall.`
     );
+  } else if (!readiness.hookCaptureOperationalReady) {
+    nextSteps.push(
+      "Make sure the host process can resolve `cam` on PATH before relying on the local hook capture helpers."
+    );
+  } else if (!readiness.hookRecallOperationalReady) {
+    nextSteps.push(
+      "Make sure the host process can resolve `cam` on PATH before relying on the local hook recall helpers."
+    );
   }
 
   if (!readiness.skillReady) {
@@ -599,36 +707,44 @@ export function buildCodexIntegrationNextSteps(
     );
   }
 
-  if (!readiness.workflowConsistent && (readiness.hookRecallReady || readiness.skillReady)) {
+  if (
+    !readiness.workflowAssetsConsistent &&
+    (readiness.hookRecallReady || readiness.skillReady)
+  ) {
     nextSteps.push(
-      `Re-run \`cam hooks install\` and \`${skillInstallCommand}\` to realign retrieval guidance and fallback assets.`
+      `Re-run \`${hooksInstallCommand}\` and \`${skillInstallCommand}\` to realign retrieval guidance and fallback assets.`
     );
   }
 
   if (route === "mcp") {
     nextSteps.push(
-      `Prefer retrieval MCP with the recommended preset \`${formatRecommendedRetrievalPreset()}\`; keep \`cam recall\` as a direct fallback.`
+      `Prefer retrieval MCP with the recommended preset \`${formatRecommendedRetrievalPreset()}\`; keep the local bridge bundle as the first fallback and \`cam recall\` as the direct fallback.`
     );
   } else if (route === "hooks-fallback") {
     nextSteps.push(
-      "Use `memory-recall.sh search|timeline|details` for the current local bridge fallback path while MCP is being finished."
+      `Use \`${workflowContract.hookFallback.searchCommand}\`, then \`${workflowContract.hookFallback.timelineCommand}\`, then \`${workflowContract.hookFallback.detailsCommand}\` for the current local bridge fallback path while MCP is being finished.`
     );
   } else {
     nextSteps.push(
-      `Use \`${buildRecommendedCliSearchCommand("\"<query>\"", { cwd: options.projectRoot })}\` directly until a richer integration route becomes ready.`
+      `Use \`${directCliSearchCommand}\` directly until a richer integration route becomes ready.`
+    );
+    nextSteps.push(
+      workflowContract.launcher.verified
+        ? `If \`cam\` is unavailable on PATH, use \`${buildResolvedCliSearchCommand("\"<query>\"", { cwd: options.projectRoot })}\` as the verified fallback.`
+        : `If \`cam\` is unavailable on PATH, use \`${buildResolvedCliSearchCommand("\"<query>\"", { cwd: options.projectRoot })}\` as the unverified direct command until the launcher becomes resolvable.`
     );
   }
 
   if (route !== "mcp") {
     nextSteps.push(
-      `Follow progressive disclosure when using the CLI fallback: \`${buildRecommendedCliSearchCommand("\"<query>\"", { cwd: options.projectRoot })}\`, then \`${buildCliTimelineCommand("\"<ref>\"", { cwd: options.projectRoot })}\`, then \`${buildCliDetailsCommand("\"<ref>\"", { cwd: options.projectRoot })}\`.`
+      `Follow progressive disclosure when using the CLI fallback: \`${buildResolvedCliSearchCommand("\"<query>\"", { cwd: options.projectRoot })}\`, then \`${buildResolvedCliTimelineCommand("\"<ref>\"", { cwd: options.projectRoot })}\`, then \`${buildResolvedCliDetailsCommand("\"<ref>\"", { cwd: options.projectRoot })}\`.`
     );
   }
 
   nextSteps.push(
     `Run \`${mcpPrintConfigCommand}\` to print the recommended project-scoped MCP wiring and AGENTS.md snippet.`
   );
-  nextSteps.push(DURABLE_MEMORY_SYNC_GUIDANCE);
+  nextSteps.push(buildDurableMemorySyncGuidance({ cwd: options.projectRoot }));
 
   return [...new Set(nextSteps)];
 }

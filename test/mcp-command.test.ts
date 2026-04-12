@@ -1,28 +1,87 @@
 import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import * as toml from "smol-toml";
 import { detectProjectContext } from "../src/lib/domain/project-context.js";
 import { MemoryStore } from "../src/lib/domain/memory-store.js";
-import { RETRIEVAL_INTEGRATION_ASSET_VERSION } from "../src/lib/integration/retrieval-contract.js";
-import { makeAppConfig, writeCamConfig } from "./helpers/cam-test-fixtures.js";
+import { SyncService } from "../src/lib/domain/sync-service.js";
+import {
+  resolveCliLauncher,
+  buildResolvedCliCommand,
+  RETRIEVAL_INTEGRATION_ASSET_VERSION
+} from "../src/lib/integration/retrieval-contract.js";
+import { buildCodexAgentsGuidance } from "../src/lib/integration/codex-stack.js";
+import {
+  makeAppConfig,
+  makeRolloutFixture,
+  writeCamConfig
+} from "./helpers/cam-test-fixtures.js";
 import { runCli } from "./helpers/cli-runner.js";
 import { connectCliMcpClient } from "./helpers/mcp-client.js";
 
 const tempDirs: string[] = [];
 const originalHome = process.env.HOME;
 const originalCodexHome = process.env.CODEX_HOME;
+const originalPath = process.env.PATH;
 
 interface SearchMemoriesResponse {
   query: string;
   scope: string;
   state: string;
   resolvedState: string;
+  searchOrder?: string[];
+  totalMatchedCount?: number;
+  returnedCount?: number;
+  globalLimitApplied?: boolean;
+  truncatedCount?: number;
+  resultWindow?: {
+    start: number;
+    end: number;
+    limit: number;
+  };
   fallbackUsed: boolean;
+  stateFallbackUsed?: boolean;
+  markdownFallbackUsed?: boolean;
+  finalRetrievalMode?: string;
+  retrievalMode: string;
+  retrievalFallbackReason?: string;
+  stateResolution?: {
+    outcome: string;
+    searchedStates: string[];
+    resolutionReason: string;
+  };
+  executionSummary?: {
+    mode: string;
+    retrievalModes: string[];
+    fallbackReasons: string[];
+  };
+  diagnostics?: {
+    anyMarkdownFallback?: boolean;
+    fallbackReasons?: string[];
+    executionModes?: string[];
+    topicDiagnostics?: Array<{
+      scope: string;
+      state: string;
+      topic: string;
+      safeToRewrite: boolean;
+    }>;
+    checkedPaths: Array<{
+      scope: string;
+      state: string;
+      retrievalMode: string;
+      retrievalFallbackReason?: string;
+      matchedCount: number;
+      returnedCount?: number;
+      droppedCount?: number;
+      indexPath: string;
+      generatedAt: string | null;
+    }>;
+  };
   results: Array<{
     ref: string;
     state: string;
+    globalRank?: number;
     summary: string;
     matchedFields: string[];
     approxReadCost: number;
@@ -31,15 +90,52 @@ interface SearchMemoriesResponse {
 
 interface TimelineMemoriesResponse {
   ref: string;
+  warnings: string[];
+  lineageSummary: {
+    eventCount: number;
+    latestAction: string | null;
+    latestState: string | null;
+    latestAuditStatus: string | null;
+    noopOperationCount: number;
+    suppressedOperationCount: number;
+    conflictCount: number;
+  };
   events: Array<{
     action: string;
     state: string;
+    sessionId?: string;
+    rolloutPath?: string;
   }>;
 }
 
 interface MemoryDetailsResponse {
   ref: string;
   path: string;
+  latestLifecycleAction: string;
+  latestState: string;
+  latestSessionId: string | null;
+  latestRolloutPath: string | null;
+  historyPath: string;
+  timelineWarningCount: number;
+  lineageSummary: {
+    eventCount: number;
+    latestAction: string | null;
+    latestState: string | null;
+    latestAuditStatus: string | null;
+    noopOperationCount: number;
+    suppressedOperationCount: number;
+    conflictCount: number;
+  };
+  warnings: string[];
+  latestAudit?: {
+    auditPath: string;
+    rolloutPath: string;
+    sessionId?: string;
+    status: string;
+    resultSummary: string;
+    noopOperationCount: number;
+    suppressedOperationCount: number;
+  } | null;
   entry: {
     summary: string;
     details: string[];
@@ -61,6 +157,28 @@ async function tempDir(prefix: string): Promise<string> {
   return dir;
 }
 
+async function withFakePackagedDistCli<T>(callback: () => Promise<T>): Promise<T> {
+  const fakeDistDir = await tempDir("cam-fake-dist-cli-");
+  const fakeDistCliPath = path.join(fakeDistDir, "cli.js");
+  const originalOverride = process.env.CODEX_AUTO_MEMORY_DIST_CLI_PATH;
+  await fs.writeFile(
+    fakeDistCliPath,
+    "#!/usr/bin/env node\nconsole.log('fake dist cli');\n",
+    "utf8"
+  );
+  process.env.CODEX_AUTO_MEMORY_DIST_CLI_PATH = fakeDistCliPath;
+
+  try {
+    return await callback();
+  } finally {
+    if (originalOverride === undefined) {
+      delete process.env.CODEX_AUTO_MEMORY_DIST_CLI_PATH;
+    } else {
+      process.env.CODEX_AUTO_MEMORY_DIST_CLI_PATH = originalOverride;
+    }
+  }
+}
+
 async function pathExists(pathname: string): Promise<boolean> {
   try {
     await fs.access(pathname);
@@ -77,10 +195,6 @@ async function readTomlFile(pathname: string): Promise<Record<string, unknown>> 
 
 async function readJsonFile(pathname: string): Promise<Record<string, unknown>> {
   return JSON.parse(await fs.readFile(pathname, "utf8")) as Record<string, unknown>;
-}
-
-function shellQuoteArg(value: string): string {
-  return `'${value.replace(/'/g, `'\"'\"'`)}'`;
 }
 
 async function writeCamShim(binDir: string): Promise<void> {
@@ -141,28 +255,31 @@ function readStructuredContent<T>(result: ToolCallResultLike): T {
 }
 
 afterEach(async () => {
+  vi.restoreAllMocks();
   process.env.HOME = originalHome;
   if (originalCodexHome === undefined) {
     delete process.env.CODEX_HOME;
   } else {
     process.env.CODEX_HOME = originalCodexHome;
   }
+  if (originalPath === undefined) {
+    delete process.env.PATH;
+  } else {
+    process.env.PATH = originalPath;
+  }
   await Promise.all(tempDirs.splice(0).map((dir) => fs.rm(dir, { recursive: true, force: true })));
 });
 
 describe("mcp command", () => {
-  it("installs project-scoped MCP wiring for codex, claude, and gemini without replacing unrelated config", async () => {
+  it("installs project-scoped MCP wiring for codex without replacing unrelated config", async () => {
     const homeDir = await tempDir("cam-mcp-install-home-");
     const projectDir = await tempDir("cam-mcp-install-project-");
     const realProjectDir = await fs.realpath(projectDir);
     process.env.HOME = homeDir;
 
     const codexConfigPath = path.join(realProjectDir, ".codex", "config.toml");
-    const claudeConfigPath = path.join(realProjectDir, ".mcp.json");
-    const geminiConfigPath = path.join(realProjectDir, ".gemini", "settings.json");
 
     await fs.mkdir(path.dirname(codexConfigPath), { recursive: true });
-    await fs.mkdir(path.dirname(geminiConfigPath), { recursive: true });
     await fs.writeFile(
       codexConfigPath,
       [
@@ -174,55 +291,11 @@ describe("mcp command", () => {
       ].join("\n"),
       "utf8"
     );
-    await fs.writeFile(
-      claudeConfigPath,
-      JSON.stringify(
-        {
-          approvalMode: "project",
-          mcpServers: {
-            other_server: {
-              command: "other",
-              args: ["serve"]
-            }
-          }
-        },
-        null,
-        2
-      ),
-      "utf8"
-    );
-    await fs.writeFile(
-      geminiConfigPath,
-      JSON.stringify(
-        {
-          theme: "ocean",
-          mcpServers: {
-            other_server: {
-              command: "other",
-              args: ["serve"],
-              trust: true
-            }
-          }
-        },
-        null,
-        2
-      ),
-      "utf8"
-    );
-
     const codexInstall = runCli(projectDir, ["mcp", "install", "--host", "codex", "--json"], {
-      env: { HOME: homeDir }
-    });
-    const claudeInstall = runCli(projectDir, ["mcp", "install", "--host", "claude", "--json"], {
-      env: { HOME: homeDir }
-    });
-    const geminiInstall = runCli(projectDir, ["mcp", "install", "--host", "gemini", "--json"], {
       env: { HOME: homeDir }
     });
 
     expect(codexInstall.exitCode, codexInstall.stderr).toBe(0);
-    expect(claudeInstall.exitCode, claudeInstall.stderr).toBe(0);
-    expect(geminiInstall.exitCode, geminiInstall.stderr).toBe(0);
 
     expect(JSON.parse(codexInstall.stdout)).toMatchObject({
       host: "codex",
@@ -231,22 +304,6 @@ describe("mcp command", () => {
       projectPinned: true,
       readOnlyRetrieval: true,
       targetPath: codexConfigPath
-    });
-    expect(JSON.parse(claudeInstall.stdout)).toMatchObject({
-      host: "claude",
-      serverName: "codex_auto_memory",
-      action: "created",
-      projectPinned: true,
-      readOnlyRetrieval: true,
-      targetPath: claudeConfigPath
-    });
-    expect(JSON.parse(geminiInstall.stdout)).toMatchObject({
-      host: "gemini",
-      serverName: "codex_auto_memory",
-      action: "created",
-      projectPinned: true,
-      readOnlyRetrieval: true,
-      targetPath: geminiConfigPath
     });
 
     const codexConfig = await readTomlFile(codexConfigPath);
@@ -261,40 +318,6 @@ describe("mcp command", () => {
           command: "cam",
           args: ["mcp", "serve"],
           cwd: realProjectDir
-        }
-      }
-    });
-
-    const claudeConfig = await readJsonFile(claudeConfigPath);
-    expect(claudeConfig).toMatchObject({
-      approvalMode: "project",
-      mcpServers: {
-        other_server: {
-          command: "other",
-          args: ["serve"]
-        },
-        codex_auto_memory: {
-          command: "cam",
-          args: ["mcp", "serve", "--cwd", realProjectDir],
-          env: {}
-        }
-      }
-    });
-
-    const geminiConfig = await readJsonFile(geminiConfigPath);
-    expect(geminiConfig).toMatchObject({
-      theme: "ocean",
-      mcpServers: {
-        other_server: {
-          command: "other",
-          args: ["serve"],
-          trust: true
-        },
-        codex_auto_memory: {
-          command: "cam",
-          args: ["mcp", "serve"],
-          cwd: realProjectDir,
-          trust: false
         }
       }
     });
@@ -355,7 +378,7 @@ describe("mcp command", () => {
       "utf8"
     );
 
-    for (const host of ["codex", "claude", "gemini"] as const) {
+    for (const host of ["codex"] as const) {
       const first = runCli(projectDir, ["mcp", "install", "--host", host, "--json"], {
         env: { HOME: homeDir }
       });
@@ -395,22 +418,6 @@ describe("mcp command", () => {
       expect.arrayContaining([
         expect.objectContaining({
           host: "codex",
-          status: "ok",
-          configCheck: expect.objectContaining({
-            exists: true,
-            projectPinned: true
-          })
-        }),
-        expect.objectContaining({
-          host: "claude",
-          status: "ok",
-          configCheck: expect.objectContaining({
-            exists: true,
-            projectPinned: true
-          })
-        }),
-        expect.objectContaining({
-          host: "gemini",
           status: "ok",
           configCheck: expect.objectContaining({
             exists: true,
@@ -482,7 +489,7 @@ describe("mcp command", () => {
       "utf8"
     );
 
-    for (const host of ["codex", "claude", "gemini"] as const) {
+    for (const host of ["codex"] as const) {
       const result = runCli(projectDir, ["mcp", "install", "--host", host, "--json"], {
         env: { HOME: homeDir }
       });
@@ -505,34 +512,9 @@ describe("mcp command", () => {
         }
       }
     });
-
-    const claudeConfig = await readJsonFile(path.join(projectDir, ".mcp.json"));
-    expect(claudeConfig).toMatchObject({
-      mcpServers: {
-        codex_auto_memory: {
-          command: "cam",
-          args: ["mcp", "serve", "--cwd", realProjectDir],
-          env: {},
-          label: "keep-me"
-        }
-      }
-    });
-
-    const geminiConfig = await readJsonFile(path.join(projectDir, ".gemini", "settings.json"));
-    expect(geminiConfig).toMatchObject({
-      mcpServers: {
-        codex_auto_memory: {
-          command: "cam",
-          args: ["mcp", "serve"],
-          cwd: realProjectDir,
-          trust: false,
-          label: "keep-me"
-        }
-      }
-    });
   });
 
-  it("supports install --cwd for writing another project's host config", async () => {
+  it("supports install --cwd for writing another project's codex config", async () => {
     const homeDir = await tempDir("cam-mcp-install-cwd-home-");
     const projectDir = await tempDir("cam-mcp-install-cwd-project-");
     const callerDir = await tempDir("cam-mcp-install-cwd-caller-");
@@ -541,25 +523,25 @@ describe("mcp command", () => {
 
     const result = runCli(
       callerDir,
-      ["mcp", "install", "--host", "claude", "--cwd", projectDir, "--json"],
+      ["mcp", "install", "--host", "codex", "--cwd", projectDir, "--json"],
       { env: { HOME: homeDir } }
     );
 
     expect(result.exitCode, result.stderr).toBe(0);
     expect(JSON.parse(result.stdout)).toMatchObject({
-      host: "claude",
+      host: "codex",
       action: "created",
       projectRoot: realProjectDir,
-      targetPath: path.join(realProjectDir, ".mcp.json")
+      targetPath: path.join(realProjectDir, ".codex", "config.toml")
     });
 
-    const claudeConfig = await readJsonFile(path.join(realProjectDir, ".mcp.json"));
-    expect(claudeConfig).toMatchObject({
-      mcpServers: {
+    const codexConfig = await readTomlFile(path.join(realProjectDir, ".codex", "config.toml"));
+    expect(codexConfig).toMatchObject({
+      mcp_servers: {
         codex_auto_memory: {
           command: "cam",
-          args: ["mcp", "serve", "--cwd", realProjectDir],
-          env: {}
+          args: ["mcp", "serve"],
+          cwd: realProjectDir
         }
       }
     });
@@ -604,7 +586,7 @@ describe("mcp command", () => {
           "[mcp_servers.codex_auto_memory]",
           "AGENTS.md",
           "search_memories",
-          "cam recall search"
+          "memory-recall.sh search"
         ]
       },
       {
@@ -652,6 +634,7 @@ describe("mcp command", () => {
     expect(result.exitCode, result.stderr).toBe(0);
     const payload = JSON.parse(result.stdout) as {
       host: string;
+      readOnlyRetrieval: boolean;
       serverName: string;
       transport: string;
       targetFileHint: string;
@@ -682,6 +665,7 @@ describe("mcp command", () => {
 
     expect(payload).toMatchObject({
       host: "codex",
+      readOnlyRetrieval: true,
       serverName: "codex_auto_memory",
       transport: "stdio",
       targetFileHint: ".codex/config.toml",
@@ -693,14 +677,16 @@ describe("mcp command", () => {
     expect(payload.workflowContract).toMatchObject({
       recommendedPreset: "state=auto, limit=8",
       routePreference: {
-        preferredRoute: "mcp-first"
+        preferredRoute: "mcp-first",
+        localBridge: expect.stringContaining("memory-recall.sh"),
+        resolvedCli: expect.stringContaining("resolved CLI recall commands")
       },
       recallWorkflow: {
         recallFirst: expect.stringContaining("recall durable memory first"),
         progressiveDisclosure: "Use progressive disclosure: search -> timeline -> details."
       },
       cliFallback: {
-        searchCommand: `cam recall search "<query>" --state auto --limit 8 --cwd ${shellQuoteArg(realProjectDir)}`
+        searchCommand: `cam recall search "<query>" --state auto --limit 8 --cwd '${realProjectDir}'`
       }
     });
     expect(payload.agentsGuidance).toMatchObject({
@@ -708,10 +694,27 @@ describe("mcp command", () => {
       snippetFormat: "markdown"
     });
     expect(payload.agentsGuidance?.snippet).toContain("search_memories");
-    expect(payload.agentsGuidance?.snippet).toContain("cam recall search");
+    expect(payload.agentsGuidance?.snippet).toContain("memory-recall.sh search");
     expect(payload.agentsGuidance?.notes).toEqual(
       expect.arrayContaining([expect.stringContaining("local bridge")])
     );
+  });
+
+  it("fails closed when print-config --cwd is an empty string", async () => {
+    const homeDir = await tempDir("cam-mcp-empty-cwd-home-");
+    const projectDir = await tempDir("cam-mcp-empty-cwd-project-");
+    process.env.HOME = homeDir;
+
+    const result = runCli(
+      projectDir,
+      ["mcp", "print-config", "--host", "codex", "--cwd", "", "--json"],
+      {
+        env: { HOME: homeDir }
+      }
+    );
+
+    expect(result.exitCode).toBe(1);
+    expect(result.stderr).toContain("--cwd must be a non-empty path to an existing directory");
   });
 
   it("applies the recommended AGENTS guidance by creating a managed block when AGENTS.md is missing", async () => {
@@ -881,6 +884,49 @@ describe("mcp command", () => {
     expect(after).toBe(before);
   });
 
+  it("does not append a second managed block when AGENTS.md already contains the current unmanaged snippet", async () => {
+    const homeDir = await tempDir("cam-mcp-apply-guidance-unmanaged-home-");
+    const projectDir = await tempDir("cam-mcp-apply-guidance-unmanaged-project-");
+    const realProjectDir = await fs.realpath(projectDir);
+    process.env.HOME = homeDir;
+
+    const printConfigResult = runCli(
+      projectDir,
+      ["mcp", "print-config", "--host", "codex", "--json"],
+      { env: { HOME: homeDir } }
+    );
+    expect(printConfigResult.exitCode, printConfigResult.stderr).toBe(0);
+    const printConfigPayload = JSON.parse(printConfigResult.stdout) as {
+      agentsGuidance: { snippet: string };
+    };
+    await fs.writeFile(
+      path.join(realProjectDir, "AGENTS.md"),
+      ["# Project Notes", "", printConfigPayload.agentsGuidance.snippet, "", "- Tail note."].join("\n"),
+      "utf8"
+    );
+
+    const before = await fs.readFile(path.join(realProjectDir, "AGENTS.md"), "utf8");
+    const result = runCli(
+      projectDir,
+      ["mcp", "apply-guidance", "--host", "codex", "--json"],
+      {
+        env: { HOME: homeDir }
+      }
+    );
+    expect(result.exitCode, result.stderr).toBe(0);
+    expect(JSON.parse(result.stdout)).toMatchObject({
+      host: "codex",
+      projectRoot: realProjectDir,
+      action: "unchanged",
+      createdFile: false,
+      managedBlockVersion: "codex-agents-guidance-v1"
+    });
+
+    const after = await fs.readFile(path.join(realProjectDir, "AGENTS.md"), "utf8");
+    expect(after).toBe(before);
+    expect(after.match(/cam:codex-agents-guidance:start/gmu)).toBeNull();
+  });
+
   it("preserves bytes outside the managed block when updating guidance", async () => {
     const homeDir = await tempDir("cam-mcp-apply-guidance-verbatim-home-");
     const projectDir = await tempDir("cam-mcp-apply-guidance-verbatim-project-");
@@ -1037,6 +1083,44 @@ describe("mcp command", () => {
     });
   });
 
+  it("keeps managed AGENTS guidance unchanged across HOME and PATH differences", async () => {
+    const homeDirOne = await tempDir("cam-mcp-doctor-agents-stable-home-one-");
+    const homeDirTwo = await tempDir("cam-mcp-doctor-agents-stable-home-two-");
+    const projectDir = await tempDir("cam-mcp-doctor-agents-stable-project-");
+    const realProjectDir = await fs.realpath(projectDir);
+    const binDir = await tempDir("cam-mcp-doctor-agents-stable-bin-");
+    process.env.HOME = homeDirOne;
+
+    await fs.writeFile(path.join(binDir, "cam"), "#!/bin/sh\nexit 0\n", "utf8");
+    await fs.chmod(path.join(binDir, "cam"), 0o644);
+
+    const createResult = runCli(projectDir, ["mcp", "apply-guidance", "--host", "codex", "--json"], {
+      env: { HOME: homeDirOne }
+    });
+    expect(createResult.exitCode, createResult.stderr).toBe(0);
+    const before = await fs.readFile(path.join(realProjectDir, "AGENTS.md"), "utf8");
+
+    const doctorResult = runCli(projectDir, ["mcp", "doctor", "--host", "codex", "--json"], {
+      env: { HOME: homeDirTwo, PATH: await buildPathWithoutCam(binDir) }
+    });
+    expect(doctorResult.exitCode, doctorResult.stderr).toBe(0);
+    expect(JSON.parse(doctorResult.stdout)).toMatchObject({
+      agentsGuidance: {
+        status: "ok"
+      }
+    });
+
+    const applyResult = runCli(projectDir, ["mcp", "apply-guidance", "--host", "codex", "--json"], {
+      env: { HOME: homeDirTwo, PATH: await buildPathWithoutCam(binDir) }
+    });
+    expect(applyResult.exitCode, applyResult.stderr).toBe(0);
+    expect(JSON.parse(applyResult.stdout)).toMatchObject({
+      action: "unchanged"
+    });
+    const after = await fs.readFile(path.join(realProjectDir, "AGENTS.md"), "utf8");
+    expect(after).toBe(before);
+  });
+
   it("does not treat a fenced guidance example as installed AGENTS guidance", async () => {
     const homeDir = await tempDir("cam-mcp-doctor-agents-fenced-home-");
     const projectDir = await tempDir("cam-mcp-doctor-agents-fenced-project-");
@@ -1166,21 +1250,115 @@ describe("mcp command", () => {
     const payload = JSON.parse(result.stdout) as {
       host: string;
       projectRoot: string;
+      readOnlyRetrieval: boolean;
       snippet: string;
-      workflowContract: {
-        cliFallback: {
-          searchCommand: string;
-          timelineCommand: string;
-          detailsCommand: string;
-        };
-      };
+      workflowContract?: unknown;
     };
     expect(payload).toMatchObject({
       host: "generic",
-      projectRoot: realProjectDir
+      projectRoot: realProjectDir,
+      readOnlyRetrieval: true
     });
     expect(payload.snippet).toContain(realProjectDir);
     expect(payload.workflowContract).toBeUndefined();
+  });
+
+  it("keeps workflowContract absent for claude and gemini print-config JSON payloads", async () => {
+    const homeDir = await tempDir("cam-mcp-print-non-codex-json-home-");
+    const projectDir = await tempDir("cam-mcp-print-non-codex-json-project-");
+    process.env.HOME = homeDir;
+
+    for (const host of ["claude", "gemini"] as const) {
+      const result = runCli(projectDir, ["mcp", "print-config", "--host", host, "--json"], {
+        env: { HOME: homeDir }
+      });
+      expect(result.exitCode, result.stderr).toBe(0);
+      expect(JSON.parse(result.stdout).workflowContract).toBeUndefined();
+    }
+  });
+
+  it("keeps generic mcp doctor host-aware instead of surfacing codex-only mutable capabilities", async () => {
+    const homeDir = await tempDir("cam-mcp-doctor-generic-home-");
+    const projectDir = await tempDir("cam-mcp-doctor-generic-project-");
+    process.env.HOME = homeDir;
+
+    const result = runCli(projectDir, ["mcp", "doctor", "--host", "generic", "--json"], {
+      env: { HOME: homeDir }
+    });
+    expect(result.exitCode, result.stderr).toBe(0);
+
+    const payload = JSON.parse(result.stdout) as {
+      commandSurface: {
+        install: boolean;
+        serve: boolean;
+        printConfig: boolean;
+        applyGuidance: boolean;
+        doctor: boolean;
+        installHosts: string[];
+        applyGuidanceHosts: string[];
+      };
+      agentsGuidance: null;
+      applySafety: null;
+      experimentalHooks: null;
+      codexStack: null;
+      hosts: Array<{
+        host: string;
+        status: string;
+      }>;
+    };
+
+    expect(payload.commandSurface).toMatchObject({
+      install: false,
+      serve: true,
+      printConfig: true,
+      applyGuidance: false,
+      doctor: true,
+      installHosts: ["codex"],
+      applyGuidanceHosts: ["codex"]
+    });
+    expect(payload.agentsGuidance).toBeNull();
+    expect(payload.applySafety).toBeNull();
+    expect(payload.experimentalHooks).toBeNull();
+    expect(payload.codexStack).toBeNull();
+    expect(payload.hosts).toEqual([
+      expect.objectContaining({
+        host: "generic",
+        status: "manual"
+      })
+    ]);
+  });
+
+  it("pins Codex AGENTS guidance fallback commands when print-config uses --cwd", async () => {
+    const homeDir = await tempDir("cam-mcp-print-codex-cwd-home-");
+    const projectDir = await tempDir("cam-mcp-print-codex-cwd-project-");
+    const callerDir = await tempDir("cam-mcp-print-codex-cwd-caller-");
+    const realProjectDir = await fs.realpath(projectDir);
+    process.env.HOME = homeDir;
+
+    const result = runCli(
+      callerDir,
+      ["mcp", "print-config", "--host", "codex", "--cwd", projectDir, "--json"],
+      {
+        env: { HOME: homeDir }
+      }
+    );
+
+    expect(result.exitCode, result.stderr).toBe(0);
+    const payload = JSON.parse(result.stdout) as {
+      agentsGuidance: {
+        snippet: string;
+      };
+    };
+    expect(payload.agentsGuidance.snippet).toContain("memory-recall.sh search");
+    expect(payload.agentsGuidance.snippet).toContain(
+      `timeline "<ref>"`
+    );
+    expect(payload.agentsGuidance.snippet).toContain(
+      `details "<ref>"`
+    );
+    expect(payload.agentsGuidance.snippet).toContain(
+      `post-work-memory-review.sh`
+    );
   });
 
   it("pins the recommended skill install command to the inspected project when mcp doctor uses --cwd", async () => {
@@ -1209,7 +1387,9 @@ describe("mcp command", () => {
     };
     expect(payload.projectRoot).toBe(await fs.realpath(projectDir));
     expect(payload.fallbackAssets.recommendedSkillInstallCommand).toBe(
-      `cam skills install --surface runtime --cwd ${shellQuoteArg(payload.projectRoot)}`
+      buildResolvedCliCommand("skills install --surface runtime", {
+        cwd: payload.projectRoot
+      })
     );
   });
 
@@ -1217,13 +1397,19 @@ describe("mcp command", () => {
     const homeDir = await tempDir("cam-mcp-doctor-home-");
     const projectDir = await tempDir("cam-mcp-doctor-project-");
     const callerDir = await tempDir("cam-mcp-doctor-caller-");
+    const binDir = await tempDir("cam-mcp-doctor-bin-");
     const realProjectDir = await fs.realpath(projectDir);
     process.env.HOME = homeDir;
+    await writeCamShim(binDir);
+    const env = {
+      HOME: homeDir,
+      PATH: `${binDir}${path.delimiter}${process.env.PATH ?? ""}`
+    };
 
     const codexSnippetResult = runCli(
       projectDir,
       ["mcp", "print-config", "--host", "codex", "--json"],
-      { env: { HOME: homeDir } }
+      { env }
     );
     expect(codexSnippetResult.exitCode, codexSnippetResult.stderr).toBe(0);
     const codexSnippetPayload = JSON.parse(codexSnippetResult.stdout) as { snippet: string };
@@ -1231,7 +1417,7 @@ describe("mcp command", () => {
     const claudeSnippetResult = runCli(
       projectDir,
       ["mcp", "print-config", "--host", "claude", "--json"],
-      { env: { HOME: homeDir } }
+      { env }
     );
     expect(claudeSnippetResult.exitCode, claudeSnippetResult.stderr).toBe(0);
     const claudeSnippetPayload = JSON.parse(claudeSnippetResult.stdout) as { snippet: string };
@@ -1244,13 +1430,13 @@ describe("mcp command", () => {
     );
     await fs.writeFile(path.join(projectDir, ".mcp.json"), `${claudeSnippetPayload.snippet}\n`, "utf8");
 
-    expect(runCli(projectDir, ["hooks", "install"], { env: { HOME: homeDir } }).exitCode).toBe(0);
-    expect(runCli(projectDir, ["skills", "install"], { env: { HOME: homeDir } }).exitCode).toBe(0);
+    expect(runCli(projectDir, ["hooks", "install"], { env }).exitCode).toBe(0);
+    expect(runCli(projectDir, ["skills", "install"], { env }).exitCode).toBe(0);
 
     const result = runCli(
       callerDir,
       ["mcp", "doctor", "--cwd", projectDir, "--json"],
-      { env: { HOME: homeDir } }
+      { env }
     );
     expect(result.exitCode, result.stderr).toBe(0);
 
@@ -1269,6 +1455,8 @@ describe("mcp command", () => {
         printConfig: boolean;
         applyGuidance: boolean;
         doctor: boolean;
+        installHosts: string[];
+        applyGuidanceHosts: string[];
       };
       fallbackAssets: {
         hookHelpersInstalled: boolean;
@@ -1315,6 +1503,19 @@ describe("mcp command", () => {
         skillReady: boolean;
         workflowConsistent: boolean;
       };
+      retrievalSidecar: {
+        status: string;
+        summary: string;
+        checks: Array<{
+          scope: string;
+          state: string;
+          status: string;
+          fallbackReason?: string;
+          indexPath: string;
+          generatedAt: string | null;
+          topicFileCount: number | null;
+        }>;
+      };
       hosts: Array<{
         host: string;
         status: string;
@@ -1328,12 +1529,18 @@ describe("mcp command", () => {
     expect(payload.projectRoot).toBe(realProjectDir);
     expect(payload.serverName).toBe("codex_auto_memory");
     expect(payload.readOnlyRetrieval).toBe(true);
+    expect(payload.agentsGuidance).toMatchObject({
+      exists: false,
+      status: "missing"
+    });
     expect(payload.commandSurface).toMatchObject({
       install: true,
       serve: true,
       printConfig: true,
       applyGuidance: true,
-      doctor: true
+      doctor: true,
+      installHosts: ["codex"],
+      applyGuidanceHosts: ["codex"]
     });
     expect(payload.fallbackAssets).toMatchObject({
       hookHelpersInstalled: true,
@@ -1427,31 +1634,95 @@ describe("mcp command", () => {
       recallFirst: expect.stringContaining("recall durable memory first"),
       progressiveDisclosure: "Use progressive disclosure: search -> timeline -> details.",
       cliFallback: {
-        searchCommand: `cam recall search "<query>" --state auto --limit 8 --cwd ${shellQuoteArg(realProjectDir)}`,
-        timelineCommand: `cam recall timeline "<ref>" --cwd ${shellQuoteArg(realProjectDir)}`,
-        detailsCommand: `cam recall details "<ref>" --cwd ${shellQuoteArg(realProjectDir)}`
+        searchCommand: `cam recall search "<query>" --state auto --limit 8 --cwd '${realProjectDir}'`,
+        timelineCommand: `cam recall timeline "<ref>" --cwd '${realProjectDir}'`,
+        detailsCommand: `cam recall details "<ref>" --cwd '${realProjectDir}'`
       },
       postWorkSyncReview: {
         helperScript: "post-work-memory-review.sh",
-        syncCommand: `cam sync --cwd ${shellQuoteArg(realProjectDir)}`,
-        reviewCommand: `cam memory --recent --cwd ${shellQuoteArg(realProjectDir)}`
+        syncCommand: `cam sync --cwd '${realProjectDir}'`,
+        reviewCommand: `cam memory --recent --cwd '${realProjectDir}'`
       }
     });
     expect(payload.codexStack).toMatchObject({
       status: "warning",
-      recommendedRoute: "hooks-fallback",
+      recommendedRoute: "mcp",
       preset: "state=auto, limit=8",
       assetVersion: RETRIEVAL_INTEGRATION_ASSET_VERSION,
       mcpReady: false,
       hookCaptureReady: true,
+      hookCaptureOperationalReady: true,
       hookRecallReady: true,
+      hookRecallOperationalReady: true,
       skillReady: true,
       workflowConsistent: false
+    });
+    expect(payload.fallbackAssets.assets).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          id: "memory-recall",
+          launcher: expect.objectContaining({
+            resolution: "cam-path",
+            operational: true
+          })
+        }),
+        expect.objectContaining({
+          id: "post-work-memory-review",
+          launcher: expect.objectContaining({
+            resolution: "cam-path",
+            operational: true
+          })
+        })
+      ])
+    );
+    expect(payload.retrievalSidecar).toMatchObject({
+      status: "warning",
+      summary: expect.stringContaining("Markdown"),
+      repairCommand: expect.stringContaining(
+        `memory reindex --scope all --state all --cwd '${realProjectDir}'`
+      ),
+      checks: expect.arrayContaining([
+        expect.objectContaining({
+          scope: "project",
+          state: "active",
+          status: "missing",
+          fallbackReason: "missing",
+          indexPath: expect.stringContaining("retrieval-index.json"),
+          generatedAt: null,
+          topicFileCount: null
+        })
+      ])
     });
     expect(payload.agentsGuidance).toMatchObject({
       path: path.join(realProjectDir, "AGENTS.md"),
       exists: false,
       status: "missing"
+    });
+    const integrationsDoctor = runCli(
+      projectDir,
+      ["integrations", "doctor", "--host", "codex", "--json"],
+      {
+        env: { HOME: homeDir }
+      }
+    );
+    expect(integrationsDoctor.exitCode, integrationsDoctor.stderr).toBe(0);
+    expect(JSON.parse(integrationsDoctor.stdout)).toMatchObject({
+      retrievalSidecar: {
+        checks: expect.arrayContaining([
+          expect.objectContaining({
+            scope: "project",
+            state: "active",
+            status: "missing",
+            fallbackReason: "missing"
+          })
+        ])
+      },
+      subchecks: {
+        workflowConsistency: {
+          status: "warning",
+          summary: expect.stringContaining("AGENTS")
+        }
+      }
     });
     expect(payload.hosts).toEqual(
       expect.arrayContaining([
@@ -1465,7 +1736,7 @@ describe("mcp command", () => {
         }),
         expect.objectContaining({
           host: "claude",
-          status: "ok",
+          status: "manual",
           configCheck: expect.objectContaining({
             exists: true,
             projectPinned: true
@@ -1698,6 +1969,96 @@ describe("mcp command", () => {
     expect(await pathExists(memoryRoot)).toBe(false);
   });
 
+  it("surfaces canonical layout diagnostics through mcp doctor and integrations doctor", async () => {
+    const homeDir = await tempDir("cam-mcp-layout-diagnostics-home-");
+    const projectDir = await tempDir("cam-mcp-layout-diagnostics-project-");
+    const memoryRoot = await tempDir("cam-mcp-layout-diagnostics-memory-");
+    process.env.HOME = homeDir;
+
+    const projectConfig = makeAppConfig();
+    await writeCamConfig(projectDir, projectConfig, {
+      autoMemoryDirectory: memoryRoot
+    });
+
+    const store = new MemoryStore(detectProjectContext(projectDir), {
+      ...projectConfig,
+      autoMemoryDirectory: memoryRoot
+    });
+    await store.ensureLayout();
+    await store.remember(
+      "project",
+      "workflow",
+      "prefer-pnpm",
+      "Prefer pnpm in this repository.",
+      ["Use pnpm instead of npm in this repository."],
+      "Manual note."
+    );
+
+    await fs.writeFile(
+      path.join(path.dirname(store.getMemoryFile("project")), "Bad Topic.md"),
+      "# stray\n",
+      "utf8"
+    );
+    await fs.writeFile(
+      path.join(path.dirname(store.getMemoryFile("project")), "retrieval-index.backup.json"),
+      "{}\n",
+      "utf8"
+    );
+    await fs.writeFile(store.getMemoryFile("project"), "# Project Memory\n\nDrifted index.\n", "utf8");
+
+    const mcpDoctor = runCli(projectDir, ["mcp", "doctor", "--host", "codex", "--json"], {
+      env: { HOME: homeDir }
+    });
+    expect(mcpDoctor.exitCode, mcpDoctor.stderr).toBe(0);
+    expect(JSON.parse(mcpDoctor.stdout)).toMatchObject({
+      layoutDiagnostics: {
+        status: "warning",
+        diagnostics: expect.arrayContaining([
+          expect.objectContaining({
+            kind: "malformed-topic-filename",
+            fileName: "Bad Topic.md"
+          }),
+          expect.objectContaining({
+            kind: "unexpected-sidecar",
+            fileName: "retrieval-index.backup.json"
+          }),
+          expect.objectContaining({
+            kind: "index-drift",
+            fileName: "MEMORY.md"
+          })
+        ])
+      }
+    });
+
+    const integrationsDoctor = runCli(
+      projectDir,
+      ["integrations", "doctor", "--host", "codex", "--json"],
+      {
+        env: { HOME: homeDir }
+      }
+    );
+    expect(integrationsDoctor.exitCode, integrationsDoctor.stderr).toBe(0);
+    expect(JSON.parse(integrationsDoctor.stdout)).toMatchObject({
+      layoutDiagnostics: {
+        status: "warning",
+        diagnostics: expect.arrayContaining([
+          expect.objectContaining({
+            kind: "malformed-topic-filename",
+            fileName: "Bad Topic.md"
+          }),
+          expect.objectContaining({
+            kind: "unexpected-sidecar",
+            fileName: "retrieval-index.backup.json"
+          }),
+          expect.objectContaining({
+            kind: "index-drift",
+            fileName: "MEMORY.md"
+          })
+        ])
+      }
+    });
+  });
+
   it("reports CODEX_HOME runtime skills path separately from the official skills path", async () => {
     const homeDir = await tempDir("cam-mcp-doctor-codex-home-home-");
     const codexHome = await tempDir("cam-mcp-doctor-codex-home-codex-home-");
@@ -1724,7 +2085,7 @@ describe("mcp command", () => {
         runtimeAssetDir: path.join(codexHome, "skills", "codex-auto-memory-recall"),
         runtimeSource: "CODEX_HOME",
         preferredInstallSurface: "runtime",
-        recommendedSkillInstallCommand: "cam skills install --surface runtime",
+        recommendedSkillInstallCommand: buildResolvedCliCommand("skills install --surface runtime"),
         runtimeSkillPresent: true,
         runtimeSkillInstalled: true,
         runtimeSkillMatchesCanonical: true,
@@ -1751,8 +2112,19 @@ describe("mcp command", () => {
         officialProjectSkillReady: false,
         anySkillSurfaceInstalled: true,
         anySkillSurfaceReady: true,
+        preferredSkillSurfaceReady: true,
         installedSkillSurfaces: ["runtime"],
         readySkillSurfaces: ["runtime"],
+        skillSurfaces: {
+          runtime: {
+            installed: true,
+            discoverable: true,
+            listed: true,
+            executable: true,
+            matchesCanonical: true,
+            preferred: true
+          }
+        },
         skillPathDrift: true,
         skillInstalled: true
       }
@@ -1780,7 +2152,7 @@ describe("mcp command", () => {
       fallbackAssets: {
         runtimeSkillDir: path.join(homeDir, ".codex", "skills", "codex-auto-memory-recall"),
         preferredInstallSurface: "runtime",
-        recommendedSkillInstallCommand: "cam skills install --surface runtime",
+        recommendedSkillInstallCommand: buildResolvedCliCommand("skills install --surface runtime"),
         runtimeSkillPresent: false,
         runtimeSkillInstalled: false,
         runtimeSkillReady: false,
@@ -1805,12 +2177,25 @@ describe("mcp command", () => {
         officialProjectSkillReady: false,
         anySkillSurfaceInstalled: true,
         anySkillSurfaceReady: true,
+        preferredSkillSurfaceReady: false,
         installedSkillSurfaces: ["official-user"],
         readySkillSurfaces: ["official-user"],
+        skillSurfaces: {
+          "official-user": {
+            installed: true,
+            discoverable: true,
+            listed: true,
+            executable: false,
+            matchesCanonical: true,
+            preferred: false
+          }
+        },
         skillInstalled: true
       },
       codexStack: {
-        skillReady: true
+        skillReady: false,
+        workflowAssetsConsistent: false,
+        workflowConsistent: false
       }
     });
   });
@@ -1853,12 +2238,25 @@ describe("mcp command", () => {
         officialProjectSkillReady: true,
         anySkillSurfaceInstalled: true,
         anySkillSurfaceReady: true,
+        preferredSkillSurfaceReady: false,
         installedSkillSurfaces: ["official-project"],
         readySkillSurfaces: ["official-project"],
+        skillSurfaces: {
+          "official-project": {
+            installed: true,
+            discoverable: true,
+            listed: true,
+            executable: false,
+            matchesCanonical: true,
+            preferred: false
+          }
+        },
         skillInstalled: true
       },
       codexStack: {
-        skillReady: true
+        skillReady: false,
+        workflowAssetsConsistent: false,
+        workflowConsistent: false
       }
     });
   });
@@ -1915,6 +2313,7 @@ describe("mcp command", () => {
         startupDoctorInstalled: boolean;
         anySkillSurfaceInstalled: boolean;
         anySkillSurfaceReady: boolean;
+        preferredSkillSurfaceReady: boolean;
         skillInstalled: boolean;
         fallbackAvailable: boolean;
         assets: Array<{
@@ -1932,6 +2331,7 @@ describe("mcp command", () => {
       startupDoctorInstalled: false,
       anySkillSurfaceInstalled: true,
       anySkillSurfaceReady: false,
+      preferredSkillSurfaceReady: false,
       skillInstalled: false,
       fallbackAvailable: false
     });
@@ -1950,6 +2350,54 @@ describe("mcp command", () => {
           status: "stale",
           expectedVersion: RETRIEVAL_INTEGRATION_ASSET_VERSION,
           detectedVersion: null
+        })
+      ])
+    );
+  });
+
+  it("keeps manual-only Claude wiring out of the same readiness tier as Codex", async () => {
+    const homeDir = await tempDir("cam-mcp-doctor-claude-manual-home-");
+    const projectDir = await tempDir("cam-mcp-doctor-claude-manual-project-");
+    process.env.HOME = homeDir;
+
+    await fs.writeFile(
+      path.join(projectDir, ".mcp.json"),
+      JSON.stringify(
+        {
+          mcpServers: {
+            codex_auto_memory: {
+              command: "cam",
+              args: ["mcp", "serve", "--cwd", projectDir]
+            }
+          }
+        },
+        null,
+        2
+      ),
+      "utf8"
+    );
+
+    const result = runCli(projectDir, ["mcp", "doctor", "--host", "claude", "--json"], {
+      env: { HOME: homeDir }
+    });
+    expect(result.exitCode, result.stderr).toBe(0);
+
+    const payload = JSON.parse(result.stdout) as {
+      hosts: Array<{
+        host: string;
+        status: string;
+        summary: string;
+        configScopeSummary?: string;
+      }>;
+    };
+
+    expect(payload.hosts).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          host: "claude",
+          status: "manual",
+          configScopeSummary: "project-ready",
+          summary: expect.stringContaining("manual")
         })
       ])
     );
@@ -2016,6 +2464,7 @@ describe("mcp command", () => {
         startupDoctorInstalled: boolean;
         anySkillSurfaceInstalled: boolean;
         anySkillSurfaceReady: boolean;
+        preferredSkillSurfaceReady: boolean;
         skillInstalled: boolean;
         fallbackAvailable: boolean;
         assets: Array<{
@@ -2033,6 +2482,7 @@ describe("mcp command", () => {
       startupDoctorInstalled: false,
       anySkillSurfaceInstalled: true,
       anySkillSurfaceReady: false,
+      preferredSkillSurfaceReady: false,
       skillInstalled: false,
       fallbackAvailable: false
     });
@@ -2117,57 +2567,357 @@ describe("mcp command", () => {
     );
     expect(payload.codexStack).toMatchObject({
       status: "warning",
-      recommendedRoute: "cli-direct",
+      recommendedRoute: "mcp",
       hookRecallReady: false
     });
   });
 
   it("distinguishes configured MCP wiring from operational readiness when cam is unavailable on PATH", async () => {
-    const homeDir = await tempDir("cam-mcp-doctor-command-home-");
-    const projectDir = await tempDir("cam-mcp-doctor-command-project-");
-    const emptyPathDir = await tempDir("cam-mcp-doctor-command-empty-path-");
+    await withFakePackagedDistCli(async () => {
+      const homeDir = await tempDir("cam-mcp-doctor-command-home-");
+      const projectDir = await tempDir("cam-mcp-doctor-command-project-");
+      const emptyPathDir = await tempDir("cam-mcp-doctor-command-empty-path-");
+      process.env.HOME = homeDir;
+
+      const installResult = runCli(projectDir, ["mcp", "install", "--host", "codex", "--json"], {
+        env: {
+          HOME: homeDir,
+          PATH: await buildPathWithoutCam(emptyPathDir)
+        }
+      });
+      expect(installResult.exitCode, installResult.stderr).toBe(0);
+
+      const doctorResult = runCli(projectDir, ["mcp", "doctor", "--host", "codex", "--json"], {
+        env: {
+          HOME: homeDir,
+          PATH: await buildPathWithoutCam(emptyPathDir)
+        }
+      });
+      expect(doctorResult.exitCode, doctorResult.stderr).toBe(0);
+
+      const payload = JSON.parse(doctorResult.stdout) as {
+        codexStack: {
+          recommendedRoute: string;
+          currentlyOperationalRoute: string;
+          routeKind: string;
+          routeEvidence: string[];
+          mcpReady: boolean;
+          mcpOperationalReady: boolean;
+        camCommandAvailable: boolean;
+        shellDependencyLevel: string;
+        hostMutationRequired: boolean;
+        preferredRouteBlockers: string[];
+        currentOperationalBlockers: string[];
+        hookCaptureOperationalReady: boolean;
+        hookRecallOperationalReady: boolean;
+        };
+        hosts: Array<{
+          host: string;
+          status: string;
+        }>;
+      };
+
+      expect(payload.hosts).toEqual([
+        expect.objectContaining({
+          host: "codex",
+          status: "ok"
+        })
+      ]);
+      expect(payload.codexStack).toMatchObject({
+        recommendedRoute: "mcp",
+        currentlyOperationalRoute: "cli-direct",
+        routeKind: "fallback-cli",
+        mcpReady: true,
+        mcpOperationalReady: false,
+        camCommandAvailable: false,
+        shellDependencyLevel: "required",
+        hostMutationRequired: false,
+        preferredRouteBlockers: expect.arrayContaining(["cam-command-unavailable-for-mcp"]),
+        currentOperationalBlockers: [],
+        hookCaptureOperationalReady: false,
+        hookRecallOperationalReady: false
+      });
+      expect(payload.codexStack.routeEvidence).toEqual(
+        expect.arrayContaining(["mcp-config-present", "resolved-cli-launcher-verified"])
+      );
+    });
+  });
+
+  it("treats hook recall assets as operational when their embedded node launcher stays valid", async () => {
+    await withFakePackagedDistCli(async () => {
+      const homeDir = await tempDir("cam-mcp-doctor-hook-op-home-");
+      const projectDir = await tempDir("cam-mcp-doctor-hook-op-project-");
+      const emptyPathDir = await tempDir("cam-mcp-doctor-hook-op-empty-path-");
+      process.env.HOME = homeDir;
+
+      const hooksInstall = runCli(projectDir, ["hooks", "install", "--json"], {
+        env: {
+          HOME: homeDir,
+          PATH: await buildPathWithoutCam(emptyPathDir)
+        }
+      });
+      expect(hooksInstall.exitCode, hooksInstall.stderr).toBe(0);
+
+      const fakeCliPath = path.join(emptyPathDir, "fake-cam-dist-cli.js");
+      await fs.writeFile(fakeCliPath, 'console.log("fake cli");\n', "utf8");
+      const recallScriptPath = path.join(homeDir, ".codex-auto-memory", "hooks", "memory-recall.sh");
+      const originalRecallScript = await fs.readFile(recallScriptPath, "utf8");
+      const patchedRecallScript = originalRecallScript.replace(
+        /node\s+"[^"]+cli\.js"/u,
+        `node ${JSON.stringify(fakeCliPath)}`
+      );
+      expect(patchedRecallScript).not.toBe(originalRecallScript);
+      await fs.writeFile(recallScriptPath, patchedRecallScript, "utf8");
+
+      const doctorResult = runCli(projectDir, ["mcp", "doctor", "--host", "codex", "--json"], {
+        env: {
+          HOME: homeDir,
+          PATH: await buildPathWithoutCam(emptyPathDir)
+        }
+      });
+      expect(doctorResult.exitCode, doctorResult.stderr).toBe(0);
+
+      const payload = JSON.parse(doctorResult.stdout) as {
+        fallbackAssets: {
+          assets: Array<{
+            id: string;
+            launcher?: {
+              resolution: string;
+              operational: boolean;
+              missingPaths: string[];
+            };
+          }>;
+        };
+        codexStack: {
+          recommendedRoute: string;
+          currentlyOperationalRoute: string;
+          routeKind: string;
+          camCommandAvailable: boolean;
+          hookRecallReady: boolean;
+          hookRecallOperationalReady: boolean;
+          routeEvidence: string[];
+          currentOperationalBlockers: string[];
+        };
+      };
+
+      expect(payload.codexStack).toMatchObject({
+        recommendedRoute: "mcp",
+        currentlyOperationalRoute: "hooks-fallback",
+        routeKind: "fallback-hooks",
+        camCommandAvailable: false,
+        hookRecallReady: true,
+        hookRecallOperationalReady: true,
+        currentOperationalBlockers: []
+      });
+      expect(payload.codexStack.routeEvidence).toEqual(
+        expect.arrayContaining(["hook-recall-operational", "resolved-cli-launcher-verified"])
+      );
+      expect(payload.codexStack.routeEvidence).not.toContain("skill-guidance-ready");
+      expect(payload.fallbackAssets.assets).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            id: "memory-recall",
+            launcher: expect.objectContaining({
+              resolution: "node-dist",
+              operational: true,
+              missingPaths: []
+            })
+          })
+        ])
+      );
+    });
+  });
+
+  it("flags hook recall assets as stale when their embedded node launcher path is broken", async () => {
+    await withFakePackagedDistCli(async () => {
+      const homeDir = await tempDir("cam-mcp-doctor-hook-launcher-home-");
+      const projectDir = await tempDir("cam-mcp-doctor-hook-launcher-project-");
+      const emptyPathDir = await tempDir("cam-mcp-doctor-hook-launcher-empty-path-");
+      process.env.HOME = homeDir;
+
+      const hooksInstall = runCli(projectDir, ["hooks", "install", "--json"], {
+        env: {
+          HOME: homeDir,
+          PATH: await buildPathWithoutCam(emptyPathDir)
+        }
+      });
+      expect(hooksInstall.exitCode, hooksInstall.stderr).toBe(0);
+
+      const recallScriptPath = path.join(homeDir, ".codex-auto-memory", "hooks", "memory-recall.sh");
+      const originalRecallScript = await fs.readFile(recallScriptPath, "utf8");
+      const brokenRecallScript = originalRecallScript.replace(
+        /node\s+"[^"]+cli\.js"/u,
+        'node "/tmp/missing-cam-dist-cli.js"'
+      );
+      expect(brokenRecallScript).not.toBe(originalRecallScript);
+      await fs.writeFile(recallScriptPath, brokenRecallScript, "utf8");
+
+      const doctorResult = runCli(projectDir, ["mcp", "doctor", "--host", "codex", "--json"], {
+        env: {
+          HOME: homeDir,
+          PATH: await buildPathWithoutCam(emptyPathDir)
+        }
+      });
+      expect(doctorResult.exitCode, doctorResult.stderr).toBe(0);
+
+      const payload = JSON.parse(doctorResult.stdout) as {
+        fallbackAssets: {
+          hookHelpersInstalled: boolean;
+          assets: Array<{
+            id: string;
+            status: string;
+            launcher?: {
+              resolution: string;
+              operational: boolean;
+              missingPaths: string[];
+            };
+          }>;
+        };
+        codexStack: {
+          recommendedRoute: string;
+          hookRecallReady: boolean;
+          hookRecallOperationalReady: boolean;
+        };
+      };
+
+      expect(payload.fallbackAssets.hookHelpersInstalled).toBe(false);
+      expect(payload.fallbackAssets.assets).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            id: "memory-recall",
+            status: "stale",
+            launcher: expect.objectContaining({
+              resolution: "node-dist",
+              operational: false,
+              missingPaths: ["/tmp/missing-cam-dist-cli.js"]
+            })
+          })
+        ])
+      );
+      expect(payload.codexStack).toMatchObject({
+        recommendedRoute: "mcp",
+        hookRecallReady: false,
+        hookRecallOperationalReady: false
+      });
+    });
+  });
+
+  it("does not report executable fallback when only skill guidance is installed", async () => {
+    const homeDir = await tempDir("cam-mcp-doctor-skill-only-home-");
+    const projectDir = await tempDir("cam-mcp-doctor-skill-only-project-");
     process.env.HOME = homeDir;
 
-    const installResult = runCli(projectDir, ["mcp", "install", "--host", "codex", "--json"], {
-      env: {
-        HOME: homeDir,
-        PATH: await buildPathWithoutCam(emptyPathDir)
-      }
+    const skillsInstall = runCli(projectDir, ["skills", "install", "--json"], {
+      env: { HOME: homeDir }
     });
-    expect(installResult.exitCode, installResult.stderr).toBe(0);
+    expect(skillsInstall.exitCode, skillsInstall.stderr).toBe(0);
 
-    const doctorResult = runCli(projectDir, ["mcp", "doctor", "--host", "codex", "--json"], {
-      env: {
-        HOME: homeDir,
-        PATH: await buildPathWithoutCam(emptyPathDir)
-      }
+    const doctorResult = runCli(projectDir, ["mcp", "doctor", "--json"], {
+      env: { HOME: homeDir }
     });
     expect(doctorResult.exitCode, doctorResult.stderr).toBe(0);
 
     const payload = JSON.parse(doctorResult.stdout) as {
-      codexStack: {
-        recommendedRoute: string;
-        mcpReady: boolean;
-        mcpOperationalReady: boolean;
-        camCommandAvailable: boolean;
+      fallbackAssets: {
+        skillInstalled: boolean;
+        guidanceAvailable: boolean;
+        shellFallbackAvailable: boolean;
+        fallbackAvailable: boolean;
       };
-      hosts: Array<{
-        host: string;
-        status: string;
-      }>;
     };
 
-    expect(payload.hosts).toEqual([
-      expect.objectContaining({
-        host: "codex",
-        status: "ok"
-      })
-    ]);
-    expect(payload.codexStack).toMatchObject({
-      recommendedRoute: "cli-direct",
-      mcpReady: true,
-      mcpOperationalReady: false,
-      camCommandAvailable: false
+    expect(payload.fallbackAssets).toMatchObject({
+      skillInstalled: true,
+      guidanceAvailable: true,
+      shellFallbackAvailable: false,
+      fallbackAvailable: false
+    });
+  });
+
+  it("suggests the smallest retrieval sidecar repair command when only one scope/state check is degraded", async () => {
+    const homeDir = await tempDir("cam-mcp-doctor-min-repair-home-");
+    const projectDir = await tempDir("cam-mcp-doctor-min-repair-project-");
+    const memoryRoot = await tempDir("cam-mcp-doctor-min-repair-memory-");
+    process.env.HOME = homeDir;
+
+    const projectConfig = makeAppConfig();
+    await writeCamConfig(projectDir, projectConfig, {
+      autoMemoryDirectory: memoryRoot
+    });
+
+    const store = new MemoryStore(detectProjectContext(projectDir), {
+      ...projectConfig,
+      autoMemoryDirectory: memoryRoot
+    });
+    await store.ensureLayout();
+    await store.remember(
+      "project",
+      "workflow",
+      "prefer-pnpm",
+      "Prefer pnpm in this repository.",
+      ["Use pnpm instead of npm in this repository."],
+      "Manual note."
+    );
+
+    const topicPath = store.getTopicFile("project", "workflow");
+    const staleAt = new Date(Date.now() + 60_000);
+    await fs.utimes(topicPath, staleAt, staleAt);
+
+    const result = runCli(projectDir, ["mcp", "doctor", "--host", "codex", "--json"], {
+      env: { HOME: homeDir }
+    });
+    expect(result.exitCode, result.stderr).toBe(0);
+
+    expect(JSON.parse(result.stdout)).toMatchObject({
+      retrievalSidecar: {
+        status: "warning",
+        repairCommand: buildResolvedCliCommand("memory reindex --scope project --state active"),
+        checks: expect.arrayContaining([
+          expect.objectContaining({
+            scope: "project",
+            state: "active",
+            status: "stale"
+          })
+        ])
+      }
+    });
+  });
+
+  it("surfaces explicit experimental Codex hooks guidance in print-config and doctor output", async () => {
+    const homeDir = await tempDir("cam-mcp-experimental-hooks-home-");
+    const projectDir = await tempDir("cam-mcp-experimental-hooks-project-");
+    process.env.HOME = homeDir;
+
+    const printConfig = runCli(projectDir, ["mcp", "print-config", "--host", "codex", "--json"], {
+      env: { HOME: homeDir }
+    });
+    const doctor = runCli(projectDir, ["mcp", "doctor", "--host", "codex", "--json"], {
+      env: { HOME: homeDir }
+    });
+
+    expect(printConfig.exitCode, printConfig.stderr).toBe(0);
+    expect(doctor.exitCode, doctor.stderr).toBe(0);
+
+    expect(JSON.parse(printConfig.stdout)).toMatchObject({
+      experimentalHooks: {
+        status: "experimental",
+        featureFlag: "codex_hooks",
+        targetFileHint: ".codex/config.toml",
+        snippetFormat: "toml",
+        snippet: "codex_hooks = true",
+        notes: expect.arrayContaining([
+          expect.stringContaining("Experimental"),
+          expect.stringContaining("Under development"),
+          expect.stringContaining("inside an existing [features] table")
+        ])
+      }
+    });
+    expect(JSON.parse(doctor.stdout)).toMatchObject({
+      experimentalHooks: {
+        status: "experimental",
+        featureFlag: "codex_hooks",
+        targetFileHint: ".codex/config.toml"
+      }
     });
   });
 
@@ -2193,38 +2943,271 @@ describe("mcp command", () => {
       ["integrations", "doctor", "--host", "codex", "--cwd", projectDir, "--json"],
       { env: { HOME: homeDir } }
     );
+    const hooksInstall = runCli(
+      shellDir,
+      ["hooks", "install", "--cwd", projectDir, "--json"],
+      { env: { HOME: homeDir } }
+    );
+    const skillsInstall = runCli(
+      shellDir,
+      ["skills", "install", "--cwd", projectDir, "--json"],
+      { env: { HOME: homeDir } }
+    );
 
     expect(printConfig.exitCode, printConfig.stderr).toBe(0);
     expect(mcpDoctor.exitCode, mcpDoctor.stderr).toBe(0);
     expect(integrationsDoctor.exitCode, integrationsDoctor.stderr).toBe(0);
+    expect(hooksInstall.exitCode, hooksInstall.stderr).toBe(0);
+    expect(skillsInstall.exitCode, skillsInstall.stderr).toBe(0);
 
     const printWorkflow = JSON.parse(printConfig.stdout).workflowContract;
     const mcpWorkflow = JSON.parse(mcpDoctor.stdout).workflowContract;
     const integrationsWorkflow = JSON.parse(integrationsDoctor.stdout).workflowContract;
+    const hooksWorkflow = JSON.parse(hooksInstall.stdout).workflowContract;
+    const skillsWorkflow = JSON.parse(skillsInstall.stdout).workflowContract;
     const expectedCore = {
       recommendedPreset: "state=auto, limit=8",
       preferredRoute: "mcp-first",
+      fallbackOrder: ["mcp", "local-bridge", "resolved-cli"],
+      launcher: {
+        commandName: "cam",
+        requiresPathResolution: true,
+        hookHelpersShellOnly: true
+      },
       routePreference: {
-        preferredRoute: "mcp-first"
+        preferredRoute: "mcp-first",
+        localBridge: "If the retrieval MCP server is unavailable, fall back to the local recall bridge bundle through memory-recall.sh search|timeline|details.",
+        resolvedCli: "If the local bridge bundle is unavailable, fall back to the resolved CLI recall commands."
       },
       recallWorkflow: {
         progressiveDisclosure: "Use progressive disclosure: search -> timeline -> details."
       },
+      executionContract: {
+        preferredRoute: "mcp-first",
+        recommendedPreset: "state=auto, limit=8",
+        fallbackOrder: ["mcp", "local-bridge", "resolved-cli"]
+      },
+      modelGuidanceContract: {
+        progressiveDisclosure: "Use progressive disclosure: search -> timeline -> details."
+      },
+      hostWiringContract: {
+        launcher: {
+          commandName: "cam",
+          requiresPathResolution: true,
+          hookHelpersShellOnly: true
+        }
+      },
       cliFallback: {
-        searchCommand: `cam recall search "<query>" --state auto --limit 8 --cwd ${shellQuoteArg(realProjectDir)}`,
-        timelineCommand: `cam recall timeline "<ref>" --cwd ${shellQuoteArg(realProjectDir)}`,
-        detailsCommand: `cam recall details "<ref>" --cwd ${shellQuoteArg(realProjectDir)}`
+        searchCommand: `cam recall search "<query>" --state auto --limit 8 --cwd '${realProjectDir}'`,
+        timelineCommand: `cam recall timeline "<ref>" --cwd '${realProjectDir}'`,
+        detailsCommand: `cam recall details "<ref>" --cwd '${realProjectDir}'`,
+        requiresCamOnPath: true
       },
       postWorkSyncReview: {
         helperScript: "post-work-memory-review.sh",
-        syncCommand: `cam sync --cwd ${shellQuoteArg(realProjectDir)}`,
-        reviewCommand: `cam memory --recent --cwd ${shellQuoteArg(realProjectDir)}`
+        syncCommand: `cam sync --cwd '${realProjectDir}'`,
+        reviewCommand: `cam memory --recent --cwd '${realProjectDir}'`,
+        shellOnly: true,
+        requiresCamOnPath: true
       }
     };
 
     expect(printWorkflow).toMatchObject(expectedCore);
     expect(mcpWorkflow).toMatchObject(expectedCore);
     expect(integrationsWorkflow).toMatchObject(expectedCore);
+    expect(hooksWorkflow).toMatchObject(expectedCore);
+    expect(skillsWorkflow).toMatchObject(expectedCore);
+  });
+
+  it("surfaces unsafe topic diagnostics through mcp doctor and integrations doctor", async () => {
+    const homeDir = await tempDir("cam-mcp-unsafe-topic-doctor-home-");
+    const projectDir = await tempDir("cam-mcp-unsafe-topic-doctor-project-");
+    const memoryRoot = await tempDir("cam-mcp-unsafe-topic-doctor-memory-");
+    process.env.HOME = homeDir;
+
+    const projectConfig = makeAppConfig();
+    await writeCamConfig(projectDir, projectConfig, {
+      autoMemoryDirectory: memoryRoot
+    });
+
+    const store = new MemoryStore(detectProjectContext(projectDir), {
+      ...projectConfig,
+      autoMemoryDirectory: memoryRoot
+    });
+    await store.ensureLayout();
+    await store.remember(
+      "project",
+      "workflow",
+      "prefer-pnpm",
+      "Prefer pnpm in this repository.",
+      ["Use pnpm instead of npm in this repository."],
+      "Manual note."
+    );
+    await fs.writeFile(
+      store.getTopicFile("project", "workflow"),
+      [
+        "# Workflow",
+        "",
+        "<!-- cam:topic workflow -->",
+        "",
+        "This file is maintained by Codex Auto Memory. You may edit summaries or details directly.",
+        "",
+        "Manual notes outside managed entries"
+      ].join("\n"),
+      "utf8"
+    );
+
+    const mcpDoctor = runCli(projectDir, ["mcp", "doctor", "--host", "codex", "--json"], {
+      env: { HOME: homeDir }
+    });
+    expect(mcpDoctor.exitCode, mcpDoctor.stderr).toBe(0);
+    expect(JSON.parse(mcpDoctor.stdout)).toMatchObject({
+      topicDiagnostics: {
+        status: "warning",
+        diagnostics: expect.arrayContaining([
+          expect.objectContaining({
+            topic: "workflow",
+            safeToRewrite: false
+          })
+        ])
+      }
+    });
+
+    const integrationsDoctor = runCli(
+      projectDir,
+      ["integrations", "doctor", "--host", "codex", "--json"],
+      {
+        env: { HOME: homeDir }
+      }
+    );
+    expect(integrationsDoctor.exitCode, integrationsDoctor.stderr).toBe(0);
+    expect(JSON.parse(integrationsDoctor.stdout)).toMatchObject({
+      topicDiagnostics: {
+        status: "warning",
+        diagnostics: expect.arrayContaining([
+          expect.objectContaining({
+            topic: "workflow",
+            safeToRewrite: false
+          })
+        ])
+      }
+    });
+  });
+
+  it("surfaces unsafe topic diagnostics when search_memories falls back to Markdown", async () => {
+    const homeDir = await tempDir("cam-mcp-unsafe-topic-search-home-");
+    const projectDir = await tempDir("cam-mcp-unsafe-topic-search-project-");
+    const memoryRoot = await tempDir("cam-mcp-unsafe-topic-search-memory-");
+    process.env.HOME = homeDir;
+
+    const projectConfig = makeAppConfig();
+    await writeCamConfig(projectDir, projectConfig, {
+      autoMemoryDirectory: memoryRoot
+    });
+
+    const store = new MemoryStore(detectProjectContext(projectDir), {
+      ...projectConfig,
+      autoMemoryDirectory: memoryRoot
+    });
+    await store.ensureLayout();
+    await store.remember(
+      "project",
+      "workflow",
+      "prefer-pnpm",
+      "Prefer pnpm in this repository.",
+      ["Use pnpm instead of npm in this repository."],
+      "Manual note."
+    );
+    await fs.writeFile(
+      store.getTopicFile("project", "workflow"),
+      [
+        "# Workflow",
+        "",
+        "<!-- cam:topic workflow -->",
+        "",
+        "This file is maintained by Codex Auto Memory. You may edit summaries or details directly.",
+        "",
+        "## prefer-pnpm",
+        '<!-- cam:entry {"id":"prefer-pnpm","scope":"project","updatedAt":"2026-03-31T00:00:00.000Z"} -->',
+        "Summary: Prefer pnpm in this repository.",
+        "Details:",
+        "- Use pnpm instead of npm in this repository.",
+        "",
+        "Manual notes outside managed entries"
+      ].join("\n"),
+      "utf8"
+    );
+    await fs.writeFile(store.getRetrievalIndexFile("project", "active"), "{not-json", "utf8");
+
+    const client = await connectCliMcpClient(projectDir, {
+      env: { HOME: homeDir }
+    });
+
+    try {
+      const result = await client.callTool({
+        name: "search_memories",
+        arguments: {
+          query: "prefer pnpm",
+          state: "active",
+          limit: 8
+        }
+      });
+      const payload = readStructuredContent<SearchMemoriesResponse>(result as ToolCallResultLike);
+      expect(payload).toMatchObject({
+        finalRetrievalMode: "markdown-fallback",
+        retrievalMode: "markdown-fallback",
+        retrievalFallbackReason: "invalid",
+        diagnostics: {
+          topicDiagnostics: expect.arrayContaining([
+            expect.objectContaining({
+              topic: "workflow",
+              safeToRewrite: false
+            })
+          ])
+        }
+      });
+      expect(payload.results).toEqual([]);
+    } finally {
+      await client.close();
+    }
+  }, 30_000);
+
+  it("does not treat a non-executable cam file on PATH as a verified launcher when no dist fallback is available", async () => {
+    const binDir = await tempDir("cam-launcher-nonexec-bin-");
+    const shimPath = path.join(binDir, "cam");
+    await fs.writeFile(shimPath, "#!/bin/sh\nexit 0\n", "utf8");
+    await fs.chmod(shimPath, 0o644);
+    process.env.PATH = binDir;
+
+    expect(
+      resolveCliLauncher({
+        pathValue: binDir,
+        distCliPathExists: false
+      })
+    ).toMatchObject({
+      resolution: "cam-unverified",
+      verified: false,
+      resolvedCommand: "cam"
+    });
+  });
+
+  it("keeps Codex guidance snippet stable when the launcher is unverified", async () => {
+    const binDir = await tempDir("cam-guidance-unverified-bin-");
+    const shimPath = path.join(binDir, "cam");
+    await fs.writeFile(shimPath, "#!/bin/sh\nexit 0\n", "utf8");
+    await fs.chmod(shimPath, 0o644);
+    process.env.PATH = binDir;
+
+    const guidance = buildCodexAgentsGuidance({
+      launcherOverride: resolveCliLauncher({
+        pathValue: binDir,
+        distCliPathExists: false
+      })
+    });
+    expect(guidance.snippet).not.toContain("verified launcher fallback");
+    expect(guidance.snippet).not.toContain("unverified direct command");
+    expect(guidance.snippet).not.toContain("/Users/");
+    expect(guidance.snippet).toContain("cam recall search");
   });
 
   it("reports an operational MCP route once cam is available on PATH", async () => {
@@ -2253,18 +3236,29 @@ describe("mcp command", () => {
     const payload = JSON.parse(doctorResult.stdout) as {
       codexStack: {
         recommendedRoute: string;
+        currentlyOperationalRoute: string;
+        routeKind: string;
         mcpReady: boolean;
         mcpOperationalReady: boolean;
         camCommandAvailable: boolean;
+        routeEvidence: string[];
+        currentOperationalBlockers: string[];
       };
     };
 
     expect(payload.codexStack).toMatchObject({
       recommendedRoute: "mcp",
+      currentlyOperationalRoute: "mcp",
+      routeKind: "preferred-mcp",
       mcpReady: true,
       mcpOperationalReady: true,
-      camCommandAvailable: true
+      camCommandAvailable: true,
+      currentOperationalBlockers: []
     });
+    expect(payload.codexStack.routeEvidence).toEqual(
+      expect.arrayContaining(["mcp-config-present", "cam-command-available"])
+    );
+    expect(payload.codexStack.routeEvidence).not.toContain("skill-guidance-ready");
   });
 
   it("does not treat stray config tokens as valid codex wiring", async () => {
@@ -2386,6 +3380,22 @@ describe("mcp command", () => {
     expect(result.stderr).toContain("manual-only");
   });
 
+  it("rejects non-codex host installs because install remains Codex-only", async () => {
+    const homeDir = await tempDir("cam-mcp-install-noncodex-home-");
+    const projectDir = await tempDir("cam-mcp-install-noncodex-project-");
+    process.env.HOME = homeDir;
+
+    for (const host of ["claude", "gemini"] as const) {
+      const result = runCli(projectDir, ["mcp", "install", "--host", host], {
+        env: { HOME: homeDir }
+      });
+
+      expect(result.exitCode).toBe(1);
+      expect(result.stderr).toContain(host);
+      expect(result.stderr).toContain("Codex-only");
+    }
+  });
+
   it("serves read-only retrieval MCP tools over stdio", async () => {
     const homeDir = await tempDir("cam-mcp-home-");
     const projectDir = await tempDir("cam-mcp-project-");
@@ -2440,7 +3450,10 @@ describe("mcp command", () => {
         query: "pnpm",
         state: "archived",
         resolvedState: "archived",
-        fallbackUsed: false
+        fallbackUsed: false,
+        stateFallbackUsed: false,
+        markdownFallbackUsed: false,
+        retrievalMode: "index"
       });
       expect(searchPayload.results).toHaveLength(1);
       expect(searchPayload.results[0]).toMatchObject({
@@ -2462,6 +3475,16 @@ describe("mcp command", () => {
         timelineResult as ToolCallResultLike
       );
       expect(timelinePayload.ref).toBe(ref);
+      expect(timelinePayload.warnings).toEqual([]);
+      expect(timelinePayload.lineageSummary).toMatchObject({
+        eventCount: 2,
+        latestAction: "archive",
+        latestState: "archived",
+        latestAuditStatus: null,
+        noopOperationCount: 0,
+        suppressedOperationCount: 0,
+        conflictCount: 0
+      });
       expect(timelinePayload.events.slice(0, 2)).toEqual([
         expect.objectContaining({ action: "archive", state: "archived" }),
         expect.objectContaining({ action: "add", state: "active" })
@@ -2477,6 +3500,22 @@ describe("mcp command", () => {
       expect(detailsPayload).toMatchObject({
         ref,
         path: store.getArchiveTopicFile("project", "workflow"),
+        latestLifecycleAction: "archive",
+        latestState: "archived",
+        latestSessionId: null,
+        latestRolloutPath: null,
+        historyPath: store.getHistoryPath("project"),
+        timelineWarningCount: 0,
+        lineageSummary: {
+          eventCount: 2,
+          latestAction: "archive",
+          latestState: "archived",
+          latestAuditStatus: null,
+          noopOperationCount: 0,
+          suppressedOperationCount: 0,
+          conflictCount: 0
+        },
+        warnings: [],
         entry: {
           summary: "Prefer pnpm in this repository.",
           details: ["Use pnpm instead of npm in this repository."]
@@ -2603,7 +3642,18 @@ describe("mcp command", () => {
         query: "pnpm",
         state: "auto",
         resolvedState: "active",
-        fallbackUsed: false
+        fallbackUsed: false,
+        retrievalMode: "index",
+        stateResolution: {
+          outcome: "active-hit",
+          searchedStates: ["active"],
+          resolutionReason: "active-match-found"
+        },
+        executionSummary: {
+          mode: "index-only",
+          retrievalModes: ["index"],
+          fallbackReasons: []
+        }
       });
       expect(preferredPayload.results).toEqual([
         expect.objectContaining({
@@ -2628,7 +3678,18 @@ describe("mcp command", () => {
         query: "historical",
         state: "auto",
         resolvedState: "archived",
-        fallbackUsed: true
+        fallbackUsed: true,
+        retrievalMode: "index",
+        stateResolution: {
+          outcome: "archived-hit",
+          searchedStates: ["active", "archived"],
+          resolutionReason: "active-empty-archived-match-found"
+        },
+        executionSummary: {
+          mode: "index-only",
+          retrievalModes: ["index"],
+          fallbackReasons: []
+        }
       });
       expect(fallbackPayload.results).toEqual([
         expect.objectContaining({
@@ -2687,10 +3748,137 @@ describe("mcp command", () => {
         query: "historical",
         state: "auto",
         resolvedState: "archived",
-        fallbackUsed: true
+        fallbackUsed: true,
+        stateFallbackUsed: true,
+        markdownFallbackUsed: false,
+        retrievalMode: "index",
+        stateResolution: {
+          outcome: "archived-hit",
+          searchedStates: ["active", "archived"],
+          resolutionReason: "active-empty-archived-match-found"
+        },
+        executionSummary: {
+          mode: "index-only",
+          retrievalModes: ["index"],
+          fallbackReasons: []
+        }
       });
       expect(payload.results).toHaveLength(8);
       expect(payload.results.every((entry) => entry.state === "archived")).toBe(true);
+    } finally {
+      await client.close();
+    }
+  }, 30_000);
+
+  it("surfaces explicit-state contract for state=all MCP searches and keeps checkedPaths ordered", async () => {
+    const homeDir = await tempDir("cam-mcp-state-all-home-");
+    const projectDir = await tempDir("cam-mcp-state-all-project-");
+    const memoryRoot = await tempDir("cam-mcp-state-all-memory-");
+    process.env.HOME = homeDir;
+
+    const projectConfig = makeAppConfig();
+    await writeCamConfig(projectDir, projectConfig, {
+      autoMemoryDirectory: memoryRoot
+    });
+
+    const store = new MemoryStore(detectProjectContext(projectDir), {
+      ...projectConfig,
+      autoMemoryDirectory: memoryRoot
+    });
+    await store.ensureLayout();
+    await store.remember(
+      "project",
+      "workflow",
+      "prefer-pnpm-active",
+      "Active pnpm workflow note.",
+      ["Use pnpm in this repository now."],
+      "Manual note."
+    );
+    await store.remember(
+      "project",
+      "workflow",
+      "prefer-pnpm-archived",
+      "Archived pnpm migration note.",
+      ["Historical pnpm migration note."],
+      "Manual note."
+    );
+    await store.forget("project", "Archived pnpm migration note", { archive: true });
+
+    const client = await connectCliMcpClient(projectDir, {
+      env: { HOME: homeDir }
+    });
+
+    try {
+      const result = await client.callTool({
+        name: "search_memories",
+        arguments: {
+          query: "pnpm",
+          state: "all",
+          limit: 1
+        }
+      });
+      const payload = readStructuredContent<SearchMemoriesResponse>(result as ToolCallResultLike);
+      expect(payload.state).toBe("all");
+      expect(payload.resolvedState).toBe("all");
+      expect(payload.searchOrder).toEqual([
+        "global:active",
+        "global:archived",
+        "project:active",
+        "project:archived",
+        "project-local:active",
+        "project-local:archived"
+      ]);
+      expect(payload.totalMatchedCount).toBe(2);
+      expect(payload.returnedCount).toBe(1);
+      expect(payload.globalLimitApplied).toBe(true);
+      expect(payload.truncatedCount).toBe(1);
+      expect(payload.resultWindow).toEqual({
+        start: 1,
+        end: 1,
+        limit: 1
+      });
+      expect(payload.stateResolution).toMatchObject({
+        outcome: "explicit-state",
+        searchedStates: ["active", "archived"],
+        resolutionReason: "explicit-all-state-requested"
+      });
+      expect(payload.executionSummary).toMatchObject({
+        mode: "index-only",
+        retrievalModes: ["index"],
+        fallbackReasons: []
+      });
+      expect(payload.results).toHaveLength(1);
+      expect(payload.results[0]?.globalRank).toBe(1);
+      const returnedState = payload.results[0]?.state;
+      expect(returnedState === "active" || returnedState === "archived").toBe(true);
+      const projectChecks =
+        payload.diagnostics?.checkedPaths.filter((check) => check.scope === "project") ?? [];
+      expect(projectChecks).toMatchObject([
+        {
+          scope: "project",
+          state: "active",
+          retrievalMode: "index",
+          matchedCount: 1
+        },
+        {
+          scope: "project",
+          state: "archived",
+          retrievalMode: "index",
+          matchedCount: 1
+        }
+      ]);
+      const activeCheck = projectChecks.find((check) => check.state === "active");
+      const archivedCheck = projectChecks.find((check) => check.state === "archived");
+      expect((activeCheck?.returnedCount ?? 0) + (archivedCheck?.returnedCount ?? 0)).toBe(1);
+      expect(
+        returnedState === "active" ? activeCheck?.returnedCount : archivedCheck?.returnedCount
+      ).toBe(1);
+      expect(
+        returnedState === "active" ? activeCheck?.droppedCount : archivedCheck?.droppedCount
+      ).toBe(0);
+      expect(
+        returnedState === "active" ? archivedCheck?.droppedCount : activeCheck?.droppedCount
+      ).toBe(1);
     } finally {
       await client.close();
     }
@@ -2788,12 +3976,89 @@ describe("mcp command", () => {
         arguments: { query: "pnpm", limit: 3 }
       });
       const payload = readStructuredContent<SearchMemoriesResponse>(result as ToolCallResultLike);
-      expect(payload.results).toEqual([]);
+      expect(payload).toMatchObject({
+        fallbackUsed: true,
+        stateFallbackUsed: true,
+        markdownFallbackUsed: true,
+        retrievalMode: "markdown-fallback",
+        retrievalFallbackReason: "missing",
+        stateResolution: {
+          outcome: "miss-after-both",
+          searchedStates: ["active", "archived"],
+          resolutionReason: "no-match-after-auto-search"
+        },
+        executionSummary: {
+          mode: "markdown-fallback-only",
+          retrievalModes: ["markdown-fallback"],
+          fallbackReasons: ["missing"]
+        },
+        diagnostics: {
+          anyMarkdownFallback: true,
+          fallbackReasons: ["missing"],
+          executionModes: ["markdown-fallback"],
+          checkedPaths: expect.arrayContaining([
+            expect.objectContaining({
+              scope: "project",
+              state: "active",
+              retrievalMode: "markdown-fallback",
+              retrievalFallbackReason: "missing",
+              matchedCount: 0,
+              returnedCount: 0
+            })
+          ])
+        },
+        results: []
+      });
     } finally {
       await client.close();
     }
 
     expect(await pathExists(memoryRoot)).toBe(false);
+  }, 30_000);
+
+  it("does not surface healthy topic files as unsafe diagnostics through search_memories", async () => {
+    const homeDir = await tempDir("cam-mcp-safe-topic-home-");
+    const projectDir = await tempDir("cam-mcp-safe-topic-project-");
+    const memoryRoot = await tempDir("cam-mcp-safe-topic-memory-");
+    process.env.HOME = homeDir;
+
+    const projectConfig = makeAppConfig();
+    await writeCamConfig(projectDir, projectConfig, {
+      autoMemoryDirectory: memoryRoot
+    });
+
+    const store = new MemoryStore(detectProjectContext(projectDir), {
+      ...projectConfig,
+      autoMemoryDirectory: memoryRoot
+    });
+    await store.ensureLayout();
+    await store.remember(
+      "project",
+      "workflow",
+      "prefer-pnpm",
+      "Prefer pnpm in this repository.",
+      ["Use pnpm instead of npm in this repository."],
+      "Manual note."
+    );
+
+    const client = await connectCliMcpClient(projectDir, {
+      env: { HOME: homeDir }
+    });
+
+    try {
+      const result = await client.callTool({
+        name: "search_memories",
+        arguments: {
+          query: "pnpm",
+          state: "active",
+          limit: 8
+        }
+      });
+      const payload = readStructuredContent<SearchMemoriesResponse>(result as ToolCallResultLike);
+      expect(payload.diagnostics?.topicDiagnostics ?? []).toEqual([]);
+    } finally {
+      await client.close();
+    }
   }, 30_000);
 
   it("keeps mcp install read-only with respect to memory layout", async () => {
@@ -2819,4 +4084,236 @@ describe("mcp command", () => {
     });
     expect(await pathExists(memoryRoot)).toBe(false);
   });
+
+  it("surfaces markdown fallback diagnostics for invalid retrieval sidecars over MCP", async () => {
+    const homeDir = await tempDir("cam-mcp-invalid-sidecar-home-");
+    const projectDir = await tempDir("cam-mcp-invalid-sidecar-project-");
+    const memoryRoot = await tempDir("cam-mcp-invalid-sidecar-memory-");
+    process.env.HOME = homeDir;
+
+    const projectConfig = makeAppConfig();
+    await writeCamConfig(projectDir, projectConfig, {
+      autoMemoryDirectory: memoryRoot
+    });
+
+    const store = new MemoryStore(detectProjectContext(projectDir), {
+      ...projectConfig,
+      autoMemoryDirectory: memoryRoot
+    });
+    await store.ensureLayout();
+    await store.remember(
+      "project",
+      "workflow",
+      "prefer-pnpm",
+      "Prefer pnpm in this repository.",
+      ["Use pnpm instead of npm in this repository."],
+      "Manual note."
+    );
+    await fs.writeFile(store.getRetrievalIndexFile("project", "active"), "{not-json", "utf8");
+
+    const client = await connectCliMcpClient(projectDir, {
+      env: { HOME: homeDir }
+    });
+
+    try {
+      const result = await client.callTool({
+        name: "search_memories",
+        arguments: {
+          query: "prefer pnpm",
+          state: "active",
+          limit: 5
+        }
+      });
+      const payload = readStructuredContent<SearchMemoriesResponse>(result as ToolCallResultLike);
+      expect(payload).toMatchObject({
+        retrievalMode: "markdown-fallback",
+        retrievalFallbackReason: "invalid",
+        executionSummary: {
+          mode: "mixed",
+          retrievalModes: ["index", "markdown-fallback"],
+          fallbackReasons: ["invalid"]
+        },
+        diagnostics: {
+          executionModes: ["index", "markdown-fallback"],
+          checkedPaths: expect.arrayContaining([
+            expect.objectContaining({
+              scope: "project",
+              state: "active",
+              retrievalMode: "markdown-fallback",
+              retrievalFallbackReason: "invalid",
+              matchedCount: 1,
+              returnedCount: 1,
+              indexPath: store.getRetrievalIndexFile("project", "active"),
+              generatedAt: null
+            })
+          ])
+        },
+        results: [expect.objectContaining({ ref: "project:active:workflow:prefer-pnpm" })]
+      });
+    } finally {
+      await client.close();
+    }
+  }, 30_000);
+
+  it("surfaces mixed execution summary over MCP when auto search combines markdown fallback and archived index hits", async () => {
+    const homeDir = await tempDir("cam-mcp-mixed-execution-home-");
+    const projectDir = await tempDir("cam-mcp-mixed-execution-project-");
+    const memoryRoot = await tempDir("cam-mcp-mixed-execution-memory-");
+    process.env.HOME = homeDir;
+
+    const projectConfig = makeAppConfig();
+    await writeCamConfig(projectDir, projectConfig, {
+      autoMemoryDirectory: memoryRoot
+    });
+
+    const store = new MemoryStore(detectProjectContext(projectDir), {
+      ...projectConfig,
+      autoMemoryDirectory: memoryRoot
+    });
+    await store.ensureLayout();
+    await store.remember(
+      "project",
+      "workflow",
+      "historical-pnpm",
+      "Historical pnpm migration note.",
+      ["Old pnpm migration note kept for history."],
+      "Manual note."
+    );
+    await store.forget("project", "historical pnpm", { archive: true });
+    await fs.writeFile(store.getRetrievalIndexFile("project", "active"), "{not-json", "utf8");
+
+    const client = await connectCliMcpClient(projectDir, {
+      env: { HOME: homeDir }
+    });
+
+    try {
+      const result = await client.callTool({
+        name: "search_memories",
+        arguments: {
+          query: "historical",
+          state: "auto",
+          limit: 5
+        }
+      });
+      const payload = readStructuredContent<SearchMemoriesResponse>(result as ToolCallResultLike);
+      expect(payload).toMatchObject({
+        resolvedState: "archived",
+        retrievalMode: "index",
+        markdownFallbackUsed: true,
+        stateResolution: {
+          outcome: "archived-hit",
+          searchedStates: ["active", "archived"],
+          resolutionReason: "active-empty-archived-match-found"
+        },
+        executionSummary: {
+          mode: "mixed",
+          retrievalModes: ["index", "markdown-fallback"],
+          fallbackReasons: ["invalid"]
+        },
+        diagnostics: {
+          anyMarkdownFallback: true,
+          fallbackReasons: ["invalid"],
+          executionModes: ["index", "markdown-fallback"],
+          checkedPaths: expect.arrayContaining([
+            expect.objectContaining({
+              scope: "project",
+              state: "active",
+              retrievalMode: "markdown-fallback",
+              retrievalFallbackReason: "invalid",
+              matchedCount: 0,
+              returnedCount: 0
+            }),
+            expect.objectContaining({
+              scope: "project",
+              state: "archived",
+              retrievalMode: "index",
+              matchedCount: 1,
+              returnedCount: 1
+            })
+          ])
+        }
+      });
+    } finally {
+      await client.close();
+    }
+  }, 30_000);
+
+  it("surfaces latest sync audit provenance through MCP memory details", async () => {
+    const homeDir = await tempDir("cam-mcp-details-audit-home-");
+    const projectDir = await tempDir("cam-mcp-details-audit-project-");
+    const memoryRoot = await tempDir("cam-mcp-details-audit-memory-");
+    const rolloutPath = path.join(projectDir, "rollout.jsonl");
+    process.env.HOME = homeDir;
+
+    const projectConfig = makeAppConfig();
+    await writeCamConfig(projectDir, projectConfig, {
+      autoMemoryDirectory: memoryRoot
+    });
+    await fs.writeFile(
+      rolloutPath,
+      makeRolloutFixture(projectDir, "Remember that this repository prefers pnpm.", {
+        sessionId: "session-mcp-audit"
+      }),
+      "utf8"
+    );
+
+    const service = new SyncService(detectProjectContext(projectDir), {
+      ...projectConfig,
+      autoMemoryDirectory: memoryRoot
+    });
+    await service.syncRollout(rolloutPath, true);
+
+    const client = await connectCliMcpClient(projectDir, {
+      env: { HOME: homeDir }
+    });
+
+    try {
+      const searchResult = await client.callTool({
+        name: "search_memories",
+        arguments: {
+          query: "prefers pnpm",
+          limit: 5
+        }
+      });
+      const searchPayload = readStructuredContent<SearchMemoriesResponse>(
+        searchResult as ToolCallResultLike
+      );
+      const ref = searchPayload.results[0]?.ref;
+      expect(ref).toBeTruthy();
+
+      const detailsResult = await client.callTool({
+        name: "get_memory_details",
+        arguments: {
+          ref
+        }
+      });
+      const detailsPayload = readStructuredContent<MemoryDetailsResponse>(
+        detailsResult as ToolCallResultLike
+      );
+      expect(detailsPayload).toMatchObject({
+        latestState: "active",
+        latestSessionId: "session-mcp-audit",
+        latestRolloutPath: rolloutPath,
+        timelineWarningCount: 0,
+        lineageSummary: expect.objectContaining({
+          eventCount: 1,
+          latestAction: "add",
+          latestState: "active",
+          latestAuditStatus: "applied"
+        }),
+        warnings: [],
+        latestAudit: {
+          auditPath: service.memoryStore.getSyncAuditPath(),
+          rolloutPath,
+          sessionId: "session-mcp-audit",
+          status: "applied",
+          resultSummary: expect.stringContaining("operation(s) applied"),
+          noopOperationCount: 0,
+          suppressedOperationCount: 0
+        }
+      });
+    } finally {
+      await client.close();
+    }
+  }, 30_000);
 });

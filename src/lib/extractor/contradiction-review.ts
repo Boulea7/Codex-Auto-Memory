@@ -4,6 +4,12 @@ import type {
   MemoryOperation,
   MemoryScope
 } from "../types.js";
+import { canonicalCommandSignature } from "./command-signatures.js";
+import {
+  extractReferenceResourceKey,
+  inferReferenceCategory,
+  splitDirectiveClauses
+} from "./directive-utils.js";
 
 interface DirectiveChoice {
   key: string;
@@ -24,10 +30,20 @@ export interface ReviewedMemoryOperations {
   conflicts: MemoryConflictCandidate[];
 }
 
-const reviewableTopics = new Set(["preferences", "workflow", "commands"]);
+const reviewableTopics = new Set([
+  "preferences",
+  "workflow",
+  "commands",
+  "reference",
+  "architecture",
+  "debugging",
+  "patterns"
+]);
 const replacementDeleteReasonPattern = /^Superseded by a newer /u;
 const packageManagerValues = ["pnpm", "npm", "yarn", "bun"] as const;
 const repoSearchValues = ["rg", "ripgrep", "grep"] as const;
+const canonicalStoreValues = ["markdown", "sqlite", "database", "vector"] as const;
+const debuggingDependencyValues = ["redis", "postgres", "docker"] as const;
 const hedgedCorrectionPattern =
   /(?:\bmaybe\b|\bperhaps\b|\bif possible\b|\bwhen possible\b|\bfor now\b|\bprobably\b|\busually\b|\bsometimes\b|\btry\b|\bconsider\b|\bmight\b|\bcould\b|尽量|如果可以|可能|暂时)/iu;
 
@@ -44,7 +60,10 @@ function isHighConfidenceReplacement(operation: MemoryOperation): boolean {
     return false;
   }
 
-  if (operation.reason === "Explicit user correction that should replace stale memory.") {
+  if (
+    operation.reason === "Explicit user correction that should replace stale memory." ||
+    operation.reason === "Stable directive that should replace stale memory."
+  ) {
     return !hedgedCorrectionPattern.test(operation.summary ?? "");
   }
 
@@ -64,27 +83,6 @@ function hasCommandReplacementDelete(
   );
 }
 
-function commandSignature(command: string): string | null {
-  const normalized = command.toLowerCase().trim();
-  if (/\b(?:pnpm|npm|bun|yarn)\s+(test|lint|build|install)\b/u.test(normalized)) {
-    return normalized.match(/\b(?:pnpm|npm|bun|yarn)\s+(test|lint|build|install)\b/u)?.[1] ?? null;
-  }
-
-  if (/\bcargo\s+(test|build|check)\b/u.test(normalized)) {
-    return normalized.match(/\bcargo\s+(test|build|check)\b/u)?.[1] ?? null;
-  }
-
-  if (/\b(?:pytest|jest|vitest|go test|dotnet test|rake)\b/u.test(normalized)) {
-    return "test";
-  }
-
-  if (/\b(?:tsc|vite build|next build|gradle|mvn|make)\b/u.test(normalized)) {
-    return "build";
-  }
-
-  return null;
-}
-
 function extractCommandChoice(text: string): DirectiveChoice[] {
   const commandMatch = text.match(/`([^`]+)`/u);
   const command = commandMatch?.[1]?.trim();
@@ -92,7 +90,7 @@ function extractCommandChoice(text: string): DirectiveChoice[] {
     return [];
   }
 
-  const signature = commandSignature(command);
+  const signature = canonicalCommandSignature(command);
   if (!signature) {
     return [];
   }
@@ -100,7 +98,7 @@ function extractCommandChoice(text: string): DirectiveChoice[] {
   return [
     {
       key: `command:${signature}`,
-      value: command.toLowerCase()
+      value: signature
     }
   ];
 }
@@ -145,10 +143,153 @@ function extractDirectiveChoices(operation: MemoryOperation): DirectiveChoice[] 
     return extractCommandChoice(operation.summary);
   }
 
+  if (operation.topic === "reference") {
+    return extractReferenceChoices(operation.summary);
+  }
+
+  if (operation.topic === "architecture") {
+    return extractArchitectureChoices(operation.summary);
+  }
+
+  if (operation.topic === "debugging") {
+    return extractDebuggingChoices(operation.summary);
+  }
+
+  if (operation.topic === "patterns") {
+    return extractPatternChoices(operation.summary);
+  }
+
   return [
     ...extractValueChoice(operation.summary, packageManagerValues, "package-manager"),
     ...extractValueChoice(operation.summary, repoSearchValues, "repo-search")
   ];
+}
+
+function normalizeReferenceUrl(url: string): string {
+  return url.replace(/[),.;]+$/u, "").trim().toLowerCase();
+}
+
+function extractReferenceChoices(text: string): DirectiveChoice[] {
+  const urlMatch = text.match(/https?:\/\/[^\s)]+/iu)?.[0];
+  const url = urlMatch ? normalizeReferenceUrl(urlMatch) : null;
+  const category = inferReferenceCategory(text);
+  const normalized = text.toLowerCase();
+
+  if (url) {
+    const resourceKey = extractReferenceResourceKey(text, category, url) ?? category;
+    return [
+      {
+        key: `reference:${category}:${resourceKey}`,
+        value: url
+      }
+    ];
+  }
+
+  const trackerMatch = normalized.match(/\b(linear|jira|github issues?)\b/iu)?.[1];
+  if (trackerMatch) {
+    const resourceKey = extractReferenceResourceKey(text, category, null) ?? category;
+    return [
+      {
+        key: `reference:${category}:${resourceKey}`,
+        value: trackerMatch.toLowerCase()
+      }
+    ];
+  }
+
+  return [];
+}
+
+function extractArchitectureChoices(text: string): DirectiveChoice[] {
+  const normalized = text.toLowerCase();
+  if (!/\b(canonical|source of truth|db-first|markdown-first|database-first)\b|规范存储|主真相/u.test(text)) {
+    return [];
+  }
+
+  if (/markdown-first|markdown.*source of truth|markdown.*canonical/u.test(normalized)) {
+    return [
+      {
+        key: "architecture:canonical-store",
+        value: "markdown"
+      }
+    ];
+  }
+
+  const choice = extractValueChoice(normalized, canonicalStoreValues, "architecture:canonical-store");
+  if (choice.length > 0) {
+    return choice;
+  }
+
+  if (/db-first|database-first|数据库优先/u.test(normalized)) {
+    return [
+      {
+        key: "architecture:canonical-store",
+        value: "database"
+      }
+    ];
+  }
+
+  return [];
+}
+
+function extractDebuggingChoices(text: string): DirectiveChoice[] {
+  const choices: DirectiveChoice[] = [];
+
+  for (const value of debuggingDependencyValues) {
+    const pattern = new RegExp(`\\b${escapeRegExp(value)}\\b`, "iu");
+    for (const clause of splitDirectiveClauses(text)) {
+      if (!pattern.test(clause.toLowerCase())) {
+        continue;
+      }
+
+      if (
+        /\b(?:does not require|doesn't require|is not required|not required|without)\b|不需要|无需/u.test(
+          clause
+        )
+      ) {
+        choices.push({
+          key: `debugging:required-service:${value}`,
+          value: "not-required"
+        });
+        continue;
+      }
+
+      if (
+        /\b(requires?|needs?|start|before running|must be running|running before|before integration tests)\b|需要|必须|先启动/u.test(
+          clause
+        )
+      ) {
+        choices.push({
+          key: `debugging:required-service:${value}`,
+          value: "required"
+        });
+      }
+    }
+  }
+
+  return choices;
+}
+
+function extractPatternChoices(text: string): DirectiveChoice[] {
+  const normalized = text.toLowerCase().replace(/\s+/gu, " ");
+  if (/search\s*->\s*timeline\s*->\s*details/u.test(normalized)) {
+    return [
+      {
+        key: "patterns:retrieval-flow",
+        value: "search->timeline->details"
+      }
+    ];
+  }
+
+  if (/mcp\s*->\s*local bridge\s*->\s*resolved cli/u.test(normalized)) {
+    return [
+      {
+        key: "patterns:route-order",
+        value: "mcp->local-bridge->resolved-cli"
+      }
+    ];
+  }
+
+  return [];
 }
 
 function choicesConflict(left: DirectiveChoice[], right: DirectiveChoice[]): boolean {
@@ -156,6 +297,19 @@ function choicesConflict(left: DirectiveChoice[], right: DirectiveChoice[]): boo
     right.some(
       (rightChoice) =>
         leftChoice.key === rightChoice.key && leftChoice.value !== rightChoice.value
+    )
+  );
+}
+
+function choicesEqual(left: DirectiveChoice[], right: DirectiveChoice[]): boolean {
+  if (left.length !== right.length) {
+    return false;
+  }
+
+  return left.every((leftChoice) =>
+    right.some(
+      (rightChoice) =>
+        leftChoice.key === rightChoice.key && leftChoice.value === rightChoice.value
     )
   );
 }
@@ -190,16 +344,48 @@ function findPreferredWithinRolloutWinner(
   return highConfidenceReviews[0] ?? null;
 }
 
-function hasRetainedHighConfidenceCandidate(
+function entryDirectiveChoices(entry: MemoryEntry): DirectiveChoice[] {
+  return extractDirectiveChoices({
+    action: "upsert",
+    scope: entry.scope,
+    topic: entry.topic,
+    id: entry.id,
+    summary: entry.summary,
+    details: entry.details,
+    sources: entry.sources,
+    reason: entry.reason
+  });
+}
+
+function shouldKeepReplacementDelete(
+  operation: MemoryOperation,
   reviews: CandidateReview[],
   retainedIndices: Set<number>,
-  groupKey: string
+  existingEntries: MemoryEntry[]
 ): boolean {
+  const targetEntry = existingEntries.find(
+    (entry) =>
+      entry.scope === operation.scope &&
+      entry.topic === operation.topic &&
+      entry.id === operation.id
+  );
+  if (!targetEntry) {
+    return true;
+  }
+
+  const targetChoices = entryDirectiveChoices(targetEntry);
+  if (targetChoices.length === 0) {
+    return true;
+  }
+
   return reviews.some(
     (review) =>
-      review.groupKey === groupKey &&
+      retainedIndices.has(review.index) &&
       review.highConfidence &&
-      retainedIndices.has(review.index)
+      review.operation.scope === operation.scope &&
+      review.operation.topic === operation.topic &&
+      (choicesConflict(review.choices, targetChoices) ||
+        choicesEqual(review.choices, targetChoices))
   );
 }
 
@@ -237,7 +423,8 @@ export function reviewExtractedMemoryOperations(
         choices,
         highConfidence:
           isHighConfidenceReplacement(operation) ||
-          (operation.topic === "commands" && hasCommandReplacementDelete(operations, operation))
+          (operation.topic === "commands" &&
+            hasCommandReplacementDelete(operations, operation))
       };
     })
     .filter((review): review is CandidateReview => Boolean(review));
@@ -251,13 +438,34 @@ export function reviewExtractedMemoryOperations(
   }
 
   const suppressedIndices = new Set<number>();
+  const dedupedIndices = new Set<number>();
   const retainedIndices = new Set(reviews.map((review) => review.index));
   const conflicts: MemoryConflictCandidate[] = [];
 
   for (const review of reviews) {
+    const equivalentReviews = reviews
+      .filter(
+        (candidate) =>
+          candidate.index !== review.index &&
+          candidate.groupKey === review.groupKey &&
+          choicesEqual(review.choices, candidate.choices)
+      )
+      .sort((left, right) => right.index - left.index);
+    const preferredEquivalent = equivalentReviews[0];
+    if (preferredEquivalent && preferredEquivalent.index > review.index) {
+      dedupedIndices.add(review.index);
+      retainedIndices.delete(review.index);
+    }
+  }
+
+  for (const review of reviews) {
+    if (dedupedIndices.has(review.index)) {
+      continue;
+    }
     const conflictingReviews = reviews
       .filter(
         (candidate) =>
+          !dedupedIndices.has(candidate.index) &&
           candidate.index !== review.index &&
           candidate.groupKey === review.groupKey &&
           choicesConflict(review.choices, candidate.choices)
@@ -323,19 +531,12 @@ export function reviewExtractedMemoryOperations(
     }
   }
 
-  const groupsNeedingDeleteSuppression = new Set<string>();
-  for (const review of reviews) {
-    if (!suppressedIndices.has(review.index)) {
-      continue;
-    }
-
-    if (!hasRetainedHighConfidenceCandidate(reviews, retainedIndices, review.groupKey)) {
-      groupsNeedingDeleteSuppression.add(review.groupKey);
-    }
-  }
-
   const keptOperations = operations.filter((operation, index) => {
     if (suppressedIndices.has(index)) {
+      return false;
+    }
+
+    if (dedupedIndices.has(index)) {
       return false;
     }
 
@@ -343,12 +544,12 @@ export function reviewExtractedMemoryOperations(
       return true;
     }
 
-    return !groupsNeedingDeleteSuppression.has(buildGroupKey(operation.scope, operation.topic));
+    return shouldKeepReplacementDelete(operation, reviews, retainedIndices, existingEntries);
   });
 
   return {
     operations: keptOperations,
-    suppressedOperationCount: operations.length - keptOperations.length,
+    suppressedOperationCount: suppressedIndices.size,
     conflicts
   };
 }

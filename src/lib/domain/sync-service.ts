@@ -21,6 +21,7 @@ import type { MemoryExtractorAdapter } from "../runtime/contracts.js";
 import { RolloutSessionSource } from "../runtime/rollout-session-source.js";
 import { buildMemorySyncAuditEntry } from "./memory-sync-audit.js";
 import { buildSyncRecoveryRecord, matchesSyncRecoveryRecord } from "./recovery-records.js";
+import { isPrimaryRolloutEvidence } from "./rollout.js";
 
 interface ExtractionResult {
   operations: MemoryOperation[];
@@ -92,6 +93,28 @@ export class SyncService {
       };
     }
 
+    if (!isPrimaryRolloutEvidence(evidence)) {
+      await this.store.appendSyncAuditEntry(
+        buildMemorySyncAuditEntry({
+          project: this.project,
+          config: this.config,
+          rolloutPath,
+          sessionId: evidence.sessionId,
+          configuredExtractorName: this.configuredExtractorName,
+          actualExtractorMode: this.configuredExtractorMode,
+          actualExtractorName: this.configuredExtractorName,
+          sessionSource: this.sessionSource.name,
+          status: "skipped",
+          skipReason: "subagent-rollout"
+        })
+      );
+      return {
+        applied: [],
+        skipped: true,
+        message: `Skipped ${rolloutPath}; subagent rollout evidence is not eligible for durable sync.`
+      };
+    }
+
     const processedIdentity = await this.getProcessedRolloutIdentity(rolloutPath, evidence);
     const existingRecoveryRecord = await this.store.readSyncRecoveryRecord();
     const isRecovery =
@@ -143,7 +166,10 @@ export class SyncService {
       filterMemoryOperations(extraction.operations),
       existingEntries
     );
-    const applyRecords = await this.store.applyMutations(reviewedOperations.operations);
+    const applyRecords = await this.store.applyMutations(reviewedOperations.operations, {
+      sessionId: evidence.sessionId,
+      rolloutPath: evidence.rolloutPath
+    });
     const applied = applyRecords.flatMap((record) => {
       const operation = toAppliedOperation(record);
       return operation ? [operation] : [];

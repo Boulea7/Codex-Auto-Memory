@@ -4,6 +4,7 @@ import path from "node:path";
 import { listIntegrationAssets, type IntegrationAssetInstallSurface } from "./assets.js";
 import { READ_ONLY_RETRIEVAL_NOTE } from "./codex-stack.js";
 import {
+  buildWorkflowContract,
   formatRecommendedRetrievalPreset,
   MCP_FIRST_RECALL_WORKFLOW,
   CLI_FALLBACK_RECALL_WORKFLOW,
@@ -13,7 +14,7 @@ import {
   type CodexSkillInstallSurface,
   formatCodexSkillInstallSurface
 } from "./skills-paths.js";
-import { ensureDir, fileExists, readTextFile, writeTextFile } from "../util/fs.js";
+import { ensureDir, fileExists, readTextFile, writeTextFileAtomic } from "../util/fs.js";
 
 export type IntegrationAssetInstallAction = "created" | "updated" | "unchanged";
 
@@ -33,6 +34,7 @@ export interface IntegrationAssetInstallResult {
   readOnlyRetrieval: true;
   assetVersion: string;
   recommendedPreset: string;
+  workflowContract: ReturnType<typeof buildWorkflowContract>;
   skillSurface?: CodexSkillInstallSurface;
   preferredSkillSurface?: CodexSkillInstallSurface;
   notes: string[]; 
@@ -101,7 +103,7 @@ export async function installIntegrationAssets(
 
     if (action !== "unchanged") {
       await ensureDir(path.dirname(asset.path));
-      await writeTextFile(asset.path, asset.contents);
+      await writeTextFileAtomic(asset.path, asset.contents);
       if (asset.executableExpected) {
         await fs.chmod(asset.path, 0o755);
       }
@@ -124,6 +126,9 @@ export async function installIntegrationAssets(
     readOnlyRetrieval: true,
     assetVersion: RETRIEVAL_INTEGRATION_ASSET_VERSION,
     recommendedPreset: formatRecommendedRetrievalPreset(),
+    workflowContract: buildWorkflowContract({
+      cwd: options.projectRoot
+    }),
     skillSurface: installSurface === "skills" ? skillSurface : undefined,
     preferredSkillSurface: installSurface === "skills" ? "runtime" : undefined,
     notes:
