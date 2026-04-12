@@ -157,6 +157,14 @@ This sidecar is intentionally:
 
 It can summarize continuity into a sidecar snapshot, surface query-time relevant durable refs, and stage pending promotion candidates, but it does **not** directly rewrite `MEMORY.md`, topic files, or the continuity Markdown files.
 
+The reviewer-facing expansion around this seam is now split into three additive surfaces:
+
+- `resumeContext` from `cam session status --json` / `cam session load --json`
+- `querySurfacing` from `cam recall search --json`
+- dream-sidecar review lanes such as `cam dream candidates` / `cam dream review` / `cam dream promote`
+
+These surfaces are intentionally reviewer aids first. Durable-memory dream promote still requires explicit review and then flows through the existing reviewer/audit write path before canonical durable memory changes. Instruction-like dream promote remains `proposal-only`: it can stage or describe a proposed instruction update, but it does not directly mutate instruction files.
+
 ## Why the project-local layer is not the shared layer
 
 Even when users prefer project-folder-local files, git worktrees do not provide a single shared filesystem path for all worktrees.
@@ -199,6 +207,8 @@ Command contract:
 - a compact prior-generation audit preview sourced from the continuity audit log that excludes the latest entry, coalesces consecutive repeats, and does not attempt to replay full prior history
 
 `cam session status` now renders the latest generation path, the latest rollout path, the audit-log location, the same latest-generation drill-down, and the same compact prior-generation audit preview without printing the full shared/local continuity bodies.
+
+`cam session status --json` and `cam session load --json` now also expose additive `resumeContext`, which includes the current goal, next steps, discovered instruction files, and `suggestedDurableRefs`. Those refs are resume hints only; they do not auto-promote sidecar candidates into durable memory.
 
 `cam session refresh` renders a compact reviewer surface only:
 

@@ -160,15 +160,20 @@ describe("tarball install smoke", () => {
     });
 
     const memoryRoot = await tempDir("cam-tarball-memory-root-");
-    const appConfig = makeAppConfig();
-    await writeCamConfig(installDir, appConfig, {
-      autoMemoryDirectory: memoryRoot
+    const appConfig = makeAppConfig({
+      dreamSidecarEnabled: true
     });
+    await writeCamConfig(installDir, appConfig, {
+      autoMemoryDirectory: memoryRoot,
+      dreamSidecarEnabled: true
+    });
+    await fs.writeFile(path.join(installDir, "CLAUDE.md"), "# Installed package rules\n", "utf8");
 
     const project = detectProjectContext(installDir);
     const memoryStore = new MemoryStore(project, {
       ...appConfig,
-      autoMemoryDirectory: memoryRoot
+      autoMemoryDirectory: memoryRoot,
+      dreamSidecarEnabled: true
     });
     await memoryStore.ensureLayout();
     await memoryStore.remember(
@@ -210,20 +215,67 @@ describe("tarball install smoke", () => {
       ]
     });
 
+    const rolloutPath = path.join(installDir, "rollout.jsonl");
+    await fs.writeFile(
+      rolloutPath,
+      JSON.stringify({
+        type: "session_meta",
+        payload: {
+          id: "session-tarball-dream",
+          timestamp: "2026-04-12T10:30:00.000Z",
+          cwd: installDir
+        }
+      }) +
+        "\n" +
+        JSON.stringify({
+          type: "event_msg",
+          payload: {
+            type: "user_message",
+            message: "Continue the installed-package smoke review and keep using pnpm in this repository."
+          }
+        }) +
+        "\n",
+      "utf8"
+    );
+
+    const sessionSaveResult = runCommandCapture(
+      camBinaryPath(installDir),
+      ["session", "save", "--rollout", rolloutPath, "--scope", "both"],
+      installDir,
+      envWithBin
+    );
+    expect(sessionSaveResult.exitCode, sessionSaveResult.stderr).toBe(0);
+
+    const dreamBuildResult = runCommandCapture(
+      camBinaryPath(installDir),
+      ["dream", "build", "--rollout", rolloutPath, "--json"],
+      installDir,
+      envWithBin
+    );
+    expect(dreamBuildResult.exitCode, dreamBuildResult.stderr).toBe(0);
+
     const recallSearchResult = runCommandCapture(
       camBinaryPath(installDir),
-      ["recall", "search", "prefer pnpm", "--state", "active", "--json"],
+      ["recall", "search", "pnpm", "--json"],
       installDir,
       envWithBin
     );
     expect(recallSearchResult.exitCode, recallSearchResult.stderr).toBe(0);
     expect(JSON.parse(recallSearchResult.stdout)).toMatchObject({
-      state: "active",
+      state: "auto",
       resolvedState: "active",
       fallbackUsed: false,
       stateFallbackUsed: false,
       markdownFallbackUsed: false,
       retrievalMode: "index",
+      querySurfacing: {
+        suggestedDreamRefs: expect.arrayContaining([
+          expect.objectContaining({
+            ref: "project:active:workflow:prefer-pnpm"
+          })
+        ]),
+        suggestedInstructionFiles: expect.arrayContaining([expect.stringContaining("CLAUDE.md")])
+      },
       diagnostics: {
         anyMarkdownFallback: false,
         fallbackReasons: [],
@@ -245,6 +297,134 @@ describe("tarball install smoke", () => {
           topic: "workflow"
         })
       ]
+    });
+
+    const sessionStatusAfterDreamResult = runCommandCapture(
+      camBinaryPath(installDir),
+      ["session", "status", "--json"],
+      installDir,
+      envWithBin
+    );
+    expect(sessionStatusAfterDreamResult.exitCode, sessionStatusAfterDreamResult.stderr).toBe(0);
+    expect(JSON.parse(sessionStatusAfterDreamResult.stdout)).toMatchObject({
+      resumeContext: {
+        goal: expect.stringContaining("installed-package smoke review"),
+        suggestedDurableRefs: expect.arrayContaining([
+          expect.objectContaining({
+            ref: "project:active:workflow:prefer-pnpm"
+          })
+        ]),
+        instructionFiles: expect.arrayContaining([expect.stringContaining("CLAUDE.md")])
+      },
+      dreamSidecar: {
+        enabled: true,
+        status: "available"
+      }
+    });
+
+    expect(JSON.parse(dreamBuildResult.stdout)).toMatchObject({
+      action: "build",
+      snapshot: {
+        promotionCandidates: {
+          instructionLikeCandidates: expect.any(Array),
+          durableMemoryCandidates: expect.any(Array)
+        }
+      }
+    });
+
+    const dreamInspectResult = runCommandCapture(
+      camBinaryPath(installDir),
+      ["dream", "inspect", "--json"],
+      installDir,
+      envWithBin
+    );
+    expect(dreamInspectResult.exitCode, dreamInspectResult.stderr).toBe(0);
+    expect(JSON.parse(dreamInspectResult.stdout)).toMatchObject({
+      enabled: true,
+      snapshots: {
+        project: {
+          status: "available",
+          latestPath: expect.any(String)
+        }
+      }
+    });
+
+    const durableDreamRolloutPath = path.join(installDir, "dream-durable-rollout.jsonl");
+    await fs.writeFile(
+      durableDreamRolloutPath,
+      JSON.stringify({
+        type: "session_meta",
+        payload: {
+          id: "session-tarball-dream-durable",
+          timestamp: "2026-03-15T00:05:00.000Z",
+          cwd: installDir
+        }
+      }) +
+        "\n" +
+        JSON.stringify({
+          type: "event_msg",
+          payload: {
+            type: "user_message",
+            message: "The runbook lives at https://docs.example.com/runbook. Continue the installed-package smoke review."
+          }
+        }) +
+        "\n",
+      "utf8"
+    );
+    const durableDreamBuildResult = runCommandCapture(
+      camBinaryPath(installDir),
+      ["dream", "build", "--rollout", durableDreamRolloutPath, "--json"],
+      installDir,
+      envWithBin
+    );
+    expect(durableDreamBuildResult.exitCode, durableDreamBuildResult.stderr).toBe(0);
+
+    const dreamCandidatesResult = runCommandCapture(
+      camBinaryPath(installDir),
+      ["dream", "candidates", "--json"],
+      installDir,
+      envWithBin
+    );
+    expect(dreamCandidatesResult.exitCode, dreamCandidatesResult.stderr).toBe(0);
+    const dreamCandidatesPayload = JSON.parse(dreamCandidatesResult.stdout) as {
+      entries: Array<{
+        candidateId: string;
+        targetSurface: string;
+        summary: string;
+      }>;
+    };
+    const durableCandidate = dreamCandidatesPayload.entries.find(
+      (entry) =>
+        entry.targetSurface === "durable-memory" && entry.summary.includes("runbook lives")
+    );
+    expect(durableCandidate).toBeDefined();
+
+    const dreamReviewResult = runCommandCapture(
+      camBinaryPath(installDir),
+      ["dream", "review", "--candidate-id", durableCandidate!.candidateId, "--approve", "--json"],
+      installDir,
+      envWithBin
+    );
+    expect(dreamReviewResult.exitCode, dreamReviewResult.stderr).toBe(0);
+
+    const dreamPromoteResult = runCommandCapture(
+      camBinaryPath(installDir),
+      ["dream", "promote", "--candidate-id", durableCandidate!.candidateId, "--json"],
+      installDir,
+      envWithBin
+    );
+    expect(dreamPromoteResult.exitCode, dreamPromoteResult.stderr).toBe(0);
+    expect(JSON.parse(dreamPromoteResult.stdout)).toMatchObject({
+      action: "promote",
+      promotionOutcome: "applied",
+      entry: {
+        candidateId: durableCandidate!.candidateId,
+        status: "promoted",
+        targetSurface: "durable-memory"
+      },
+      durableMemory: {
+        ref: expect.stringContaining("project:active:")
+      }
     });
 
     const recallDetailsResult = runCommandCapture(
@@ -733,7 +913,7 @@ describe("tarball install smoke", () => {
             status: "ok",
             indexPath: memoryStore.getRetrievalIndexFile("project", "active"),
             generatedAt: expect.any(String),
-            topicFileCount: 1
+            topicFileCount: expect.any(Number)
           })
         ])
       },
@@ -791,7 +971,7 @@ describe("tarball install smoke", () => {
             status: "ok",
             indexPath: memoryStore.getRetrievalIndexFile("project", "active"),
             generatedAt: expect.any(String),
-            topicFileCount: 1
+            topicFileCount: expect.any(Number)
           })
         ])
       },
@@ -951,6 +1131,48 @@ describe("tarball install smoke", () => {
     expect(recallHelpResult.exitCode).toBe(0);
     expect(recallHelpResult.stdout).toContain("Search compact memory candidates without loading full details");
     expect(recallHelpResult.stdout).toContain("Limit memory state: active, archived, all, or auto");
+
+    const dreamHelpResult = runCommandCapture(
+      camBinaryPath(installDir),
+      ["dream", "--help"],
+      installDir,
+      envWithBin
+    );
+    expect(dreamHelpResult.exitCode).toBe(0);
+    expect(dreamHelpResult.stdout).toContain("candidates");
+    expect(dreamHelpResult.stdout).toContain("review");
+    expect(dreamHelpResult.stdout).toContain("promote");
+
+    const dreamCandidatesHelpResult = runCommandCapture(
+      camBinaryPath(installDir),
+      ["dream", "candidates", "--help"],
+      installDir,
+      envWithBin
+    );
+    expect(dreamCandidatesHelpResult.exitCode).toBe(0);
+    expect(dreamCandidatesHelpResult.stdout).toContain(
+      "List explicit dream promotion candidates from the reviewer queue"
+    );
+
+    const dreamReviewHelpResult = runCommandCapture(
+      camBinaryPath(installDir),
+      ["dream", "review", "--help"],
+      installDir,
+      envWithBin
+    );
+    expect(dreamReviewHelpResult.exitCode).toBe(0);
+    expect(dreamReviewHelpResult.stdout).toContain(
+      "Review a dream candidate without mutating canonical memory"
+    );
+
+    const dreamPromoteHelpResult = runCommandCapture(
+      camBinaryPath(installDir),
+      ["dream", "promote", "--help"],
+      installDir,
+      envWithBin
+    );
+    expect(dreamPromoteHelpResult.exitCode).toBe(0);
+    expect(dreamPromoteHelpResult.stdout).toContain("Explicitly promote an approved dream candidate");
 
     const hooksHelpResult = runCommandCapture(
       camBinaryPath(installDir),

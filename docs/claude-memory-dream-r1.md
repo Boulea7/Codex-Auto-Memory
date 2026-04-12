@@ -26,6 +26,8 @@
   - `dreamSidecar`
 - `cam recall search --json` 现在会额外暴露：
   - `querySurfacing`
+  - `querySurfacing.suggestedDreamRefs`
+  - `querySurfacing.suggestedInstructionFiles`
 
 ## Dream Sidecar Contract
 
@@ -43,6 +45,11 @@
 - promotion candidates 继续保持 pending：
   - `instructionLikeCandidates`
   - `durableMemoryCandidates`
+- reviewer 命令面继续朝 `cam dream candidates` / `cam dream review` / `cam dream promote` 收口：
+  - candidates 负责列出 sidecar 中待审条目
+  - review 负责做 reviewer-facing inspection
+  - durable-memory candidate 的 `promote` 只会通过现有 reviewer/audit 路径显式写入 canonical memory
+  - instruction-like candidate 的 `promote` 继续保持 `proposal-only`，不直接写 instruction files
 
 ## 这轮明确不做的事
 

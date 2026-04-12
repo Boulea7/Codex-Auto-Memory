@@ -15,8 +15,7 @@ import {
   defaultRecentContinuityAuditLimit,
   defaultRecentContinuityPreviewReadLimit
 } from "../domain/session-continuity-persistence.js";
-import { discoverInstructionFiles } from "../domain/instruction-memory.js";
-import { inspectDreamSidecar } from "../domain/dream-sidecar.js";
+import { buildSessionResumeContext } from "../domain/resume-context.js";
 import type { PersistSessionContinuityResult } from "../domain/session-continuity-persistence.js";
 import type { RuntimeContext } from "../runtime/runtime-context.js";
 import type {
@@ -241,13 +240,17 @@ export async function loadSessionInspectionView(
   const pendingContinuityRecovery = pendingContinuityRecoveryRecord
     ? normalizeContinuityRecoveryRecord(pendingContinuityRecoveryRecord)
     : null;
-  const dreamInspection = await inspectDreamSidecar(runtime);
-  const instructionFiles = await discoverInstructionFiles(runtime.project.projectRoot);
   const startup = compileSessionContinuity(
     mergedState,
     existingContinuitySourceFiles(projectLocation, localLocation),
     runtime.loadedConfig.config.maxSessionContinuityLines
   );
+  const continuitySourceFiles = existingContinuitySourceFiles(projectLocation, localLocation);
+  const resumeContext = await buildSessionResumeContext(runtime, {
+    mergedState,
+    suggestedRefLimit: 5,
+    continuitySourceFiles
+  });
 
   return {
     autoLoad: runtime.loadedConfig.config.sessionContinuityAutoLoad,
@@ -270,13 +273,8 @@ export async function loadSessionInspectionView(
     continuityAuditPath: runtime.sessionContinuityStore.paths.auditFile,
     pendingContinuityRecovery,
     continuityRecoveryPath: runtime.sessionContinuityStore.getRecoveryPath(),
-    dreamSidecar: dreamInspection.snapshots.project,
-    resumeContext: {
-      goal: mergedState.goal,
-      nextSteps: [...mergedState.incompleteNext],
-      instructionFiles,
-      suggestedDurableRefs: dreamInspection.projectSnapshot?.relevantMemoryRefs.slice(0, 5) ?? []
-    }
+    dreamSidecar: resumeContext.dreamInspection.snapshots.project,
+    resumeContext: resumeContext.resumeContext
   };
 }
 
@@ -409,7 +407,28 @@ export function formatSessionLoadText(
     "Files / decisions / environment:",
     ...(view.mergedState.filesDecisionsEnvironment.length > 0
       ? view.mergedState.filesDecisionsEnvironment.map((item) => `- ${item}`)
-      : ["- No additional file, decision, or environment notes."])
+      : ["- No additional file, decision, or environment notes."]),
+    "",
+    "Resume context:",
+    ...(view.resumeContext.instructionFiles.length > 0
+      ? ["Instruction files:", ...view.resumeContext.instructionFiles.map((filePath) => `- ${filePath}`)]
+      : ["Instruction files:", "- None detected."]),
+    ...(view.resumeContext.suggestedDurableRefs.length > 0
+      ? [
+          "Dream refs:",
+          ...view.resumeContext.suggestedDurableRefs.map(
+            (ref) => `- ${ref.ref}: ${ref.reason}`
+          )
+        ]
+      : ["Dream refs:", "- None suggested."]),
+    ...((view.resumeContext.topDurableRefs ?? []).length > 0
+      ? [
+          "Top durable refs:",
+          ...(view.resumeContext.topDurableRefs ?? []).map(
+            (ref) => `- ${ref.ref}: ${ref.reason}`
+          )
+        ]
+      : ["Top durable refs:", "- None suggested."])
   ];
 
   if (printStartup) {

@@ -18,6 +18,7 @@ import { appendJsonl, fileExists, readJsonFile, writeJsonFileAtomic } from "../u
 import { getDefaultMemoryDirectory } from "./project-context.js";
 import { parseRolloutEvidence } from "./rollout.js";
 import { SessionContinuitySummarizer } from "../extractor/session-continuity-summarizer.js";
+import { listDreamCandidates } from "./dream-candidates.js";
 
 interface BuildDreamSnapshotOptions {
   runtime: RuntimeContext;
@@ -70,9 +71,13 @@ function buildDreamPaths(runtime: RuntimeContext): DreamSidecarPaths {
     sharedFile: path.join(dreamBaseDir, "shared", "latest.json"),
     localDir: path.join(dreamBaseDir, "locals", runtime.project.worktreeId),
     localFile: path.join(dreamBaseDir, "locals", runtime.project.worktreeId, "latest.json"),
+    reviewDir: path.join(dreamBaseDir, "review"),
+    registryFile: path.join(dreamBaseDir, "review", "registry.json"),
     auditDir,
     auditFile: path.join(auditDir, "dream-sidecar-log.jsonl"),
-    recoveryFile: path.join(auditDir, "dream-sidecar-recovery.json")
+    recoveryFile: path.join(auditDir, "dream-sidecar-recovery.json"),
+    candidateAuditFile: path.join(auditDir, "dream-candidate-log.jsonl"),
+    candidateRecoveryFile: path.join(auditDir, "dream-candidate-recovery.json")
   };
 }
 
@@ -95,6 +100,24 @@ function buildSearchQueries(snapshot: DreamSidecarSnapshot): Array<{
     "using",
     "keep"
   ]);
+  const priorityTerms = new Set([
+    "pnpm",
+    "npm",
+    "bun",
+    "yarn",
+    "vitest",
+    "jest",
+    "playwright",
+    "build",
+    "lint",
+    "test",
+    "tsc",
+    "vite",
+    "next",
+    "runbook",
+    "dashboard",
+    "grafana"
+  ]);
   const queries: Array<{ source: DreamPromotionCandidate["sourceSection"]; text: string }> = [];
   const layers = [snapshot.continuityCompaction.project, snapshot.continuityCompaction.projectLocal];
   const seenTexts = new Set<string>();
@@ -114,7 +137,18 @@ function buildSearchQueries(snapshot: DreamSidecarSnapshot): Array<{
       .map((term) => term.trim())
       .filter((term) => term.length >= 4 && !stopWords.has(term));
 
-    const phrases = candidates.length > 0 ? candidates.slice(0, 4) : [normalized];
+    const rankedCandidates = candidates
+      .map((term, index) => ({
+        term,
+        index,
+        priority: priorityTerms.has(term) ? 0 : 1
+      }))
+      .sort((left, right) =>
+        left.priority === right.priority ? left.index - right.index : left.priority - right.priority
+      )
+      .map((entry) => entry.term);
+
+    const phrases = rankedCandidates.length > 0 ? rankedCandidates.slice(0, 4) : [normalized];
     for (const phrase of phrases) {
       if (seenTexts.has(phrase)) {
         continue;
@@ -141,6 +175,7 @@ function buildSearchQueries(snapshot: DreamSidecarSnapshot): Array<{
 
 function candidateFromItem(
   sourceSection: DreamPromotionCandidate["sourceSection"],
+  continuityScopeHint: DreamPromotionCandidate["continuityScopeHint"],
   text: string,
   reason: string
 ): DreamPromotionCandidate {
@@ -148,6 +183,7 @@ function candidateFromItem(
     summary: text,
     details: [text],
     reason,
+    continuityScopeHint,
     sourceSection
   };
 }
@@ -155,10 +191,22 @@ function candidateFromItem(
 function buildPromotionCandidates(snapshot: DreamSidecarSnapshot): DreamSidecarSnapshot["promotionCandidates"] {
   const instructionLikeCandidates: DreamPromotionCandidate[] = [];
   const durableMemoryCandidates: DreamPromotionCandidate[] = [];
-  const layers = [snapshot.continuityCompaction.project, snapshot.continuityCompaction.projectLocal];
+  const layers: Array<{
+    scope: DreamPromotionCandidate["continuityScopeHint"];
+    layer: DreamContinuityLayer;
+  }> = [
+    {
+      scope: "project",
+      layer: snapshot.continuityCompaction.project
+    },
+    {
+      scope: "project-local",
+      layer: snapshot.continuityCompaction.projectLocal
+    }
+  ];
   const instructionPattern = /\b(prefer|always|never|must|should|do not|don't)\b/i;
 
-  for (const layer of layers) {
+  for (const { scope, layer } of layers) {
     const sections: Array<[DreamPromotionCandidate["sourceSection"], string[]]> = [
       ["goal", layer.goal ? [layer.goal] : []],
       ["confirmedWorking", layer.confirmedWorking],
@@ -177,6 +225,7 @@ function buildPromotionCandidates(snapshot: DreamSidecarSnapshot): DreamSidecarS
 
         const candidate = candidateFromItem(
           sourceSection,
+          scope,
           text,
           `Dream sidecar candidate from ${sourceSection}.`
         );
@@ -418,16 +467,31 @@ export async function inspectDreamSidecar(
   const autoBuild = runtime.loadedConfig.config.dreamSidecarAutoBuild === true;
   const projectSnapshot = await readDreamSnapshotSummary(enabled, autoBuild, paths.sharedFile);
   const projectLocalSnapshot = await readDreamSnapshotSummary(enabled, autoBuild, paths.localFile);
+  const candidateQueue = await listDreamCandidates(runtime);
 
   return {
     enabled,
     autoBuild,
     snapshots: {
-      project: projectSnapshot.summary,
-      projectLocal: projectLocalSnapshot.summary
+      project: {
+        ...projectSnapshot.summary,
+        queueSummary: candidateQueue.summary,
+        candidateRegistryPath: candidateQueue.registryPath,
+        candidateAuditPath: candidateQueue.auditPath
+      },
+      projectLocal: {
+        ...projectLocalSnapshot.summary,
+        queueSummary: candidateQueue.summary,
+        candidateRegistryPath: candidateQueue.registryPath,
+        candidateAuditPath: candidateQueue.auditPath
+      }
     },
     auditPath: paths.auditFile,
     recoveryPath: paths.recoveryFile,
+    queueSummary: candidateQueue.summary,
+    candidateRegistryPath: candidateQueue.registryPath,
+    candidateAuditPath: candidateQueue.auditPath,
+    candidateRecoveryPath: candidateQueue.recoveryPath,
     projectSnapshot: projectSnapshot.snapshot,
     projectLocalSnapshot: projectLocalSnapshot.snapshot
   };

@@ -4,6 +4,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { runSession } from "../src/lib/commands/session.js";
 import { runDream } from "../src/lib/commands/dream.js";
 import { runWrappedCodex } from "../src/lib/commands/wrapper.js";
+import { MemoryStore } from "../src/lib/domain/memory-store.js";
 import { detectProjectContext } from "../src/lib/domain/project-context.js";
 import { SessionContinuityStore } from "../src/lib/domain/session-continuity-store.js";
 import type { SessionContinuityAuditEntry } from "../src/lib/types.js";
@@ -1929,6 +1930,105 @@ describe("runSession", () => {
       status: "available"
     });
     expect(statusPayload.dreamSidecar.suggestedRefCount).toBeGreaterThanOrEqual(0);
+  });
+
+  it("merges shared and local dream refs into the session resume context", async () => {
+    const repoDir = await tempDir("cam-session-dream-merge-repo-");
+    const memoryRoot = await tempDir("cam-session-dream-merge-memory-");
+    await initRepo(repoDir);
+
+    await writeProjectConfig(
+      repoDir,
+      configJson({
+        dreamSidecarEnabled: true
+      }),
+      {
+        autoMemoryDirectory: memoryRoot,
+        dreamSidecarEnabled: true
+      }
+    );
+
+    const memoryStore = new MemoryStore(detectProjectContext(repoDir), {
+      ...configJson({
+        dreamSidecarEnabled: true
+      }),
+      autoMemoryDirectory: memoryRoot,
+      dreamSidecarEnabled: true
+    });
+    await memoryStore.ensureLayout();
+    await memoryStore.remember(
+      "project",
+      "workflow",
+      "prefer-pnpm-shared",
+      "Prefer pnpm from the shared workflow memory.",
+      ["Use pnpm across the shared project workflow."],
+      "Manual note."
+    );
+
+    const sharedRolloutPath = path.join(repoDir, "shared-rollout.jsonl");
+    await fs.writeFile(
+      sharedRolloutPath,
+      rolloutFixture(repoDir, "Keep using pnpm for the shared middleware workflow."),
+      "utf8"
+    );
+    await runDream("build", {
+      cwd: repoDir,
+      rollout: sharedRolloutPath,
+      scope: "project",
+      json: true
+    });
+
+    await memoryStore.remember(
+      "project-local",
+      "workflow",
+      "prefer-pnpm-local",
+      "Prefer pnpm for this local retry loop.",
+      ["Use pnpm for the local worktree retry workflow."],
+      "Manual note."
+    );
+
+    const localRolloutPath = path.join(repoDir, "local-rollout.jsonl");
+    await fs.writeFile(
+      localRolloutPath,
+      rolloutFixture(repoDir, "Keep using pnpm for the local retry workflow."),
+      "utf8"
+    );
+    await runDream("build", {
+      cwd: repoDir,
+      rollout: localRolloutPath,
+      scope: "project-local",
+      json: true
+    });
+
+    const statusPayload = JSON.parse(
+      await runSession("status", {
+        cwd: repoDir,
+        json: true
+      })
+    ) as {
+      resumeContext: {
+        suggestedDurableRefs: Array<{ ref: string }>;
+        topDurableRefs?: Array<{ ref: string }>;
+      };
+    };
+
+    expect(statusPayload.resumeContext.suggestedDurableRefs).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          ref: "project:active:workflow:prefer-pnpm-shared"
+        }),
+        expect.objectContaining({
+          ref: "project-local:active:workflow:prefer-pnpm-local"
+        })
+      ])
+    );
+    expect(statusPayload.resumeContext.topDurableRefs).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          ref: "project:active:workflow:prefer-pnpm-shared"
+        })
+      ])
+    );
   });
 
   it("rejects save when no relevant rollout exists for the project", async () => {

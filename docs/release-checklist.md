@@ -40,8 +40,10 @@ Use this checklist before cutting any alpha or beta release of `codex-auto-memor
 - Run `node dist/cli.js session refresh --json` and confirm `action`, `writeMode`, and `rolloutSelection` reflect the selected provenance.
 - Run `node dist/cli.js session load --json` and confirm older JSON consumers still receive the existing core fields.
 - Run `node dist/cli.js session status --json` and confirm the latest explicit audit drill-down matches the newest audit-log entry when present.
+- Confirm `node dist/cli.js session status --json` / `session load --json` now also expose additive `resumeContext`, including `suggestedDurableRefs`, while keeping that field review-only instead of auto-promoting durable memory.
 - Run `node dist/cli.js memory --recent --json` and confirm suppressed conflict candidates remain reviewer-visible instead of being silently merged.
 - Run `node dist/cli.js recall search pnpm --json` and confirm the default search contract stays aligned at `state=auto, limit=8`, returning compact refs before any full detail fetch.
+- Confirm `node dist/cli.js recall search pnpm --json` now also exposes additive `querySurfacing`, including `suggestedDreamRefs` and `suggestedInstructionFiles`, without changing `results[]`.
 - Confirm `node dist/cli.js recall search pnpm --json` now also reports whether the search used the retrieval sidecar or fell back to Markdown scan through additive `retrievalMode` / `finalRetrievalMode` / `retrievalFallbackReason` fields.
 - Confirm `node dist/cli.js recall search pnpm --json` now also exposes additive `stateResolution` and `executionSummary`, so reviewer-visible auto-state decisions and mixed fallback paths do not have to be inferred from `resolvedState` alone.
 - Confirm `node dist/cli.js recall search pnpm --json` now also exposes `totalMatchedCount`, `returnedCount`, and `resultWindow`, so machine consumers can see the global hit count and returned slice without inferring it from `results.length`.
@@ -69,6 +71,9 @@ Use this checklist before cutting any alpha or beta release of `codex-auto-memor
 - Confirm durable sync audit and sync recovery markers now also surface additive `rejectedOperations` summaries instead of forcing reviewers to infer rejected refs only from counts.
 - Run `node dist/cli.js memory reindex --scope all --state all --json` and confirm retrieval sidecars rebuild explicitly from Markdown canonical memory without mutating topic Markdown or audit logs.
 - Confirm `node dist/cli.js memory reindex --scope all --state all --json` stays read-only on an uninitialized project, returning `rebuilt: []` instead of creating a durable memory layout implicitly.
+- Run `node dist/cli.js dream build --json` and confirm the sidecar snapshot exposes `promotionCandidates` without mutating canonical Markdown memory.
+- Run `node dist/cli.js dream inspect --json` and confirm the project snapshot stays auditable and read-only.
+- Confirm `cam dream promote` stays reviewer-gated: durable-memory candidates only write through the existing reviewer/audit path, while instruction-like candidates remain `proposal-only` and do not directly write instruction files.
 - Run `node dist/cli.js recall details <ref> --json` for one returned ref and confirm the path resolves to Markdown-backed memory, including archived refs when relevant.
 - Confirm `node dist/cli.js recall details <ref> --json` now also exposes additive provenance summary fields such as `latestLifecycleAction`, `latestSessionId`, `latestRolloutPath`, and `historyPath`.
 - Confirm `node dist/cli.js recall details <ref> --json` now also exposes additive `latestAudit` provenance so a reviewer can jump from lifecycle state to the latest sync-audit summary without manually correlating sidecars.
@@ -167,6 +172,10 @@ Use this checklist before cutting any alpha or beta release of `codex-auto-memor
 - Confirm `node dist/cli.js integrations doctor --host codex --json` also exposes additive skill-surface steering fields: `preferredSkillSurface`, `recommendedSkillInstallCommand`, `installedSkillSurfaces`, and `readySkillSurfaces`.
 - Confirm `workflowConsistency` wording in doctor surfaces now explicitly treats repo-level `AGENTS.md` guidance as part of the shared retrieval workflow contract, not just hooks/skills text.
 - Treat key `--help` output as release-facing contract, not incidental CLI text:
+  - `node dist/cli.js dream --help` should keep the public dream reviewer lane discoverable, including `candidates`, `review`, and `promote`.
+  - `node dist/cli.js dream candidates --help` should describe candidate listing rather than canonical memory mutation.
+  - `node dist/cli.js dream review --help` should stay reviewer-oriented and sidecar-only.
+  - `node dist/cli.js dream promote --help` should describe an explicit promote path without claiming that every promote is `proposal-only`.
   - `node dist/cli.js mcp install --help` should keep the supported install-host list at `codex` only.
   - `node dist/cli.js mcp print-config --help` should keep the supported snippet-host list at `codex, claude, gemini, or generic`.
   - `node dist/cli.js mcp apply-guidance --help` should stay Codex-only and describe managed `AGENTS.md` updates.
