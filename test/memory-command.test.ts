@@ -34,6 +34,43 @@ async function readFileIfExists(filePath: string): Promise<string | null> {
   }
 }
 
+async function pathExists(pathname: string): Promise<boolean> {
+  try {
+    await fs.access(pathname);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+async function pathContainsCam(dir: string): Promise<boolean> {
+  const candidates =
+    process.platform === "win32"
+      ? [path.join(dir, "cam.cmd"), path.join(dir, "cam.exe")]
+      : [path.join(dir, "cam")];
+
+  for (const candidate of candidates) {
+    if (await pathExists(candidate)) {
+      return true;
+    }
+  }
+
+  return false;
+}
+
+async function buildPathWithoutCam(extraDir: string): Promise<string> {
+  const baseEntries = (process.env.PATH ?? "").split(path.delimiter).filter(Boolean);
+  const filteredEntries: string[] = [];
+
+  for (const entry of baseEntries) {
+    if (!(await pathContainsCam(entry))) {
+      filteredEntries.push(entry);
+    }
+  }
+
+  return [extraDir, ...filteredEntries].join(path.delimiter);
+}
+
 async function snapshotFiles(filePaths: string[]): Promise<Record<string, string | null>> {
   return Object.fromEntries(
     await Promise.all(
@@ -2805,6 +2842,62 @@ describe("runMemory", () => {
     expect(result.stdout).toContain("memory reindex");
   });
 
+  it("keeps delete-only forget follow-up commands aligned with the resolved launcher and pinned cwd", async () => {
+    const homeDir = await tempDir("cam-forget-delete-only-home-");
+    const projectDir = await tempDir("cam-forget-delete-only-project-");
+    const callerDir = await tempDir("cam-forget-delete-only-caller-");
+    const memoryRoot = await tempDir("cam-forget-delete-only-root-");
+    const emptyPathDir = await tempDir("cam-forget-delete-only-empty-path-");
+    const fakeDistDir = await tempDir("cam-forget-delete-only-dist-");
+    const fakeDistCliPath = path.join(fakeDistDir, "cli.js");
+    const realProjectDir = await fs.realpath(projectDir);
+    process.env.HOME = homeDir;
+
+    await fs.writeFile(
+      fakeDistCliPath,
+      "#!/usr/bin/env node\nconsole.log('fake dist cli');\n",
+      "utf8"
+    );
+
+    const projectConfig = buildProjectConfig();
+    await writeProjectConfig(projectDir, projectConfig, {
+      autoMemoryDirectory: memoryRoot
+    });
+
+    const project = detectProjectContext(projectDir);
+    const store = new MemoryStore(project, {
+      ...projectConfig,
+      autoMemoryDirectory: memoryRoot
+    });
+    await store.ensureLayout();
+    await store.remember(
+      "project",
+      "workflow",
+      "prefer-pnpm",
+      "Prefer pnpm in this repository.",
+      ["Use pnpm instead of npm in this repository."],
+      "Manual note."
+    );
+
+    const result = runCli(
+      callerDir,
+      ["forget", "pnpm", "--scope", "project", "--cwd", projectDir],
+      {
+        env: {
+          HOME: homeDir,
+          PATH: await buildPathWithoutCam(emptyPathDir),
+          CODEX_AUTO_MEMORY_DIST_CLI_PATH: fakeDistCliPath
+        }
+      }
+    );
+    expect(result.exitCode, result.stderr).toBe(0);
+    expect(result.stdout).toContain(
+      `node ${JSON.stringify(fakeDistCliPath)} recall timeline "project:active:workflow:prefer-pnpm" --cwd '${realProjectDir}'`
+    );
+    expect(result.stdout).toContain("node ");
+    expect(result.stdout).not.toContain("use cam recall timeline to review the deletion trail");
+  });
+
   it("surfaces an additive empty reviewer payload for forget --json when nothing matches", async () => {
     const homeDir = await tempDir("cam-forget-empty-json-home-");
     const projectDir = await tempDir("cam-forget-empty-json-project-");
@@ -4152,5 +4245,58 @@ describe("runMemory", () => {
     expect(result.stdout).toContain("memory reindex");
     expect(result.stdout).toContain("Rebuild retrieval sidecars from canonical Markdown memory");
     expect(result.stdout).not.toContain("--enable");
+  });
+
+  it("lets memory reindex subcommand options override parent memory options", async () => {
+    const homeDir = await tempDir("cam-memory-reindex-parent-child-home-");
+    const projectDir = await tempDir("cam-memory-reindex-parent-child-project-");
+    const memoryRoot = await tempDir("cam-memory-reindex-parent-child-root-");
+    process.env.HOME = homeDir;
+
+    const projectConfig = buildProjectConfig();
+    await writeProjectConfig(projectDir, projectConfig, {
+      autoMemoryDirectory: memoryRoot
+    });
+
+    const store = new MemoryStore(detectProjectContext(projectDir), {
+      ...projectConfig,
+      autoMemoryDirectory: memoryRoot
+    });
+    await store.ensureLayout();
+    await store.remember(
+      "project",
+      "workflow",
+      "prefer-pnpm",
+      "Prefer pnpm in this repository.",
+      ["Use pnpm instead of npm in this repository."],
+      "Manual note."
+    );
+
+    const result = runCli(
+      projectDir,
+      [
+        "memory",
+        "--scope",
+        "project-local",
+        "reindex",
+        "--scope",
+        "project",
+        "--state",
+        "active",
+        "--json"
+      ],
+      { env: { HOME: homeDir } }
+    );
+    expect(result.exitCode, result.stderr).toBe(0);
+    expect(JSON.parse(result.stdout)).toMatchObject({
+      requestedScope: "project",
+      requestedState: "active",
+      rebuilt: [
+        expect.objectContaining({
+          scope: "project",
+          state: "active"
+        })
+      ]
+    });
   });
 });
