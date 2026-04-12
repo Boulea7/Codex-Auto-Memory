@@ -146,6 +146,10 @@ export async function runRemember(
   text: string,
   options: RememberOptions = {}
 ): Promise<string> {
+  if (text.trim().length === 0) {
+    throw new Error("Remember text must be non-empty.");
+  }
+
   const runtime = await buildRuntimeContext(options.cwd);
   const scope = options.scope ?? runtime.loadedConfig.config.defaultScope;
   const topic = options.topic ?? inferRememberTopic(text);
