@@ -700,6 +700,23 @@ describe("mcp command", () => {
     );
   });
 
+  it("fails closed when print-config --cwd is an empty string", async () => {
+    const homeDir = await tempDir("cam-mcp-empty-cwd-home-");
+    const projectDir = await tempDir("cam-mcp-empty-cwd-project-");
+    process.env.HOME = homeDir;
+
+    const result = runCli(
+      projectDir,
+      ["mcp", "print-config", "--host", "codex", "--cwd", "", "--json"],
+      {
+        env: { HOME: homeDir }
+      }
+    );
+
+    expect(result.exitCode).toBe(1);
+    expect(result.stderr).toContain("--cwd must be a non-empty path to an existing directory");
+  });
+
   it("applies the recommended AGENTS guidance by creating a managed block when AGENTS.md is missing", async () => {
     const homeDir = await tempDir("cam-mcp-apply-guidance-create-home-");
     const projectDir = await tempDir("cam-mcp-apply-guidance-create-project-");

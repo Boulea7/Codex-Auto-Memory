@@ -187,7 +187,12 @@ function buildNextRecommendedActions(
       )
     );
   } else {
-    steps.push("Details are unavailable for deleted refs; use cam recall timeline to review the deletion trail.");
+    steps.push(
+      `Details are unavailable for deleted refs; review the deletion trail with ${buildResolvedCliTimelineCommand(
+        JSON.stringify(timelineRefs[0]),
+        options
+      )}.`
+    );
   }
 
   steps.push(

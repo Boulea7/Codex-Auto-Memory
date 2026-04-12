@@ -5,7 +5,8 @@ import { afterEach, describe, expect, it } from "vitest";
 import {
   appendCliCwdFlag,
   buildResolvedCliCommand,
-  buildWorkflowContract
+  buildWorkflowContract,
+  resolveCliLauncher
 } from "../src/lib/integration/retrieval-contract.js";
 
 const tempDirs: string[] = [];
@@ -65,5 +66,26 @@ describe("retrieval contract", () => {
       resolvedCommand: `node ${JSON.stringify(fakeDistCliPath)}`
     });
     expect(buildResolvedCliCommand("mcp doctor --host codex")).toContain(fakeDistCliPath);
+  });
+
+  it("keeps resolved CLI fallback commands aligned with an explicit launcher override", () => {
+    const launcher = resolveCliLauncher({
+      pathValue: "",
+      distCliPath: "/tmp/custom-dist/cli.js",
+      distCliPathExists: true
+    });
+
+    const workflowContract = buildWorkflowContract({
+      cwd: "/tmp/project",
+      launcherOverride: launcher
+    });
+
+    expect(workflowContract.launcher).toMatchObject({
+      resolution: "node-dist",
+      resolvedCommand: 'node "/tmp/custom-dist/cli.js"'
+    });
+    expect(workflowContract.resolvedCliFallback.searchCommand).toContain("/tmp/custom-dist/cli.js");
+    expect(workflowContract.resolvedCliFallback.timelineCommand).toContain("/tmp/custom-dist/cli.js");
+    expect(workflowContract.resolvedCliFallback.detailsCommand).toContain("/tmp/custom-dist/cli.js");
   });
 });
