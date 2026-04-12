@@ -1,5 +1,6 @@
 import path from "node:path";
 import {
+  buildCodexAgentsGuidance,
   buildCodexAgentsManagedBlock,
   CODEX_AGENTS_GUIDANCE_VERSION,
   parseCodexAgentsGuidanceContents
@@ -84,6 +85,7 @@ interface CodexAgentsGuidanceApplyInspection {
   unsafeManagedBlock: boolean;
   unsafeReason?: string;
   hasManagedBlock: boolean;
+  hasCurrentUnmanagedSnippet: boolean;
   alreadyCurrent: boolean;
   managedBlockRange: { startIndex: number; endIndex: number } | null;
 }
@@ -105,6 +107,7 @@ async function inspectCodexAgentsGuidanceApply(
       lineEnding: "\n",
       unsafeManagedBlock: false,
       hasManagedBlock: false,
+      hasCurrentUnmanagedSnippet: false,
       alreadyCurrent: false,
       managedBlockRange: null
     };
@@ -115,10 +118,19 @@ async function inspectCodexAgentsGuidanceApply(
   const managedBlock = buildCodexAgentsManagedBlock(parsed.lineEnding, {
     cwd: projectRoot
   });
+  const guidanceSnippet = buildCodexAgentsGuidance({
+    cwd: projectRoot
+  }).snippet;
+  const normalizedVisibleText = normalizeManagedBlockForComparison(parsed.visibleText);
+  const normalizedManagedBlock = normalizeManagedBlockForComparison(managedBlock);
+  const hasCurrentUnmanagedSnippet =
+    parsed.managedBlock === null &&
+    normalizedVisibleText.includes(normalizeManagedBlockForComparison(guidanceSnippet));
   const alreadyCurrent =
     parsed.managedBlock !== null &&
     normalizeManagedBlockForComparison(parsed.managedBlock.contents) ===
-      normalizeManagedBlockForComparison(managedBlock);
+      normalizedManagedBlock ||
+    hasCurrentUnmanagedSnippet;
 
   return {
     targetPath,
@@ -130,6 +142,7 @@ async function inspectCodexAgentsGuidanceApply(
     unsafeManagedBlock: parsed.unsafeManagedBlock,
     unsafeReason: parsed.unsafeReason,
     hasManagedBlock: parsed.managedBlock !== null,
+    hasCurrentUnmanagedSnippet,
     alreadyCurrent,
     managedBlockRange: parsed.managedBlock
       ? {
@@ -164,11 +177,11 @@ export async function inspectCodexAgentsGuidanceApplySafety(
     status: "safe",
     recommendedAction: !inspection.exists
       ? "create"
-      : !inspection.hasManagedBlock
+      : inspection.alreadyCurrent
+        ? "unchanged"
+        : !inspection.hasManagedBlock
         ? "append"
-        : inspection.alreadyCurrent
-          ? "unchanged"
-          : "replace",
+        : "replace",
     notes: inspection.notes
   };
 }
@@ -205,6 +218,18 @@ export async function applyCodexAgentsGuidance(
     };
   }
 
+  if (inspection.alreadyCurrent) {
+    return {
+      host: "codex",
+      projectRoot,
+      targetPath,
+      action: "unchanged",
+      managedBlockVersion: CODEX_AGENTS_GUIDANCE_VERSION,
+      createdFile: false,
+      notes
+    };
+  }
+
   if (!inspection.hasManagedBlock) {
     await writeTextFileAtomic(
       targetPath,
@@ -215,18 +240,6 @@ export async function applyCodexAgentsGuidance(
       projectRoot,
       targetPath,
       action: "updated",
-      managedBlockVersion: CODEX_AGENTS_GUIDANCE_VERSION,
-      createdFile: false,
-      notes
-    };
-  }
-
-  if (inspection.alreadyCurrent) {
-    return {
-      host: "codex",
-      projectRoot,
-      targetPath,
-      action: "unchanged",
       managedBlockVersion: CODEX_AGENTS_GUIDANCE_VERSION,
       createdFile: false,
       notes

@@ -33,10 +33,6 @@ function camBinaryPath(installDir: string): string {
   );
 }
 
-function shellQuoteArg(value: string): string {
-  return `'${value.replace(/'/g, `'\"'\"'`)}'`;
-}
-
 function isolatedEnv(homeDir: string): NodeJS.ProcessEnv {
   return {
     ...process.env,
@@ -143,6 +139,25 @@ describe("tarball install smoke", () => {
     });
     expect(loadPayload.startup.sourceFiles).toEqual([]);
     expect(loadPayload.startup.candidateSourceFiles).toEqual([]);
+
+    const doctorResult = runCommandCapture(
+      camBinaryPath(installDir),
+      ["doctor", "--json"],
+      installDir,
+      {
+        ...envWithBin,
+        PATH: `${path.dirname(process.execPath)}:/usr/bin:/bin`
+      }
+    );
+    expect(doctorResult.exitCode, doctorResult.stderr).toBe(0);
+    expect(JSON.parse(doctorResult.stdout)).toMatchObject({
+      recommendedRoute: "companion",
+      recommendedActionCommand: expect.stringContaining("mcp doctor --host codex"),
+      recommendedDoctorCommand: expect.stringContaining("doctor --json"),
+      readiness: {
+        appServer: null
+      }
+    });
 
     const memoryRoot = await tempDir("cam-tarball-memory-root-");
     const appConfig = makeAppConfig();
@@ -315,7 +330,7 @@ describe("tarball install smoke", () => {
           preferredRoute: "mcp-first"
         },
         cliFallback: {
-          searchCommand: `cam recall search "<query>" --state auto --limit 8 --cwd ${shellQuoteArg(realInstallDir)}`
+          searchCommand: `cam recall search "<query>" --state auto --limit 8 --cwd '${realInstallDir}'`
         }
       },
       agentsGuidance: {
@@ -335,13 +350,7 @@ describe("tarball install smoke", () => {
       readOnlyRetrieval: true,
       targetFileHint: ".mcp.json"
     });
-    expect(JSON.parse(claudePrintConfigResult.stdout).workflowContract).toMatchObject({
-      cliFallback: {
-        searchCommand: expect.any(String),
-        timelineCommand: expect.any(String),
-        detailsCommand: expect.any(String)
-      }
-    });
+    expect(JSON.parse(claudePrintConfigResult.stdout).workflowContract).toBeUndefined();
     const geminiPrintConfigResult = runCommandCapture(
       camBinaryPath(installDir),
       ["mcp", "print-config", "--host", "gemini", "--json"],
@@ -354,13 +363,7 @@ describe("tarball install smoke", () => {
       readOnlyRetrieval: true,
       targetFileHint: ".gemini/settings.json"
     });
-    expect(JSON.parse(geminiPrintConfigResult.stdout).workflowContract).toMatchObject({
-      cliFallback: {
-        searchCommand: expect.any(String),
-        timelineCommand: expect.any(String),
-        detailsCommand: expect.any(String)
-      }
-    });
+    expect(JSON.parse(geminiPrintConfigResult.stdout).workflowContract).toBeUndefined();
     const genericPrintConfigResult = runCommandCapture(
       camBinaryPath(installDir),
       ["mcp", "print-config", "--host", "generic", "--json"],
@@ -373,13 +376,7 @@ describe("tarball install smoke", () => {
       readOnlyRetrieval: true,
       targetFileHint: "Your MCP client's stdio server config"
     });
-    expect(JSON.parse(genericPrintConfigResult.stdout).workflowContract).toMatchObject({
-      cliFallback: {
-        searchCommand: expect.any(String),
-        timelineCommand: expect.any(String),
-        detailsCommand: expect.any(String)
-      }
-    });
+    expect(JSON.parse(genericPrintConfigResult.stdout).workflowContract).toBeUndefined();
     const applyGuidanceResult = runCommandCapture(
       camBinaryPath(installDir),
       ["mcp", "apply-guidance", "--host", "codex", "--json"],
@@ -430,13 +427,13 @@ describe("tarball install smoke", () => {
     expect(cwdHooksResult.exitCode).toBe(0);
     expect(
       await fs.readFile(path.join(homeDir, ".codex-auto-memory", "hooks", "memory-recall.sh"), "utf8")
-    ).toContain(`PROJECT_ROOT=${shellQuoteArg(realProjectWithSpacesDir)}`);
+    ).toContain('PROJECT_ROOT="${CAM_PROJECT_ROOT:-$PWD}"');
     expect(
       await fs.readFile(
         path.join(homeDir, ".codex-auto-memory", "hooks", "post-work-memory-review.sh"),
         "utf8"
       )
-    ).toContain(`cam sync --cwd ${shellQuoteArg(realProjectWithSpacesDir)} "$@"`);
+    ).toContain('cam sync --cwd "$PROJECT_ROOT" "$@"');
 
     const cwdApplyGuidanceResult = runCommandCapture(
       camBinaryPath(installDir),
@@ -478,13 +475,9 @@ describe("tarball install smoke", () => {
       installDir,
       envWithBin
     );
-    expect(geminiInstallResult.exitCode).toBe(0);
-    expect(JSON.parse(geminiInstallResult.stdout)).toMatchObject({
-      host: "gemini",
-      action: "created",
-      targetPath: path.join(realInstallDir, ".gemini", "settings.json"),
-      readOnlyRetrieval: true
-    });
+    expect(geminiInstallResult.exitCode).toBe(1);
+    expect(geminiInstallResult.stderr).toContain("gemini");
+    expect(geminiInstallResult.stderr).toContain("Codex-only");
 
     const claudeInstallResult = runCommandCapture(
       camBinaryPath(installDir),
@@ -492,13 +485,9 @@ describe("tarball install smoke", () => {
       installDir,
       envWithBin
     );
-    expect(claudeInstallResult.exitCode).toBe(0);
-    expect(JSON.parse(claudeInstallResult.stdout)).toMatchObject({
-      host: "claude",
-      action: "created",
-      targetPath: path.join(realInstallDir, ".mcp.json"),
-      readOnlyRetrieval: true
-    });
+    expect(claudeInstallResult.exitCode).toBe(1);
+    expect(claudeInstallResult.stderr).toContain("claude");
+    expect(claudeInstallResult.stderr).toContain("Codex-only");
 
     const hooksResult = runCommandCapture(
       camBinaryPath(installDir),
@@ -574,7 +563,7 @@ describe("tarball install smoke", () => {
       workflowContract: {
         recommendedPreset: "state=auto, limit=8",
         cliFallback: {
-          searchCommand: `cam recall search "<query>" --state auto --limit 8 --cwd ${shellQuoteArg(realInstallDir)}`
+          searchCommand: `cam recall search "<query>" --state auto --limit 8 --cwd '${realInstallDir}'`
         }
       },
       subactions: {
@@ -599,7 +588,7 @@ describe("tarball install smoke", () => {
       workflowContract: {
         recommendedPreset: "state=auto, limit=8",
         cliFallback: {
-          searchCommand: `cam recall search "<query>" --state auto --limit 8 --cwd ${shellQuoteArg(realInstallDir)}`
+          searchCommand: `cam recall search "<query>" --state auto --limit 8 --cwd '${realInstallDir}'`
         }
       },
       subactions: {
@@ -892,6 +881,32 @@ describe("tarball install smoke", () => {
       }
     });
 
+    const failedProjectDir = await tempDir("cam-tarball-failed-project-");
+    const realFailedProjectDir = await fs.realpath(failedProjectDir);
+    await fs.mkdir(path.join(realFailedProjectDir, ".codex", "config.toml"), { recursive: true });
+
+    const failedIntegrationsResult = runCommandCapture(
+      camBinaryPath(installDir),
+      ["integrations", "apply", "--host", "codex", "--json"],
+      failedProjectDir,
+      envWithBin
+    );
+    expect(failedIntegrationsResult.exitCode).toBe(0);
+    expect(JSON.parse(failedIntegrationsResult.stdout)).toMatchObject({
+      host: "codex",
+      projectRoot: realFailedProjectDir,
+      stackAction: "failed",
+      failureStage: "staged-write",
+      failureMessage: expect.stringContaining("directory"),
+      rollbackApplied: true,
+      subactions: {
+        mcp: { attempted: true, status: "blocked", action: "blocked" },
+        agents: { attempted: false },
+        hooks: { attempted: false },
+        skills: { attempted: false }
+      }
+    });
+
     const blockedIntegrationsDoctorResult = runCommandCapture(
       camBinaryPath(installDir),
       ["integrations", "doctor", "--host", "codex", "--json"],
@@ -908,6 +923,24 @@ describe("tarball install smoke", () => {
         recommendedFix: expect.stringContaining("cam mcp apply-guidance --host codex")
       }
     });
+
+    for (const command of [
+      ["integrations", "apply", "--host", "codex"] as const,
+      ["integrations", "doctor", "--host", "codex"] as const
+    ]) {
+      for (const cwd of ["", "   ", path.join(realBlockedProjectDir, "missing-project")]) {
+        const invalidResult = runCommandCapture(
+          camBinaryPath(installDir),
+          [...command, "--cwd", cwd],
+          blockedProjectDir,
+          envWithBin
+        );
+        expect(invalidResult.exitCode).toBe(1);
+        expect(invalidResult.stderr).toContain(
+          "--cwd must be a non-empty path to an existing directory."
+        );
+      }
+    }
 
     const recallHelpResult = runCommandCapture(
       camBinaryPath(installDir),
@@ -953,7 +986,7 @@ describe("tarball install smoke", () => {
     expect(mcpInstallHelpResult.stdout).toContain(
       "Install the recommended project-scoped MCP wiring for a supported host"
     );
-    expect(mcpInstallHelpResult.stdout).toContain("Target host: codex, claude, or gemini");
+    expect(mcpInstallHelpResult.stdout).toContain("Target host: codex");
 
     const mcpApplyGuidanceHelpResult = runCommandCapture(
       camBinaryPath(installDir),
@@ -1005,6 +1038,7 @@ describe("tarball install smoke", () => {
     expect(integrationsInstallHelpResult.stdout).toContain(
       "Install the recommended project-scoped Codex integration stack"
     );
+    expect(integrationsInstallHelpResult.stdout).toMatch(/without updating\s+AGENTS\.md/);
     expect(integrationsInstallHelpResult.stdout).toContain("Target host: codex");
     expect(integrationsInstallHelpResult.stdout).toMatch(
       /Skill install surface: runtime, official-user, or\s+official-project/
@@ -1033,7 +1067,7 @@ describe("tarball install smoke", () => {
       /Inspect the current Codex integration stack without mutating memory or host\s+config/
     );
     expect(integrationsDoctorHelpResult.stdout).toContain("Target host: codex");
-  }, 60_000);
+  }, 180_000);
 
   it("preserves custom fields on the codex_auto_memory install entry from the packed tarball", async () => {
     const homeDir = await tempDir("cam-tarball-preserve-home-");
@@ -1106,5 +1140,5 @@ describe("tarball install smoke", () => {
         }
       }
     });
-  }, 60_000);
+  }, 180_000);
 });

@@ -1,3 +1,4 @@
+import fs from "node:fs";
 import path from "node:path";
 import { detectProjectContext } from "../domain/project-context.js";
 import {
@@ -36,8 +37,28 @@ export interface McpHostConfigSnippet {
 
 export { normalizeMcpHost };
 
+export function resolveMcpProjectCwd(cwd = process.cwd()): string {
+  if (!cwd.trim()) {
+    throw new Error("--cwd must be a non-empty path to an existing directory.");
+  }
+
+  const resolved = path.resolve(cwd);
+  let stat;
+  try {
+    stat = fs.statSync(resolved);
+  } catch {
+    throw new Error("--cwd must be a non-empty path to an existing directory.");
+  }
+
+  if (!stat.isDirectory()) {
+    throw new Error("--cwd must be a non-empty path to an existing directory.");
+  }
+
+  return resolved;
+}
+
 export function resolveMcpProjectRoot(cwd = process.cwd()): string {
-  return detectProjectContext(path.resolve(cwd)).projectRoot;
+  return detectProjectContext(resolveMcpProjectCwd(cwd)).projectRoot;
 }
 
 export function buildMcpHostConfigSnippet(host: McpHost, projectRoot: string): McpHostConfigSnippet {
@@ -53,14 +74,12 @@ export function buildMcpHostConfigSnippet(host: McpHost, projectRoot: string): M
     snippetFormat: definition.snippetFormat,
     snippet: buildMcpHostSnippet(host, projectRoot),
     notes: [...definition.notes],
-    workflowContract: buildWorkflowContract({
-      cwd: projectRoot
-    }),
     ...(host === "codex"
       ? {
-          agentsGuidance: buildCodexAgentsGuidance({
+          workflowContract: buildWorkflowContract({
             cwd: projectRoot
           }),
+          agentsGuidance: buildCodexAgentsGuidance({ cwd: projectRoot }),
           experimentalHooks: buildExperimentalCodexHooksGuidance()
         }
       : {})

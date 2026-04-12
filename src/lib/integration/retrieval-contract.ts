@@ -1,6 +1,8 @@
 import fs from "node:fs";
+import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { isCommandAvailableInPath } from "./command-path.js";
 import {
   DEFAULT_MEMORY_RETRIEVAL_LIMIT,
   DEFAULT_MEMORY_RETRIEVAL_STATE
@@ -29,24 +31,44 @@ export const PROGRESSIVE_DISCLOSURE_GUIDANCE =
   "Use progressive disclosure: search -> timeline -> details.";
 export const MCP_FIRST_RECALL_WORKFLOW =
   `Prefer retrieval MCP when it is already wired in: ${RETRIEVAL_MCP_SEARCH_TOOL} -> ${RETRIEVAL_MCP_TIMELINE_TOOL} -> ${RETRIEVAL_MCP_DETAILS_TOOL}.`;
-export const CLI_FALLBACK_RECALL_WORKFLOW =
-  "Otherwise fall back to the local recall bridge bundle through memory-recall.sh search|timeline|details.";
+export const LOCAL_BRIDGE_RECALL_WORKFLOW =
+  "If the retrieval MCP server is unavailable, fall back to the local recall bridge bundle through memory-recall.sh search|timeline|details.";
+export const RESOLVED_CLI_RECALL_WORKFLOW =
+  "If the local bridge bundle is unavailable, fall back to the resolved CLI recall commands.";
+export const CLI_FALLBACK_RECALL_WORKFLOW = `${LOCAL_BRIDGE_RECALL_WORKFLOW} ${RESOLVED_CLI_RECALL_WORKFLOW}`;
 export const MCP_SERVE_GUIDANCE =
   "cam mcp serve exposes the same retrieval contract over stdio MCP when a host can consume it.";
-export const MCP_DOCTOR_GUIDANCE =
-  "Run cam mcp doctor if you are unsure whether the recommended project-scoped retrieval MCP wiring is already in place.";
+export function buildMcpDoctorGuidance(
+  options: {
+    cwd?: string;
+    launcherOverride?: WorkflowContract["launcher"];
+  } = {}
+): string {
+  const fallbackCommand = buildResolvedCliCommand("mcp doctor --host codex", options);
+  return `Run ${fallbackCommand} if you are unsure whether the recommended project-scoped retrieval MCP wiring is already in place.`;
+}
 export const MEMORY_AUDIT_BOUNDARY =
   "Use cam memory for inspect/audit surfaces and startup payload review.";
 export const SESSION_CONTINUITY_BOUNDARY =
   "Use cam session only for temporary continuity, not durable memory retrieval.";
 export const ARCHIVE_BOUNDARY =
   "Treat archived memory as historical context that does not participate in default startup recall.";
-export const DURABLE_MEMORY_SYNC_GUIDANCE =
-  `After finishing work that should affect durable memory, run ${DURABLE_MEMORY_SYNC_COMMAND} or review ${DURABLE_MEMORY_RECENT_REVIEW_COMMAND} instead of assuming temporary continuity already updated Markdown memory.`;
+export function buildDurableMemorySyncGuidance(
+  options: {
+    cwd?: string;
+    launcherOverride?: WorkflowContract["launcher"];
+  } = {}
+): string {
+  const syncCommand = buildResolvedPostWorkSyncCommand(options);
+  const reviewCommand = buildResolvedPostWorkRecentReviewCommand(options);
+  return `After finishing work that should affect durable memory, run ${syncCommand} or review ${reviewCommand} instead of assuming temporary continuity already updated Markdown memory.`;
+}
 
 export interface WorkflowRoutePreference {
   preferredRoute: "mcp-first";
   mcpFirst: string;
+  localBridge: string;
+  resolvedCli: string;
   cliFallback: string;
   doctor: string;
   serve: string;
@@ -57,10 +79,37 @@ export interface WorkflowRecallWorkflow {
   progressiveDisclosure: string;
 }
 
+export interface WorkflowExecutionContract {
+  preferredRoute: "mcp-first";
+  recommendedPreset: string;
+  fallbackOrder: ["mcp", "local-bridge", "resolved-cli"];
+  mcpTools: WorkflowContract["mcpTools"];
+  hookFallback: WorkflowContract["hookFallback"];
+  cliFallback: WorkflowContract["cliFallback"];
+  resolvedCliFallback: WorkflowContract["resolvedCliFallback"];
+  postWorkSyncReview: WorkflowContract["postWorkSyncReview"];
+  resolvedPostWorkSyncReview: WorkflowContract["resolvedPostWorkSyncReview"];
+  boundaries: WorkflowContract["boundaries"];
+}
+
+export interface WorkflowModelGuidanceContract {
+  recallFirst: string;
+  progressiveDisclosure: string;
+  routePreference: WorkflowRoutePreference;
+  recallWorkflow: WorkflowRecallWorkflow;
+}
+
+export interface WorkflowHostWiringContract {
+  launcher: WorkflowContract["launcher"];
+  doctorCommand: string;
+  serveGuidance: string;
+}
+
 export interface WorkflowContract {
   version: string;
   preferredRoute: "mcp-first";
   recommendedPreset: string;
+  fallbackOrder: ["mcp", "local-bridge", "resolved-cli"];
   recallFirst: string;
   progressiveDisclosure: string;
   launcher: {
@@ -70,6 +119,8 @@ export interface WorkflowContract {
     resolution: "cam-path" | "node-dist" | "cam-unverified";
     verified: boolean;
     resolvedCommand: string;
+    appliesTo: "direct-cli-and-installed-helper-assets";
+    canonicalMcpServerCommand: "cam mcp serve";
   };
   routePreference: WorkflowRoutePreference;
   recallWorkflow: WorkflowRecallWorkflow;
@@ -77,6 +128,14 @@ export interface WorkflowContract {
     search: string;
     timeline: string;
     details: string;
+  };
+  hookFallback: {
+    helperScript: "memory-recall.sh";
+    helperPath: string;
+    searchCommand: string;
+    timelineCommand: string;
+    detailsCommand: string;
+    shellOnly: true;
   };
   cliFallback: {
     searchCommand: string;
@@ -106,10 +165,17 @@ export interface WorkflowContract {
     sessionContinuity: string;
     archive: string;
   };
+  executionContract: WorkflowExecutionContract;
+  modelGuidanceContract: WorkflowModelGuidanceContract;
+  hostWiringContract: WorkflowHostWiringContract;
 }
 
-export function buildSharedWorkflowDisciplineLines(): string[] {
-  const workflowContract = buildWorkflowContract();
+export function buildSharedWorkflowDisciplineLines(
+  options: {
+    cwd?: string;
+  } = {}
+): string[] {
+  const workflowContract = buildWorkflowContract(options);
   return [
     workflowContract.recallWorkflow.recallFirst,
     workflowContract.recallWorkflow.progressiveDisclosure,
@@ -124,60 +190,48 @@ export function formatRecommendedRetrievalPreset(): string {
   return `state=${RECOMMENDED_RETRIEVAL_STATE}, limit=${RECOMMENDED_RETRIEVAL_LIMIT}`;
 }
 
-function isExecutableOnPath(commandName: string): boolean {
-  const pathValue = process.env.PATH;
-  if (!pathValue) {
-    return false;
+function getPackagedDistCliPath(): string {
+  const overriddenPath = process.env.CODEX_AUTO_MEMORY_DIST_CLI_PATH?.trim();
+  if (overriddenPath) {
+    return path.resolve(overriddenPath);
   }
 
-  const executableNames =
-    process.platform === "win32"
-      ? [commandName, `${commandName}.cmd`, `${commandName}.exe`, `${commandName}.bat`]
-      : [commandName];
-
-  return pathValue.split(path.delimiter).some((directory) =>
-    executableNames.some((candidate) => {
-      const candidatePath = path.join(directory, candidate);
-      try {
-        const stat = fs.statSync(candidatePath);
-        if (!stat.isFile()) {
-          return false;
-        }
-        fs.accessSync(candidatePath, fs.constants.X_OK);
-        return true;
-      } catch {
-        return false;
-      }
-    })
-  );
-}
-
-function getPackagedDistCliPath(): string {
   const thisFilePath = fileURLToPath(import.meta.url);
   return path.resolve(path.dirname(thisFilePath), "../../../dist/cli.js");
 }
 
-export function resolveCliLauncher(): WorkflowContract["launcher"] {
-  if (isExecutableOnPath("cam")) {
+export function resolveCliLauncher(
+  options: {
+    pathValue?: string;
+    distCliPath?: string;
+    distCliPathExists?: boolean;
+  } = {}
+): WorkflowContract["launcher"] {
+  if (isCommandAvailableInPath("cam", options.pathValue)) {
     return {
       commandName: "cam",
       requiresPathResolution: true,
       hookHelpersShellOnly: true,
       resolution: "cam-path",
       verified: true,
-      resolvedCommand: "cam"
+      resolvedCommand: "cam",
+      appliesTo: "direct-cli-and-installed-helper-assets",
+      canonicalMcpServerCommand: "cam mcp serve"
     };
   }
 
-  const distCliPath = getPackagedDistCliPath();
-  if (fs.existsSync(distCliPath)) {
+  const distCliPath = options.distCliPath ?? getPackagedDistCliPath();
+  const distCliPathExists = options.distCliPathExists ?? fs.existsSync(distCliPath);
+  if (distCliPathExists) {
     return {
       commandName: "cam",
       requiresPathResolution: true,
       hookHelpersShellOnly: true,
       resolution: "node-dist",
       verified: true,
-      resolvedCommand: `node ${JSON.stringify(distCliPath)}`
+      resolvedCommand: `node ${JSON.stringify(distCliPath)}`,
+      appliesTo: "direct-cli-and-installed-helper-assets",
+      canonicalMcpServerCommand: "cam mcp serve"
     };
   }
 
@@ -187,7 +241,9 @@ export function resolveCliLauncher(): WorkflowContract["launcher"] {
     hookHelpersShellOnly: true,
     resolution: "cam-unverified",
     verified: false,
-    resolvedCommand: "cam"
+    resolvedCommand: "cam",
+    appliesTo: "direct-cli-and-installed-helper-assets",
+    canonicalMcpServerCommand: "cam mcp serve"
   };
 }
 
@@ -196,7 +252,7 @@ export function hasCliCwdFlag(command: string): boolean {
 }
 
 function shellQuote(value: string): string {
-  return `'${value.replace(/'/g, `'\"'\"'`)}'`;
+  return `'${value.replace(/'/g, "'\"'\"'")}'`;
 }
 
 export function appendCliCwdFlag(command: string, cwd?: string): string {
@@ -211,11 +267,29 @@ export function buildResolvedCliCommand(
   command: string,
   options: {
     cwd?: string;
-    launcher?: WorkflowContract["launcher"];
+    launcherOverride?: WorkflowContract["launcher"];
   } = {}
 ): string {
-  const launcher = options.launcher ?? resolveCliLauncher();
+  const launcher = options.launcherOverride ?? resolveCliLauncher();
   return appendCliCwdFlag(`${launcher.resolvedCommand} ${command}`, options.cwd);
+}
+
+function getInstalledHookHelperPath(helperScript: string): string {
+  return path.join(os.homedir(), ".codex-auto-memory", "hooks", helperScript);
+}
+
+function buildHookFallbackCommand(
+  action: "search" | "timeline" | "details",
+  argumentPlaceholder: string,
+  options: {
+    cwd?: string;
+  } = {}
+): string {
+  const helperPath = shellQuote(getInstalledHookHelperPath("memory-recall.sh"));
+  const invocation = `${helperPath} ${action} ${argumentPlaceholder}`;
+  return options.cwd
+    ? `CAM_PROJECT_ROOT=${shellQuote(options.cwd)} ${invocation}`
+    : invocation;
 }
 
 export function buildRecommendedCliSearchCommand(
@@ -283,7 +357,7 @@ export function buildResolvedCliSearchCommand(
     state?: MemoryRetrievalStateFilter;
     limit?: number;
     cwd?: string;
-    launcher?: WorkflowContract["launcher"];
+    launcherOverride?: WorkflowContract["launcher"];
   } = {}
 ): string {
   const state = options.state ?? RECOMMENDED_RETRIEVAL_STATE;
@@ -298,7 +372,7 @@ export function buildResolvedCliTimelineCommand(
   ref = "\"<ref>\"",
   options: {
     cwd?: string;
-    launcher?: WorkflowContract["launcher"];
+    launcherOverride?: WorkflowContract["launcher"];
   } = {}
 ): string {
   return buildResolvedCliCommand(`recall timeline ${ref}`, options);
@@ -308,7 +382,7 @@ export function buildResolvedCliDetailsCommand(
   ref = "\"<ref>\"",
   options: {
     cwd?: string;
-    launcher?: WorkflowContract["launcher"];
+    launcherOverride?: WorkflowContract["launcher"];
   } = {}
 ): string {
   return buildResolvedCliCommand(`recall details ${ref}`, options);
@@ -317,7 +391,7 @@ export function buildResolvedCliDetailsCommand(
 export function buildResolvedPostWorkSyncCommand(
   options: {
     cwd?: string;
-    launcher?: WorkflowContract["launcher"];
+    launcherOverride?: WorkflowContract["launcher"];
   } = {}
 ): string {
   return buildResolvedCliCommand("sync", options);
@@ -326,7 +400,7 @@ export function buildResolvedPostWorkSyncCommand(
 export function buildResolvedPostWorkRecentReviewCommand(
   options: {
     cwd?: string;
-    launcher?: WorkflowContract["launcher"];
+    launcherOverride?: WorkflowContract["launcher"];
   } = {}
 ): string {
   return buildResolvedCliCommand("memory --recent", options);
@@ -335,62 +409,118 @@ export function buildResolvedPostWorkRecentReviewCommand(
 export function buildWorkflowContract(
   options: {
     cwd?: string;
+    launcherOverride?: WorkflowContract["launcher"];
   } = {}
 ): WorkflowContract {
-  const launcher = resolveCliLauncher();
+  const launcher = options.launcherOverride ?? resolveCliLauncher();
   const routePreference: WorkflowRoutePreference = {
     preferredRoute: "mcp-first",
     mcpFirst: MCP_FIRST_RECALL_WORKFLOW,
+    localBridge: LOCAL_BRIDGE_RECALL_WORKFLOW,
+    resolvedCli: RESOLVED_CLI_RECALL_WORKFLOW,
     cliFallback: CLI_FALLBACK_RECALL_WORKFLOW,
-    doctor: MCP_DOCTOR_GUIDANCE,
+    doctor: buildMcpDoctorGuidance({ ...options, launcherOverride: launcher }),
     serve: MCP_SERVE_GUIDANCE
   };
   const recallWorkflow: WorkflowRecallWorkflow = {
     recallFirst: RECALL_FIRST_GUIDANCE,
     progressiveDisclosure: PROGRESSIVE_DISCLOSURE_GUIDANCE
   };
+  const recommendedPreset = formatRecommendedRetrievalPreset();
+  const fallbackOrder: WorkflowContract["fallbackOrder"] = ["mcp", "local-bridge", "resolved-cli"];
+  const mcpTools: WorkflowContract["mcpTools"] = {
+    search: RETRIEVAL_MCP_SEARCH_TOOL,
+    timeline: RETRIEVAL_MCP_TIMELINE_TOOL,
+    details: RETRIEVAL_MCP_DETAILS_TOOL
+  };
+  const hookFallback: WorkflowContract["hookFallback"] = {
+    helperScript: "memory-recall.sh",
+    helperPath: getInstalledHookHelperPath("memory-recall.sh"),
+    searchCommand: buildHookFallbackCommand("search", "\"<query>\"", options),
+    timelineCommand: buildHookFallbackCommand("timeline", "\"<ref>\"", options),
+    detailsCommand: buildHookFallbackCommand("details", "\"<ref>\"", options),
+    shellOnly: true
+  };
+  const cliFallback: WorkflowContract["cliFallback"] = {
+    searchCommand: buildRecommendedCliSearchCommand("\"<query>\"", options),
+    timelineCommand: buildCliTimelineCommand("\"<ref>\"", options),
+    detailsCommand: buildCliDetailsCommand("\"<ref>\"", options),
+    requiresCamOnPath: true
+  };
+  const resolvedCliFallback: WorkflowContract["resolvedCliFallback"] = {
+    searchCommand: buildResolvedCliSearchCommand("\"<query>\"", {
+      ...options,
+      launcherOverride: launcher
+    }),
+    timelineCommand: buildResolvedCliTimelineCommand("\"<ref>\"", {
+      ...options,
+      launcherOverride: launcher
+    }),
+    detailsCommand: buildResolvedCliDetailsCommand("\"<ref>\"", {
+      ...options,
+      launcherOverride: launcher
+    })
+  };
+  const postWorkSyncReview: WorkflowContract["postWorkSyncReview"] = {
+    helperScript: POST_WORK_SYNC_REVIEW_HELPER,
+    syncCommand: buildPostWorkSyncCommand(options),
+    reviewCommand: buildPostWorkRecentReviewCommand(options),
+    guidance: buildDurableMemorySyncGuidance({ ...options, launcherOverride: launcher }),
+    shellOnly: true,
+    requiresCamOnPath: true
+  };
+  const resolvedPostWorkSyncReview: WorkflowContract["resolvedPostWorkSyncReview"] = {
+    syncCommand: buildResolvedPostWorkSyncCommand({ ...options, launcherOverride: launcher }),
+    reviewCommand: buildResolvedPostWorkRecentReviewCommand({
+      ...options,
+      launcherOverride: launcher
+    })
+  };
+  const boundaries: WorkflowContract["boundaries"] = {
+    memoryAudit: MEMORY_AUDIT_BOUNDARY,
+    sessionContinuity: SESSION_CONTINUITY_BOUNDARY,
+    archive: ARCHIVE_BOUNDARY
+  };
 
   return {
     version: RETRIEVAL_INTEGRATION_ASSET_VERSION,
     preferredRoute: routePreference.preferredRoute,
-    recommendedPreset: formatRecommendedRetrievalPreset(),
+    recommendedPreset,
+    fallbackOrder,
     recallFirst: recallWorkflow.recallFirst,
     progressiveDisclosure: recallWorkflow.progressiveDisclosure,
     launcher,
     routePreference,
     recallWorkflow,
-    mcpTools: {
-      search: RETRIEVAL_MCP_SEARCH_TOOL,
-      timeline: RETRIEVAL_MCP_TIMELINE_TOOL,
-      details: RETRIEVAL_MCP_DETAILS_TOOL
+    mcpTools,
+    hookFallback,
+    cliFallback,
+    resolvedCliFallback,
+    postWorkSyncReview,
+    resolvedPostWorkSyncReview,
+    boundaries,
+    executionContract: {
+      preferredRoute: routePreference.preferredRoute,
+      recommendedPreset,
+      fallbackOrder,
+      mcpTools,
+      hookFallback,
+      cliFallback,
+      resolvedCliFallback,
+      postWorkSyncReview,
+      resolvedPostWorkSyncReview,
+      boundaries
     },
-    cliFallback: {
-      searchCommand: buildRecommendedCliSearchCommand("\"<query>\"", options),
-      timelineCommand: buildCliTimelineCommand("\"<ref>\"", options),
-      detailsCommand: buildCliDetailsCommand("\"<ref>\"", options),
-      requiresCamOnPath: true
+    modelGuidanceContract: {
+      recallFirst: recallWorkflow.recallFirst,
+      progressiveDisclosure: recallWorkflow.progressiveDisclosure,
+      routePreference,
+      recallWorkflow
     },
-    resolvedCliFallback: {
-      searchCommand: buildResolvedCliSearchCommand("\"<query>\"", { ...options, launcher }),
-      timelineCommand: buildResolvedCliTimelineCommand("\"<ref>\"", { ...options, launcher }),
-      detailsCommand: buildResolvedCliDetailsCommand("\"<ref>\"", { ...options, launcher })
-    },
-    postWorkSyncReview: {
-      helperScript: POST_WORK_SYNC_REVIEW_HELPER,
-      syncCommand: buildPostWorkSyncCommand(options),
-      reviewCommand: buildPostWorkRecentReviewCommand(options),
-      guidance: DURABLE_MEMORY_SYNC_GUIDANCE,
-      shellOnly: true,
-      requiresCamOnPath: true
-    },
-    resolvedPostWorkSyncReview: {
-      syncCommand: buildResolvedPostWorkSyncCommand({ ...options, launcher }),
-      reviewCommand: buildResolvedPostWorkRecentReviewCommand({ ...options, launcher })
-    },
-    boundaries: {
-      memoryAudit: MEMORY_AUDIT_BOUNDARY,
-      sessionContinuity: SESSION_CONTINUITY_BOUNDARY,
-      archive: ARCHIVE_BOUNDARY
+    hostWiringContract: {
+      launcher,
+      doctorCommand: routePreference.doctor,
+      serveGuidance: routePreference.serve
     }
   };
 }
@@ -416,10 +546,11 @@ export function buildRecommendedRetrievalSummaryLines(
     workflowContract.routePreference.mcpFirst,
     buildRecommendedMcpSearchInstruction(),
     workflowContract.routePreference.serve,
-    workflowContract.routePreference.cliFallback,
+    workflowContract.routePreference.localBridge,
+    workflowContract.routePreference.resolvedCli,
     buildRecommendedSearchPresetGuidance(),
     workflowContract.routePreference.doctor,
-    ...buildSharedWorkflowDisciplineLines().slice(2)
+    ...buildSharedWorkflowDisciplineLines(options).slice(2)
   ];
 }
 
