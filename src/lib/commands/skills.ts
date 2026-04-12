@@ -3,6 +3,7 @@ import {
   codexSkillAssetDirForSurface
 } from "../integration/assets.js";
 import { installIntegrationAssets } from "../integration/install-assets.js";
+import { buildResolvedCliCommand } from "../integration/retrieval-contract.js";
 import {
   CODEX_MEMORY_SKILL_NAME,
   formatCodexSkillInstallSurface,
@@ -32,6 +33,9 @@ export async function installSkills(options: SkillsCommandOptions = {}): Promise
         surface: skillSurface,
         preferredSkillSurface: result.preferredSkillSurface ?? "runtime",
         readOnlyRetrieval: result.readOnlyRetrieval,
+        postInstallReadinessCommand: buildResolvedCliCommand("mcp doctor --host codex", {
+          cwd: projectRoot
+        }),
         workflowContract: result.workflowContract,
         notes: result.notes,
         assets: result.assets
@@ -44,6 +48,7 @@ export async function installSkills(options: SkillsCommandOptions = {}): Promise
   return [
     `Installed Codex skill assets in ${result.targetDir}`,
     `Action: ${result.action}`,
+    `Next: run ${buildResolvedCliCommand("mcp doctor --host codex", { cwd: projectRoot })}`,
     `Skill surface: ${formatCodexSkillInstallSurface(skillSurface)}`,
     `Preferred skill surface: ${result.preferredSkillSurface ?? "runtime"}`,
     ...result.assets.map((asset) => `- [${asset.action}] ${asset.path}`),
@@ -56,7 +61,7 @@ export async function installSkills(options: SkillsCommandOptions = {}): Promise
     ...buildRecallBridgeSummaryLines({
       cwd: projectRoot
     }),
-    "If a host prefers shell-based fallback helpers, run cam hooks install to generate memory-recall.sh, compatibility wrappers, and recall-bridge.md."
+    `If a host prefers shell-based fallback helpers, run ${buildResolvedCliCommand("hooks install", { cwd: projectRoot })} to generate memory-recall.sh, compatibility wrappers, and recall-bridge.md.`
   ].join("\n");
 }
 
