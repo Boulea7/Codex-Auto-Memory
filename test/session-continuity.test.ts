@@ -1,7 +1,7 @@
 import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   applySessionContinuityLayerSummary,
   compileSessionContinuity,
@@ -365,6 +365,31 @@ describe("session continuity domain", () => {
     expect(summary.projectLocal.goal).toBe(existing.projectLocal.goal);
   });
 
+  it("heuristic summarizer does not backfill a shared goal from an existing local-only goal", async () => {
+    const existing = {
+      project: createEmptySessionContinuityState("project", "p1", "w1"),
+      projectLocal: {
+        ...createEmptySessionContinuityState("project-local", "p1", "w1"),
+        goal: "Finish the current worktree patch for login cookie handling."
+      }
+    };
+    const evidence: RolloutEvidence = {
+      sessionId: "session-generic-local-goal",
+      createdAt: "2026-03-15T00:00:00.000Z",
+      cwd: "/tmp/project",
+      userMessages: ["Continue", "Run checks"],
+      agentMessages: [],
+      toolCalls: [],
+      rolloutPath: "/tmp/rollout.jsonl"
+    };
+
+    const summarizer = new SessionContinuitySummarizer(baseConfig("/tmp/memory-root"));
+    const summary = await summarizer.summarize(evidence, existing);
+
+    expect(summary.project.goal).toBe("");
+    expect(summary.projectLocal.goal).toBe(existing.projectLocal.goal);
+  });
+
   it("heuristic summarizer drops historical in-progress pseudo-failures from existing state", async () => {
     const existing = {
       project: {
@@ -506,6 +531,33 @@ describe("session continuity domain", () => {
 
     expect(result.summary.projectLocal.incompleteNext).toEqual(existing.projectLocal.incompleteNext);
     expect(result.diagnostics.warnings).not.toEqual(
+      expect.arrayContaining([
+        expect.stringContaining("Next steps were inferred from the latest request")
+      ])
+    );
+  });
+
+  it("treats concrete question-style latest requests as meaningful goals and fallback next steps", async () => {
+    const evidence: RolloutEvidence = {
+      sessionId: "session-question-goal",
+      createdAt: "2026-03-15T00:00:00.000Z",
+      cwd: "/tmp/project",
+      userMessages: ["Why is the login cookie missing after the middleware redirect?"],
+      agentMessages: [],
+      toolCalls: [],
+      rolloutPath: "/tmp/rollout.jsonl"
+    };
+
+    const summarizer = new SessionContinuitySummarizer(baseConfig("/tmp/memory-root"));
+    const result = await summarizer.summarizeWithDiagnostics(evidence);
+
+    expect(result.summary.project.goal).toBe(
+      "Why is the login cookie missing after the middleware redirect?"
+    );
+    expect(result.summary.projectLocal.incompleteNext).toEqual([
+      "Continue with the latest request: Why is the login cookie missing after the middleware redirect?"
+    ]);
+    expect(result.diagnostics.warnings).toEqual(
       expect.arrayContaining([
         expect.stringContaining("Next steps were inferred from the latest request")
       ])
@@ -1856,6 +1908,124 @@ describe("SessionContinuityStore", () => {
     );
     expect(await fs.readFile(olderFile, "utf8")).toBe("older\n");
     expect((await fs.readdir(store.paths.localDir)).filter((name) => name.endsWith("-session.tmp"))).toHaveLength(2);
+  });
+
+  it("rolls back shared and local continuity files if one summary write fails", async () => {
+    const repoDir = await tempDir("cam-continuity-atomic-repo-");
+    const memoryRoot = await tempDir("cam-continuity-atomic-memory-");
+    await initRepo(repoDir);
+
+    const store = new SessionContinuityStore(detectProjectContext(repoDir), baseConfig(memoryRoot));
+    await store.saveSummary(
+      {
+        project: {
+          goal: "Initial shared goal.",
+          confirmedWorking: ["Initial shared success."],
+          triedAndFailed: [],
+          notYetTried: [],
+          incompleteNext: [],
+          filesDecisionsEnvironment: []
+        },
+        projectLocal: {
+          goal: "Initial local goal.",
+          confirmedWorking: [],
+          triedAndFailed: [],
+          notYetTried: [],
+          incompleteNext: ["Initial local next step."],
+          filesDecisionsEnvironment: []
+        },
+        sourceSessionId: "session-initial"
+      },
+      "both"
+    );
+
+    const sharedBefore = await fs.readFile(store.paths.sharedFile, "utf8");
+    const localBefore = await fs.readFile(store.paths.localFile, "utf8");
+    const originalRename = fs.rename;
+    const renameSpy = vi.spyOn(fs, "rename").mockImplementation(async (from, to) => {
+      if (String(to) === store.paths.localFile) {
+        throw new Error("local continuity rename failed");
+      }
+
+      return await originalRename(from, to);
+    });
+
+    await expect(
+      store.saveSummary(
+        {
+          project: {
+            goal: "Updated shared goal.",
+            confirmedWorking: ["Updated shared success."],
+            triedAndFailed: [],
+            notYetTried: [],
+            incompleteNext: [],
+            filesDecisionsEnvironment: []
+          },
+          projectLocal: {
+            goal: "Updated local goal.",
+            confirmedWorking: [],
+            triedAndFailed: [],
+            notYetTried: [],
+            incompleteNext: ["Updated local next step."],
+            filesDecisionsEnvironment: []
+          },
+          sourceSessionId: "session-updated"
+        },
+        "both"
+      )
+    ).rejects.toThrow("local continuity rename failed");
+    renameSpy.mockRestore();
+
+    expect(await fs.readFile(store.paths.sharedFile, "utf8")).toBe(sharedBefore);
+    expect(await fs.readFile(store.paths.localFile, "utf8")).toBe(localBefore);
+  });
+
+  it("rolls back git exclude updates if a local continuity write fails", async () => {
+    const repoDir = await tempDir("cam-continuity-ignore-rollback-repo-");
+    const memoryRoot = await tempDir("cam-continuity-ignore-rollback-memory-");
+    await initRepo(repoDir);
+
+    const store = new SessionContinuityStore(detectProjectContext(repoDir), baseConfig(memoryRoot));
+    const excludePath = store.getLocalIgnorePath();
+    expect(excludePath).not.toBeNull();
+    const excludeBefore = await fs.readFile(excludePath!, "utf8");
+
+    const originalRename = fs.rename;
+    const renameSpy = vi.spyOn(fs, "rename").mockImplementation(async (from, to) => {
+      if (String(to) === store.paths.localFile) {
+        throw new Error("local continuity rename failed");
+      }
+
+      return await originalRename(from, to);
+    });
+
+    await expect(
+      store.saveSummary(
+        {
+          project: {
+            goal: "",
+            confirmedWorking: [],
+            triedAndFailed: [],
+            notYetTried: [],
+            incompleteNext: [],
+            filesDecisionsEnvironment: []
+          },
+          projectLocal: {
+            goal: "Initial local goal.",
+            confirmedWorking: [],
+            triedAndFailed: [],
+            notYetTried: [],
+            incompleteNext: ["Initial local next step."],
+            filesDecisionsEnvironment: []
+          },
+          sourceSessionId: "session-initial"
+        },
+        "project-local"
+      )
+    ).rejects.toThrow("local continuity rename failed");
+    renameSpy.mockRestore();
+
+    expect(await fs.readFile(excludePath!, "utf8")).toBe(excludeBefore);
   });
 
 });
