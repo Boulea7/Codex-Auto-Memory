@@ -40,6 +40,17 @@ interface SessionPersistenceRequest {
   writeMode: "merge" | "replace";
 }
 
+function matchesContinuitySelectionScope(
+  candidateScope: SessionContinuityScope | "both" | undefined,
+  requestedScope: SessionContinuityScope | "both"
+): boolean {
+  if (!candidateScope) {
+    return false;
+  }
+
+  return candidateScope === requestedScope || (candidateScope === "both" && requestedScope !== "both");
+}
+
 function selectedScope(scope?: SessionContinuityScope | "both"): SessionContinuityScope | "both" {
   if (!scope) {
     return "both";
@@ -65,7 +76,7 @@ async function selectRefreshRollout(
   }
 
   const recoveryRecord = await runtime.sessionContinuityStore.readRecoveryRecord();
-  if (recoveryRecord?.scope === scope) {
+  if (recoveryRecord && matchesContinuitySelectionScope(recoveryRecord.scope, scope)) {
     return {
       kind: "pending-recovery-marker",
       rolloutPath: recoveryRecord.rolloutPath
@@ -92,6 +103,46 @@ async function selectRefreshRollout(
   throw new Error("No relevant rollout found for this project.");
 }
 
+async function selectSaveRollout(
+  runtime: RuntimeContext,
+  scope: SessionContinuityScope | "both",
+  explicitRollout?: string
+): Promise<RolloutSelection> {
+  if (explicitRollout) {
+    return {
+      kind: "explicit-rollout",
+      rolloutPath: explicitRollout
+    };
+  }
+
+  const recoveryRecord = await runtime.sessionContinuityStore.readRecoveryRecord();
+  if (recoveryRecord && matchesContinuitySelectionScope(recoveryRecord.scope, scope)) {
+    return {
+      kind: "pending-recovery-marker",
+      rolloutPath: recoveryRecord.rolloutPath
+    };
+  }
+
+  const latestPrimaryRollout = await findLatestProjectRollout(runtime.project);
+  if (latestPrimaryRollout) {
+    return {
+      kind: "latest-primary-rollout",
+      rolloutPath: latestPrimaryRollout
+    };
+  }
+
+  const latestAuditEntry =
+    await runtime.sessionContinuityStore.readLatestAuditEntryMatchingScope(scope);
+  if (latestAuditEntry) {
+    return {
+      kind: "latest-audit-entry",
+      rolloutPath: latestAuditEntry.rolloutPath
+    };
+  }
+
+  throw new Error("No relevant rollout found for this project.");
+}
+
 async function prepareSessionPersistenceRequest(
   runtime: RuntimeContext,
   action: "save" | "refresh",
@@ -101,10 +152,7 @@ async function prepareSessionPersistenceRequest(
   const rolloutSelection: RolloutSelection =
     action === "refresh"
       ? await selectRefreshRollout(runtime, scope, explicitRollout)
-      : {
-          kind: explicitRollout ? "explicit-rollout" : "latest-primary-rollout",
-          rolloutPath: explicitRollout ?? (await findLatestProjectRollout(runtime.project)) ?? ""
-        };
+      : await selectSaveRollout(runtime, scope, explicitRollout);
 
   if (!rolloutSelection.rolloutPath) {
     throw new Error("No relevant rollout found for this project.");
@@ -122,10 +170,10 @@ export async function runSession(
   options: SessionOptions = {}
 ): Promise<string> {
   const cwd = options.cwd ?? process.cwd();
-  const runtime = await buildRuntimeContext(cwd);
   const scope = selectedScope(options.scope);
 
   if (action === "save" || action === "refresh") {
+    const runtime = await buildRuntimeContext(cwd);
     const persistenceRequest = await prepareSessionPersistenceRequest(
       runtime,
       action,
@@ -149,6 +197,7 @@ export async function runSession(
   }
 
   if (action === "clear") {
+    const runtime = await buildRuntimeContext(cwd);
     const cleared = await runtime.sessionContinuityStore.clear(scope);
     if (options.json) {
       return JSON.stringify({ cleared }, null, 2);
@@ -162,6 +211,7 @@ export async function runSession(
   }
 
   if (action === "open") {
+    const runtime = await buildRuntimeContext(cwd);
     await runtime.sessionContinuityStore.ensureLocalLayout();
     openPath(runtime.sessionContinuityStore.paths.localDir);
     return [
@@ -170,6 +220,9 @@ export async function runSession(
     ].join("\n");
   }
 
+  const runtime = await buildRuntimeContext(cwd, {}, {
+    ensureMemoryLayout: false
+  });
   const view = await loadSessionInspectionView(runtime);
 
   if (action === "load") {

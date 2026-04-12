@@ -1,6 +1,6 @@
 import path from "node:path";
 import * as toml from "smol-toml";
-import { ensureDir, fileExists, readTextFile, writeTextFile } from "../util/fs.js";
+import { ensureDir, fileExists, readTextFile, writeTextFileAtomic } from "../util/fs.js";
 import { READ_ONLY_RETRIEVAL_NOTE } from "./codex-stack.js";
 import {
   buildCanonicalMcpServerConfig,
@@ -135,7 +135,10 @@ async function writeConfigIfChanged(
   }
 
   await ensureDir(path.dirname(targetPath));
-  await writeTextFile(targetPath, nextContents.endsWith("\n") ? nextContents : `${nextContents}\n`);
+  await writeTextFileAtomic(
+    targetPath,
+    nextContents.endsWith("\n") ? nextContents : `${nextContents}\n`
+  );
 }
 
 async function installCodexProjectConfig(projectRoot: string): Promise<McpInstallResult> {
@@ -181,52 +184,6 @@ async function installCodexProjectConfig(projectRoot: string): Promise<McpInstal
   };
 }
 
-async function installJsonProjectConfig(
-  host: Extract<McpHost, "claude" | "gemini">,
-  projectRoot: string
-): Promise<McpInstallResult> {
-  const targetPath = resolveMcpHostProjectConfigPath(host, projectRoot);
-  if (!targetPath) {
-    throw new Error(`Missing project-scoped config path for ${host} MCP install.`);
-  }
-
-  const targetExists = await fileExists(targetPath);
-  const rawConfig = targetExists ? await readTextFile(targetPath) : "";
-  const parsed = targetExists ? (JSON.parse(rawConfig) as unknown) : {};
-  if (!isRecordLike(parsed)) {
-    throw new Error(`The existing ${targetPath} must contain a top-level JSON object.`);
-  }
-
-  const mcpServers = ensureRecordProperty(parsed, "mcpServers", `${targetPath}#mcpServers`);
-  const canonicalServer = buildCanonicalMcpServerConfig(host, projectRoot);
-  const existingServer = mcpServers[MEMORY_RETRIEVAL_MCP_SERVER_NAME];
-  const { nextServer, preservedCustomFields } = buildInstalledServerRecord(existingServer, canonicalServer);
-  const hadServer = Object.hasOwn(mcpServers, MEMORY_RETRIEVAL_MCP_SERVER_NAME);
-  const action: McpInstallResult["action"] = !hadServer
-    ? "created"
-    : isRecordLike(existingServer) && deepEqual(existingServer, nextServer)
-      ? "unchanged"
-      : "updated";
-
-  if (action !== "unchanged") {
-    mcpServers[MEMORY_RETRIEVAL_MCP_SERVER_NAME] = nextServer;
-  }
-
-  await writeConfigIfChanged(targetPath, JSON.stringify(parsed, null, 2), action);
-
-  return {
-    host,
-    serverName: MEMORY_RETRIEVAL_MCP_SERVER_NAME,
-    projectRoot,
-    targetPath,
-    action,
-    projectPinned: true,
-    readOnlyRetrieval: true,
-    preservedCustomFields,
-    notes: buildInstallNotes(preservedCustomFields)
-  };
-}
-
 export async function installMcpProjectConfig(
   host: McpHost,
   projectRoot: string
@@ -236,10 +193,12 @@ export async function installMcpProjectConfig(
       return installCodexProjectConfig(projectRoot);
     case "claude":
     case "gemini":
-      return installJsonProjectConfig(host, projectRoot);
+      throw new Error(
+        `MCP install does not support host "${host}". ${host} wiring remains manual-only and snippet-first; use cam mcp print-config instead. Codex-only install keeps mutable host wiring scoped to the primary product line.`
+      );
     case "generic":
       throw new Error(
-        'MCP install does not support host "generic". generic wiring remains manual-only; use cam mcp print-config instead.'
+        'MCP install does not support host "generic". generic wiring remains manual-only and snippet-first; use cam mcp print-config instead. Codex-only install keeps mutable host wiring scoped to the primary product line.'
       );
   }
 }
