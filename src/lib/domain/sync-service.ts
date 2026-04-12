@@ -3,6 +3,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import type {
   AppConfig,
+  MemoryApplyRecord,
   MemoryConflictCandidate,
   MemoryEntry,
   MemoryOperation,
@@ -20,6 +21,7 @@ import type { MemoryExtractorAdapter } from "../runtime/contracts.js";
 import { RolloutSessionSource } from "../runtime/rollout-session-source.js";
 import { buildMemorySyncAuditEntry } from "./memory-sync-audit.js";
 import { buildSyncRecoveryRecord, matchesSyncRecoveryRecord } from "./recovery-records.js";
+import { isPrimaryRolloutEvidence } from "./rollout.js";
 
 interface ExtractionResult {
   operations: MemoryOperation[];
@@ -29,6 +31,23 @@ interface ExtractionResult {
 
 function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
+}
+
+function toAppliedOperation(record: MemoryApplyRecord): MemoryOperation | null {
+  if (record.lifecycleAction === "noop") {
+    return null;
+  }
+
+  return {
+    action: record.operation.action === "archive" ? "delete" : record.operation.action,
+    scope: record.operation.scope,
+    topic: record.operation.topic,
+    id: record.operation.id,
+    summary: record.operation.summary,
+    details: record.operation.details,
+    sources: record.operation.sources,
+    reason: record.operation.reason
+  };
 }
 
 export class SyncService {
@@ -71,6 +90,28 @@ export class SyncService {
         applied: [],
         skipped: true,
         message: `Skipped ${rolloutPath}; no rollout evidence could be parsed.`
+      };
+    }
+
+    if (!isPrimaryRolloutEvidence(evidence)) {
+      await this.store.appendSyncAuditEntry(
+        buildMemorySyncAuditEntry({
+          project: this.project,
+          config: this.config,
+          rolloutPath,
+          sessionId: evidence.sessionId,
+          configuredExtractorName: this.configuredExtractorName,
+          actualExtractorMode: this.configuredExtractorMode,
+          actualExtractorName: this.configuredExtractorName,
+          sessionSource: this.sessionSource.name,
+          status: "skipped",
+          skipReason: "subagent-rollout"
+        })
+      );
+      return {
+        applied: [],
+        skipped: true,
+        message: `Skipped ${rolloutPath}; subagent rollout evidence is not eligible for durable sync.`
       };
     }
 
@@ -125,7 +166,17 @@ export class SyncService {
       filterMemoryOperations(extraction.operations),
       existingEntries
     );
-    const applied = await this.store.applyOperations(reviewedOperations.operations);
+    const applyRecords = await this.store.applyMutations(reviewedOperations.operations, {
+      sessionId: evidence.sessionId,
+      rolloutPath: evidence.rolloutPath
+    });
+    const applied = applyRecords.flatMap((record) => {
+      const operation = toAppliedOperation(record);
+      return operation ? [operation] : [];
+    });
+    const noopOperationCount = applyRecords.filter(
+      (record) => record.lifecycleAction === "noop"
+    ).length;
     const status = applied.length === 0 ? "no-op" : "applied";
     const auditEntry = buildMemorySyncAuditEntry({
       project: this.project,
@@ -137,6 +188,7 @@ export class SyncService {
       actualExtractorName: extraction.actualExtractorName,
       sessionSource: this.sessionSource.name,
       status,
+      noopOperationCount,
       suppressedOperationCount: reviewedOperations.suppressedOperationCount,
       conflicts: reviewedOperations.conflicts,
       operations: applied,
@@ -153,6 +205,7 @@ export class SyncService {
         actualExtractorName: extraction.actualExtractorName,
         status,
         appliedCount: auditEntry.appliedCount,
+        noopOperationCount: auditEntry.noopOperationCount ?? 0,
         suppressedOperationCount: auditEntry.suppressedOperationCount ?? 0,
         scopesTouched: auditEntry.scopesTouched,
         conflicts: auditEntry.conflicts ?? [],
@@ -173,6 +226,7 @@ export class SyncService {
         actualExtractorName: extraction.actualExtractorName,
         status,
         appliedCount: auditEntry.appliedCount,
+        noopOperationCount: auditEntry.noopOperationCount ?? 0,
         suppressedOperationCount: auditEntry.suppressedOperationCount ?? 0,
         scopesTouched: auditEntry.scopesTouched,
         conflicts: auditEntry.conflicts ?? [],
@@ -257,6 +311,7 @@ export class SyncService {
     actualExtractorName: string;
     status: "applied" | "no-op";
     appliedCount: number;
+    noopOperationCount: number;
     suppressedOperationCount: number;
     scopesTouched: MemoryOperation["scope"][];
     conflicts: MemoryConflictCandidate[];
@@ -277,6 +332,7 @@ export class SyncService {
           actualExtractorName: options.actualExtractorName,
           status: options.status,
           appliedCount: options.appliedCount,
+          noopOperationCount: options.noopOperationCount,
           suppressedOperationCount: options.suppressedOperationCount,
           scopesTouched: options.scopesTouched,
           conflicts: options.conflicts,

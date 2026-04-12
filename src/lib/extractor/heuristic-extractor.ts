@@ -1,14 +1,54 @@
 import { DEFAULT_MEMORY_TOPICS } from "../constants.js";
+import { matchesAllMemoryQueryTerms } from "../domain/memory-query.js";
 import type { MemoryEntry, MemoryOperation, RolloutEvidence } from "../types.js";
 import type { MemoryExtractorAdapter } from "../runtime/contracts.js";
 import { slugify } from "../util/text.js";
 import { commandSucceeded, extractCommand, isCommandToolCall } from "./command-utils.js";
+import { canonicalCommandSignature } from "./command-signatures.js";
+import { extractReferenceResourceKey, inferReferenceCategory } from "./directive-utils.js";
 
 interface ExplicitCorrection {
   scope: MemoryOperation["scope"];
-  topic: "preferences" | "workflow";
+  topic: string;
   summary: string;
   staleText: string;
+}
+
+const assistantStablePrefixes = [
+  /^confirmed[:\s]+/iu,
+  /^result[:\s]+/iu,
+  /^stable note[:\s]+/iu,
+  /^decision[:\s]+/iu,
+  /^verified[:\s]+/iu,
+  /^结论[:：\s]+/u,
+  /^已确认[:：\s]+/u
+] as const;
+
+const assistantNoisePatterns = [
+  /\breviewer\b/iu,
+  /\bsubagent\b/iu,
+  /\bnext step\b/iu,
+  /\bresume here\b/iu,
+  /\bcurrent worktree\b/iu,
+  /\bcurrent branch\b/iu,
+  /\bI will\b/iu,
+  /\bI'll\b/iu,
+  /\bI am going to\b/iu,
+  /我会/u,
+  /下一步/u
+] as const;
+
+const stableDirectiveTopics = new Set([
+  "reference",
+  "architecture",
+  "debugging",
+  "patterns",
+  "preferences",
+  "commands"
+]);
+
+function isAllowedMemoryTopic(topic: string): topic is (typeof DEFAULT_MEMORY_TOPICS)[number] {
+  return DEFAULT_MEMORY_TOPICS.includes(topic as (typeof DEFAULT_MEMORY_TOPICS)[number]);
 }
 
 function inferScope(message: string): MemoryOperation["scope"] {
@@ -24,20 +64,46 @@ function inferScope(message: string): MemoryOperation["scope"] {
 }
 
 function inferTopic(message: string): string {
+  if (
+    /search\s*->\s*timeline\s*->\s*details/iu.test(message) ||
+    /mcp\s*->\s*local bridge\s*->\s*resolved cli/iu.test(message)
+  ) {
+    return "patterns";
+  }
+
+  if (
+    /`[^`]*(?:pnpm|npm|bun|yarn|cargo|pytest|jest|vitest|go test|python(?:3)? -m|make)[^`]*`/iu.test(
+      message
+    ) ||
+    /\b(?:command|run\s+(?:pnpm|npm|bun|yarn|cargo|pytest|jest|vitest|go test|python(?:3)? -m|make)|(?:pnpm|npm|bun|yarn|cargo)\s+(?:test|lint|build|install|check)|pytest|jest|vitest|go test|dotnet test|rake|tsc|vite build|next build|gradle|mvn|make)\b/iu.test(
+      message
+    )
+  ) {
+    return "commands";
+  }
+
+  if (
+    /(https?:\/\/|grafana|linear|jira|slack|notion|confluence|runbook|playbook|wiki|dashboard|docs?\b|tracked in|board\b|channel\b)/iu.test(
+      message
+    )
+  ) {
+    return "reference";
+  }
+
   if (/(pnpm|npm|bun|yarn|format|style|indent|naming|comment|typescript|always use)/iu.test(message)) {
     return "preferences";
   }
 
-  if (/(command|build|test|lint|install|pnpm |npm |bun |pytest|jest|vitest|cargo|go test|python -m)/iu.test(message)) {
-    return "commands";
+  if (
+    /(architecture|module|api|route|entity|service|controller|schema|markdown-first|db-first|database-first|source of truth|canonical)/iu.test(
+      message
+    )
+  ) {
+    return "architecture";
   }
 
   if (/(debug|error|fix|fails|failing|redis|database|timeout|requires|must start|before running)/iu.test(message)) {
     return "debugging";
-  }
-
-  if (/(architecture|module|api|route|entity|service|controller|schema)/iu.test(message)) {
-    return "architecture";
   }
 
   if (/(pattern|convention|reuse|shared)/iu.test(message)) {
@@ -52,36 +118,19 @@ function extractCommandFromSummary(summary: string): string | null {
   return match?.[1] ?? null;
 }
 
-function commandSignature(command: string): string | null {
-  const normalized = command.toLowerCase().trim();
-  if (/\b(?:pnpm|npm|bun|yarn)\s+(test|lint|build|install)\b/u.test(normalized)) {
-    return normalized.match(/\b(?:pnpm|npm|bun|yarn)\s+(test|lint|build|install)\b/u)?.[1] ?? null;
-  }
-
-  if (/\b(?:cargo)\s+(test|build|check)\b/u.test(normalized)) {
-    return normalized.match(/\bcargo\s+(test|build|check)\b/u)?.[1] ?? null;
-  }
-
-  if (/\b(?:pytest|jest|vitest|go test|dotnet test|rake)\b/u.test(normalized)) {
-    return "test";
-  }
-
-  if (/\b(?:tsc|vite build|next build|gradle|mvn|make)\b/u.test(normalized)) {
-    return "build";
-  }
-
-  return null;
+function buildEntryIdentityKey(entry: Pick<MemoryEntry, "scope" | "topic" | "id">): string {
+  return `${entry.scope}:${entry.topic}:${entry.id}`;
 }
 
-function overlappingEntryIds(existingEntries: MemoryEntry[], text: string): string[] {
-  return overlappingEntryIdsWithThreshold(existingEntries, text, 2);
+function overlappingEntries(existingEntries: MemoryEntry[], text: string): MemoryEntry[] {
+  return overlappingEntriesWithThreshold(existingEntries, text, 2);
 }
 
-function overlappingEntryIdsWithThreshold(
+function overlappingEntriesWithThreshold(
   existingEntries: MemoryEntry[],
   text: string,
   minimumMatches: number
-): string[] {
+): MemoryEntry[] {
   const words = new Set(
     text
       .toLowerCase()
@@ -103,8 +152,7 @@ function overlappingEntryIdsWithThreshold(
         }
       }
       return matches >= Math.min(minimumMatches, words.size);
-    })
-    .map((entry) => entry.id);
+    });
 }
 
 function normalizeForComparison(text: string): string {
@@ -129,6 +177,132 @@ function isHighConfidenceExplicitCorrection(message: string): boolean {
   return !/(?:\bmaybe\b|\bperhaps\b|\bif possible\b|\bwhen possible\b|\bfor now\b|\bprobably\b|\busually\b|\bsometimes\b|\btry\b|\bconsider\b|\bmight\b|\bcould\b|尽量|如果可以|可能|暂时)/iu.test(
     message
   );
+}
+
+function isCorrectionSignal(message: string): boolean {
+  return /(?:\bnot\b|\binstead of\b|\brather than\b|不用|别用|不要用)/iu.test(message);
+}
+
+function isStableDirectiveSummary(topic: string, summary: string): boolean {
+  switch (topic) {
+    case "reference":
+      return /(https?:\/\/|tracked in|lives at|runbook|dashboard|docs?\b|linear|jira|issue tracker)/iu.test(
+        summary
+      );
+    case "architecture":
+      return /(markdown-first|db-first|database-first|source of truth|canonical)|主真相|规范存储/iu.test(
+        summary
+      );
+    case "debugging":
+      return /\b(requires?|needs?|must be running|must run|must start|before running|before integration tests)\b|需要|必须|先启动/u.test(
+        summary
+      );
+    case "preferences":
+      return (
+        /\b(?:we\s+use|use|prefer|always use)\b.*\b(?:pnpm|npm|yarn|bun|rg|ripgrep|grep)\b/iu.test(
+          summary
+        ) || /(?:使用|用|优先用|优先使用).*(?:pnpm|npm|yarn|bun|rg|ripgrep|grep)/u.test(summary)
+      );
+    case "commands":
+      return (
+        /^run\s+`[^`]+`/iu.test(summary) ||
+        /^use\s+`[^`]+`/iu.test(summary) ||
+        /^运行\s*`[^`]+`/u.test(summary)
+      );
+    case "patterns":
+      return (
+        /search\s*->\s*timeline\s*->\s*details/iu.test(summary) ||
+        /mcp\s*->\s*local bridge\s*->\s*resolved cli/iu.test(summary)
+      );
+    default:
+      return false;
+  }
+}
+
+function extractStableDirectiveOperation(
+  message: string,
+  rolloutPath: string
+): MemoryOperation | null {
+  const summary = trimTrailingPunctuation(message.trim());
+  if (!summary || /[?？]$/u.test(summary) || !isHighConfidenceExplicitCorrection(summary)) {
+    return null;
+  }
+
+  const topic = inferTopic(summary);
+  if (!stableDirectiveTopics.has(topic) || !isStableDirectiveSummary(topic, summary)) {
+    return null;
+  }
+
+  return {
+    action: "upsert",
+    scope: inferScope(summary),
+    topic,
+    id: slugify(summary),
+    summary,
+    details: [summary],
+    reason: isCorrectionSignal(summary)
+      ? "Explicit user correction that should replace stale memory."
+      : "Stable directive extracted from the session.",
+    sources: [rolloutPath]
+  };
+}
+
+function stableDirectiveReplacementKey(topic: string, summary: string): string | null {
+  if (topic === "reference") {
+    const urlMatch = summary.match(/https?:\/\/[^\s)]+/iu)?.[0];
+    const url = urlMatch?.replace(/[),.;]+$/u, "").trim().toLowerCase();
+    const category = inferReferenceCategory(summary);
+    return `reference:${category}:${extractReferenceResourceKey(summary, category, url) ?? category}`;
+  }
+
+  if (
+    topic === "architecture" &&
+    /\b(canonical|source of truth|db-first|markdown-first|database-first)\b|规范存储|主真相/u.test(
+      summary
+    )
+  ) {
+    return "architecture:canonical-store";
+  }
+
+  if (topic === "patterns") {
+    if (/search\s*->\s*timeline\s*->\s*details/iu.test(summary)) {
+      return "patterns:retrieval-flow";
+    }
+
+    if (/mcp\s*->\s*local bridge\s*->\s*resolved cli/iu.test(summary)) {
+      return "patterns:route-order";
+    }
+  }
+
+  return null;
+}
+
+function collectStableDirectiveDeleteTargets(
+  existingEntries: MemoryEntry[],
+  operation: MemoryOperation
+): MemoryEntry[] {
+  if (operation.action !== "upsert" || !operation.summary) {
+    return [];
+  }
+
+  const replacementKey = stableDirectiveReplacementKey(operation.topic, operation.summary);
+  if (!replacementKey) {
+    return [];
+  }
+
+  const candidates = existingEntries.filter((entry) => {
+    if (
+      entry.scope !== operation.scope ||
+      entry.topic !== operation.topic ||
+      normalizeForComparison(entry.summary) === normalizeForComparison(operation.summary ?? "")
+    ) {
+      return false;
+    }
+
+    return stableDirectiveReplacementKey(entry.topic, entry.summary) === replacementKey;
+  });
+
+  return candidates.length === 1 ? candidates : [];
 }
 
 function extractExplicitCorrection(message: string): ExplicitCorrection | null {
@@ -159,6 +333,18 @@ function extractExplicitCorrection(message: string): ExplicitCorrection | null {
       staleIndex: 2
     },
     {
+      pattern: /^(?:actually\s+)?run\s+(.+?),\s*not\s+(.+)$/iu,
+      staleIndex: 2
+    },
+    {
+      pattern: /^(?:actually\s+)?keep\s+(.+?),\s*not\s+(.+)$/iu,
+      staleIndex: 2
+    },
+    {
+      pattern: /^(?:actually\s+)?(.+?\b(?:lives? at|is at)\s+.+?),\s*not\s+(.+)$/iu,
+      staleIndex: 2
+    },
+    {
       pattern: /^我们用\s*(.+?)\s*[,，]\s*不用\s*(.+)$/u,
       staleIndex: 2
     },
@@ -179,8 +365,7 @@ function extractExplicitCorrection(message: string): ExplicitCorrection | null {
     }
 
     const rawTopic = inferTopic(trimmed);
-    const topic =
-      rawTopic === "preferences" || rawTopic === "workflow" ? rawTopic : null;
+    const topic = isAllowedMemoryTopic(rawTopic) ? rawTopic : null;
     if (!topic) {
       return null;
     }
@@ -201,10 +386,10 @@ function extractExplicitCorrection(message: string): ExplicitCorrection | null {
   return null;
 }
 
-function collectExplicitCorrectionDeletes(
+function collectExplicitCorrectionDeleteTargets(
   existingEntries: MemoryEntry[],
   correction: ExplicitCorrection
-): string[] {
+): MemoryEntry[] {
   const scopedEntries = existingEntries.filter(
     (entry) => entry.scope === correction.scope && entry.topic === correction.topic
   );
@@ -228,11 +413,22 @@ function collectExplicitCorrectionDeletes(
     return haystack.includes(staleNeedle);
   });
 
-  if (directCandidates.length <= 1) {
-    return directCandidates.map((entry) => entry.id);
+  if (correction.topic === "commands") {
+    return directCandidates;
   }
 
   const contextTokens = summaryTokens.filter((token) => !staleTokens.has(token));
+  if (directCandidates.length <= 1) {
+    if (directCandidates.length === 0 || contextTokens.length === 0) {
+      return directCandidates;
+    }
+
+    return directCandidates.filter((entry) => {
+      const haystack = normalizeForComparison(`${entry.summary}\n${entry.details.join("\n")}`);
+      return contextTokens.some((token) => haystack.includes(token));
+    });
+  }
+
   if (contextTokens.length < 2) {
     return [];
   }
@@ -242,18 +438,18 @@ function collectExplicitCorrectionDeletes(
       const haystack = normalizeForComparison(`${entry.summary}\n${entry.details.join("\n")}`);
       const contextMatches = contextTokens.filter((token) => haystack.includes(token)).length;
       return contextMatches >= Math.min(2, contextTokens.length);
-    })
-    .map((entry) => entry.id);
+    });
 }
 
 function queueDelete(
   operations: MemoryOperation[],
-  queuedDeleteIds: Set<string>,
+  queuedDeleteKeys: Set<string>,
   entry: MemoryEntry,
   reason: string,
   rolloutPath: string
 ): void {
-  if (queuedDeleteIds.has(entry.id)) {
+  const deleteKey = buildEntryIdentityKey(entry);
+  if (queuedDeleteKeys.has(deleteKey)) {
     return;
   }
 
@@ -265,21 +461,75 @@ function queueDelete(
     reason,
     sources: [rolloutPath]
   });
-  queuedDeleteIds.add(entry.id);
+  queuedDeleteKeys.add(deleteKey);
 }
 
 function queueUpsert(
   operations: MemoryOperation[],
-  knownSummaries: Set<string>,
+  knownOperationKeys: Set<string>,
   operation: MemoryOperation
 ): void {
-  const normalizedSummary = operation.summary?.toLowerCase();
-  if (!normalizedSummary || knownSummaries.has(normalizedSummary)) {
+  const normalizedSummary = normalizeForComparison(operation.summary ?? "");
+  if (!normalizedSummary) {
+    return;
+  }
+
+  const operationKey = [
+    operation.scope,
+    operation.topic,
+    operation.id,
+    normalizedSummary
+  ].join(":");
+  if (knownOperationKeys.has(operationKey)) {
     return;
   }
 
   operations.push(operation);
-  knownSummaries.add(normalizedSummary);
+  knownOperationKeys.add(operationKey);
+}
+
+function extractStableAssistantSummary(message: string): {
+  scope: MemoryOperation["scope"];
+  topic: string;
+  summary: string;
+  details: string[];
+  reason: string;
+} | null {
+  const normalizedMessage = trimTrailingPunctuation(message.trim());
+  if (!normalizedMessage) {
+    return null;
+  }
+
+  if (assistantNoisePatterns.some((pattern) => pattern.test(normalizedMessage))) {
+    return null;
+  }
+
+  const matchingPrefix = assistantStablePrefixes.find((pattern) => pattern.test(normalizedMessage));
+  if (!matchingPrefix) {
+    return null;
+  }
+
+  const summary = trimTrailingPunctuation(normalizedMessage.replace(matchingPrefix, "").trim());
+  if (summary.length < 24) {
+    return null;
+  }
+
+  if (!isHighConfidenceExplicitCorrection(summary)) {
+    return null;
+  }
+
+  const topic = inferTopic(summary);
+  if (!stableDirectiveTopics.has(topic) || !isStableDirectiveSummary(topic, summary)) {
+    return null;
+  }
+
+  return {
+    scope: inferScope(summary),
+    topic,
+    summary,
+    details: [summary],
+    reason: "Stable assistant summary extracted from the session."
+  };
 }
 
 function commandSummary(command: string): { summary: string; details: string[] } {
@@ -328,29 +578,28 @@ export class HeuristicExtractor implements MemoryExtractorAdapter {
     existingEntries: MemoryEntry[]
   ): Promise<MemoryOperation[]> {
     const operations: MemoryOperation[] = [];
-    const knownSummaries = new Set(existingEntries.map((entry) => entry.summary.toLowerCase()));
-    const queuedDeleteIds = new Set<string>();
+    const knownOperationKeys = new Set(
+      existingEntries.map((entry) =>
+        [entry.scope, entry.topic, entry.id, normalizeForComparison(entry.summary)].join(":")
+      )
+    );
+    const queuedDeleteKeys = new Set<string>();
     const allowedTopics = new Set<string>(DEFAULT_MEMORY_TOPICS);
 
     for (const message of evidence.userMessages) {
       const explicitCorrection = extractExplicitCorrection(message);
       if (explicitCorrection) {
-        for (const entryId of collectExplicitCorrectionDeletes(existingEntries, explicitCorrection)) {
-          const entry = existingEntries.find((candidate) => candidate.id === entryId);
-          if (!entry) {
-            continue;
-          }
-
+        for (const entry of collectExplicitCorrectionDeleteTargets(existingEntries, explicitCorrection)) {
           queueDelete(
             operations,
-            queuedDeleteIds,
+            queuedDeleteKeys,
             entry,
             "Superseded by a newer explicit user correction.",
             evidence.rolloutPath
           );
         }
 
-        queueUpsert(operations, knownSummaries, {
+        queueUpsert(operations, knownOperationKeys, {
           action: "upsert",
           scope: explicitCorrection.scope,
           topic: explicitCorrection.topic,
@@ -376,20 +625,16 @@ export class HeuristicExtractor implements MemoryExtractorAdapter {
 
       if (forgetMatch?.[1]) {
         const query = forgetMatch[1].trim().replace(/[。.]$/u, "");
-        const matchingIds = new Set<string>(
-          overlappingEntryIdsWithThreshold(existingEntries, query, 1)
-        );
         for (const entry of existingEntries) {
-          const haystack = `${entry.id}\n${entry.summary}\n${entry.details.join("\n")}`.toLowerCase();
-          if (
-            !haystack.includes(query.toLowerCase()) &&
-            !matchingIds.has(entry.id)
-          ) {
+          const haystack = [entry.id, entry.topic, entry.summary, entry.details.join("\n")].join(
+            "\n"
+          );
+          if (!matchesAllMemoryQueryTerms(haystack, query)) {
             continue;
           }
           queueDelete(
             operations,
-            queuedDeleteIds,
+            queuedDeleteKeys,
             entry,
             "Explicit forget instruction from the user.",
             evidence.rolloutPath
@@ -400,25 +645,20 @@ export class HeuristicExtractor implements MemoryExtractorAdapter {
 
       if (rememberMatch?.[1]) {
         const summary = rememberMatch[1].trim().replace(/[。.]$/u, "");
-        if (knownSummaries.has(summary.toLowerCase())) {
-          continue;
-        }
 
         const scope = inferScope(message);
         const topic = inferTopic(message);
-        const correctionSignal =
-          /(?:\bnot\b|\binstead of\b|\brather than\b|不用|别用|不要用)/iu.test(message);
+        const correctionSignal = isCorrectionSignal(message);
         const shouldReplaceOverlaps =
-          correctionSignal && (topic === "preferences" || topic === "workflow");
+          correctionSignal && isAllowedMemoryTopic(topic);
         if (shouldReplaceOverlaps) {
-          for (const entryId of overlappingEntryIds(existingEntries, summary)) {
-            const entry = existingEntries.find((candidate) => candidate.id === entryId);
-            if (!entry || entry.summary.toLowerCase() === summary.toLowerCase()) {
+          for (const entry of overlappingEntries(existingEntries, summary)) {
+            if (entry.summary.toLowerCase() === summary.toLowerCase()) {
               continue;
             }
             queueDelete(
               operations,
-              queuedDeleteIds,
+              queuedDeleteKeys,
               entry,
               "Superseded by a newer user correction.",
               evidence.rolloutPath
@@ -426,7 +666,7 @@ export class HeuristicExtractor implements MemoryExtractorAdapter {
           }
         }
 
-        queueUpsert(operations, knownSummaries, {
+        queueUpsert(operations, knownOperationKeys, {
           action: "upsert",
           scope,
           topic: allowedTopics.has(topic) ? topic : "workflow",
@@ -441,24 +681,63 @@ export class HeuristicExtractor implements MemoryExtractorAdapter {
         continue;
       }
 
+      const stableDirective = extractStableDirectiveOperation(message, evidence.rolloutPath);
+      if (stableDirective) {
+        const deleteTargets = collectStableDirectiveDeleteTargets(existingEntries, stableDirective);
+        for (const entry of deleteTargets) {
+          queueDelete(
+            operations,
+            queuedDeleteKeys,
+            entry,
+            "Superseded by a newer stable directive.",
+            evidence.rolloutPath
+          );
+        }
+
+        queueUpsert(operations, knownOperationKeys, {
+          ...stableDirective,
+          reason:
+            deleteTargets.length > 0
+              ? "Stable directive that should replace stale memory."
+              : stableDirective.reason
+        });
+        continue;
+      }
+
       const insightMatch = message.match(
-        /\b(?:requires|needs|must start|must run|before running)\b(.+)/iu
+        /\b(?:requires|needs|must be running|must start|must run|before running|before integration tests)\b(.+)/iu
       );
       if (insightMatch?.[0]) {
         const summary = message.trim().replace(/[。.]$/u, "");
-        if (!knownSummaries.has(summary.toLowerCase())) {
-          queueUpsert(operations, knownSummaries, {
-            action: "upsert",
-            scope: inferScope(message),
-            topic: "debugging",
-            id: slugify(summary),
-            summary,
-            details: [summary],
-            reason: "Repeated prerequisite or debugging constraint extracted from the session.",
-            sources: [evidence.rolloutPath]
-          });
-        }
+        queueUpsert(operations, knownOperationKeys, {
+          action: "upsert",
+          scope: inferScope(message),
+          topic: "debugging",
+          id: slugify(summary),
+          summary,
+          details: [summary],
+          reason: "Repeated prerequisite or debugging constraint extracted from the session.",
+          sources: [evidence.rolloutPath]
+        });
       }
+    }
+
+    for (const message of evidence.agentMessages) {
+      const extracted = extractStableAssistantSummary(message);
+      if (!extracted) {
+        continue;
+      }
+
+      queueUpsert(operations, knownOperationKeys, {
+        action: "upsert",
+        scope: extracted.scope,
+        topic: allowedTopics.has(extracted.topic) ? extracted.topic : "workflow",
+        id: slugify(extracted.summary),
+        summary: extracted.summary,
+        details: extracted.details,
+        reason: extracted.reason,
+        sources: [evidence.rolloutPath]
+      });
     }
 
     const commandCalls = evidence.toolCalls.filter(isCommandToolCall);
@@ -471,15 +750,12 @@ export class HeuristicExtractor implements MemoryExtractorAdapter {
       }
 
       seenCommands.add(command);
-      if (!/(pnpm|npm|bun|cargo|pytest|vitest|jest|go test|python -m|python3 -m|make|docker compose|gradle|mvn|dotnet test|rake)/u.test(command)) {
+      if (!/(pnpm|npm|bun|cargo|pytest|vitest|jest|go test|python -m|python3 -m|make|docker compose|gradle|mvn|dotnet test|rake|uv run|nextest)/u.test(command)) {
         continue;
       }
 
       const { summary, details } = commandSummary(command);
-      const signature = commandSignature(command);
-      if (knownSummaries.has(summary.toLowerCase())) {
-        continue;
-      }
+      const signature = canonicalCommandSignature(command);
 
       if (signature) {
         for (const entry of existingEntries) {
@@ -491,12 +767,12 @@ export class HeuristicExtractor implements MemoryExtractorAdapter {
             continue;
           }
           if (
-            commandSignature(existingCommand) === signature &&
+            canonicalCommandSignature(existingCommand) === signature &&
             entry.summary.toLowerCase() !== summary.toLowerCase()
           ) {
             queueDelete(
               operations,
-              queuedDeleteIds,
+              queuedDeleteKeys,
               entry,
               "Superseded by a newer successful command extracted from the session.",
               evidence.rolloutPath
@@ -505,7 +781,7 @@ export class HeuristicExtractor implements MemoryExtractorAdapter {
         }
       }
 
-      queueUpsert(operations, knownSummaries, {
+      queueUpsert(operations, knownOperationKeys, {
         action: "upsert",
         scope: "project",
         topic: "commands",
@@ -517,6 +793,6 @@ export class HeuristicExtractor implements MemoryExtractorAdapter {
       });
     }
 
-    return operations.slice(0, 8);
+    return operations;
   }
 }

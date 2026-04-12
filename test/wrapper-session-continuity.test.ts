@@ -338,6 +338,87 @@ fs.writeFileSync(subagentPath, [
     expect(merged?.incompleteNext.join("\n")).not.toContain("reviewer sub-agent");
   }, 30_000);
 
+  it("chooses the newest primary rollout deterministically when multiple primaries tie on timestamp", async () => {
+    const repoDir = await tempDir("cam-wrapper-primary-tie-repo-");
+    const memoryRoot = await tempDir("cam-wrapper-primary-tie-memory-");
+    const sessionsDir = await tempDir("cam-wrapper-primary-tie-sessions-");
+    await initRepo(repoDir);
+    process.env.CAM_CODEX_SESSIONS_DIR = sessionsDir;
+
+    const mockCodexPath = path.join(repoDir, "mock-codex");
+    const todayDir = path.join(sessionsDir, "2026", "03", "15");
+    await fs.mkdir(todayDir, { recursive: true });
+    await fs.writeFile(
+      mockCodexPath,
+      `#!/usr/bin/env node
+const fs = require("node:fs");
+const path = require("node:path");
+const cwd = process.cwd();
+const sessionsDir = process.env.CAM_CODEX_SESSIONS_DIR;
+const rolloutDir = path.join(sessionsDir, "2026", "03", "15");
+fs.mkdirSync(rolloutDir, { recursive: true });
+const olderPrimaryPath = path.join(rolloutDir, "rollout-z-primary.jsonl");
+const newerPrimaryPath = path.join(rolloutDir, "rollout-a-primary.jsonl");
+const subagentPath = path.join(rolloutDir, "rollout-subagent.jsonl");
+const tiedTimestamp = "2026-03-15T00:00:00.000Z";
+fs.writeFileSync(olderPrimaryPath, [
+  JSON.stringify({ type: "session_meta", payload: { id: "session-wrapper-primary-older", timestamp: tiedTimestamp, cwd, source: "cli" } }),
+  JSON.stringify({ type: "event_msg", payload: { type: "user_message", message: "Use the older primary continuity path." } })
+].join("\\n"));
+fs.writeFileSync(newerPrimaryPath, [
+  JSON.stringify({ type: "session_meta", payload: { id: "session-wrapper-primary-newer", timestamp: tiedTimestamp, cwd, source: "cli" } }),
+  JSON.stringify({ type: "event_msg", payload: { type: "user_message", message: "Use the newer primary continuity path." } })
+].join("\\n"));
+fs.writeFileSync(subagentPath, [
+  JSON.stringify({ type: "session_meta", payload: { id: "session-wrapper-subagent", forked_from_id: "session-wrapper-primary-newer", timestamp: "2026-03-15T00:00:01.000Z", cwd, source: { subagent: { thread_spawn: { parent_thread_id: "session-wrapper-primary-newer" } } } } }),
+  JSON.stringify({ type: "event_msg", payload: { type: "user_message", message: "Reviewer subagent noise." } })
+].join("\\n"));
+const olderTime = new Date("2026-03-15T00:00:02.000Z");
+const newerTime = new Date("2026-03-15T00:00:03.000Z");
+fs.utimesSync(olderPrimaryPath, olderTime, olderTime);
+fs.utimesSync(newerPrimaryPath, newerTime, newerTime);
+fs.utimesSync(subagentPath, newerTime, newerTime);
+`,
+      "utf8"
+    );
+    await fs.chmod(mockCodexPath, 0o755);
+
+    await writeProjectConfig(
+      repoDir,
+      configJson({
+        codexBinary: mockCodexPath,
+        sessionContinuityAutoLoad: false,
+        sessionContinuityAutoSave: true
+      }),
+      {
+        autoMemoryDirectory: memoryRoot,
+        sessionContinuityAutoLoad: false,
+        sessionContinuityAutoSave: true
+      }
+    );
+
+    const continuityStore = new SessionContinuityStore(detectProjectContext(repoDir), {
+      ...configJson({
+        codexBinary: mockCodexPath,
+        sessionContinuityAutoLoad: false,
+        sessionContinuityAutoSave: true
+      }),
+      autoMemoryDirectory: memoryRoot
+    });
+
+    const exitCode = await runWrappedCodex(repoDir, "exec", ["continue"]);
+    expect(exitCode).toBe(0);
+
+    const latestAudit = await continuityStore.readLatestAuditEntry();
+    const merged = await continuityStore.readMergedState();
+
+    expect(latestAudit?.rolloutPath).toContain("rollout-a-primary.jsonl");
+    expect(latestAudit?.sourceSessionId).toBe("session-wrapper-primary-newer");
+    expect(merged?.goal).toContain("newer primary continuity path");
+    expect(merged?.goal).not.toContain("older primary continuity path");
+    expect(merged?.goal).not.toContain("Reviewer subagent noise");
+  }, 30_000);
+
   it("injects continuity on startup and auto-saves it after the run", async () => {
     const repoDir = await tempDir("cam-wrapper-session-repo-");
     const memoryRoot = await tempDir("cam-wrapper-session-memory-");
