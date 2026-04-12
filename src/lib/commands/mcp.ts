@@ -10,6 +10,7 @@ import {
 import { installMcpProjectConfig } from "../integration/mcp-install.js";
 import { formatMcpDoctorReport, inspectMcpDoctor } from "../integration/mcp-doctor.js";
 import { startRetrievalMcpServer } from "../mcp/retrieval-server.js";
+import { ensureExistingDirectory } from "../util/paths.js";
 
 interface McpServeOptions {
   cwd?: string;
@@ -39,17 +40,25 @@ interface McpApplyGuidanceOptions {
   json?: boolean;
 }
 
-function resolveCommandCwd(cwd: string | undefined): string {
-  return cwd ? path.resolve(cwd) : process.cwd();
+async function resolveCommandCwd(cwd: string | undefined): Promise<string> {
+  if (cwd === undefined) {
+    return process.cwd();
+  }
+
+  if (!cwd.trim()) {
+    throw new Error("--cwd must be a non-empty path to an existing directory.");
+  }
+
+  return ensureExistingDirectory(path.resolve(cwd));
 }
 
 export async function runMcpServe(options: McpServeOptions = {}): Promise<void> {
-  await startRetrievalMcpServer(resolveCommandCwd(options.cwd));
+  await startRetrievalMcpServer(await resolveCommandCwd(options.cwd));
 }
 
 export async function runMcpPrintConfig(options: McpPrintConfigOptions = {}): Promise<string> {
   const host = normalizeMcpHost(options.host);
-  const projectRoot = resolveMcpProjectRoot(resolveCommandCwd(options.cwd));
+  const projectRoot = resolveMcpProjectRoot(await resolveCommandCwd(options.cwd));
   const snippet = buildMcpHostConfigSnippet(host, projectRoot);
 
   if (options.json) {
@@ -61,7 +70,7 @@ export async function runMcpPrintConfig(options: McpPrintConfigOptions = {}): Pr
 
 export async function runMcpDoctor(options: McpDoctorOptions = {}): Promise<string> {
   const report = await inspectMcpDoctor({
-    cwd: resolveCommandCwd(options.cwd),
+    cwd: await resolveCommandCwd(options.cwd),
     host: options.host,
     explicitCwd: Boolean(options.cwd)
   });
@@ -75,7 +84,7 @@ export async function runMcpDoctor(options: McpDoctorOptions = {}): Promise<stri
 
 export async function runMcpInstall(options: McpInstallOptions = {}): Promise<string> {
   const host = normalizeMcpHost(options.host);
-  const projectRoot = resolveMcpProjectRoot(resolveCommandCwd(options.cwd));
+  const projectRoot = resolveMcpProjectRoot(await resolveCommandCwd(options.cwd));
   const result = await installMcpProjectConfig(host, projectRoot);
 
   if (options.json) {
@@ -103,7 +112,7 @@ export async function runMcpApplyGuidance(
     );
   }
 
-  const projectRoot = resolveMcpProjectRoot(resolveCommandCwd(options.cwd));
+  const projectRoot = resolveMcpProjectRoot(await resolveCommandCwd(options.cwd));
   const result = await applyCodexAgentsGuidance(projectRoot);
 
   if (options.json) {
