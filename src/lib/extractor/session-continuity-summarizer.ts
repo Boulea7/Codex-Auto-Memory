@@ -100,7 +100,7 @@ const GENERIC_GOAL_PATTERNS = [
   /^(?:check|verify)\s+(?:it|this|that|again)\s*[.!?]*$/iu,
   /^(?:can|could|would)\s+you\b.+\b(?:it|this|that)\b[?!.\s]*$/iu,
   /^(?:look|take a look)\s+(?:into|at)\s+(?:it|this|that)\s*[.!?]*$/iu,
-  /^(?:what about|why)\b.+$/iu,
+  /^(?:what about)\b.+$/iu,
   /^(?:继续|接着)\s*[。！？!?.]*$/u,
   /^(?:跑|重跑)\s*(?:检查|测试|校验)\s*[。！？!?.]*$/u,
   /^(?:看看|看一下|检查一下)\s*(?:这个|这个问题|它)?\s*[。！？!?.]*$/u,
@@ -264,10 +264,10 @@ function heuristicSummary(
   const goalLooksLocal = latestGoalCandidate.length > 0 && looksLocalSpecific(latestGoalCandidate);
   const sharedGoal =
     latestGoalCandidate.length === 0
-      ? existingProject?.goal || existingLocal?.goal || ""
+      ? existingProject?.goal || ""
       : goalLooksLocal
         ? existingProject?.goal ?? ""
-        : latestGoalCandidate || existingProject?.goal || existingLocal?.goal || "";
+        : latestGoalCandidate || existingProject?.goal || "";
   const localGoal =
     latestGoalCandidate.length === 0
       ? existingLocal?.goal ?? ""

@@ -15,6 +15,10 @@ const originalHome = process.env.HOME;
 const originalCodexHome = process.env.CODEX_HOME;
 const originalPath = process.env.PATH;
 
+function shellQuoteArg(value: string): string {
+  return `'${value.replace(/'/g, "'\"'\"'")}'`;
+}
+
 async function tempDir(prefix: string): Promise<string> {
   const dir = await fs.mkdtemp(path.join(os.tmpdir(), prefix));
   tempDirs.push(dir);
@@ -121,6 +125,26 @@ afterEach(async () => {
 });
 
 describe("integrations command", () => {
+  it("fails closed when integrations install, apply, and doctor use empty, whitespace-only, or missing --cwd", async () => {
+    const homeDir = await tempDir("cam-integrations-empty-cwd-home-");
+    const projectDir = await tempDir("cam-integrations-empty-cwd-project-");
+    process.env.HOME = homeDir;
+    const missingDir = path.join(projectDir, "missing-project");
+
+    for (const command of [
+      ["integrations", "install", "--host", "codex"] as const,
+      ["integrations", "apply", "--host", "codex"] as const,
+      ["integrations", "doctor", "--host", "codex"] as const
+    ]) {
+      for (const cwd of ["", "   ", missingDir]) {
+        const result = runCli(projectDir, [...command, "--cwd", cwd], {
+          env: buildStableCliEnv(homeDir)
+        });
+        expect(result.exitCode).toBe(1);
+        expect(result.stderr).toContain("--cwd must be a non-empty path to an existing directory.");
+      }
+    }
+  });
   it("installs the recommended Codex integration stack without creating memory layout", async () => {
     const homeDir = await tempDir("cam-integrations-home-");
     const projectDir = await tempDir("cam-integrations-project-");
@@ -148,7 +172,7 @@ describe("integrations command", () => {
       workflowContract: {
         recommendedPreset: "state=auto, limit=8",
         cliFallback: {
-          searchCommand: `cam recall search "<query>" --state auto --limit 8 --cwd ${JSON.stringify(realProjectDir)}`
+          searchCommand: `cam recall search "<query>" --state auto --limit 8 --cwd '${realProjectDir}'`
         }
       },
       subactions: {
@@ -340,7 +364,7 @@ describe("integrations command", () => {
       })
     );
     expect(payload.workflowContract.cliFallback.searchCommand).toBe(
-      `cam recall search "<query>" --state auto --limit 8 --cwd ${JSON.stringify(payload.projectRoot)}`
+      `cam recall search "<query>" --state auto --limit 8 --cwd '${payload.projectRoot}'`
     );
     expect(payload.nextSteps).toEqual(
       expect.arrayContaining([
@@ -465,15 +489,15 @@ describe("integrations command", () => {
     expect(payload.nextSteps).toEqual(
       expect.arrayContaining([
         expect.stringContaining(
-          `cam mcp apply-guidance --host codex --cwd ${JSON.stringify(payload.projectRoot)}`
+          `cam mcp apply-guidance --host codex --cwd ${shellQuoteArg(payload.projectRoot)}`
         ),
         expect.stringContaining(
-          `cam mcp print-config --host codex --cwd ${JSON.stringify(payload.projectRoot)}`
+          `cam mcp print-config --host codex --cwd ${shellQuoteArg(payload.projectRoot)}`
         )
       ])
     );
     expect(payload.nextSteps[0]).toContain(
-      `cam mcp apply-guidance --host codex --cwd ${JSON.stringify(payload.projectRoot)}`
+      `cam mcp apply-guidance --host codex --cwd ${shellQuoteArg(payload.projectRoot)}`
     );
     expect(payload.nextSteps).not.toEqual(
       expect.arrayContaining([expect.stringContaining("cam hooks install")])
@@ -521,7 +545,7 @@ describe("integrations command", () => {
     expect(payload.nextSteps).toEqual(
       expect.arrayContaining([
         expect.stringContaining(
-          `cam hooks install --cwd ${JSON.stringify(payload.projectRoot)}`
+          `cam hooks install --cwd ${shellQuoteArg(payload.projectRoot)}`
         )
       ])
     );
@@ -559,7 +583,7 @@ describe("integrations command", () => {
       expect(payload.nextSteps).toEqual(
         expect.arrayContaining([
           expect.stringContaining(
-            `CAM_PROJECT_ROOT=${JSON.stringify(payload.projectRoot)}`
+            `CAM_PROJECT_ROOT=${shellQuoteArg(payload.projectRoot)}`
           ),
           expect.stringContaining("memory-recall.sh")
         ])
@@ -1515,7 +1539,7 @@ describe("integrations command", () => {
       failureMessage: expect.stringContaining("broken codex config"),
       rollbackApplied: true,
       subactions: {
-        mcp: { attempted: false },
+        mcp: { attempted: true, status: "blocked", action: "blocked" },
         agents: { attempted: false },
         hooks: { attempted: false },
         skills: { attempted: false }
@@ -1616,6 +1640,11 @@ describe("integrations command", () => {
     process.env.HOME = homeDir;
 
     await fs.mkdir(path.join(realProjectDir, ".codex", "config.toml"), { recursive: true });
+    await fs.writeFile(
+      path.join(realProjectDir, ".codex", "config.toml", "keep.txt"),
+      "do-not-delete",
+      "utf8"
+    );
 
     const { runIntegrationsApply } = await import("../src/lib/commands/integrations.js");
     const payload = JSON.parse(
@@ -1643,12 +1672,15 @@ describe("integrations command", () => {
       failureMessage: expect.stringContaining("directory"),
       rollbackApplied: true,
       subactions: {
-        mcp: { attempted: false },
+        mcp: { attempted: true, status: "blocked", action: "blocked" },
         agents: { attempted: false },
         hooks: { attempted: false },
         skills: { attempted: false }
       }
     });
+    expect(
+      await fs.readFile(path.join(realProjectDir, ".codex", "config.toml", "keep.txt"), "utf8")
+    ).toBe("do-not-delete");
   });
 
   it("withholds integrations apply from doctor next steps when AGENTS guidance is unsafe", async () => {
@@ -1736,7 +1768,7 @@ describe("integrations command", () => {
       workflowContract: {
         recommendedPreset: "state=auto, limit=8",
         cliFallback: {
-          searchCommand: `cam recall search "<query>" --state auto --limit 8 --cwd ${JSON.stringify(realProjectDir)}`
+          searchCommand: `cam recall search "<query>" --state auto --limit 8 --cwd '${realProjectDir}'`
         }
       },
       subactions: {
