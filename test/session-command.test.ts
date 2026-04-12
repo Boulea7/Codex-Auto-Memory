@@ -57,6 +57,15 @@ process.exit(0);
   return mockCodexPath;
 }
 
+async function pathExists(targetPath: string): Promise<boolean> {
+  try {
+    await fs.access(targetPath);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 describe("runSession", () => {
   it("shows an empty compact prior preview when no continuity audit history exists", async () => {
     const repoDir = await tempDir("cam-session-empty-history-repo-");
@@ -574,6 +583,65 @@ describe("runSession", () => {
     expect(statusPayload.startup.continuitySectionKinds).toContain("sources");
     expect(statusPayload.projectLocation.exists).toBe(true);
     expect(statusPayload.localLocation.exists).toBe(false);
+  }, 30_000);
+
+  it("keeps session load and status read-only on an uninitialized project", async () => {
+    const homeDir = await tempDir("cam-session-readonly-home-");
+    const projectDir = await tempDir("cam-session-readonly-project-");
+    const memoryRootParent = await tempDir("cam-session-readonly-memory-parent-");
+    const memoryRoot = path.join(memoryRootParent, "memory-root");
+    await initRepo(projectDir);
+
+    await writeProjectConfig(
+      projectDir,
+      configJson(),
+      { autoMemoryDirectory: memoryRoot }
+    );
+
+    const statusResult = runCli(projectDir, ["session", "status", "--json"], {
+      env: { HOME: homeDir }
+    });
+    const loadResult = runCli(projectDir, ["session", "load", "--json", "--print-startup"], {
+      env: { HOME: homeDir }
+    });
+
+    expect(statusResult.exitCode, statusResult.stderr).toBe(0);
+    expect(loadResult.exitCode, loadResult.stderr).toBe(0);
+    expect(JSON.parse(statusResult.stdout)).toMatchObject({
+      projectLocation: {
+        exists: false
+      },
+      localLocation: {
+        exists: false
+      },
+      latestContinuityAuditEntry: null,
+      latestContinuityDiagnostics: null,
+      pendingContinuityRecovery: null,
+      startup: {
+        sourceFiles: [],
+        candidateSourceFiles: [],
+        continuityMode: "startup",
+        continuityProvenanceKind: "temporary-continuity"
+      }
+    });
+    expect(JSON.parse(loadResult.stdout)).toMatchObject({
+      projectLocation: {
+        exists: false
+      },
+      localLocation: {
+        exists: false
+      },
+      latestContinuityAuditEntry: null,
+      latestContinuityDiagnostics: null,
+      pendingContinuityRecovery: null,
+      startup: {
+        sourceFiles: [],
+        candidateSourceFiles: [],
+        continuityMode: "startup",
+        continuityProvenanceKind: "temporary-continuity"
+      }
+    });
+    expect(await pathExists(memoryRoot)).toBe(false);
   }, 30_000);
 
   it("refresh replaces only the selected scope", async () => {

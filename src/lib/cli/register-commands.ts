@@ -308,7 +308,8 @@ export function registerCommands(program: Command): void {
   program
     .command("init")
     .description("Initialize Codex Auto Memory in the current project")
-    .action(withStdout(async () => runInit()));
+    .option("--force", "Overwrite existing init config files with canonical defaults")
+    .action(withStdout(async (options) => runInit(options)));
 
   const memoryCommand = program
     .command("memory")
