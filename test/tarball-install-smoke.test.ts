@@ -3,7 +3,10 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import * as toml from "smol-toml";
+import { detectProjectContext } from "../src/lib/domain/project-context.js";
+import { MemoryStore } from "../src/lib/domain/memory-store.js";
 import { runCommandCapture } from "../src/lib/util/process.js";
+import { makeAppConfig, writeCamConfig } from "./helpers/cam-test-fixtures.js";
 
 const tempDirs: string[] = [];
 
@@ -28,10 +31,6 @@ function camBinaryPath(installDir: string): string {
     ".bin",
     process.platform === "win32" ? "cam.cmd" : "cam"
   );
-}
-
-function shellQuoteArg(value: string): string {
-  return `'${value.replace(/'/g, `'\"'\"'`)}'`;
 }
 
 function isolatedEnv(homeDir: string): NodeJS.ProcessEnv {
@@ -59,7 +58,7 @@ describe("tarball install smoke", () => {
       process.cwd(),
       env
     );
-    expect(packResult.exitCode).toBe(0);
+    expect(packResult.exitCode, packResult.stderr).toBe(0);
 
     const tarballName = packResult.stdout.trim().split(/\r?\n/).at(-1);
     expect(tarballName).toBeTruthy();
@@ -91,16 +90,191 @@ describe("tarball install smoke", () => {
       installDir,
       envWithBin
     );
+    const sessionLoadResult = runCommandCapture(
+      camBinaryPath(installDir),
+      ["session", "load", "--json", "--print-startup"],
+      installDir,
+      envWithBin
+    );
     expect(sessionStatusResult.exitCode).toBe(0);
+    expect(sessionLoadResult.exitCode).toBe(0);
 
     const payload = JSON.parse(sessionStatusResult.stdout) as {
       projectLocation: { exists: boolean };
       latestContinuityAuditEntry: object | null;
       pendingContinuityRecovery: object | null;
+      latestContinuityDiagnostics: object | null;
+    };
+    const loadPayload = JSON.parse(sessionLoadResult.stdout) as {
+      startup: {
+        continuityMode: string;
+        continuityProvenanceKind: string;
+        sourceFiles: string[];
+        candidateSourceFiles: string[];
+        continuitySectionKinds: string[];
+        continuitySourceKinds: string[];
+        sectionsRendered: { sources: boolean; goal: boolean };
+        omissionCounts: Record<string, number>;
+        futureCompactionSeam: { kind: string; rebuildsStartupSections: boolean };
+      };
     };
     expect(payload.projectLocation.exists).toBe(false);
     expect(payload.latestContinuityAuditEntry).toBeNull();
+    expect(payload.latestContinuityDiagnostics).toBeNull();
     expect(payload.pendingContinuityRecovery).toBeNull();
+    expect(loadPayload.startup).toMatchObject({
+      continuityMode: "startup",
+      continuityProvenanceKind: "temporary-continuity",
+      continuitySectionKinds: expect.arrayContaining(["goal"]),
+      continuitySourceKinds: [],
+      sectionsRendered: {
+        sources: false,
+        goal: true
+      },
+      omissionCounts: {},
+      futureCompactionSeam: {
+        kind: "session-summary-placeholder",
+        rebuildsStartupSections: true
+      }
+    });
+    expect(loadPayload.startup.sourceFiles).toEqual([]);
+    expect(loadPayload.startup.candidateSourceFiles).toEqual([]);
+
+    const doctorResult = runCommandCapture(
+      camBinaryPath(installDir),
+      ["doctor", "--json"],
+      installDir,
+      {
+        ...envWithBin,
+        PATH: `${path.dirname(process.execPath)}:/usr/bin:/bin`
+      }
+    );
+    expect(doctorResult.exitCode, doctorResult.stderr).toBe(0);
+    expect(JSON.parse(doctorResult.stdout)).toMatchObject({
+      recommendedRoute: "companion",
+      recommendedActionCommand: expect.stringContaining("mcp doctor --host codex"),
+      recommendedDoctorCommand: expect.stringContaining("doctor --json"),
+      readiness: {
+        appServer: null
+      }
+    });
+
+    const memoryRoot = await tempDir("cam-tarball-memory-root-");
+    const appConfig = makeAppConfig();
+    await writeCamConfig(installDir, appConfig, {
+      autoMemoryDirectory: memoryRoot
+    });
+
+    const project = detectProjectContext(installDir);
+    const memoryStore = new MemoryStore(project, {
+      ...appConfig,
+      autoMemoryDirectory: memoryRoot
+    });
+    await memoryStore.ensureLayout();
+    await memoryStore.remember(
+      "project",
+      "workflow",
+      "prefer-pnpm",
+      "Prefer pnpm in this repository.",
+      ["Use pnpm instead of npm in this repository."],
+      "Manual note."
+    );
+    await memoryStore.appendSyncAuditEntry({
+      appliedAt: "2026-03-27T08:00:00.000Z",
+      projectId: project.projectId,
+      worktreeId: project.worktreeId,
+      rolloutPath: "/tmp/rollout-tarball-recall-contract.jsonl",
+      sessionId: "session-tarball-recall-contract",
+      configuredExtractorMode: "heuristic",
+      configuredExtractorName: "heuristic",
+      actualExtractorMode: "heuristic",
+      actualExtractorName: "heuristic",
+      extractorMode: "heuristic",
+      extractorName: "heuristic",
+      sessionSource: "rollout-jsonl",
+      status: "applied",
+      appliedCount: 1,
+      scopesTouched: ["project"],
+      resultSummary: "1 operation(s) applied",
+      operations: [
+        {
+          action: "upsert",
+          scope: "project",
+          topic: "workflow",
+          id: "prefer-pnpm",
+          summary: "Prefer pnpm in this repository.",
+          details: ["Use pnpm instead of npm in this repository."],
+          reason: "Manual note.",
+          sources: ["manual"]
+        }
+      ]
+    });
+
+    const recallSearchResult = runCommandCapture(
+      camBinaryPath(installDir),
+      ["recall", "search", "prefer pnpm", "--state", "active", "--json"],
+      installDir,
+      envWithBin
+    );
+    expect(recallSearchResult.exitCode, recallSearchResult.stderr).toBe(0);
+    expect(JSON.parse(recallSearchResult.stdout)).toMatchObject({
+      state: "active",
+      resolvedState: "active",
+      fallbackUsed: false,
+      stateFallbackUsed: false,
+      markdownFallbackUsed: false,
+      retrievalMode: "index",
+      diagnostics: {
+        anyMarkdownFallback: false,
+        fallbackReasons: [],
+        checkedPaths: expect.arrayContaining([
+          expect.objectContaining({
+            scope: "project",
+            state: "active",
+            retrievalMode: "index",
+            matchedCount: 1,
+            indexPath: memoryStore.getRetrievalIndexFile("project", "active"),
+            generatedAt: expect.any(String)
+          })
+        ])
+      },
+      results: [
+        expect.objectContaining({
+          ref: "project:active:workflow:prefer-pnpm",
+          state: "active",
+          topic: "workflow"
+        })
+      ]
+    });
+
+    const recallDetailsResult = runCommandCapture(
+      camBinaryPath(installDir),
+      ["recall", "details", "project:active:workflow:prefer-pnpm", "--json"],
+      installDir,
+      envWithBin
+    );
+    expect(recallDetailsResult.exitCode, recallDetailsResult.stderr).toBe(0);
+    expect(JSON.parse(recallDetailsResult.stdout)).toMatchObject({
+      ref: "project:active:workflow:prefer-pnpm",
+      path: memoryStore.getTopicFile("project", "workflow"),
+      latestLifecycleAction: "add",
+      latestState: "active",
+      latestSessionId: null,
+      latestRolloutPath: null,
+      historyPath: memoryStore.getHistoryPath("project"),
+      timelineWarningCount: 0,
+      warnings: [],
+      lineageSummary: {
+        eventCount: 1,
+        latestAction: "add",
+        latestState: "active",
+        latestAuditStatus: null,
+        noopOperationCount: 0,
+        suppressedOperationCount: 0,
+        conflictCount: 0
+      },
+      latestAudit: null
+    });
 
     const mcpInstallResult = runCommandCapture(
       camBinaryPath(installDir),
@@ -127,6 +301,7 @@ describe("tarball install smoke", () => {
     expect(codexPrintConfigResult.exitCode).toBe(0);
     const codexPrintConfigPayload = JSON.parse(codexPrintConfigResult.stdout) as {
       host: string;
+      readOnlyRetrieval: boolean;
       serverName: string;
       targetFileHint: string;
       workflowContract: {
@@ -146,6 +321,7 @@ describe("tarball install smoke", () => {
     };
     expect(codexPrintConfigPayload).toMatchObject({
       host: "codex",
+      readOnlyRetrieval: true,
       serverName: "codex_auto_memory",
       targetFileHint: ".codex/config.toml",
       workflowContract: {
@@ -154,7 +330,7 @@ describe("tarball install smoke", () => {
           preferredRoute: "mcp-first"
         },
         cliFallback: {
-          searchCommand: `cam recall search "<query>" --state auto --limit 8 --cwd ${shellQuoteArg(realInstallDir)}`
+          searchCommand: `cam recall search "<query>" --state auto --limit 8 --cwd '${realInstallDir}'`
         }
       },
       agentsGuidance: {
@@ -239,8 +415,25 @@ describe("tarball install smoke", () => {
           "SKILL.md"
         ),
         "utf8"
-      )
+    )
     ).toContain("cam:asset-version");
+
+    const cwdHooksResult = runCommandCapture(
+      camBinaryPath(installDir),
+      ["hooks", "install", "--cwd", projectWithSpacesDir],
+      shellDir,
+      envWithBin
+    );
+    expect(cwdHooksResult.exitCode).toBe(0);
+    expect(
+      await fs.readFile(path.join(homeDir, ".codex-auto-memory", "hooks", "memory-recall.sh"), "utf8")
+    ).toContain('PROJECT_ROOT="${CAM_PROJECT_ROOT:-$PWD}"');
+    expect(
+      await fs.readFile(
+        path.join(homeDir, ".codex-auto-memory", "hooks", "post-work-memory-review.sh"),
+        "utf8"
+      )
+    ).toContain('cam sync --cwd "$PROJECT_ROOT" "$@"');
 
     const cwdApplyGuidanceResult = runCommandCapture(
       camBinaryPath(installDir),
@@ -282,13 +475,9 @@ describe("tarball install smoke", () => {
       installDir,
       envWithBin
     );
-    expect(geminiInstallResult.exitCode).toBe(0);
-    expect(JSON.parse(geminiInstallResult.stdout)).toMatchObject({
-      host: "gemini",
-      action: "created",
-      targetPath: path.join(realInstallDir, ".gemini", "settings.json"),
-      readOnlyRetrieval: true
-    });
+    expect(geminiInstallResult.exitCode).toBe(1);
+    expect(geminiInstallResult.stderr).toContain("gemini");
+    expect(geminiInstallResult.stderr).toContain("Codex-only");
 
     const claudeInstallResult = runCommandCapture(
       camBinaryPath(installDir),
@@ -296,13 +485,9 @@ describe("tarball install smoke", () => {
       installDir,
       envWithBin
     );
-    expect(claudeInstallResult.exitCode).toBe(0);
-    expect(JSON.parse(claudeInstallResult.stdout)).toMatchObject({
-      host: "claude",
-      action: "created",
-      targetPath: path.join(realInstallDir, ".mcp.json"),
-      readOnlyRetrieval: true
-    });
+    expect(claudeInstallResult.exitCode).toBe(1);
+    expect(claudeInstallResult.stderr).toContain("claude");
+    expect(claudeInstallResult.stderr).toContain("Codex-only");
 
     const hooksResult = runCommandCapture(
       camBinaryPath(installDir),
@@ -375,6 +560,12 @@ describe("tarball install smoke", () => {
       stackAction: "unchanged",
       skillsSurface: "runtime",
       readOnlyRetrieval: true,
+      workflowContract: {
+        recommendedPreset: "state=auto, limit=8",
+        cliFallback: {
+          searchCommand: `cam recall search "<query>" --state auto --limit 8 --cwd '${realInstallDir}'`
+        }
+      },
       subactions: {
         mcp: { action: "unchanged" },
         hooks: { action: "unchanged" },
@@ -394,6 +585,12 @@ describe("tarball install smoke", () => {
       stackAction: "unchanged",
       skillsSurface: "runtime",
       readOnlyRetrieval: true,
+      workflowContract: {
+        recommendedPreset: "state=auto, limit=8",
+        cliFallback: {
+          searchCommand: `cam recall search "<query>" --state auto --limit 8 --cwd '${realInstallDir}'`
+        }
+      },
       subactions: {
         mcp: { action: "unchanged" },
         agents: { action: "unchanged" },
@@ -526,8 +723,27 @@ describe("tarball install smoke", () => {
       applyReadiness: {
         status: "safe"
       },
+      retrievalSidecar: {
+        status: "ok",
+        repairCommand: "cam memory reindex --scope all --state all",
+        checks: expect.arrayContaining([
+          expect.objectContaining({
+            scope: "project",
+            state: "active",
+            status: "ok",
+            indexPath: memoryStore.getRetrievalIndexFile("project", "active"),
+            generatedAt: expect.any(String),
+            topicFileCount: 1
+          })
+        ])
+      },
       workflowContract: {
         version: expect.any(String),
+        cliFallback: {
+          searchCommand: 'cam recall search "<query>" --state auto --limit 8',
+          timelineCommand: 'cam recall timeline "<ref>"',
+          detailsCommand: 'cam recall details "<ref>"'
+        },
         postWorkSyncReview: {
           helperScript: "post-work-memory-review.sh",
           syncCommand: "cam sync",
@@ -565,8 +781,27 @@ describe("tarball install smoke", () => {
         officialUserSkillMatchesCanonical: true,
         officialProjectSkillMatchesCanonical: true
       },
+      retrievalSidecar: {
+        status: "ok",
+        repairCommand: "cam memory reindex --scope all --state all",
+        checks: expect.arrayContaining([
+          expect.objectContaining({
+            scope: "project",
+            state: "active",
+            status: "ok",
+            indexPath: memoryStore.getRetrievalIndexFile("project", "active"),
+            generatedAt: expect.any(String),
+            topicFileCount: 1
+          })
+        ])
+      },
       workflowContract: {
         version: expect.any(String),
+        cliFallback: {
+          searchCommand: 'cam recall search "<query>" --state auto --limit 8',
+          timelineCommand: 'cam recall timeline "<ref>"',
+          detailsCommand: 'cam recall details "<ref>"'
+        },
         postWorkSyncReview: {
           helperScript: "post-work-memory-review.sh",
           syncCommand: "cam sync",
@@ -646,6 +881,32 @@ describe("tarball install smoke", () => {
       }
     });
 
+    const failedProjectDir = await tempDir("cam-tarball-failed-project-");
+    const realFailedProjectDir = await fs.realpath(failedProjectDir);
+    await fs.mkdir(path.join(realFailedProjectDir, ".codex", "config.toml"), { recursive: true });
+
+    const failedIntegrationsResult = runCommandCapture(
+      camBinaryPath(installDir),
+      ["integrations", "apply", "--host", "codex", "--json"],
+      failedProjectDir,
+      envWithBin
+    );
+    expect(failedIntegrationsResult.exitCode).toBe(0);
+    expect(JSON.parse(failedIntegrationsResult.stdout)).toMatchObject({
+      host: "codex",
+      projectRoot: realFailedProjectDir,
+      stackAction: "failed",
+      failureStage: "staged-write",
+      failureMessage: expect.stringContaining("directory"),
+      rollbackApplied: true,
+      subactions: {
+        mcp: { attempted: true, status: "blocked", action: "blocked" },
+        agents: { attempted: false },
+        hooks: { attempted: false },
+        skills: { attempted: false }
+      }
+    });
+
     const blockedIntegrationsDoctorResult = runCommandCapture(
       camBinaryPath(installDir),
       ["integrations", "doctor", "--host", "codex", "--json"],
@@ -663,6 +924,24 @@ describe("tarball install smoke", () => {
       }
     });
 
+    for (const command of [
+      ["integrations", "apply", "--host", "codex"] as const,
+      ["integrations", "doctor", "--host", "codex"] as const
+    ]) {
+      for (const cwd of ["", "   ", path.join(realBlockedProjectDir, "missing-project")]) {
+        const invalidResult = runCommandCapture(
+          camBinaryPath(installDir),
+          [...command, "--cwd", cwd],
+          blockedProjectDir,
+          envWithBin
+        );
+        expect(invalidResult.exitCode).toBe(1);
+        expect(invalidResult.stderr).toContain(
+          "--cwd must be a non-empty path to an existing directory."
+        );
+      }
+    }
+
     const recallHelpResult = runCommandCapture(
       camBinaryPath(installDir),
       ["recall", "search", "--help"],
@@ -672,6 +951,18 @@ describe("tarball install smoke", () => {
     expect(recallHelpResult.exitCode).toBe(0);
     expect(recallHelpResult.stdout).toContain("Search compact memory candidates without loading full details");
     expect(recallHelpResult.stdout).toContain("Limit memory state: active, archived, all, or auto");
+
+    const hooksHelpResult = runCommandCapture(
+      camBinaryPath(installDir),
+      ["hooks", "install", "--help"],
+      installDir,
+      envWithBin
+    );
+    expect(hooksHelpResult.exitCode).toBe(0);
+    expect(hooksHelpResult.stdout).toContain(
+      "Generate the local bridge / fallback helper bundle"
+    );
+    expect(hooksHelpResult.stdout).toContain("Project directory to anchor generated hook helpers to");
 
     const mcpHelpResult = runCommandCapture(
       camBinaryPath(installDir),
@@ -695,7 +986,7 @@ describe("tarball install smoke", () => {
     expect(mcpInstallHelpResult.stdout).toContain(
       "Install the recommended project-scoped MCP wiring for a supported host"
     );
-    expect(mcpInstallHelpResult.stdout).toContain("Target host: codex, claude, or gemini");
+    expect(mcpInstallHelpResult.stdout).toContain("Target host: codex");
 
     const mcpApplyGuidanceHelpResult = runCommandCapture(
       camBinaryPath(installDir),
@@ -747,6 +1038,7 @@ describe("tarball install smoke", () => {
     expect(integrationsInstallHelpResult.stdout).toContain(
       "Install the recommended project-scoped Codex integration stack"
     );
+    expect(integrationsInstallHelpResult.stdout).toMatch(/without updating\s+AGENTS\.md/);
     expect(integrationsInstallHelpResult.stdout).toContain("Target host: codex");
     expect(integrationsInstallHelpResult.stdout).toMatch(
       /Skill install surface: runtime, official-user, or\s+official-project/
@@ -775,7 +1067,7 @@ describe("tarball install smoke", () => {
       /Inspect the current Codex integration stack without mutating memory or host\s+config/
     );
     expect(integrationsDoctorHelpResult.stdout).toContain("Target host: codex");
-  }, 60_000);
+  }, 180_000);
 
   it("preserves custom fields on the codex_auto_memory install entry from the packed tarball", async () => {
     const homeDir = await tempDir("cam-tarball-preserve-home-");
@@ -790,7 +1082,7 @@ describe("tarball install smoke", () => {
       process.cwd(),
       env
     );
-    expect(packResult.exitCode).toBe(0);
+    expect(packResult.exitCode, packResult.stderr).toBe(0);
 
     const tarballName = packResult.stdout.trim().split(/\r?\n/).at(-1);
     expect(tarballName).toBeTruthy();
@@ -848,5 +1140,5 @@ describe("tarball install smoke", () => {
         }
       }
     });
-  }, 60_000);
+  }, 180_000);
 });

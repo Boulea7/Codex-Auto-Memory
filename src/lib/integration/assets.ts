@@ -1,30 +1,30 @@
 import os from "node:os";
 import path from "node:path";
 import {
-  ARCHIVE_BOUNDARY,
-  buildCliSearchCommand,
+  buildDurableMemorySyncGuidance,
   buildMarkdownAssetVersionComment,
-  buildRecommendedCliSearchCommand,
+  buildMcpDoctorGuidance,
   buildRecommendedSearchPresetGuidance,
   buildRecommendedMcpSearchInstruction,
   buildRecommendedRetrievalSummaryLines,
-  buildPostWorkRecentReviewCommand,
-  buildPostWorkSyncCommand,
+  buildResolvedCliCommand,
+  buildResolvedCliDetailsCommand,
+  buildResolvedCliSearchCommand,
+  buildResolvedCliTimelineCommand,
+  buildResolvedPostWorkRecentReviewCommand,
+  buildResolvedPostWorkSyncCommand,
   buildSharedWorkflowDisciplineLines,
   buildShellAssetVersionComment,
   CLI_FALLBACK_RECALL_WORKFLOW,
-  MCP_DOCTOR_GUIDANCE,
   MCP_FIRST_RECALL_WORKFLOW,
   MCP_SERVE_GUIDANCE,
-  MEMORY_AUDIT_BOUNDARY,
   POST_WORK_SYNC_REVIEW_HELPER,
   RECOMMENDED_RETRIEVAL_LIMIT,
   RECOMMENDED_RETRIEVAL_STATE,
   RETRIEVAL_INTEGRATION_ASSET_VERSION,
   RETRIEVAL_MCP_DETAILS_TOOL,
   RETRIEVAL_MCP_SEARCH_TOOL,
-  RETRIEVAL_MCP_TIMELINE_TOOL,
-  SESSION_CONTINUITY_BOUNDARY
+  RETRIEVAL_MCP_TIMELINE_TOOL
 } from "./retrieval-contract.js";
 import { LOCAL_BRIDGE_BUNDLE_NOTE } from "./codex-stack.js";
 import {
@@ -58,7 +58,7 @@ export interface InstalledIntegrationAssetDescriptor {
 }
 
 interface IntegrationAssetContext {
-  projectRoot: string;
+  projectRoot?: string;
   hookDir: string;
   skillDir: string;
   skillSurface: CodexSkillInstallSurface;
@@ -76,16 +76,40 @@ interface IntegrationAssetDefinition {
   renderContents: (context: IntegrationAssetContext) => string;
 }
 
+function buildDoctorSignatures(
+  asset: IntegrationAssetDefinition,
+  contents: string
+): string[] {
+  if (asset.id !== "codex-memory-skill") {
+    return [...(asset.doctorSignatures ?? [])];
+  }
+
+  return [
+    "name: codex-auto-memory-recall",
+    "search_memories",
+    "post-work-memory-review.sh",
+    contents.includes('node "') ? 'node "' : "cam sync",
+    "memory --recent"
+  ];
+}
+
 function buildIntegrationAssetContext(
   homeDir = os.homedir(),
   projectRoot = process.cwd(),
-  skillSurface: CodexSkillInstallSurface = "runtime"
+  skillSurface: CodexSkillInstallSurface = "runtime",
+  installSurface?: IntegrationAssetInstallSurface
 ): IntegrationAssetContext {
-  const skillPaths = resolveCodexSkillPaths(projectRoot, homeDir);
+  const skillPaths =
+    installSurface === "hooks"
+      ? null
+      : resolveCodexSkillPaths(projectRoot, homeDir);
   return {
-    projectRoot,
+    projectRoot: skillSurface === "official-project" ? projectRoot : undefined,
     hookDir: hookAssetDir(homeDir),
-    skillDir: resolveCodexSkillInstallDir(skillPaths, skillSurface),
+    skillDir:
+      skillPaths === null
+        ? path.join(homeDir, ".codex", "skills", CODEX_MEMORY_SKILL_NAME)
+        : resolveCodexSkillInstallDir(skillPaths, skillSurface),
     skillSurface
   };
 }
@@ -97,11 +121,22 @@ function resolveInstallDir(
   return surface === "hooks" ? context.hookDir : context.skillDir;
 }
 
-function buildRecallDispatcherScript(): string {
+function buildProjectRootResolutionBlock(projectRoot?: string): string {
+  if (projectRoot) {
+    const escapedProjectRoot = projectRoot.replace(/'/g, "'\"'\"'");
+    return `PROJECT_ROOT='${escapedProjectRoot}'
+`;
+  }
+
+  return 'PROJECT_ROOT="${CAM_PROJECT_ROOT:-$PWD}"\n';
+}
+
+function buildRecallDispatcherScript(projectRoot?: string): string {
   return `#!/bin/sh
 ${buildShellAssetVersionComment()}
 # Dispatch recall lookups through a single host-agnostic bridge helper.
 
+${buildProjectRootResolutionBlock(projectRoot)}
 ACTION="$1"
 if [ "$#" -gt 0 ]; then
   shift
@@ -122,19 +157,28 @@ contains_flag() {
 
 case "$ACTION" in
   search)
+    if ! contains_flag "--cwd" "$@"; then
+      set -- "$@" "--cwd" "$PROJECT_ROOT"
+    fi
     if ! contains_flag "--state" "$@"; then
       set -- "$@" "--state" "${RECOMMENDED_RETRIEVAL_STATE}"
     fi
     if ! contains_flag "--limit" "$@"; then
       set -- "$@" "--limit" "${RECOMMENDED_RETRIEVAL_LIMIT}"
     fi
-    exec cam recall search "$@"
+    exec ${buildResolvedCliCommand("recall search")} "$@"
     ;;
   timeline)
-    exec cam recall timeline "$@"
+    if ! contains_flag "--cwd" "$@"; then
+      set -- "$@" "--cwd" "$PROJECT_ROOT"
+    fi
+    exec ${buildResolvedCliCommand("recall timeline")} "$@"
     ;;
   details)
-    exec cam recall details "$@"
+    if ! contains_flag "--cwd" "$@"; then
+      set -- "$@" "--cwd" "$PROJECT_ROOT"
+    fi
+    exec ${buildResolvedCliCommand("recall details")} "$@"
     ;;
   *)
     echo "Usage: memory-recall.sh <search|timeline|details> <args...>" >&2
@@ -153,7 +197,11 @@ exec "$SCRIPT_DIR/memory-recall.sh" ${action} "$@"
 `;
 }
 
-function buildRecallBridgeGuideMarkdown(): string {
+function buildRecallBridgeGuideMarkdown(projectRoot?: string): string {
+  const resolvedSearchCommand = buildResolvedCliSearchCommand(
+    "\"pnpm\"",
+    projectRoot ? { cwd: projectRoot } : {}
+  );
   return `# Codex Auto Memory Recall Bridge
 
 ${buildMarkdownAssetVersionComment()}
@@ -167,13 +215,13 @@ This bundle keeps durable-memory recall host-agnostic.
 - ${MCP_FIRST_RECALL_WORKFLOW}
 - ${buildRecommendedMcpSearchInstruction()}
 - ${MCP_SERVE_GUIDANCE}
-- ${MCP_DOCTOR_GUIDANCE}
+- ${buildMcpDoctorGuidance(projectRoot ? { cwd: projectRoot } : {})}
 
 ## CLI fallback bundle
 
 - ${CLI_FALLBACK_RECALL_WORKFLOW}
 - Search example: \`memory-recall.sh search "pnpm"\`
-- CLI equivalent: \`${buildRecommendedCliSearchCommand("\"pnpm\"")}\`
+- CLI equivalent: \`${resolvedSearchCommand}\`
 - Timeline example: \`memory-recall.sh timeline "project:active:workflow:prefer-pnpm"\`
 - Details example: \`memory-recall.sh details "project:active:workflow:prefer-pnpm"\`
 - Compatibility wrappers \`memory-search.sh\`, \`memory-timeline.sh\`, and \`memory-details.sh\` call the same dispatcher.
@@ -181,7 +229,7 @@ This bundle keeps durable-memory recall host-agnostic.
 
 ## Boundaries
 
-${buildSharedWorkflowDisciplineLines()
+${buildSharedWorkflowDisciplineLines(projectRoot ? { cwd: projectRoot } : {})
   .slice(2)
   .map((line) => `- ${line}`)
   .join("\n")}
@@ -191,20 +239,21 @@ ${buildSharedWorkflowDisciplineLines()
 1. Search first.
 2. Inspect timeline only for promising refs.
 3. Fetch full details only when you still need the full Markdown body.
-4. ${buildSharedWorkflowDisciplineLines()[2]}
+4. ${buildSharedWorkflowDisciplineLines(projectRoot ? { cwd: projectRoot } : {})[2]}
 `;
 }
 
-function buildPostWorkMemoryReviewScript(): string {
+function buildPostWorkMemoryReviewScript(projectRoot?: string): string {
   return `#!/bin/sh
 ${buildShellAssetVersionComment()}
 # Sync the latest durable memory updates, then show the recent audit surface for review.
-${buildPostWorkSyncCommand()} "$@" || exit $?
-exec ${buildPostWorkRecentReviewCommand()}
+${buildProjectRootResolutionBlock(projectRoot)}${buildResolvedPostWorkSyncCommand()} --cwd "$PROJECT_ROOT" "$@" || exit $?
+exec ${buildResolvedPostWorkRecentReviewCommand()} --cwd "$PROJECT_ROOT"
 `;
 }
 
-function buildCodexSkillMarkdown(): string {
+function buildCodexSkillMarkdown(projectRoot?: string): string {
+  const commandOptions = projectRoot ? { cwd: projectRoot } : {};
   return `---
 name: codex-auto-memory-recall
 description: Search Codex Auto Memory before repeating work. Use when the user asks whether we solved something before, asks for prior repo-specific decisions, or wants past fixes, preferences, or architecture context.
@@ -237,28 +286,37 @@ Recommended MCP-first search preset:
 
 - \`${buildRecommendedMcpSearchInstruction()}\`
 
-Otherwise fall back to the CLI workflow:
+Otherwise fall back to the local bridge bundle first:
 
 1. Search first:
-   \`${buildRecommendedCliSearchCommand()}\`
+   \`memory-recall.sh search "<query>"\`
 2. Inspect timeline for promising refs:
-   \`cam recall timeline "<ref>"\`
+   \`memory-recall.sh timeline "<ref>"\`
 3. Fetch full details only for the refs that still look relevant:
-   \`cam recall details "<ref>"\`
+   \`memory-recall.sh details "<ref>"\`
+
+If the local bridge bundle is unavailable, fall back to the resolved CLI workflow:
+
+1. Search first:
+   \`${buildResolvedCliSearchCommand("\"<query>\"", commandOptions)}\`
+2. Inspect timeline for promising refs:
+   \`${buildResolvedCliTimelineCommand("\"<ref>\"", commandOptions)}\`
+3. Fetch full details only for the refs that still look relevant:
+   \`${buildResolvedCliDetailsCommand("\"<ref>\"", commandOptions)}\`
 
 If you need both active and archived results in one pass instead of active-first fallback:
 
-- \`${buildCliSearchCommand("\"<query>\"", { state: "all" })}\`
+- \`${buildResolvedCliSearchCommand("\"<query>\"", projectRoot ? { state: "all", cwd: projectRoot } : { state: "all" })}\`
 
 ## Guardrails
 
 - Do not jump straight to \`cam recall details\` for every result.
 - ${LOCAL_BRIDGE_BUNDLE_NOTE}
 - \`cam mcp serve\` exposes the same retrieval contract over stdio MCP when the host can consume it.
-- If you are unsure whether retrieval MCP is wired into the current host, run \`cam mcp doctor\`.
-- If a host needs shell-based fallback assets, run \`cam hooks install\` and use the generated recall bridge bundle.
-- If available, run \`${POST_WORK_SYNC_REVIEW_HELPER}\` to combine \`${buildPostWorkSyncCommand()}\` with \`${buildPostWorkRecentReviewCommand()}\`.
-- After finishing work that should update durable memory, run \`cam sync\` or review \`cam memory --recent\`.
+- If you are unsure whether retrieval MCP is wired into the current host, run \`${buildResolvedCliCommand("mcp doctor --host codex", commandOptions)}\`.
+- If a host needs shell-based fallback assets, run \`${buildResolvedCliCommand("hooks install", commandOptions)}\` and use the generated recall bridge bundle.
+- If available, run \`${POST_WORK_SYNC_REVIEW_HELPER}\` to combine \`${buildResolvedPostWorkSyncCommand(commandOptions)}\` with \`${buildResolvedPostWorkRecentReviewCommand(commandOptions)}\`.
+- ${buildDurableMemorySyncGuidance(commandOptions)}
 - Use \`cam memory\` for inspect/audit surfaces, startup payload, and recent sync review.
 - Use \`cam session\` only for temporary continuity, not durable memory retrieval.
 - Treat archived memory as historical context that does not participate in default startup recall.
@@ -275,12 +333,12 @@ const INTEGRATION_ASSET_DEFINITIONS: readonly IntegrationAssetDefinition[] = [
     executable: true,
     role: "capture-helper",
     doctorVisible: true,
-    doctorSignatures: ['cam sync "$@"'],
-    renderContents: () =>
+    doctorSignatures: ['PROJECT_ROOT="${CAM_PROJECT_ROOT:-$PWD}"', ' sync --cwd "$PROJECT_ROOT"'],
+    renderContents: (context) =>
       `#!/bin/sh
 ${buildShellAssetVersionComment()}
 # Sync the latest rollout for the current project.
-cam sync "$@"
+${buildProjectRootResolutionBlock(context.projectRoot)}${buildResolvedCliCommand("sync")} --cwd "$PROJECT_ROOT" "$@"
 `
   },
   {
@@ -291,12 +349,12 @@ cam sync "$@"
     executable: true,
     role: "capture-helper",
     doctorVisible: true,
-    doctorSignatures: ['cam doctor "$@"'],
-    renderContents: () =>
+    doctorSignatures: ['PROJECT_ROOT="${CAM_PROJECT_ROOT:-$PWD}"', ' doctor --cwd "$PROJECT_ROOT"'],
+    renderContents: (context) =>
       `#!/bin/sh
 ${buildShellAssetVersionComment()}
 # Print diagnostic information at session start.
-cam doctor "$@"
+${buildProjectRootResolutionBlock(context.projectRoot)}${buildResolvedCliCommand("doctor")} --cwd "$PROJECT_ROOT" "$@"
 `
   },
   {
@@ -307,8 +365,8 @@ cam doctor "$@"
     executable: true,
     role: "capture-helper",
     doctorVisible: true,
-    doctorSignatures: ['cam sync "$@"', "cam memory --recent"],
-    renderContents: () => buildPostWorkMemoryReviewScript()
+    doctorSignatures: ['PROJECT_ROOT="${CAM_PROJECT_ROOT:-$PWD}"', ' sync --cwd "$PROJECT_ROOT"', ' memory --recent --cwd "$PROJECT_ROOT"'],
+    renderContents: (context) => buildPostWorkMemoryReviewScript(context.projectRoot)
   },
   {
     id: "memory-recall",
@@ -319,11 +377,12 @@ cam doctor "$@"
     role: "recall-helper",
     doctorVisible: true,
     doctorSignatures: [
-      'exec cam recall search "$@"',
-      'exec cam recall timeline "$@"',
-      'exec cam recall details "$@"'
+      'PROJECT_ROOT="${CAM_PROJECT_ROOT:-$PWD}"',
+      ' recall search "$@"',
+      ' recall timeline "$@"',
+      ' recall details "$@"'
     ],
-    renderContents: () => buildRecallDispatcherScript()
+    renderContents: (context) => buildRecallDispatcherScript(context.projectRoot)
   },
   {
     id: "memory-search",
@@ -370,7 +429,7 @@ cam doctor "$@"
       'memory-recall.sh search "pnpm"',
       "Workflow discipline"
     ],
-    renderContents: () => buildRecallBridgeGuideMarkdown()
+    renderContents: (context) => buildRecallBridgeGuideMarkdown(context.projectRoot)
   },
   {
     id: "codex-memory-skill",
@@ -379,8 +438,14 @@ cam doctor "$@"
     relativePath: "SKILL.md",
     role: "guidance",
     doctorVisible: true,
-    doctorSignatures: ["name: codex-auto-memory-recall", "search_memories"],
-    renderContents: () => buildCodexSkillMarkdown()
+    doctorSignatures: [
+      "name: codex-auto-memory-recall",
+      "search_memories",
+      "post-work-memory-review.sh",
+      "node \"",
+      "memory --recent"
+    ],
+    renderContents: (context) => buildCodexSkillMarkdown(context.projectRoot)
   }
 ] as const;
 
@@ -411,8 +476,11 @@ export function codexOfficialProjectSkillAssetDir(projectRoot: string): string {
   return resolveCodexSkillPaths(projectRoot).officialProjectSkillDir;
 }
 
-export function buildHookAssets(homeDir = os.homedir()): GeneratedAsset[] {
-  return listIntegrationAssets(homeDir, "hooks").map((asset) => ({
+export function buildHookAssets(
+  homeDir = os.homedir(),
+  projectRoot = process.cwd()
+): GeneratedAsset[] {
+  return listIntegrationAssets(homeDir, "hooks", { projectRoot }).map((asset) => ({
     relativePath: asset.relativePath,
     contents: asset.contents,
     executable: asset.executableExpected
@@ -438,7 +506,8 @@ export function listIntegrationAssets(
   const context = buildIntegrationAssetContext(
     homeDir,
     options.projectRoot,
-    options.skillSurface
+    options.skillSurface,
+    installSurface
   );
   return INTEGRATION_ASSET_DEFINITIONS.filter(
     (asset) => installSurface === undefined || asset.installSurface === installSurface
@@ -449,7 +518,7 @@ export function listIntegrationAssets(
     installSurface: asset.installSurface,
     role: asset.role,
     expectedVersion: RETRIEVAL_INTEGRATION_ASSET_VERSION,
-    expectedSignatures: [...(asset.doctorSignatures ?? [])],
+    expectedSignatures: buildDoctorSignatures(asset, asset.renderContents(context)),
     executableExpected: Boolean(asset.executable),
     doctorVisible: asset.doctorVisible,
     relativePath: asset.relativePath,
@@ -458,11 +527,19 @@ export function listIntegrationAssets(
 }
 
 export function listDoctorVisibleIntegrationAssets(
-  homeDir = os.homedir()
+  homeDir = os.homedir(),
+  options: {
+    projectRoot?: string;
+    skillSurface?: CodexSkillInstallSurface;
+  } = {}
 ): InstalledIntegrationAssetDescriptor[] {
-  return listIntegrationAssets(homeDir).filter((asset) => asset.doctorVisible);
+  return listIntegrationAssets(homeDir, undefined, options).filter((asset) => asset.doctorVisible);
 }
 
-export function buildRecallBridgeSummaryLines(): string[] {
-  return buildRecommendedRetrievalSummaryLines();
+export function buildRecallBridgeSummaryLines(
+  options: {
+    cwd?: string;
+  } = {}
+): string[] {
+  return buildRecommendedRetrievalSummaryLines(options);
 }
