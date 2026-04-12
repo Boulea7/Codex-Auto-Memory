@@ -290,10 +290,11 @@ export function buildPersistedSessionJson(
 ): string {
   return JSON.stringify(
     {
-      ...(action === "refresh" && rolloutSelection
+      ...(rolloutSelection
         ? {
-            action: "refresh",
-            writeMode: "replace" satisfies SessionContinuityWriteMode,
+            action,
+            writeMode:
+              (action === "refresh" ? "replace" : "merge") satisfies SessionContinuityWriteMode,
             rolloutSelection
           }
         : {}),
@@ -420,7 +421,8 @@ export function buildSessionStatusJson(view: SessionInspectionView): string {
       autoSave: view.autoSave,
       localPathStyle: view.localPathStyle,
       maxLines: view.maxLines,
-      ...buildSessionInspectionPayload(view)
+      ...buildSessionInspectionPayload(view),
+      startup: view.startup
     },
     null,
     2
