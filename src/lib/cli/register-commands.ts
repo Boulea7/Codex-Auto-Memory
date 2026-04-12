@@ -1,6 +1,7 @@
 import { Command } from "commander";
 import { runAudit } from "../commands/audit.js";
 import { runDoctor } from "../commands/doctor.js";
+import { runDream } from "../commands/dream.js";
 import { runForget } from "../commands/forget.js";
 import { installHooks, removeHooks } from "../commands/hooks.js";
 import {
@@ -113,6 +114,28 @@ function registerSessionCommands(program: Command): void {
     .command("open")
     .description("Open the local session continuity directory")
     .action(withStdout(async (options) => runSession("open", options)));
+}
+
+function registerDreamCommands(program: Command): void {
+  const dreamCommand = program
+    .command("dream")
+    .description("Build and inspect the background consolidation sidecar without mutating canonical memory");
+
+  addSessionScopeOption(
+    addSessionRolloutOption(
+      addJsonOption(
+        dreamCommand
+          .command("build")
+          .description("Build a dream sidecar snapshot from the selected rollout")
+      )
+    )
+  ).action(withStdout(async (options) => runDream("build", options)));
+
+  addJsonOption(
+    dreamCommand
+      .command("inspect")
+      .description("Inspect the latest dream sidecar snapshots and audit paths")
+  ).action(withStdout(async (options) => runDream("inspect", options)));
 }
 
 function registerHookCommands(program: Command): void {
@@ -443,6 +466,7 @@ export function registerCommands(program: Command): void {
     .action(withStdout(async (options) => runAudit(options)));
 
   registerSessionCommands(program);
+  registerDreamCommands(program);
   registerRecallCommands(program);
   registerMcpCommands(program);
   registerHookCommands(program);

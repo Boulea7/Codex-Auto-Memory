@@ -5,6 +5,8 @@ import { afterEach, describe, expect, it } from "vitest";
 import { detectProjectContext } from "../src/lib/domain/project-context.js";
 import { MemoryStore } from "../src/lib/domain/memory-store.js";
 import { SyncService } from "../src/lib/domain/sync-service.js";
+import { runDream } from "../src/lib/commands/dream.js";
+import type { MemorySearchResponse } from "../src/lib/types.js";
 import {
   makeRolloutFixture,
   makeAppConfig,
@@ -1859,5 +1861,74 @@ describe("runRecall", () => {
       },
       results: [expect.objectContaining({ ref: "project:archived:workflow:historical-pnpm" })]
     });
+  });
+
+  it("adds query-time surfacing hints from the dream sidecar without changing search results", async () => {
+    const homeDir = await tempDir("cam-recall-dream-home-");
+    const projectDir = await tempDir("cam-recall-dream-project-");
+    const memoryRoot = await tempDir("cam-recall-dream-memory-");
+    process.env.HOME = homeDir;
+
+    const projectConfig = makeAppConfig({
+      dreamSidecarEnabled: true
+    });
+    await writeCamConfig(projectDir, projectConfig, {
+      autoMemoryDirectory: memoryRoot,
+      dreamSidecarEnabled: true
+    });
+
+    const store = new MemoryStore(detectProjectContext(projectDir), {
+      ...projectConfig,
+      autoMemoryDirectory: memoryRoot,
+      dreamSidecarEnabled: true
+    });
+    await store.ensureLayout();
+    await store.remember(
+      "project",
+      "workflow",
+      "prefer-pnpm",
+      "Prefer pnpm in this repository.",
+      ["Use pnpm instead of npm in this repository."],
+      "Manual note."
+    );
+
+    const rolloutPath = path.join(projectDir, "rollout.jsonl");
+    await fs.writeFile(
+      rolloutPath,
+      makeRolloutFixture(
+        projectDir,
+        "Continue the middleware work and keep using pnpm in this repository."
+      ),
+      "utf8"
+    );
+    await runDream("build", {
+      cwd: projectDir,
+      rollout: rolloutPath,
+      json: true
+    });
+
+    const result = runCli(projectDir, ["recall", "search", "pnpm", "--json"]);
+    expect(result.exitCode).toBe(0);
+
+    const response = JSON.parse(result.stdout) as MemorySearchResponse & {
+      querySurfacing: {
+        suggestedDreamRefs: Array<{ ref: string; reason: string }>;
+      };
+    };
+
+    expect(response.results).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          ref: "project:active:workflow:prefer-pnpm"
+        })
+      ])
+    );
+    expect(response.querySurfacing.suggestedDreamRefs).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          ref: "project:active:workflow:prefer-pnpm"
+        })
+      ])
+    );
   });
 });

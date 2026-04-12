@@ -23,6 +23,8 @@ describe("docs contract", () => {
     const readmeJa = await readDoc("README.ja.md");
     const docsReadme = await readDoc("docs/README.md");
     const docsReadmeEn = await readDoc("docs/README.en.md");
+    const architecture = await readDoc("docs/architecture.md");
+    const sessionContinuity = await readDoc("docs/session-continuity.md");
     const nativeMigrationEn = await readDoc("docs/native-migration.en.md");
     const releaseChecklist = await readDoc("docs/release-checklist.md");
     const contributing = await readDoc("CONTRIBUTING.md");
@@ -91,6 +93,12 @@ describe("docs contract", () => {
     expect(readme).toContain("README.ja.md");
     expect(readme).toContain("集成演进策略");
     expect(readme).toContain("宿主能力面");
+    expect(readme).toContain("cam dream build");
+    expect(readme).toContain("cam dream inspect");
+    expect(readme).toContain("instruction memory");
+    expect(readme).toContain("learned durable memory");
+    expect(readme).toContain("MEMORY.md` 现在继续收紧为 `index-only");
+    expect(readme).toContain("dream sidecar");
     expect(readmeTw).toContain("README.md");
     expect(readmeTw).toContain("README.en.md");
     expect(readmeTw).toContain("memory-recall.sh");
@@ -256,6 +264,13 @@ describe("docs contract", () => {
     expect(readmeEn).toContain("`cam memory`, `cam session`, and `cam recall` reviewer UX");
     expect(readmeEn).toContain("--surface runtime|official-user|official-project");
     expect(docsReadme).toContain("Codex-first Hybrid");
+    expect(docsReadme).toContain("dream sidecar");
+    expect(docsReadme).toContain("instruction memory");
+    expect(architecture).toContain("instruction memory");
+    expect(architecture).toContain("learned durable memory");
+    expect(architecture).toContain("index-only");
+    expect(sessionContinuity).toContain("cam dream build");
+    expect(sessionContinuity).toContain("non-canonical");
     expect(docsReadme).toContain("cam mcp apply-guidance --host codex");
     expect(docsReadme).toContain("cam integrations apply --host codex");
     expect(docsReadme).toContain("cam integrations doctor --host codex");

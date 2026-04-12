@@ -51,6 +51,8 @@ export async function runInit(options: InitOptions = {}): Promise<string> {
     sessionContinuityAutoSave: false,
     sessionContinuityLocalPathStyle: "codex",
     maxSessionContinuityLines: 60,
+    dreamSidecarEnabled: false,
+    dreamSidecarAutoBuild: false,
     codexBinary: "codex"
   };
 

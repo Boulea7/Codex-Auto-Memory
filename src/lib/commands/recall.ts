@@ -1,4 +1,7 @@
-import { buildReadOnlyMemoryRetrievalService } from "../runtime/runtime-context.js";
+import { buildRuntimeContext } from "../runtime/runtime-context.js";
+import { MemoryRetrievalService } from "../domain/memory-retrieval.js";
+import { inspectDreamSidecar, filterDreamRelevantRefs } from "../domain/dream-sidecar.js";
+import { discoverInstructionFiles } from "../domain/instruction-memory.js";
 import type {
   MemoryDetailsResult,
   MemoryRetrievalScope,
@@ -273,7 +276,10 @@ export async function runRecall(
   target: string,
   options: RecallOptions = {}
 ): Promise<string> {
-  const retrieval = await buildReadOnlyMemoryRetrievalService(options.cwd);
+  const runtime = await buildRuntimeContext(options.cwd ?? process.cwd(), {}, {
+    ensureMemoryLayout: false
+  });
+  const retrieval = new MemoryRetrievalService(runtime.syncService.memoryStore);
   const scope = normalizeMemoryRetrievalScope(options.scope);
   const state = normalizeMemoryRetrievalState(options.state);
 
@@ -285,7 +291,23 @@ export async function runRecall(
         limit: parseMemoryRetrievalLimit(options.limit)
       });
       if (options.json) {
-        return JSON.stringify(response, null, 2);
+        const dreamInspection = await inspectDreamSidecar(runtime);
+        const suggestedDreamRefs = filterDreamRelevantRefs(
+          dreamInspection.projectSnapshot?.relevantMemoryRefs ?? [],
+          target
+        );
+        const suggestedInstructionFiles = await discoverInstructionFiles(runtime.project.projectRoot);
+        return JSON.stringify(
+          {
+            ...response,
+            querySurfacing: {
+              suggestedDreamRefs,
+              suggestedInstructionFiles
+            }
+          },
+          null,
+          2
+        );
       }
       return formatSearchResults(response);
     }

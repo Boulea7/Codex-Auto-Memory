@@ -19,6 +19,8 @@ const defaultConfig: AppConfig = {
   sessionContinuityAutoSave: false,
   sessionContinuityLocalPathStyle: "codex",
   maxSessionContinuityLines: DEFAULT_SESSION_CONTINUITY_LINE_LIMIT,
+  dreamSidecarEnabled: false,
+  dreamSidecarAutoBuild: false,
   codexBinary: "codex"
 };
 
@@ -93,10 +95,27 @@ function sanitizeProjectConfig(
       maxSessionContinuityLines: allowSessionContinuityOverride
         ? parsed.maxSessionContinuityLines
         : undefined,
+      dreamSidecarEnabled: parsed.dreamSidecarEnabled,
+      dreamSidecarAutoBuild: parsed.dreamSidecarAutoBuild,
       codexBinary: parsed.codexBinary,
       autoMemoryDirectory: allowDirectoryOverride ? parsed.autoMemoryDirectory : undefined
     }).filter(([, value]) => value !== undefined)
   ) as Partial<AppConfig>;
+}
+
+async function readOptionalConfigFile(
+  filePath: string,
+  label: "managed" | "user" | "project" | "local",
+  warnings: string[]
+): Promise<RawProjectConfig | null> {
+  try {
+    return await readJsonFile<RawProjectConfig>(filePath);
+  } catch (error) {
+    warnings.push(
+      `Ignored invalid ${label} config at ${filePath}: ${error instanceof Error ? error.message : String(error)}`
+    );
+    return null;
+  }
 }
 
 export async function loadConfig(
@@ -113,7 +132,7 @@ export async function loadConfig(
 
   let merged: Partial<AppConfig> = { ...defaultConfig };
 
-  const userConfig = await readJsonFile<RawProjectConfig>(userFile);
+  const userConfig = await readOptionalConfigFile(userFile, "user", warnings);
   if (userConfig) {
     files.push(userFile);
     merged = {
@@ -122,7 +141,7 @@ export async function loadConfig(
     };
   }
 
-  const projectConfig = await readJsonFile<RawProjectConfig>(projectFile);
+  const projectConfig = await readOptionalConfigFile(projectFile, "project", warnings);
   if (projectConfig) {
     files.push(projectFile);
     merged = {
@@ -131,7 +150,7 @@ export async function loadConfig(
     };
   }
 
-  const localConfig = await readJsonFile<RawProjectConfig>(localFile);
+  const localConfig = await readOptionalConfigFile(localFile, "local", warnings);
   if (localConfig) {
     files.push(localFile);
     merged = {
@@ -145,7 +164,7 @@ export async function loadConfig(
     ...overrides
   };
 
-  const managedConfig = await readJsonFile<RawProjectConfig>(managedFile);
+  const managedConfig = await readOptionalConfigFile(managedFile, "managed", warnings);
   if (managedConfig) {
     files.push(managedFile);
     merged = {

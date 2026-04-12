@@ -216,8 +216,6 @@ interface MemoryStoreFileOps {
 
 const topicNamePattern = /^[a-z0-9]+(?:-[a-z0-9]+)*$/u;
 const retrievalIndexVersion = 1 as const;
-const maxIndexTopicSummaryPreviews = 8;
-
 function buildSearchDiagnosticKey(scope: MemoryScope, state: MemoryRecordState): string {
   return `${scope}:${state}`;
 }
@@ -401,30 +399,13 @@ function sortEntriesByUpdatedAt(entries: MemoryEntry[]): MemoryEntry[] {
   return [...entries].sort((left, right) => right.updatedAt.localeCompare(left.updatedAt));
 }
 
-function previewSummary(summary: string, maxLength = 120): string {
-  const normalized = summary.trim().replace(/\s+/gu, " ");
-  if (normalized.length <= maxLength) {
-    return normalized;
-  }
-
-  return `${normalized.slice(0, Math.max(0, maxLength - 1)).trimEnd()}...`;
-}
-
 function buildIndexContents(scope: MemoryScope, entries: MemoryEntry[]): string {
   const sortedEntries = sortEntriesByUpdatedAt(entries);
   const topicSections = sortedEntries.length
-    ? Array.from(new Set(sortedEntries.map((entry) => entry.topic))).flatMap((topic, index) => {
+    ? Array.from(new Set(sortedEntries.map((entry) => entry.topic))).map((topic) => {
         const topicEntries = sortedEntries.filter((entry) => entry.topic === topic);
         const count = topicEntries.length;
-        const latestEntry = topicEntries[0];
-        return latestEntry
-          ? [
-              `- [${topic}.md](${topic}.md): ${count} entr${count === 1 ? "y" : "ies"}`,
-              ...(index < maxIndexTopicSummaryPreviews
-                ? [`  - Latest: ${previewSummary(latestEntry.summary)}`]
-                : [])
-            ]
-          : [`- [${topic}.md](${topic}.md): ${count} entr${count === 1 ? "y" : "ies"}`];
+        return `- [${topic}.md](${topic}.md): ${count} entr${count === 1 ? "y" : "ies"}`;
       })
     : ["- No topic files yet."];
   const lines = [

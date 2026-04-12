@@ -14,6 +14,7 @@
 3. [集成演进策略](./integration-strategy.md)
 4. [宿主能力面](./host-surfaces.md)
 5. [Session continuity 设计](./session-continuity.md)
+6. [Claude memory / dream 第一轮实施](./claude-memory-dream-r1.md)
 
 ### 维护者
 
@@ -67,6 +68,9 @@
 - durable sync 现在会对 subagent rollout fail-closed：子线程 evidence 仍可供 continuity / reviewer 分析，但 `cam sync` 会留下 reviewer-visible 的 `subagent-rollout` skip，而不会把 child-session 噪音写进 canonical durable memory
 - session continuity 持久化现在也会对 subagent rollout fail-closed：matching recovery marker、matching latest audit entry 与显式 `--rollout` 若指向 child-session rollout，会直接失败，而不是污染 shared/local continuity
 - session continuity shared/local 双写现在以原子方式提交；若 summary 写入阶段失败，会留下 `summary-write` recovery marker 供 reviewer 处理
+- 本轮已经新增 `instruction memory` / `learned durable memory` 的 reviewer 分层：前者只做发现与解释，不进入 canonical durable mutation；后者继续由 `cam sync` / `cam remember` / `cam forget` 管理
+- `MEMORY.md` 现在进一步收紧为 `index-only`：latest summary preview 不再回写进 index，startup usefulness 继续由 `highlights` block 与 topic refs 提供
+- 当前还新增了最小可用 `dream sidecar`：`cam dream build` / `cam dream inspect` 会写入可审计的 JSON sidecar，用于 continuity compaction、query-time relevant refs 和 pending promotion candidates，但不会直接改 canonical Markdown memory
 - `cam integrations apply --json` 现在也会显式暴露 `postApplyReadinessCommand`，把“apply 之后该回哪条 doctor 命令确认 route”提升成 machine-readable contract
 - startup recall 仍保持 Markdown-first 和 line-budget discipline，但现在会额外注入少量 active-only content highlights；它不是 topic body dump，也不会让 archived memory 重新参与默认 startup recall
 - `cam memory --json` 现在还会额外暴露 `highlightCount`、`omittedHighlightCount`、`highlightsByScope`、`startupSectionsRendered`、`startupOmissions`、`startupOmissionCounts` 与新的 `layoutDiagnostics`，让 reviewer 能直接看到 startup highlights 是否被 budget 裁掉、哪些 startup section 真正进入了 payload，以及 canonical Markdown layout 是否出现异常

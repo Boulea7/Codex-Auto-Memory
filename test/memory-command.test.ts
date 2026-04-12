@@ -3,6 +3,7 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { runMemory, runMemoryReindex } from "../src/lib/commands/memory.js";
+import { runDream } from "../src/lib/commands/dream.js";
 import { toManualMutationForgetPayload } from "../src/lib/commands/manual-mutation-review.js";
 import { configPaths } from "../src/lib/config/load-config.js";
 import { detectProjectContext } from "../src/lib/domain/project-context.js";
@@ -384,6 +385,73 @@ describe("runMemory", () => {
       recent: "3"
     });
     expect(textOutput).toContain("Recent sync events (1 grouped):");
+  });
+
+  it("surfaces instruction memory and dream sidecar health in json output", async () => {
+    const homeDir = await tempDir("cam-memory-instruction-home-");
+    const projectDir = await tempDir("cam-memory-instruction-project-");
+    const memoryRoot = await tempDir("cam-memory-instruction-root-");
+    process.env.HOME = homeDir;
+    await fs.writeFile(path.join(projectDir, "CLAUDE.md"), "# Project rules\n", "utf8");
+
+    const projectConfig = buildProjectConfig({
+      dreamSidecarEnabled: true
+    });
+    await writeProjectConfig(projectDir, projectConfig, {
+      autoMemoryDirectory: memoryRoot,
+      dreamSidecarEnabled: true
+    });
+
+    const rolloutPath = path.join(projectDir, "rollout.jsonl");
+    await fs.writeFile(
+      rolloutPath,
+      JSON.stringify({
+        type: "session_meta",
+        payload: {
+          id: "session-1",
+          timestamp: "2026-03-15T00:00:00.000Z",
+          cwd: projectDir
+        }
+      }) +
+        "\n" +
+        JSON.stringify({
+          type: "event_msg",
+          payload: { type: "user_message", message: "Continue the middleware work." }
+        }) +
+        "\n",
+      "utf8"
+    );
+    await runDream("build", {
+      cwd: projectDir,
+      rollout: rolloutPath,
+      json: true
+    });
+
+    const output = JSON.parse(
+      await runMemory({
+        cwd: projectDir,
+        json: true
+      })
+    ) as MemoryCommandOutput & {
+      instructionLayer: {
+        detectedFiles: Array<{ kind: string; path: string }>;
+      };
+      dreamSidecar: {
+        enabled: boolean;
+        status: string;
+      };
+    };
+
+    expect(output.instructionLayer.detectedFiles).toEqual(
+      expect.arrayContaining([expect.objectContaining({ kind: "claude-project" })])
+    );
+    expect(output.instructionLayer.detectedFiles.some((entry) => entry.path.endsWith(`${path.sep}CLAUDE.md`))).toBe(
+      true
+    );
+    expect(output.dreamSidecar).toMatchObject({
+      enabled: true,
+      status: "available"
+    });
   });
 
   it("keeps json recent sync audit raw while compacting repeated sync events in text output", async () => {
