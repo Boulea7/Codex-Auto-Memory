@@ -330,7 +330,7 @@ describe("tarball install smoke", () => {
           preferredRoute: "mcp-first"
         },
         cliFallback: {
-          searchCommand: `cam recall search "<query>" --state auto --limit 8 --cwd ${JSON.stringify(realInstallDir)}`
+          searchCommand: `cam recall search "<query>" --state auto --limit 8 --cwd '${realInstallDir}'`
         }
       },
       agentsGuidance: {
@@ -563,7 +563,7 @@ describe("tarball install smoke", () => {
       workflowContract: {
         recommendedPreset: "state=auto, limit=8",
         cliFallback: {
-          searchCommand: `cam recall search "<query>" --state auto --limit 8 --cwd ${JSON.stringify(realInstallDir)}`
+          searchCommand: `cam recall search "<query>" --state auto --limit 8 --cwd '${realInstallDir}'`
         }
       },
       subactions: {
@@ -588,7 +588,7 @@ describe("tarball install smoke", () => {
       workflowContract: {
         recommendedPreset: "state=auto, limit=8",
         cliFallback: {
-          searchCommand: `cam recall search "<query>" --state auto --limit 8 --cwd ${JSON.stringify(realInstallDir)}`
+          searchCommand: `cam recall search "<query>" --state auto --limit 8 --cwd '${realInstallDir}'`
         }
       },
       subactions: {
@@ -900,7 +900,7 @@ describe("tarball install smoke", () => {
       failureMessage: expect.stringContaining("directory"),
       rollbackApplied: true,
       subactions: {
-        mcp: { attempted: false },
+        mcp: { attempted: true, status: "blocked", action: "blocked" },
         agents: { attempted: false },
         hooks: { attempted: false },
         skills: { attempted: false }
@@ -923,6 +923,24 @@ describe("tarball install smoke", () => {
         recommendedFix: expect.stringContaining("cam mcp apply-guidance --host codex")
       }
     });
+
+    for (const command of [
+      ["integrations", "apply", "--host", "codex"] as const,
+      ["integrations", "doctor", "--host", "codex"] as const
+    ]) {
+      for (const cwd of ["", "   ", path.join(realBlockedProjectDir, "missing-project")]) {
+        const invalidResult = runCommandCapture(
+          camBinaryPath(installDir),
+          [...command, "--cwd", cwd],
+          blockedProjectDir,
+          envWithBin
+        );
+        expect(invalidResult.exitCode).toBe(1);
+        expect(invalidResult.stderr).toContain(
+          "--cwd must be a non-empty path to an existing directory."
+        );
+      }
+    }
 
     const recallHelpResult = runCommandCapture(
       camBinaryPath(installDir),
@@ -1020,6 +1038,7 @@ describe("tarball install smoke", () => {
     expect(integrationsInstallHelpResult.stdout).toContain(
       "Install the recommended project-scoped Codex integration stack"
     );
+    expect(integrationsInstallHelpResult.stdout).toMatch(/without updating\s+AGENTS\.md/);
     expect(integrationsInstallHelpResult.stdout).toContain("Target host: codex");
     expect(integrationsInstallHelpResult.stdout).toMatch(
       /Skill install surface: runtime, official-user, or\s+official-project/

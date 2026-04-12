@@ -123,20 +123,20 @@ async function selectSaveRollout(
     };
   }
 
+  const latestPrimaryRollout = await findLatestProjectRollout(runtime.project);
+  if (latestPrimaryRollout) {
+    return {
+      kind: "latest-primary-rollout",
+      rolloutPath: latestPrimaryRollout
+    };
+  }
+
   const latestAuditEntry =
     await runtime.sessionContinuityStore.readLatestAuditEntryMatchingScope(scope);
   if (latestAuditEntry) {
     return {
       kind: "latest-audit-entry",
       rolloutPath: latestAuditEntry.rolloutPath
-    };
-  }
-
-  const latestPrimaryRollout = await findLatestProjectRollout(runtime.project);
-  if (latestPrimaryRollout) {
-    return {
-      kind: "latest-primary-rollout",
-      rolloutPath: latestPrimaryRollout
     };
   }
 
@@ -170,10 +170,10 @@ export async function runSession(
   options: SessionOptions = {}
 ): Promise<string> {
   const cwd = options.cwd ?? process.cwd();
-  const runtime = await buildRuntimeContext(cwd);
   const scope = selectedScope(options.scope);
 
   if (action === "save" || action === "refresh") {
+    const runtime = await buildRuntimeContext(cwd);
     const persistenceRequest = await prepareSessionPersistenceRequest(
       runtime,
       action,
@@ -197,6 +197,7 @@ export async function runSession(
   }
 
   if (action === "clear") {
+    const runtime = await buildRuntimeContext(cwd);
     const cleared = await runtime.sessionContinuityStore.clear(scope);
     if (options.json) {
       return JSON.stringify({ cleared }, null, 2);
@@ -210,6 +211,7 @@ export async function runSession(
   }
 
   if (action === "open") {
+    const runtime = await buildRuntimeContext(cwd);
     await runtime.sessionContinuityStore.ensureLocalLayout();
     openPath(runtime.sessionContinuityStore.paths.localDir);
     return [
@@ -218,6 +220,9 @@ export async function runSession(
     ].join("\n");
   }
 
+  const runtime = await buildRuntimeContext(cwd, {}, {
+    ensureMemoryLayout: false
+  });
   const view = await loadSessionInspectionView(runtime);
 
   if (action === "load") {
