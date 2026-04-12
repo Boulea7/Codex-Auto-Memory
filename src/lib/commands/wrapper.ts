@@ -4,7 +4,7 @@ import { persistSessionContinuity } from "../domain/session-continuity-persisten
 import {
   listRolloutFiles,
   parseRolloutEvidence,
-  readRolloutMeta
+  selectLatestPrimaryRolloutFromCandidates
 } from "../domain/rollout.js";
 import { compileSessionContinuity } from "../domain/session-continuity.js";
 import { readCodexBaseInstructions } from "../runtime/codex-config.js";
@@ -15,18 +15,6 @@ import { WrapperRuntimeInjector } from "../runtime/wrapper-injector.js";
 
 const sessionSource = new RolloutSessionSource();
 const runtimeInjector = new WrapperRuntimeInjector();
-
-async function selectLatestPrimaryRollout(candidates: string[]): Promise<string | null> {
-  const metas = await Promise.all(candidates.map((candidate) => readRolloutMeta(candidate)));
-  for (let index = candidates.length - 1; index >= 0; index -= 1) {
-    if (metas[index]?.isSubagent === true) {
-      continue;
-    }
-    return candidates[index] ?? null;
-  }
-
-  return null;
-}
 
 async function syncRecentRollouts(
   cwd: string,
@@ -100,7 +88,7 @@ async function saveSessionContinuity(
     startedAtMs,
     endedAtMs
   );
-  const rolloutPath = await selectLatestPrimaryRollout(candidates);
+  const rolloutPath = await selectLatestPrimaryRolloutFromCandidates(candidates);
   if (!rolloutPath) {
     return null;
   }

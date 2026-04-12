@@ -2,11 +2,13 @@ import type {
   AppConfig,
   MemoryConflictCandidate,
   MemoryOperation,
+  MemoryOperationRejectionReason,
   MemoryScope,
   MemorySyncAuditEntry,
   MemorySyncAuditSkipReason,
   MemorySyncAuditStatus,
-  ProjectContext
+  ProjectContext,
+  RejectedMemoryOperationSummary
 } from "../types.js";
 
 function isMemoryScope(value: unknown): value is MemoryScope {
@@ -18,7 +20,12 @@ function isMemorySyncAuditStatus(value: unknown): value is MemorySyncAuditStatus
 }
 
 function isMemorySyncAuditSkipReason(value: unknown): value is MemorySyncAuditSkipReason {
-  return value === undefined || value === "already-processed" || value === "no-rollout-evidence";
+  return (
+    value === undefined ||
+    value === "already-processed" ||
+    value === "no-rollout-evidence" ||
+    value === "subagent-rollout"
+  );
 }
 
 function isStringArray(value: unknown): value is string[] {
@@ -44,7 +51,9 @@ function isMemoryOperation(value: unknown): value is MemoryOperation {
 
   const operation = value as Record<string, unknown>;
   return (
-    (operation.action === "upsert" || operation.action === "delete") &&
+    (operation.action === "upsert" ||
+      operation.action === "delete" ||
+      operation.action === "archive") &&
     isMemoryScope(operation.scope) &&
     typeof operation.topic === "string" &&
     typeof operation.id === "string" &&
@@ -52,6 +61,57 @@ function isMemoryOperation(value: unknown): value is MemoryOperation {
     (operation.details === undefined || isStringArray(operation.details)) &&
     (operation.sources === undefined || isStringArray(operation.sources)) &&
     (operation.reason === undefined || typeof operation.reason === "string")
+  );
+}
+
+function isMemoryOperationRejectionReason(
+  value: unknown
+): value is MemoryOperationRejectionReason {
+  return (
+    value === "unknown-topic" ||
+    value === "sensitive" ||
+    value === "volatile" ||
+    value === "empty-summary" ||
+    value === "operation-cap"
+  );
+}
+
+function isLegacyMemoryOperationRejectionReason(value: unknown): value is "detail-truncated" {
+  return value === "detail-truncated";
+}
+
+function isRejectedReasonCounts(
+  value: unknown
+): value is Partial<Record<MemoryOperationRejectionReason, number>> {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return false;
+  }
+
+  return Object.entries(value).every(
+    ([key, count]) =>
+      (isMemoryOperationRejectionReason(key) || isLegacyMemoryOperationRejectionReason(key)) &&
+      typeof count === "number" &&
+      count >= 0
+  );
+}
+
+function isRejectedMemoryOperationSummary(
+  value: unknown
+): value is RejectedMemoryOperationSummary {
+  if (!value || typeof value !== "object") {
+    return false;
+  }
+
+  const summary = value as Record<string, unknown>;
+  return (
+    (summary.action === "upsert" ||
+      summary.action === "delete" ||
+      summary.action === "archive") &&
+    isMemoryScope(summary.scope) &&
+    typeof summary.topic === "string" &&
+    typeof summary.id === "string" &&
+    (isMemoryOperationRejectionReason(summary.reason) ||
+      isLegacyMemoryOperationRejectionReason(summary.reason))
   );
 }
 
@@ -74,18 +134,50 @@ function isMemoryConflictCandidate(value: unknown): value is MemoryConflictCandi
 function summaryForStatus(
   status: MemorySyncAuditStatus,
   appliedCount: number,
+  noopOperationCount: number,
+  rejectedOperationCount: number,
   skipReason?: MemorySyncAuditSkipReason
 ): string {
   switch (status) {
     case "applied":
-      return `${appliedCount} operation(s) applied`;
+      return [
+        `${appliedCount} operation(s) applied`,
+        ...(noopOperationCount > 0 ? [`${noopOperationCount} no-op`] : []),
+        ...(rejectedOperationCount > 0 ? [`${rejectedOperationCount} rejected`] : [])
+      ].join(", ");
     case "no-op":
-      return "0 operations applied";
+      return [
+        "0 operations applied",
+        ...(noopOperationCount > 0 ? [`${noopOperationCount} no-op`] : []),
+        ...(rejectedOperationCount > 0 ? [`${rejectedOperationCount} rejected`] : [])
+      ].join(", ");
     case "skipped":
-      return skipReason === "already-processed"
-        ? "Skipped rollout; it was already processed"
-        : "Skipped rollout; no rollout evidence could be parsed";
+      if (skipReason === "already-processed") {
+        return "Skipped rollout; it was already processed";
+      }
+      if (skipReason === "subagent-rollout") {
+        return "Skipped rollout; subagent rollout evidence does not qualify for durable sync";
+      }
+      return "Skipped rollout; no rollout evidence could be parsed";
   }
+}
+
+function formatRejectedReasonCounts(
+  rejectedReasonCounts: Partial<Record<MemoryOperationRejectionReason, number>> | undefined
+): string | null {
+  if (!rejectedReasonCounts) {
+    return null;
+  }
+
+  const entries = Object.entries(rejectedReasonCounts).filter(([, count]) => count > 0);
+  if (entries.length === 0) {
+    return null;
+  }
+
+  return entries
+    .sort(([leftReason], [rightReason]) => leftReason.localeCompare(rightReason))
+    .map(([reason, count]) => `${reason}=${count}`)
+    .join(", ");
 }
 
 export function parseMemorySyncAuditEntry(value: unknown): MemorySyncAuditEntry | null {
@@ -103,8 +195,25 @@ export function parseMemorySyncAuditEntry(value: unknown): MemorySyncAuditEntry 
         isMemoryConflictCandidate(candidate)
       )
     : [];
+  const noopOperationCount =
+    typeof entry.noopOperationCount === "number" ? entry.noopOperationCount : 0;
   const suppressedOperationCount =
     typeof entry.suppressedOperationCount === "number" ? entry.suppressedOperationCount : 0;
+  const rejectedOperationCount =
+    typeof entry.rejectedOperationCount === "number" ? entry.rejectedOperationCount : 0;
+  const rejectedReasonCounts = isRejectedReasonCounts(entry.rejectedReasonCounts)
+    ? Object.fromEntries(
+        Object.entries(entry.rejectedReasonCounts).filter(([reason]) =>
+          isMemoryOperationRejectionReason(reason)
+        )
+      )
+    : undefined;
+  const rejectedOperations = Array.isArray(entry.rejectedOperations)
+    ? entry.rejectedOperations.filter((operation): operation is RejectedMemoryOperationSummary =>
+        isRejectedMemoryOperationSummary(operation) &&
+        isMemoryOperationRejectionReason(operation.reason)
+      )
+    : undefined;
 
   if (
     typeof entry.appliedAt !== "string" ||
@@ -120,7 +229,13 @@ export function parseMemorySyncAuditEntry(value: unknown): MemorySyncAuditEntry 
     !isMemorySyncAuditStatus(entry.status) ||
     !isMemorySyncAuditSkipReason(entry.skipReason) ||
     typeof entry.appliedCount !== "number" ||
+    noopOperationCount < 0 ||
     suppressedOperationCount < 0 ||
+    rejectedOperationCount < 0 ||
+    (entry.rejectedReasonCounts !== undefined && !isRejectedReasonCounts(entry.rejectedReasonCounts)) ||
+    (entry.rejectedOperations !== undefined &&
+      (!Array.isArray(entry.rejectedOperations) ||
+        !entry.rejectedOperations.every((operation) => isRejectedMemoryOperationSummary(operation)))) ||
     !Array.isArray(entry.scopesTouched) ||
     !entry.scopesTouched.every((scope) => isMemoryScope(scope)) ||
     typeof entry.resultSummary !== "string" ||
@@ -147,7 +262,11 @@ export function parseMemorySyncAuditEntry(value: unknown): MemorySyncAuditEntry 
     skipReason: entry.status === "skipped" ? entry.skipReason : undefined,
     ...(entry.isRecovery === true ? { isRecovery: true } : {}),
     appliedCount: entry.appliedCount,
+    noopOperationCount,
     suppressedOperationCount,
+    rejectedOperationCount,
+    ...(rejectedReasonCounts ? { rejectedReasonCounts } : {}),
+    ...(rejectedOperations && rejectedOperations.length > 0 ? { rejectedOperations } : {}),
     scopesTouched: entry.scopesTouched,
     resultSummary: entry.resultSummary,
     conflicts,
@@ -172,7 +291,11 @@ interface BuildMemorySyncAuditEntryOptions {
   sessionId?: string;
   skipReason?: MemorySyncAuditSkipReason;
   isRecovery?: boolean;
+  noopOperationCount?: number;
   suppressedOperationCount?: number;
+  rejectedOperationCount?: number;
+  rejectedReasonCounts?: Partial<Record<MemoryOperationRejectionReason, number>>;
+  rejectedOperations?: RejectedMemoryOperationSummary[];
   conflicts?: MemoryConflictCandidate[];
   operations?: MemoryOperation[];
 }
@@ -184,6 +307,8 @@ export function buildMemorySyncAuditEntry(
   const conflicts = options.conflicts ?? [];
   const scopesTouched = Array.from(new Set(operations.map((operation) => operation.scope)));
   const appliedCount = operations.length;
+  const noopOperationCount = options.noopOperationCount ?? 0;
+  const rejectedOperationCount = options.rejectedOperationCount ?? 0;
 
   return {
     appliedAt: options.appliedAt ?? new Date().toISOString(),
@@ -202,9 +327,19 @@ export function buildMemorySyncAuditEntry(
     skipReason: options.status === "skipped" ? options.skipReason : undefined,
     ...(options.isRecovery ? { isRecovery: true } : {}),
     appliedCount,
+    noopOperationCount,
     suppressedOperationCount: options.suppressedOperationCount ?? 0,
+    rejectedOperationCount,
+    ...(options.rejectedReasonCounts ? { rejectedReasonCounts: options.rejectedReasonCounts } : {}),
+    ...(options.rejectedOperations?.length ? { rejectedOperations: options.rejectedOperations } : {}),
     scopesTouched,
-    resultSummary: summaryForStatus(options.status, appliedCount, options.skipReason),
+    resultSummary: summaryForStatus(
+      options.status,
+      appliedCount,
+      noopOperationCount,
+      rejectedOperationCount,
+      options.skipReason
+    ),
     conflicts,
     operations
   };
@@ -214,7 +349,7 @@ export function formatMemorySyncAuditEntry(entry: MemorySyncAuditEntry): string[
   const lines = [
     `- ${entry.appliedAt}: [${entry.status}]${entry.isRecovery ? ' [recovery]' : ''} ${entry.resultSummary}`,
     `  Session: ${entry.sessionId ?? "unknown"} | Extractor: ${entry.actualExtractorName || entry.actualExtractorMode}`,
-    `  Applied: ${entry.appliedCount} | Suppressed: ${entry.suppressedOperationCount ?? 0} | Scopes: ${entry.scopesTouched.length ? entry.scopesTouched.join(", ") : "none"}`
+    `  Applied: ${entry.appliedCount} | No-op: ${entry.noopOperationCount ?? 0} | Suppressed: ${entry.suppressedOperationCount ?? 0} | Rejected: ${entry.rejectedOperationCount ?? 0} | Scopes: ${entry.scopesTouched.length ? entry.scopesTouched.join(", ") : "none"}`
   ];
 
   if (
@@ -231,6 +366,20 @@ export function formatMemorySyncAuditEntry(entry: MemorySyncAuditEntry): string[
   }
 
   lines.push(`  Rollout: ${entry.rolloutPath}`);
+
+  const rejectedReasons = formatRejectedReasonCounts(entry.rejectedReasonCounts);
+  if (rejectedReasons) {
+    lines.push(`  Rejected reasons: ${rejectedReasons}`);
+  }
+  if ((entry.rejectedOperations?.length ?? 0) > 0) {
+    lines.push("  Rejected operations:");
+    lines.push(
+      ...entry.rejectedOperations!.map(
+        (operation) =>
+          `    - [${operation.reason}] ${operation.scope}/${operation.topic}/${operation.id}`
+      )
+    );
+  }
 
   if (entry.conflicts?.length) {
     lines.push("  Conflict review:");

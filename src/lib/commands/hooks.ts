@@ -1,41 +1,56 @@
-import fs from "node:fs/promises";
-import os from "node:os";
-import path from "node:path";
-import { ensureDir, writeTextFile } from "../util/fs.js";
+import {
+  buildRecallBridgeSummaryLines,
+  hookAssetDir
+} from "../integration/assets.js";
+import { LOCAL_BRIDGE_BUNDLE_NOTE } from "../integration/codex-stack.js";
+import { installIntegrationAssets } from "../integration/install-assets.js";
+import { resolveMcpProjectRoot } from "../integration/mcp-config.js";
+import { buildResolvedCliCommand } from "../integration/retrieval-contract.js";
 
-function hookDir(): string {
-  return path.join(os.homedir(), ".codex-auto-memory", "hooks");
+interface HooksCommandOptions {
+  cwd?: string;
+  json?: boolean;
 }
 
-export async function installHooks(): Promise<string> {
-  const dir = hookDir();
-  await ensureDir(dir);
+export async function installHooks(options: HooksCommandOptions = {}): Promise<string> {
+  const projectRoot = resolveMcpProjectRoot(options.cwd);
+  const result = await installIntegrationAssets("hooks", {
+    projectRoot
+  });
 
-  const postSessionPath = path.join(dir, "post-session-sync.sh");
-  const startupPath = path.join(dir, "startup-doctor.sh");
-
-  await writeTextFile(
-    postSessionPath,
-    "#!/bin/sh\n# Sync the latest rollout for the current project.\ncam sync \"$@\"\n"
-  );
-  await fs.chmod(postSessionPath, 0o755);
-  await writeTextFile(
-    startupPath,
-    "#!/bin/sh\n# Print diagnostic information at session start.\ncam doctor \"$@\"\n"
-  );
-  await fs.chmod(startupPath, 0o755);
+  if (options.json) {
+    return JSON.stringify(
+      {
+        action: result.action,
+        targetDir: result.targetDir,
+        readOnlyRetrieval: result.readOnlyRetrieval,
+        postInstallReadinessCommand: buildResolvedCliCommand("mcp doctor --host codex", {
+          cwd: projectRoot
+        }),
+        workflowContract: result.workflowContract,
+        notes: result.notes,
+        assets: result.assets
+      },
+      null,
+      2
+    );
+  }
 
   return [
-    `Generated hook bridge assets in ${dir}`,
-    `- ${startupPath}`,
-    `- ${postSessionPath}`,
+    `Generated hook bridge bundle in ${result.targetDir}`,
+    `Action: ${result.action}`,
+    `Next: run ${buildResolvedCliCommand("mcp doctor --host codex", { cwd: projectRoot })}`,
+    ...result.assets.map((asset) => `- [${asset.action}] ${asset.path}`),
     "",
-    "These files are companion hook targets for future Codex native hooks integration."
+    "These files now form a local bridge bundle for current Codex workflows and future hook/skill/MCP-aware retrieval flows.",
+    LOCAL_BRIDGE_BUNDLE_NOTE,
+    ...buildRecallBridgeSummaryLines({
+      cwd: projectRoot
+    })
   ].join("\n");
 }
 
 export async function removeHooks(): Promise<string> {
-  const dir = hookDir();
+  const dir = hookAssetDir();
   return `Hook bridge assets live under ${dir}. Remove the directory manually if you no longer need them.`;
 }
-
