@@ -57,7 +57,7 @@ From official public materials, it is safe to say:
 
 - Codex CLI is publicly documented
 - feature maturity docs still place some capabilities in experimental or under-development categories
-- the current public surface does not yet define a full, stable memory contract equivalent to Claude Code
+- the current public surface does not yet define a full, stable memory contract that can replace the current companion implementation
 
 ### Local observation is only a readiness signal
 

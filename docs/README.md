@@ -10,10 +10,10 @@
 ### 新用户
 
 1. [README](../README.md)
-2. [Claude Code 参考契约](./claude-reference.md)
-3. [架构设计](./architecture.md)
-4. [集成演进策略](./integration-strategy.md)
-5. [Claude Code / Gemini CLI 宿主接入边界](./host-integration-claude-gemini.md)
+2. [架构设计](./architecture.md)
+3. [集成演进策略](./integration-strategy.md)
+4. [宿主能力面](./host-surfaces.md)
+5. [Session continuity 设计](./session-continuity.md)
 
 ### 维护者
 
@@ -23,7 +23,6 @@
 4. [Session continuity 设计](./session-continuity.md)
 5. [Native migration 策略](./native-migration.md)
 6. [Release checklist](./release-checklist.md)
-7. [Claude Code / Gemini CLI 宿主接入边界](./host-integration-claude-gemini.md)
 
 ### Reviewer / 外部审查工具
 
@@ -32,14 +31,11 @@
 3. [集成演进策略](./integration-strategy.md)
 4. [宿主能力面](./host-surfaces.md)
 5. [Session continuity 设计](./session-continuity.md)
-6. [Claude Code / Gemini CLI 宿主接入边界](./host-integration-claude-gemini.md)
 
 ## 核心设计文档
 
 | 文档 | 作用 | 语言 |
 | :-- | :-- | :-- |
-| [Claude Code 参考契约](./claude-reference.md) | 说明本项目主动对齐的 Claude Code memory 契约边界 | 中文 / [English](./claude-reference.en.md) |
-| [Claude Code / Gemini CLI 宿主接入边界](./host-integration-claude-gemini.md) | 收口 Claude / Gemini 当前公开宿主面与本仓真实支持边界之间的关系 | 中文 |
 | [架构设计](./architecture.md) | 解释当前主实现：startup injection、sync、continuity 与 Markdown store | 中文 / [English](./architecture.en.md) |
 | [集成演进策略](./integration-strategy.md) | 解释当前仓库如何从 Codex companion 演进为 Codex-first Hybrid memory system | 中文 |
 | [宿主能力面](./host-surfaces.md) | 固化当前仓库对 Codex 及其他宿主的能力判断与边界 | 中文 |
@@ -51,7 +47,6 @@
 | :-- | :-- | :-- |
 | [Session continuity 设计](./session-continuity.md) | 临时 continuity layer 的边界、路径和 reviewer surface | English |
 | [Release checklist](./release-checklist.md) | 发布前的产品、运行时和文档核查清单 | English |
-| [ClaudeCode patch audit](./claudecode-patch-audit.md) | 历史 patch 迁移与对照记录 | English |
 
 ## 这套文档要回答什么
 

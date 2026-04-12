@@ -10,11 +10,11 @@
 ### New users
 
 1. [README](../README.en.md)
-2. [Claude reference contract](./claude-reference.en.md)
-3. [Architecture](./architecture.en.md)
-4. [Integration strategy](./integration-strategy.md) (Chinese)
+2. [Architecture](./architecture.en.md)
+3. [Integration strategy](./integration-strategy.md) (Chinese)
+4. [Host surfaces](./host-surfaces.md) (Chinese)
 5. [Native migration strategy](./native-migration.en.md)
-6. [Claude Code / Gemini CLI host integration boundaries](./host-integration-claude-gemini.md) (Chinese)
+6. [Session continuity design](./session-continuity.md)
 
 ### Maintainers
 
@@ -23,8 +23,7 @@
 3. [Host surfaces](./host-surfaces.md) (Chinese)
 4. [Session continuity design](./session-continuity.md)
 5. [Release checklist](./release-checklist.md)
-6. [ClaudeCode patch audit](./claudecode-patch-audit.md)
-7. [Claude Code / Gemini CLI host integration boundaries](./host-integration-claude-gemini.md) (Chinese)
+6. [Native migration strategy](./native-migration.en.md)
 
 ### Reviewers and follow-up agents
 
@@ -34,14 +33,11 @@
 4. [Host surfaces](./host-surfaces.md) (Chinese)
 5. [Native migration strategy](./native-migration.en.md)
 6. [Session continuity design](./session-continuity.md)
-7. [Claude Code / Gemini CLI host integration boundaries](./host-integration-claude-gemini.md) (Chinese)
 
 ## Core design docs
 
 | Document | Purpose | Language |
 | :-- | :-- | :-- |
-| [Claude reference contract](./claude-reference.en.md) | defines which public Claude Code memory behaviors this project intentionally mirrors, and where it now intentionally diverges | English / [中文](./claude-reference.md) |
-| [Claude Code / Gemini CLI host integration boundaries](./host-integration-claude-gemini.md) | explains the difference between publicly documented Claude/Gemini host surfaces and the manual-only integration boundary this repository currently supports | 中文 |
 | [Architecture](./architecture.en.md) | explains the current Codex-first Hybrid architecture: wrapper path today, broader integration surfaces tomorrow | English / [中文](./architecture.md) |
 | [Integration strategy](./integration-strategy.md) | explains how the current repository expands from a Codex companion into a Codex-first Hybrid memory system | 中文 |
 | [Host surfaces](./host-surfaces.md) | records host capability boundaries and future integration posture across Codex and adjacent ecosystems | 中文 |
@@ -53,7 +49,6 @@
 | :-- | :-- | :-- |
 | [Session continuity design](./session-continuity.md) | continuity boundaries, paths, and reviewer surfaces | English |
 | [Release checklist](./release-checklist.md) | release-time product, runtime, and docs checks | English |
-| [ClaudeCode patch audit](./claudecode-patch-audit.md) | historical patch-migration and comparison notes | English |
 
 ## Documentation policy
 

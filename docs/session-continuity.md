@@ -12,7 +12,7 @@ It is not a complete answer to the problem of resuming unfinished work after:
 - a paused work session
 - a worktree switch
 
-Community Claude Code setups often solve this by introducing a separate temporary session file. The most useful pattern observed in community practice is to preserve four categories:
+Community setups for local coding agents often solve this by introducing a separate temporary session file. The most useful pattern observed in community practice is to preserve four categories:
 
 1. what is confirmed working
 2. what has been tried and failed
@@ -266,9 +266,9 @@ This keeps temporary continuity startup payloads reviewer-auditable in the same 
 Controls the local-path layout for project-local continuity files.
 
 - `"codex"` (default): stores state at `.codex-auto-memory/sessions/active.md` — a single fixed file inside the project root. Simple and deterministic.
-- `"claude"`: stores state at `.claude/sessions/<date>-<short-id>-session.tmp` — daily rotating files that mimic Claude Code's session file naming convention. Reading picks the most recently modified file; writing creates a new file with today's date.
+- `"claude"`: stores state at `.claude/sessions/<date>-<short-id>-session.tmp` — a daily rotating tmp-style layout. Reading picks the most recently modified file; writing creates a new file with today's date.
 
-Switch to `"claude"` only if you need interoperability with Claude Code's session file layout in the same project directory.
+Switch to `"claude"` only if you need interoperability with another tmp-style session layout in the same project directory.
 
 ## Config boundary
 
@@ -296,25 +296,14 @@ Therefore the current implementation is:
 
 - companion-first
 - Codex-first in path defaults and command surface
-- Claude-compatible through path-style and workflow adapters
+- alternate path-style and workflow adapters remain available when needed
 - wrapper-first in day-to-day operation, while future hook / skill / MCP-aware paths remain required to preserve the same continuity contract
 
-Claude-specific community patterns are useful reference material, but they do not override the Codex-first design rule.
+External community patterns are useful reference material, but they do not override the Codex-first design rule.
 
 ## Research inputs
 
-This design was informed by three reference buckets:
-
-### Official Claude Code docs
-
-- memory contract: <https://code.claude.com/docs/en/memory>
-- settings boundary: <https://code.claude.com/docs/en/settings>
-- hook lifecycle: <https://code.claude.com/docs/en/hooks>
-- subagent memory boundaries: <https://code.claude.com/docs/en/sub-agents>
-
-Those sources justify keeping durable memory compact, auditable, and Markdown-first while treating temporary continuity as a separate companion concern.
-
-### Official Codex docs and runtime surface
+This design was informed by official Codex docs and local runtime surface checks:
 
 - Codex CLI overview: <https://developers.openai.com/codex/cli>
 - Codex feature maturity: <https://developers.openai.com/codex/feature-maturity>

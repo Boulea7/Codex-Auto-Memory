@@ -66,7 +66,7 @@ Claude Code publicly exposes a relatively clear memory contract:
 - worktrees in the same repository share project memory
 - `/memory` provides audit and edit controls
 
-Codex already exposes useful building blocks, but not the same complete public memory surface:
+Codex already exposes useful building blocks, but not yet a complete, stable, and fully documented local-memory product surface:
 
 - `AGENTS.md`
 - multi-agent workflows
@@ -274,7 +274,7 @@ flowchart TD
 
 ### Why the project does not switch to a native-first path yet
 
-- public Codex docs still do not define a Claude-equivalent native memory contract
+- public Codex docs still do not define a complete native memory contract that can replace the current implementation
 - local `cam doctor --json` still exposes `memories` / `codex_hooks` more as readiness signals than as a stable primary implementation path, but it now also splits `Native memory/hooks readiness` from `Host/UI signals` while adding the current app-server signal plus read-only retrieval-sidecar, unsafe-topic, and canonical-layout diagnostics
 - the repository therefore continues to treat the wrapper flow as the strongest current implementation
 
@@ -322,8 +322,6 @@ See the architecture docs for the full boundary breakdown.
 
 ### Core design docs
 
-- [Claude reference contract (中文)](docs/claude-reference.md) | [English](docs/claude-reference.en.md)
-- [Claude Code / Gemini CLI host integration boundaries (中文)](docs/host-integration-claude-gemini.md)
 - [Architecture (中文)](docs/architecture.md) | [English](docs/architecture.en.md)
 - [Integration strategy (中文)](docs/integration-strategy.md)
 - [Host surfaces (中文)](docs/host-surfaces.md)

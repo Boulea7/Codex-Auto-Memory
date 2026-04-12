@@ -66,7 +66,7 @@ Claude Code 已經公開了一套相對清晰的 auto memory 產品契約：
 - 同一個倉庫的不同 worktree 共享 project memory
 - `/memory` 可用來審查與編輯 memory
 
-Codex 已經具備不少有價值的基礎能力，但仍未公開等價且完整的 memory product surface：
+Codex 已經具備不少有價值的基礎能力，但仍未公開一套完整、穩定、可驗證的本地記憶 product surface：
 
 - `AGENTS.md`
 - multi-agent workflows
@@ -267,7 +267,7 @@ flowchart TD
 
 ### 為什麼現在還不是 native-first
 
-- 公開的 Codex 文件仍未定義等價於 Claude Code 的完整 native memory 契約
+- 公開的 Codex 文件仍未定義能直接取代目前實作的完整 native memory 契約
 - 本地 `cam doctor --json` 仍把 `memories` / `codex_hooks` 更像視為 readiness signal，而不是穩定主路徑；同時也會補充 app-server signal、retrieval sidecar、unsafe topic 與 canonical layout 的只讀診斷
 - 因此目前最可靠的仍是 wrapper-first 主線
 
@@ -303,7 +303,6 @@ Session continuity:
 
 - [文档首页（中文）](docs/README.md)
 - [Documentation Hub (English)](docs/README.en.md)
-- [Claude reference contract (中文)](docs/claude-reference.md) | [English](docs/claude-reference.en.md)
 - [Architecture (中文)](docs/architecture.md) | [English](docs/architecture.en.md)
 - [集成演进策略（中文）](docs/integration-strategy.md)
 - [宿主能力面（中文）](docs/host-surfaces.md)
