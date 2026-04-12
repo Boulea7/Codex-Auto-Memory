@@ -42,8 +42,11 @@ export class MemoryRetrievalService {
           state,
           "active",
           activeSearch.searchOrder,
+          activeSearch.totalMatchedCount,
+          activeSearch.returnedCount,
           activeSearch.globalLimitApplied,
           activeSearch.truncatedCount,
+          activeSearch.resultWindow,
           false,
           activeSearch.retrievalMode,
           activeSearch.retrievalFallbackReason,
@@ -69,8 +72,11 @@ export class MemoryRetrievalService {
         state,
         "archived",
         [...activeSearch.searchOrder, ...archivedSearch.searchOrder],
+        activeSearch.totalMatchedCount + archivedSearch.totalMatchedCount,
+        archivedSearch.returnedCount,
         activeSearch.globalLimitApplied || archivedSearch.globalLimitApplied,
         activeSearch.truncatedCount + archivedSearch.truncatedCount,
+        archivedSearch.resultWindow,
         true,
         archivedSearch.retrievalMode,
         archivedSearch.retrievalFallbackReason,
@@ -85,6 +91,9 @@ export class MemoryRetrievalService {
         normalizeMemorySearchDiagnostics([
           ...activeSearch.diagnostics.checkedPaths,
           ...archivedSearch.diagnostics.checkedPaths
+        ], [
+          ...(activeSearch.diagnostics.topicDiagnostics ?? []),
+          ...(archivedSearch.diagnostics.topicDiagnostics ?? [])
         ]),
         archivedSearch.results
       );
@@ -102,8 +111,11 @@ export class MemoryRetrievalService {
       state,
       state,
       search.searchOrder,
+      search.totalMatchedCount,
+      search.returnedCount,
       search.globalLimitApplied,
       search.truncatedCount,
+      search.resultWindow,
       false,
       search.retrievalMode,
       search.retrievalFallbackReason,

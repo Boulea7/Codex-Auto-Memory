@@ -7,6 +7,7 @@ export interface ParsedCodexFeature {
 export interface NativeReadinessReport {
   memories: ParsedCodexFeature | null;
   hooks: ParsedCodexFeature | null;
+  appServer: ParsedCodexFeature | null;
   summary: string;
 }
 
@@ -40,11 +41,16 @@ export function buildNativeReadinessReport(
 ): NativeReadinessReport {
   const memories = features.find((feature) => feature.name === "memories") ?? null;
   const hooks = features.find((feature) => feature.name === "codex_hooks") ?? null;
+  const appServer =
+    features.find((feature) => feature.name === "tui") ??
+    features.find((feature) => feature.name === "tui_app_server") ??
+    null;
 
   if (!memories && !hooks) {
     return {
       memories,
       hooks,
+      appServer,
       summary: "Codex feature output did not expose memories or codex_hooks."
     };
   }
@@ -53,6 +59,7 @@ export function buildNativeReadinessReport(
     return {
       memories,
       hooks,
+      appServer,
       summary: "Native feature flags are enabled, but migration should still wait for stable public docs and deterministic behavior."
     };
   }
@@ -60,6 +67,7 @@ export function buildNativeReadinessReport(
   return {
     memories,
     hooks,
+    appServer,
     summary: "Companion mode remains the primary path. Native migration should stay disabled until memories and codex_hooks are both stable and publicly documented."
   };
 }
