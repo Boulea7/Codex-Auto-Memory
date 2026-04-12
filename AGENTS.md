@@ -91,17 +91,25 @@ cam session status
 当前优先事项：
 
 1. 继续保持 issue5 stack 的 reviewer contract、help surface、release-facing smoke 一致
-2. 保持 `Markdown-first` canonical store 与 sidecar retrieval plane 的边界稳定
-3. 保持 `cam integrations install` 与 `cam integrations apply` 的 AGENTS mutation boundary 清晰
-4. 继续扩大 deterministic release gate：`lint`、`test`、`docs-contract`、`dist-cli-smoke`、`tarball-install-smoke`
+2. 收紧 issue-tracker durable memory replacement key，避免不同 host 的 tracker URL 因相同 repo/path 或 ticket id 被误判为同一条 memory
+3. 把 Claude Code / Gemini CLI 的官方公开宿主能力面，与本仓当前真实支持的 manual-only host 边界继续写清楚
+4. 保持 `Markdown-first` canonical store 与 sidecar retrieval plane 的边界稳定
+5. 保持 `cam integrations install` 与 `cam integrations apply` 的 AGENTS mutation boundary 清晰
+6. 继续扩大 deterministic release gate：`lint`、`test`、`docs-contract`、`dist-cli-smoke`、`tarball-install-smoke`
 
 下一阶段建议：
 
 1. 继续做小步 stack closure，而不是重新摊大 remediation
 2. 优先把 help / docs / smoke contract 固定成同一套公开语义
 3. 在不扩张宿主边界的前提下，继续维持 Codex-first、manual-only 非 Codex host 的产品表述
+4. 将 issue5 剩余 closeout seams 继续拆成小 PR：`cam init` 幂等/`--force`、`cam session status/load` 只读化、Vitest `.worktrees/**` 边界、docs/help parity
+5. 保持发布面验证串行执行：`dist-cli-smoke` 与 `tarball-install-smoke` 不并行跑，避免 `prepack -> rimraf dist` 造成假阴性
 
 ## 变更记录
 
+- 2026-04-11: issue5 tail closeout 新增 cross-host issue-tracker 回归保护：`directive-utils` 现在用完整的 non-generic hostname 片段构造 issue-tracker resource key，避免不同 host 但相同 repo/path 或 ticket id 的 URL 互相覆盖；同时补强 `vitest.config.ts` 的默认 exclude contract 测试，并把 `integrations apply --cwd` 的 invalid-path fail-closed 行为纳入 source / dist / tarball 回归覆盖。
+- 2026-04-10: issue5 PR14 收口了三类 runtime contract seam：`mcp` 命令的空 `--cwd` 现在 fail-closed；`workflowContract` 的 resolved launcher 与显式 `launcherOverride` 保持一致；delete-only 的 forget follow-up 文案不再硬编码裸 `cam recall timeline`。
+- 2026-04-10: `test/recovery-records.test.ts` 已对齐当前 continuity 语义：`scope=both` continuity recovery marker 可以被后续 single-scope save/refresh 复用，并继续由 `session-command` 行为测试锁定。
 - 2026-04-10: 新增根级 `AGENTS.md`，补齐仓库级功能说明、命令面、关键 JSON 契约与项目规划。
 - 2026-04-10: 明确 `cam integrations install --help` 与四语 README 命令表的公开边界：install 编排 stack，但不更新 `AGENTS.md`。
+- 2026-04-10: 新增 Claude Code / Gemini CLI 宿主接入边界文档，并同步收紧宿主策略文档与 README 入口，明确非 Codex 宿主当前仍是 manual-only / snippet-first。
