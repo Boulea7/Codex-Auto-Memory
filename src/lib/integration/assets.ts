@@ -123,7 +123,8 @@ function resolveInstallDir(
 
 function buildProjectRootResolutionBlock(projectRoot?: string): string {
   if (projectRoot) {
-    return `PROJECT_ROOT=${JSON.stringify(projectRoot)}
+    const escapedProjectRoot = projectRoot.replace(/'/g, "'\"'\"'");
+    return `PROJECT_ROOT='${escapedProjectRoot}'
 `;
   }
 

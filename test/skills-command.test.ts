@@ -31,6 +31,21 @@ afterEach(async () => {
 });
 
 describe("skills command", () => {
+  it("fails closed when --cwd is empty, whitespace-only, or missing", async () => {
+    const homeDir = await tempDir("cam-skills-empty-cwd-home-");
+    const projectDir = await tempDir("cam-skills-empty-cwd-project-");
+    process.env.HOME = homeDir;
+    delete process.env.CODEX_HOME;
+    const missingDir = path.join(projectDir, "missing-project");
+
+    for (const cwd of ["", "   ", missingDir]) {
+      const result = runCli(projectDir, ["skills", "install", "--cwd", cwd], {
+        env: { HOME: homeDir }
+      });
+      expect(result.exitCode).toBe(1);
+      expect(result.stderr).toContain("--cwd must be a non-empty path to an existing directory.");
+    }
+  });
   it("installs a Codex skill for progressive durable memory retrieval", async () => {
     const homeDir = await tempDir("cam-skills-home-");
     const projectDir = await tempDir("cam-skills-project-");
@@ -98,7 +113,7 @@ describe("skills command", () => {
       workflowContract: {
         recommendedPreset: "state=auto, limit=8",
         cliFallback: {
-          searchCommand: `cam recall search "<query>" --state auto --limit 8 --cwd ${JSON.stringify(await fs.realpath(projectDir))}`
+          searchCommand: `cam recall search "<query>" --state auto --limit 8 --cwd '${await fs.realpath(projectDir)}'`
         },
         postWorkSyncReview: {
           helperScript: "post-work-memory-review.sh"
@@ -201,8 +216,8 @@ describe("skills command", () => {
     const skillFile = await fs.readFile(officialSkillPath, "utf8");
     expect(skillFile).toContain("cam:asset-version");
     expect(skillFile).toContain("timeline_memories");
-    expect(skillFile).toContain(`--cwd ${JSON.stringify(await fs.realpath(projectDir))}`);
-    expect(skillFile).toContain(` sync --cwd ${JSON.stringify(await fs.realpath(projectDir))}`);
+    expect(skillFile).toContain(`--cwd '${await fs.realpath(projectDir)}'`);
+    expect(skillFile).toContain(` sync --cwd '${await fs.realpath(projectDir)}'`);
     expect(skillFile.includes('node "') || skillFile.includes("cam sync")).toBe(true);
 
     await expect(
