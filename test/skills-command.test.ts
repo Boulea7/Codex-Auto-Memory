@@ -31,6 +31,21 @@ afterEach(async () => {
 });
 
 describe("skills command", () => {
+  it("fails closed when --cwd is empty, whitespace-only, or missing", async () => {
+    const homeDir = await tempDir("cam-skills-empty-cwd-home-");
+    const projectDir = await tempDir("cam-skills-empty-cwd-project-");
+    process.env.HOME = homeDir;
+    delete process.env.CODEX_HOME;
+    const missingDir = path.join(projectDir, "missing-project");
+
+    for (const cwd of ["", "   ", missingDir]) {
+      const result = runCli(projectDir, ["skills", "install", "--cwd", cwd], {
+        env: { HOME: homeDir }
+      });
+      expect(result.exitCode).toBe(1);
+      expect(result.stderr).toContain("--cwd must be a non-empty path to an existing directory.");
+    }
+  });
   it("installs a Codex skill for progressive durable memory retrieval", async () => {
     const homeDir = await tempDir("cam-skills-home-");
     const projectDir = await tempDir("cam-skills-project-");
