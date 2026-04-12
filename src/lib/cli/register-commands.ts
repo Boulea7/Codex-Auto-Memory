@@ -34,6 +34,7 @@ import {
 } from "../integration/skills-paths.js";
 
 type AsyncCommandHandler<Args extends unknown[]> = (...args: Args) => Promise<string>;
+type MemoryReindexCommandOptions = NonNullable<Parameters<typeof runMemoryReindex>[0]>;
 
 function withStdout<Args extends unknown[]>(
   handler: AsyncCommandHandler<Args>
@@ -283,7 +284,7 @@ function registerIntegrationCommands(program: Command): void {
     integrationsCommand
       .command("install")
       .description(
-        "Install the recommended project-scoped Codex integration stack. The runtime default stays in place unless you opt into an official copy."
+        "Install the recommended project-scoped Codex integration stack without updating AGENTS.md. The runtime default stays in place unless you opt into an official copy."
       )
       .requiredOption("--host <host>", `Target host: ${formatMcpHostChoices(["codex"])}`)
       .option(
@@ -307,22 +308,17 @@ export function registerCommands(program: Command): void {
   program
     .command("init")
     .description("Initialize Codex Auto Memory in the current project")
-    .action(withStdout(async () => runInit()));
+    .option("--force", "Overwrite existing init config files with canonical defaults")
+    .action(withStdout(async (options) => runInit(options)));
 
   const memoryCommand = program
     .command("memory")
-    .description("Inspect local memory state")
-    .argument("[subaction]", "Optional memory subaction. Use reindex to rebuild retrieval sidecars.")
+    .description("Inspect local memory state and manage local memory settings")
     .option("--json", "Print JSON output")
-    .option("--cwd <path>", "Project directory to inspect or rebuild memory for")
+    .option("--cwd <path>", "Project directory to inspect or manage local memory for")
     .option(
       "--scope <scope>",
       "Show a single memory scope: global, project, project-local, or all",
-      "all"
-    )
-    .option(
-      "--state <state>",
-      "Memory reindex only: rebuild active, archived, or all retrieval sidecars",
       "all"
     )
     .option("--recent [count]", "Show recent sync audit entries")
@@ -331,19 +327,75 @@ export function registerCommands(program: Command): void {
     .option("--config-scope <scope>", "Config scope to edit: user, project, or local", "local")
     .option("--print-startup", "Print the compiled startup memory block")
     .option("--open", "Open the memory directory in the default file browser")
-    .action(
-      withStdout(async (subaction, options) => {
-        if (!subaction) {
-          return runMemory(options);
-        }
+    .action(withStdout(async (options) => runMemory(options)));
+  memoryCommand.enablePositionalOptions();
 
-        if (subaction === "reindex") {
-          return runMemoryReindex(options);
-        }
+  addJsonOption(
+    memoryCommand
+      .command("reindex")
+      .description("Rebuild retrieval sidecars from canonical Markdown memory")
+      .option("--cwd <path>", "Project directory to rebuild retrieval sidecars for")
+      .option(
+        "--scope <scope>",
+        "Rebuild a single memory scope: global, project, project-local, or all",
+        "all"
+      )
+      .option(
+        "--state <state>",
+        "Rebuild active, archived, or all retrieval sidecars",
+        "all"
+      )
+  ).action(
+    withStdout(async (options, command) => {
+      const parent = command.parent;
+      const subcommandOptions = command.opts() as Record<string, unknown>;
+      const subcommandJson =
+        command.getOptionValueSource("json") === "cli"
+          ? (subcommandOptions.json as boolean | undefined)
+          : undefined;
+      const subcommandCwd =
+        command.getOptionValueSource("cwd") === "cli"
+          ? (subcommandOptions.cwd as string | undefined)
+          : undefined;
+      const subcommandScope =
+        command.getOptionValueSource("scope") === "cli"
+          ? (subcommandOptions.scope as string | undefined)
+          : undefined;
+      const subcommandState =
+        command.getOptionValueSource("state") === "cli"
+          ? (subcommandOptions.state as string | undefined)
+          : undefined;
+      const explicitParentOptions =
+        parent
+          ? Object.fromEntries(
+              [
+                "json",
+                "cwd",
+                "scope",
+                "recent",
+                "enable",
+                "disable",
+                "configScope",
+                "printStartup",
+                "open"
+              ]
+                .filter((key) => parent.getOptionValueSource(key) === "cli")
+                .map((key) => [key, (parent.opts() as Record<string, unknown>)[key]])
+            )
+          : {};
 
-        throw new Error(`Unsupported memory subaction "${subaction}".`);
-      })
-    );
+      return runMemoryReindex({
+        ...explicitParentOptions,
+        json: subcommandJson ?? (explicitParentOptions.json as boolean | undefined),
+        cwd: subcommandCwd ?? (explicitParentOptions.cwd as string | undefined),
+        scope:
+          (subcommandScope ??
+            (explicitParentOptions.scope as string | undefined) ??
+            "all") as MemoryReindexCommandOptions["scope"],
+        state: (subcommandState ?? "all") as MemoryReindexCommandOptions["state"]
+      });
+    })
+  );
 
   program
     .command("remember")

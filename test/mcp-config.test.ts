@@ -16,23 +16,17 @@ describe("mcp host config snippets", () => {
     expect(codexSnippet.readOnlyRetrieval).toBe(true);
 
     expect(claudeSnippet.readOnlyRetrieval).toBe(true);
-    expect(claudeSnippet.workflowContract).toMatchObject({
-      recommendedPreset: "state=auto, limit=8"
-    });
+    expect(claudeSnippet.workflowContract).toBeUndefined();
     expect(claudeSnippet.agentsGuidance).toBeUndefined();
     expect(claudeSnippet.experimentalHooks).toBeUndefined();
 
     expect(geminiSnippet.readOnlyRetrieval).toBe(true);
-    expect(geminiSnippet.workflowContract).toMatchObject({
-      recommendedPreset: "state=auto, limit=8"
-    });
+    expect(geminiSnippet.workflowContract).toBeUndefined();
     expect(geminiSnippet.agentsGuidance).toBeUndefined();
     expect(geminiSnippet.experimentalHooks).toBeUndefined();
 
     expect(genericSnippet.readOnlyRetrieval).toBe(true);
-    expect(genericSnippet.workflowContract).toMatchObject({
-      recommendedPreset: "state=auto, limit=8"
-    });
+    expect(genericSnippet.workflowContract).toBeUndefined();
     expect(genericSnippet.agentsGuidance).toBeUndefined();
     expect(genericSnippet.experimentalHooks).toBeUndefined();
   });
