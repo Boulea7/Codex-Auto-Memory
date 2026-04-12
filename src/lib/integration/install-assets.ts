@@ -14,7 +14,7 @@ import {
   type CodexSkillInstallSurface,
   formatCodexSkillInstallSurface
 } from "./skills-paths.js";
-import { ensureDir, fileExists, readTextFile, writeTextFile } from "../util/fs.js";
+import { ensureDir, fileExists, readTextFile, writeTextFileAtomic } from "../util/fs.js";
 
 export type IntegrationAssetInstallAction = "created" | "updated" | "unchanged";
 
@@ -103,7 +103,7 @@ export async function installIntegrationAssets(
 
     if (action !== "unchanged") {
       await ensureDir(path.dirname(asset.path));
-      await writeTextFile(asset.path, asset.contents);
+      await writeTextFileAtomic(asset.path, asset.contents);
       if (asset.executableExpected) {
         await fs.chmod(asset.path, 0o755);
       }

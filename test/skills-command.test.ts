@@ -2,7 +2,12 @@ import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { restoreOptionalEnv } from "./helpers/env.js";
+import {
+  buildResolvedCliCommand,
+  buildResolvedCliDetailsCommand,
+  buildResolvedCliSearchCommand,
+  buildResolvedCliTimelineCommand
+} from "../src/lib/integration/retrieval-contract.js";
 import { runCli } from "./helpers/cli-runner.js";
 
 const tempDirs: string[] = [];
@@ -15,17 +20,32 @@ async function tempDir(prefix: string): Promise<string> {
   return dir;
 }
 
-function shellQuoteArg(value: string): string {
-  return `'${value.replace(/'/g, `'\"'\"'`)}'`;
-}
-
 afterEach(async () => {
-  restoreOptionalEnv("HOME", originalHome);
-  restoreOptionalEnv("CODEX_HOME", originalCodexHome);
+  process.env.HOME = originalHome;
+  if (originalCodexHome === undefined) {
+    delete process.env.CODEX_HOME;
+  } else {
+    process.env.CODEX_HOME = originalCodexHome;
+  }
   await Promise.all(tempDirs.splice(0).map((dir) => fs.rm(dir, { recursive: true, force: true })));
 });
 
 describe("skills command", () => {
+  it("fails closed when --cwd is empty, whitespace-only, or missing", async () => {
+    const homeDir = await tempDir("cam-skills-empty-cwd-home-");
+    const projectDir = await tempDir("cam-skills-empty-cwd-project-");
+    process.env.HOME = homeDir;
+    delete process.env.CODEX_HOME;
+    const missingDir = path.join(projectDir, "missing-project");
+
+    for (const cwd of ["", "   ", missingDir]) {
+      const result = runCli(projectDir, ["skills", "install", "--cwd", cwd], {
+        env: { HOME: homeDir }
+      });
+      expect(result.exitCode).toBe(1);
+      expect(result.stderr).toContain("--cwd must be a non-empty path to an existing directory.");
+    }
+  });
   it("installs a Codex skill for progressive durable memory retrieval", async () => {
     const homeDir = await tempDir("cam-skills-home-");
     const projectDir = await tempDir("cam-skills-project-");
@@ -42,7 +62,9 @@ describe("skills command", () => {
     expect(result.stdout).toContain("limit: 8");
     expect(result.stdout).toContain("memory-recall.sh");
     expect(result.stdout).toContain("recall-bridge.md");
-    expect(result.stdout).toContain("cam mcp doctor");
+    expect(result.stdout).toContain(
+      buildResolvedCliCommand("mcp doctor --host codex", { cwd: await fs.realpath(projectDir) })
+    );
     expect(result.stdout).toContain("cam memory");
     expect(result.stdout).toContain("cam session");
 
@@ -54,17 +76,19 @@ describe("skills command", () => {
     expect(skillFile).toContain("get_memory_details");
     expect(skillFile).toContain('state: "auto"');
     expect(skillFile).toContain("limit: 8");
-    expect(skillFile).toContain("cam recall search");
+    expect(skillFile).toContain('memory-recall.sh search "<query>"');
+    expect(skillFile).toContain('memory-recall.sh timeline "<ref>"');
+    expect(skillFile).toContain('memory-recall.sh details "<ref>"');
+    expect(skillFile).toContain(buildResolvedCliSearchCommand("\"<query>\""));
     expect(skillFile).toContain("--state auto");
-    expect(skillFile).toContain(`--cwd ${shellQuoteArg(await fs.realpath(projectDir))}`);
-    expect(skillFile).toContain("cam recall timeline");
-    expect(skillFile).toContain("cam recall details");
-    expect(skillFile).toContain("cam mcp doctor");
-    expect(skillFile).toContain("cam hooks install");
-    expect(skillFile).toContain(`cam sync --cwd ${shellQuoteArg(await fs.realpath(projectDir))}`);
-    expect(skillFile).toContain(
-      `cam memory --recent --cwd ${shellQuoteArg(await fs.realpath(projectDir))}`
-    );
+    expect(skillFile).not.toContain(`--cwd ${JSON.stringify(await fs.realpath(projectDir))}`);
+    expect(skillFile).toContain(buildResolvedCliTimelineCommand("\"<ref>\""));
+    expect(skillFile).toContain(buildResolvedCliDetailsCommand("\"<ref>\""));
+    expect(skillFile).toContain("If the local bridge bundle is unavailable");
+    expect(skillFile).toContain(buildResolvedCliCommand("mcp doctor --host codex"));
+    expect(skillFile).toContain(buildResolvedCliCommand("hooks install"));
+    expect(skillFile).toContain(" sync");
+    expect(skillFile).toContain("memory --recent");
     expect(skillFile).toContain("cam memory");
     expect(skillFile).toContain("cam session");
   });
@@ -83,10 +107,13 @@ describe("skills command", () => {
       surface: "runtime",
       preferredSkillSurface: "runtime",
       readOnlyRetrieval: true,
+      postInstallReadinessCommand: buildResolvedCliCommand("mcp doctor --host codex", {
+        cwd: await fs.realpath(projectDir)
+      }),
       workflowContract: {
         recommendedPreset: "state=auto, limit=8",
         cliFallback: {
-          searchCommand: `cam recall search "<query>" --state auto --limit 8 --cwd ${shellQuoteArg(await fs.realpath(projectDir))}`
+          searchCommand: `cam recall search "<query>" --state auto --limit 8 --cwd '${await fs.realpath(projectDir)}'`
         },
         postWorkSyncReview: {
           helperScript: "post-work-memory-review.sh"
@@ -119,6 +146,7 @@ describe("skills command", () => {
 
     expect(skillFile).toContain("cam:asset-version");
     expect(skillFile).toContain("search_memories");
+    expect(skillFile).not.toContain(JSON.stringify(await fs.realpath(projectDir)));
     await expect(
       fs.access(
         path.join(
@@ -153,6 +181,7 @@ describe("skills command", () => {
     const skillFile = await fs.readFile(officialSkillPath, "utf8");
     expect(skillFile).toContain("cam:asset-version");
     expect(skillFile).toContain("search_memories");
+    expect(skillFile).not.toContain(JSON.stringify(await fs.realpath(projectDir)));
 
     await expect(
       fs.access(
@@ -187,6 +216,9 @@ describe("skills command", () => {
     const skillFile = await fs.readFile(officialSkillPath, "utf8");
     expect(skillFile).toContain("cam:asset-version");
     expect(skillFile).toContain("timeline_memories");
+    expect(skillFile).toContain(`--cwd '${await fs.realpath(projectDir)}'`);
+    expect(skillFile).toContain(` sync --cwd '${await fs.realpath(projectDir)}'`);
+    expect(skillFile.includes('node "') || skillFile.includes("cam sync")).toBe(true);
 
     await expect(
       fs.access(
@@ -231,5 +263,24 @@ describe("skills command", () => {
     expect(result.exitCode).toBe(1);
     expect(result.stderr).toContain("CODEX_HOME");
     expect(result.stderr).toContain("absolute path");
+  });
+
+  it("does not overwrite runtime skill guidance with a second project's absolute path", async () => {
+    const homeDir = await tempDir("cam-skills-scope-home-");
+    const firstProjectDir = await tempDir("cam-skills-scope-first-project-");
+    const secondProjectDir = await tempDir("cam-skills-scope-second-project-");
+    process.env.HOME = homeDir;
+    delete process.env.CODEX_HOME;
+
+    expect(runCli(firstProjectDir, ["skills", "install"], { env: { HOME: homeDir } }).exitCode).toBe(0);
+    expect(runCli(secondProjectDir, ["skills", "install"], { env: { HOME: homeDir } }).exitCode).toBe(0);
+
+    const skillFile = await fs.readFile(
+      path.join(homeDir, ".codex", "skills", "codex-auto-memory-recall", "SKILL.md"),
+      "utf8"
+    );
+
+    expect(skillFile).not.toContain(JSON.stringify(await fs.realpath(firstProjectDir)));
+    expect(skillFile).not.toContain(JSON.stringify(await fs.realpath(secondProjectDir)));
   });
 });
