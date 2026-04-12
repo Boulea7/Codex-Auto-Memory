@@ -13,7 +13,14 @@ import type {
   SessionContinuitySummary,
   SessionContinuityWriteMode
 } from "../types.js";
-import { appendJsonl, fileExists, readJsonFile, readTextFile, writeJsonFile, writeTextFile } from "../util/fs.js";
+import {
+  appendJsonl,
+  fileExists,
+  readJsonFile,
+  readTextFile,
+  writeJsonFile,
+  writeTextFileAtomic
+} from "../util/fs.js";
 import { getDefaultMemoryDirectory } from "./project-context.js";
 import { isSessionContinuityAuditEntry } from "./session-continuity-diagnostics.js";
 import { isContinuityRecoveryRecord } from "./recovery-records.js";
@@ -28,6 +35,17 @@ import {
 
 function todayStamp(): string {
   return new Date().toISOString().slice(0, 10);
+}
+
+interface SessionContinuityWriteSnapshot {
+  path: string;
+  existed: boolean;
+  contents: string | null;
+}
+
+interface SessionContinuityPendingWrite {
+  path: string;
+  contents: string;
 }
 
 export class SessionContinuityStore {
@@ -234,7 +252,10 @@ export class SessionContinuityStore {
     const entries = await this.readAuditEntries();
     for (let index = entries.length - 1; index >= 0; index -= 1) {
       const entry = entries[index];
-      if (entry?.scope === scope) {
+      if (
+        entry &&
+        (entry.scope === scope || (entry.scope === "both" && scope !== "both"))
+      ) {
         return entry;
       }
     }
@@ -247,14 +268,32 @@ export class SessionContinuityStore {
     scope: SessionContinuityScope | "both",
     writeMode: SessionContinuityWriteMode
   ): Promise<string[]> {
-    const written: string[] = [];
     const targets =
       scope === "both" ? (["project", "project-local"] satisfies SessionContinuityScope[]) : [scope];
+    const pendingWrites: SessionContinuityPendingWrite[] = [];
+    const snapshotsByPath = new Map<string, SessionContinuityWriteSnapshot>();
+
+    const captureSnapshot = async (filePath: string): Promise<void> => {
+      if (snapshotsByPath.has(filePath)) {
+        return;
+      }
+
+      const existed = await fileExists(filePath);
+      snapshotsByPath.set(filePath, {
+        path: filePath,
+        existed,
+        contents: existed ? await readTextFile(filePath) : null
+      });
+    };
 
     for (const target of targets) {
       if (target === "project") {
         await this.ensureSharedLayout();
       } else {
+        const localIgnorePath = this.getLocalIgnorePath();
+        if (localIgnorePath) {
+          await captureSnapshot(localIgnorePath);
+        }
         await this.ensureLocalLayout();
         await this.ensureLocalIgnore();
       }
@@ -272,11 +311,53 @@ export class SessionContinuityStore {
         target === "project"
           ? this.paths.sharedFile
           : await this.resolveLocalWritePath(writeMode);
-      await writeTextFile(filePath, renderSessionContinuity(nextState));
-      written.push(filePath);
+      await captureSnapshot(filePath);
+      pendingWrites.push({
+        path: filePath,
+        contents: renderSessionContinuity(nextState)
+      });
+    }
+
+    const snapshots = [...snapshotsByPath.values()];
+    const written: string[] = [];
+
+    try {
+      for (const pendingWrite of pendingWrites) {
+        await writeTextFileAtomic(pendingWrite.path, pendingWrite.contents);
+        written.push(pendingWrite.path);
+      }
+    } catch (error) {
+      await this.restoreWriteSnapshots(snapshots);
+      throw error;
     }
 
     return written;
+  }
+
+  private async captureWriteSnapshots(paths: string[]): Promise<SessionContinuityWriteSnapshot[]> {
+    return Promise.all(
+      [...new Set(paths)].map(async (filePath) => {
+        const existed = await fileExists(filePath);
+        return {
+          path: filePath,
+          existed,
+          contents: existed ? await readTextFile(filePath) : null
+        };
+      })
+    );
+  }
+
+  private async restoreWriteSnapshots(
+    snapshots: SessionContinuityWriteSnapshot[]
+  ): Promise<void> {
+    for (const snapshot of snapshots) {
+      if (!snapshot.existed) {
+        await fs.rm(snapshot.path, { force: true }).catch(() => undefined);
+        continue;
+      }
+
+      await writeTextFileAtomic(snapshot.path, snapshot.contents ?? "");
+    }
   }
 
   private async resolveLocalReadPath(): Promise<string | null> {

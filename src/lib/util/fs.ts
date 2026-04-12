@@ -42,6 +42,44 @@ export async function writeTextFile(filePath: string, contents: string): Promise
   await fs.writeFile(filePath, contents, "utf8");
 }
 
+function atomicTempPath(filePath: string): string {
+  const suffix = `${process.pid}-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+  return path.join(path.dirname(filePath), `.${path.basename(filePath)}.${suffix}.tmp`);
+}
+
+async function syncPath(targetPath: string): Promise<void> {
+  const handle = await fs.open(targetPath, "r");
+  try {
+    await handle.sync();
+  } finally {
+    await handle.close();
+  }
+}
+
+export async function writeTextFileAtomic(filePath: string, contents: string): Promise<void> {
+  await ensureDir(path.dirname(filePath));
+  const tempPath = atomicTempPath(filePath);
+
+  try {
+    const tempHandle = await fs.open(tempPath, "w");
+    try {
+      await tempHandle.writeFile(contents, "utf8");
+      await tempHandle.sync();
+    } finally {
+      await tempHandle.close();
+    }
+    await fs.rename(tempPath, filePath);
+    await syncPath(path.dirname(filePath));
+  } catch (error) {
+    await fs.rm(tempPath, { force: true }).catch(() => undefined);
+    throw error;
+  }
+}
+
+export async function writeJsonFileAtomic(filePath: string, value: unknown): Promise<void> {
+  await writeTextFileAtomic(filePath, `${JSON.stringify(value, null, 2)}\n`);
+}
+
 export async function updateGitignoreLine(rootDir: string, line: string): Promise<void> {
   const gitignorePath = path.join(rootDir, ".gitignore");
   const hasFile = await fileExists(gitignorePath);
@@ -54,4 +92,3 @@ export async function updateGitignoreLine(rootDir: string, line: string): Promis
   const next = `${current.trimEnd()}${current.trimEnd() ? "\n" : ""}${line}\n`;
   await fs.writeFile(gitignorePath, next, "utf8");
 }
-
