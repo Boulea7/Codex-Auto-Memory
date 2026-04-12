@@ -2,6 +2,7 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { runSession } from "../src/lib/commands/session.js";
+import { runDream } from "../src/lib/commands/dream.js";
 import { runWrappedCodex } from "../src/lib/commands/wrapper.js";
 import { detectProjectContext } from "../src/lib/domain/project-context.js";
 import { SessionContinuityStore } from "../src/lib/domain/session-continuity-store.js";
@@ -1863,6 +1864,71 @@ describe("runSession", () => {
         scope: "invalid" as never
       })
     ).rejects.toThrow("Scope must be one of: project, project-local, both.");
+  });
+
+  it("adds resume context and dream sidecar summaries to session status json", async () => {
+    const repoDir = await tempDir("cam-session-dream-repo-");
+    const memoryRoot = await tempDir("cam-session-dream-memory-");
+    await initRepo(repoDir);
+    await fs.writeFile(path.join(repoDir, "CLAUDE.md"), "# Project rules\n", "utf8");
+
+    await writeProjectConfig(
+      repoDir,
+      configJson({
+        dreamSidecarEnabled: true
+      }),
+      {
+        autoMemoryDirectory: memoryRoot,
+        dreamSidecarEnabled: true
+      }
+    );
+
+    const rolloutPath = path.join(repoDir, "rollout.jsonl");
+    await fs.writeFile(
+      rolloutPath,
+      rolloutFixture(repoDir, "Continue the middleware retry work and document the fallback."),
+      "utf8"
+    );
+
+    await runSession("save", {
+      cwd: repoDir,
+      rollout: rolloutPath,
+      scope: "both"
+    });
+    await runDream("build", {
+      cwd: repoDir,
+      rollout: rolloutPath,
+      json: true
+    });
+
+    const statusPayload = JSON.parse(
+      await runSession("status", {
+        cwd: repoDir,
+        json: true
+      })
+    ) as {
+      resumeContext: {
+        goal: string;
+        instructionFiles: string[];
+      };
+      dreamSidecar: {
+        enabled: boolean;
+        status: string;
+        suggestedRefCount: number;
+      };
+    };
+
+    expect(statusPayload.resumeContext.goal).toContain("middleware retry work");
+    expect(
+      statusPayload.resumeContext.instructionFiles.some((filePath) =>
+        filePath.endsWith(`${path.sep}CLAUDE.md`)
+      )
+    ).toBe(true);
+    expect(statusPayload.dreamSidecar).toMatchObject({
+      enabled: true,
+      status: "available"
+    });
+    expect(statusPayload.dreamSidecar.suggestedRefCount).toBeGreaterThanOrEqual(0);
   });
 
   it("rejects save when no relevant rollout exists for the project", async () => {

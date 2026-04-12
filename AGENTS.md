@@ -42,6 +42,8 @@ cam mcp doctor --host codex
 cam integrations install --host codex
 cam integrations apply --host codex
 cam integrations doctor --host codex
+cam dream build
+cam dream inspect
 cam session save
 cam session refresh
 cam session load
@@ -64,6 +66,8 @@ cam session status
 - `sessionContinuityAutoLoad`: wrapper 是否自动注入 continuity
 - `sessionContinuityAutoSave`: wrapper 是否自动保存 continuity
 - `maxSessionContinuityLines`: continuity startup 行预算
+- `dreamSidecarEnabled`: 是否开启 dream sidecar reviewer surface
+- `dreamSidecarAutoBuild`: 是否允许后续自动构建 dream sidecar
 - `codexBinary`: 调用的 Codex 可执行文件
 
 集成相关公开参数：
@@ -76,11 +80,13 @@ cam session status
 
 关键 JSON reviewer / integration contract：
 
-- `cam memory --json`: 返回 startup files、topic refs、recent sync audit、`topicDiagnostics`、`layoutDiagnostics` 等 inspect 信息
+- `cam memory --json`: 返回 startup files、topic refs、recent sync audit、`topicDiagnostics`、`layoutDiagnostics`、`instructionLayer`、`startupBudgetLedger`、`dreamSidecar` 等 inspect 信息
 - `cam memory reindex --json`: 返回 rebuilt sidecar 摘要与对应 `indexPath` / `generatedAt`
-- `cam recall search --json`: 返回 compact refs、`retrievalMode`、`stateResolution`、`executionSummary`、`diagnostics.checkedPaths`
+- `cam recall search --json`: 返回 compact refs、`retrievalMode`、`stateResolution`、`executionSummary`、`diagnostics.checkedPaths`、`querySurfacing`
 - `cam recall timeline --json`: 返回 lifecycle history、`warnings`、`lineageSummary`
 - `cam recall details --json`: 返回 detail、`latestState`、`latestAudit`、`warnings`
+- `cam dream build --json`: 返回 dream sidecar snapshot、`snapshotPaths`、`auditPath`、`recoveryPath`
+- `cam dream inspect --json`: 返回 shared / local dream sidecar 状态、`auditPath`、`recoveryPath`
 - `cam mcp print-config --json`: 对 Codex 暴露 project-scoped MCP snippet、`workflowContract`、推荐 `AGENTS.md` guidance
 - `cam mcp doctor --json`: 暴露 retrieval MCP wiring、fallback assets、`codexStack`、`retrievalSidecar`
 - `cam integrations install/apply --json`: 暴露 staged subactions、rollback payload、`postInstallReadinessCommand` / `postApplyReadinessCommand`
@@ -94,8 +100,10 @@ cam session status
 2. 收紧 issue-tracker durable memory replacement key，避免不同 host 的 tracker URL 因相同 repo/path 或 ticket id 被误判为同一条 memory
 3. 把 Claude Code / Gemini CLI 的官方公开宿主能力面，与本仓当前真实支持的 manual-only host 边界继续写清楚
 4. 保持 `Markdown-first` canonical store 与 sidecar retrieval plane 的边界稳定
-5. 保持 `cam integrations install` 与 `cam integrations apply` 的 AGENTS mutation boundary 清晰
-6. 继续扩大 deterministic release gate：`lint`、`test`、`docs-contract`、`dist-cli-smoke`、`tarball-install-smoke`
+5. 把 `instruction memory` 与 `learned durable memory` 的 reviewer 分层继续收紧，但不让 instruction discovery 越界进 durable mutation
+6. 把 `futureCompactionSeam` 继续演进成可审计、可关闭、fail-closed 的 `dream sidecar`
+7. 保持 `cam integrations install` 与 `cam integrations apply` 的 AGENTS mutation boundary 清晰
+8. 继续扩大 deterministic release gate：`lint`、`test`、`docs-contract`、`dist-cli-smoke`、`tarball-install-smoke`
 
 下一阶段建议：
 
@@ -103,10 +111,12 @@ cam session status
 2. 优先把 help / docs / smoke contract 固定成同一套公开语义
 3. 在不扩张宿主边界的前提下，继续维持 Codex-first、manual-only 非 Codex host 的产品表述
 4. 将 issue5 剩余 closeout seams 继续拆成小 PR：`cam init` 幂等/`--force`、`cam session status/load` 只读化、Vitest `.worktrees/**` 边界、docs/help parity
-5. 保持发布面验证串行执行：`dist-cli-smoke` 与 `tarball-install-smoke` 不并行跑，避免 `prepack -> rimraf dist` 造成假阴性
+5. 给 dream sidecar 增补 explicit promotion / review lane，再决定是否把 query-time surfacing 扩展到 wrapper / MCP
+6. 保持发布面验证串行执行：`dist-cli-smoke` 与 `tarball-install-smoke` 不并行跑，避免 `prepack -> rimraf dist` 造成假阴性
 
 ## 变更记录
 
+- 2026-04-12: 第一轮 Claude memory / dream 迁移已经落地：新增 `instruction memory` 与 `learned durable memory` 的 reviewer 分层；`MEMORY.md` 进一步收紧为 `index-only`，不再回写 latest summary preview；新增最小可用 `dream sidecar` 命令面 `cam dream build` / `cam dream inspect`，把 continuity compaction、relevant refs 与 pending promotion candidates 写入可审计 JSON sidecar，但不改 canonical Markdown memory；同时 `cam memory --json`、`cam session status/load --json` 与 `cam recall search --json` 分别补上 `instructionLayer` / `startupBudgetLedger` / `dreamSidecar`、`resumeContext` / `dreamSidecar`、`querySurfacing` 等 additive reviewer 字段。
 - 2026-04-11: issue5 tail closeout 新增 cross-host issue-tracker 回归保护：`directive-utils` 现在用完整的 non-generic hostname 片段构造 issue-tracker resource key，避免不同 host 但相同 repo/path 或 ticket id 的 URL 互相覆盖；同时补强 `vitest.config.ts` 的默认 exclude contract 测试，并把 `integrations apply --cwd` 的 invalid-path fail-closed 行为纳入 source / dist / tarball 回归覆盖。
 - 2026-04-10: issue5 PR14 收口了三类 runtime contract seam：`mcp` 命令的空 `--cwd` 现在 fail-closed；`workflowContract` 的 resolved launcher 与显式 `launcherOverride` 保持一致；delete-only 的 forget follow-up 文案不再硬编码裸 `cam recall timeline`。
 - 2026-04-10: `test/recovery-records.test.ts` 已对齐当前 continuity 语义：`scope=both` continuity recovery marker 可以被后续 single-scope save/refresh 复用，并继续由 `session-command` 行为测试锁定。

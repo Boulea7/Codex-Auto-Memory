@@ -140,6 +140,23 @@ Current implementation rules:
 
 This keeps Codex-backed continuity as the primary quality path while preserving a deterministic local fallback for degraded sessions or brittle model output.
 
+## Dream sidecar seam
+
+The current implementation now exposes a minimal `dream sidecar` seam:
+
+- `cam dream build`
+- `cam dream inspect`
+
+This sidecar is intentionally:
+
+- additive
+- JSON-only
+- auditable
+- fail-closed
+- non-canonical
+
+It can summarize continuity into a sidecar snapshot, surface query-time relevant durable refs, and stage pending promotion candidates, but it does **not** directly rewrite `MEMORY.md`, topic files, or the continuity Markdown files.
+
 ## Why the project-local layer is not the shared layer
 
 Even when users prefer project-folder-local files, git worktrees do not provide a single shared filesystem path for all worktrees.

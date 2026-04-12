@@ -82,4 +82,40 @@ describe("loadConfig", () => {
     expect(loaded.warnings.join("\n")).toContain("Ignored autoMemoryDirectory");
     expect(loaded.warnings.join("\n")).toContain("Ignored session continuity local settings");
   });
+
+  it("ignores invalid user and managed config files while keeping project-local config usable", async () => {
+    const homeDir = await createTempDir("cam-invalid-config-home-");
+    const projectDir = await createTempDir("cam-invalid-config-project-");
+    const managedFile = path.join(homeDir, "managed.json");
+    process.env.HOME = homeDir;
+    process.env.CAM_MANAGED_CONFIG = managedFile;
+
+    const userConfigPath = path.join(homeDir, ".config", "codex-auto-memory", "config.json");
+    await fs.mkdir(path.dirname(userConfigPath), { recursive: true });
+    await fs.writeFile(userConfigPath, "{\n", "utf8");
+    await fs.writeFile(managedFile, "{\n", "utf8");
+    await fs.writeFile(
+      path.join(projectDir, "codex-auto-memory.json"),
+      JSON.stringify({
+        autoMemoryEnabled: false,
+        extractorMode: "heuristic",
+        maxStartupLines: 150
+      })
+    );
+    await fs.writeFile(
+      path.join(projectDir, ".codex-auto-memory.local.json"),
+      JSON.stringify({
+        sessionContinuityAutoLoad: true
+      })
+    );
+
+    const loaded = await loadConfig(detectProjectContext(projectDir));
+
+    expect(loaded.config.autoMemoryEnabled).toBe(false);
+    expect(loaded.config.extractorMode).toBe("heuristic");
+    expect(loaded.config.maxStartupLines).toBe(150);
+    expect(loaded.config.sessionContinuityAutoLoad).toBe(true);
+    expect(loaded.warnings.join("\n")).toContain("Ignored invalid user config");
+    expect(loaded.warnings.join("\n")).toContain("Ignored invalid managed config");
+  });
 });

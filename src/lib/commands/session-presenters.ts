@@ -15,11 +15,15 @@ import {
   defaultRecentContinuityAuditLimit,
   defaultRecentContinuityPreviewReadLimit
 } from "../domain/session-continuity-persistence.js";
+import { discoverInstructionFiles } from "../domain/instruction-memory.js";
+import { inspectDreamSidecar } from "../domain/dream-sidecar.js";
 import type { PersistSessionContinuityResult } from "../domain/session-continuity-persistence.js";
 import type { RuntimeContext } from "../runtime/runtime-context.js";
 import type {
   CompiledSessionContinuity,
   ContinuityRecoveryRecord,
+  DreamSidecarInspection,
+  SessionResumeContext,
   SessionContinuityAuditEntry,
   SessionContinuityDiagnostics,
   SessionContinuityLocation,
@@ -51,6 +55,8 @@ export interface SessionInspectionView {
   continuityAuditPath: string;
   pendingContinuityRecovery: ContinuityRecoveryRecord | null;
   continuityRecoveryPath: string;
+  dreamSidecar: DreamSidecarInspection["snapshots"]["project"];
+  resumeContext: SessionResumeContext;
 }
 
 function existingContinuitySourceFiles(
@@ -177,7 +183,9 @@ function buildSessionInspectionPayload(view: SessionInspectionView): Record<stri
     recentContinuityAuditEntries: view.recentContinuityAuditEntries,
     continuityAuditPath: view.continuityAuditPath,
     pendingContinuityRecovery: view.pendingContinuityRecovery,
-    continuityRecoveryPath: view.continuityRecoveryPath
+    continuityRecoveryPath: view.continuityRecoveryPath,
+    dreamSidecar: view.dreamSidecar,
+    resumeContext: view.resumeContext
   };
 }
 
@@ -233,6 +241,8 @@ export async function loadSessionInspectionView(
   const pendingContinuityRecovery = pendingContinuityRecoveryRecord
     ? normalizeContinuityRecoveryRecord(pendingContinuityRecoveryRecord)
     : null;
+  const dreamInspection = await inspectDreamSidecar(runtime);
+  const instructionFiles = await discoverInstructionFiles(runtime.project.projectRoot);
   const startup = compileSessionContinuity(
     mergedState,
     existingContinuitySourceFiles(projectLocation, localLocation),
@@ -259,7 +269,14 @@ export async function loadSessionInspectionView(
     recentContinuityAuditPreviewEntries,
     continuityAuditPath: runtime.sessionContinuityStore.paths.auditFile,
     pendingContinuityRecovery,
-    continuityRecoveryPath: runtime.sessionContinuityStore.getRecoveryPath()
+    continuityRecoveryPath: runtime.sessionContinuityStore.getRecoveryPath(),
+    dreamSidecar: dreamInspection.snapshots.project,
+    resumeContext: {
+      goal: mergedState.goal,
+      nextSteps: [...mergedState.incompleteNext],
+      instructionFiles,
+      suggestedDurableRefs: dreamInspection.projectSnapshot?.relevantMemoryRefs.slice(0, 5) ?? []
+    }
   };
 }
 

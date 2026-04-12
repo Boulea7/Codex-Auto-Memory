@@ -4,6 +4,8 @@ import { buildCompactHistoryPreview } from "../domain/reviewer-history.js";
 import { openPath } from "../util/open.js";
 import { compileStartupMemory } from "../domain/startup-memory.js";
 import { filterUnsafeTopicDiagnostics } from "../domain/memory-store.js";
+import { discoverInstructionLayer } from "../domain/instruction-memory.js";
+import { inspectDreamSidecar } from "../domain/dream-sidecar.js";
 import type {
   ConfigScope,
   MemoryLayoutDiagnostic,
@@ -257,6 +259,8 @@ export async function runMemory(options: MemoryOptions = {}): Promise<string> {
     usedLines: startup.lineCount,
     maxLines: runtime.loadedConfig.config.maxStartupLines
   };
+  const instructionLayer = await discoverInstructionLayer(runtime.project.projectRoot);
+  const dreamInspection = await inspectDreamSidecar(runtime);
   const refCountsByScope = {
     global: {
       startupFiles: startupFilesByScope.global.length,
@@ -312,7 +316,26 @@ export async function runMemory(options: MemoryOptions = {}): Promise<string> {
       recentAudit: recentSyncAudit,
       syncAuditPath: runtime.syncService.memoryStore.getSyncAuditPath(),
       pendingSyncRecovery,
-      syncRecoveryPath: runtime.syncService.memoryStore.getSyncRecoveryPath()
+      syncRecoveryPath: runtime.syncService.memoryStore.getSyncRecoveryPath(),
+      instructionLayer,
+      loadReasons: {
+        startup: [
+          "Startup injection still quotes scoped MEMORY.md index files and only keeps topic files as on-demand refs.",
+          "Startup highlights remain separate from MEMORY.md so the canonical index can stay concise."
+        ],
+        dreamSidecar: [
+          dreamInspection.enabled
+            ? "Dream sidecar is an additive reviewer surface and does not mutate canonical durable memory."
+            : "Dream sidecar is disabled in config."
+        ]
+      },
+      startupBudgetLedger: {
+        usedLines: startup.lineCount,
+        maxLines: runtime.loadedConfig.config.maxStartupLines,
+        sectionFlags: startup.sectionsRendered,
+        omissionCounts: startup.omissionCounts
+      },
+      dreamSidecar: dreamInspection.snapshots.project
     };
     return JSON.stringify(
       output,
