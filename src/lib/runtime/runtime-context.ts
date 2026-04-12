@@ -4,6 +4,7 @@ import { MemoryRetrievalService } from "../domain/memory-retrieval.js";
 import { detectProjectContext } from "../domain/project-context.js";
 import { SessionContinuityStore } from "../domain/session-continuity-store.js";
 import { SyncService } from "../domain/sync-service.js";
+import { ensureExistingDirectory } from "../util/paths.js";
 import type {
   AppConfig,
   ConfigScope,
@@ -32,7 +33,7 @@ export async function buildRuntimeContext(
   overrides: Partial<AppConfig> = {},
   options: RuntimeContextOptions = {}
 ): Promise<RuntimeContext> {
-  const project = detectProjectContext(cwd);
+  const project = detectProjectContext(await ensureExistingDirectory(cwd));
   const loadedConfig = await loadConfig(project, overrides);
   const syncService = new SyncService(project, loadedConfig.config);
   const sessionContinuityStore = new SessionContinuityStore(project, loadedConfig.config);
