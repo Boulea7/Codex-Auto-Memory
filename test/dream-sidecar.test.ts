@@ -844,6 +844,228 @@ describe("dream sidecar", () => {
     });
   });
 
+  it("does not keep stale instruction proposals as the latest recommended follow-up", async () => {
+    const homeDir = await tempDir("cam-dream-stale-followup-home-");
+    const repoDir = await tempDir("cam-dream-stale-followup-repo-");
+    const memoryRoot = await tempDir("cam-dream-stale-followup-memory-");
+    process.env.HOME = homeDir;
+    await initGitRepo(repoDir);
+    await fs.writeFile(path.join(repoDir, "AGENTS.md"), "# Repo rules\n", "utf8");
+    await writeCamConfig(
+      repoDir,
+      makeAppConfig({
+        dreamSidecarEnabled: true
+      }),
+      {
+        autoMemoryDirectory: memoryRoot,
+        dreamSidecarEnabled: true
+      }
+    );
+
+    const rolloutPath = path.join(repoDir, "instruction-rollout.jsonl");
+    await fs.writeFile(
+      rolloutPath,
+      makeRolloutFixture(repoDir, "Always run pnpm lint before pnpm build."),
+      "utf8"
+    );
+
+    await runDream("build", {
+      cwd: repoDir,
+      rollout: rolloutPath,
+      json: true
+    });
+    const candidatesPayload = JSON.parse(
+      await runDream("candidates", {
+        cwd: repoDir,
+        json: true
+      })
+    ) as {
+      entries: Array<{
+        candidateId: string;
+        targetSurface: string;
+      }>;
+    };
+    const instructionCandidate = candidatesPayload.entries.find(
+      (entry) => entry.targetSurface === "instruction-memory"
+    );
+    expect(instructionCandidate).toBeDefined();
+
+    await runDream("review", {
+      cwd: repoDir,
+      candidateId: instructionCandidate!.candidateId,
+      approve: true,
+      json: true
+    });
+    await runDream("promote", {
+      cwd: repoDir,
+      candidateId: instructionCandidate!.candidateId,
+      json: true
+    });
+
+    await fs.writeFile(path.join(repoDir, "AGENTS.md"), "# Repo rules\n\nManual drift.\n", "utf8");
+    const staleApplyPrepPayload = JSON.parse(
+      await runDream("apply-prep" as never, {
+        cwd: repoDir,
+        candidateId: instructionCandidate!.candidateId,
+        json: true
+      })
+    ) as {
+      applyReadiness: {
+        status: string;
+      };
+    };
+    expect(staleApplyPrepPayload.applyReadiness.status).toBe("stale");
+
+    const inspectPayload = JSON.parse(
+      await runDream("inspect", {
+        cwd: repoDir,
+        json: true
+      })
+    ) as {
+      nextRecommendedActions: string[];
+    };
+    expect(inspectPayload.nextRecommendedActions).not.toEqual(
+      expect.arrayContaining([
+        expect.stringContaining(`dream apply-prep --candidate-id ${instructionCandidate!.candidateId} --json`)
+      ])
+    );
+  });
+
+  it("surfaces a read-only proposal artifact and closes manual apply with verify-apply", async () => {
+    const homeDir = await tempDir("cam-dream-verify-apply-home-");
+    const repoDir = await tempDir("cam-dream-verify-apply-repo-");
+    const memoryRoot = await tempDir("cam-dream-verify-apply-memory-");
+    process.env.HOME = homeDir;
+    await initGitRepo(repoDir);
+    await fs.writeFile(path.join(repoDir, "AGENTS.md"), "# Repo rules\n", "utf8");
+    await writeCamConfig(
+      repoDir,
+      makeAppConfig({
+        dreamSidecarEnabled: true
+      }),
+      {
+        autoMemoryDirectory: memoryRoot,
+        dreamSidecarEnabled: true
+      }
+    );
+
+    const rolloutPath = path.join(repoDir, "instruction-rollout.jsonl");
+    await fs.writeFile(
+      rolloutPath,
+      makeRolloutFixture(repoDir, "Always run pnpm lint before pnpm build."),
+      "utf8"
+    );
+
+    await runDream("build", {
+      cwd: repoDir,
+      rollout: rolloutPath,
+      json: true
+    });
+    const candidatesPayload = JSON.parse(
+      await runDream("candidates", {
+        cwd: repoDir,
+        json: true
+      })
+    ) as {
+      entries: Array<{
+        candidateId: string;
+        targetSurface: string;
+      }>;
+    };
+    const instructionCandidate = candidatesPayload.entries.find(
+      (entry) => entry.targetSurface === "instruction-memory"
+    );
+    expect(instructionCandidate).toBeDefined();
+
+    await runDream("review", {
+      cwd: repoDir,
+      candidateId: instructionCandidate!.candidateId,
+      approve: true,
+      json: true
+    });
+    const promotePayload = JSON.parse(
+      await runDream("promote", {
+        cwd: repoDir,
+        candidateId: instructionCandidate!.candidateId,
+        json: true
+      })
+    ) as {
+      entry: {
+        status: string;
+      };
+      instructionProposal: {
+        patchPlan: {
+          operation: string;
+        } | null;
+        artifactPath: string;
+      };
+    };
+    expect(promotePayload.entry.status).toBe("manual-apply-pending");
+
+    const proposalPayload = JSON.parse(
+      await runDream("proposal" as never, {
+        cwd: repoDir,
+        candidateId: instructionCandidate!.candidateId,
+        json: true
+      })
+    ) as {
+      action: string;
+      entry: {
+        status: string;
+      };
+      instructionProposal: {
+        artifactPath: string;
+        guidanceBlock: string;
+      };
+    };
+    expect(proposalPayload).toMatchObject({
+      action: "proposal",
+      entry: {
+        status: "manual-apply-pending"
+      },
+      instructionProposal: {
+        artifactPath: promotePayload.instructionProposal.artifactPath
+      }
+    });
+
+    const proposalContents = await fs.readFile(promotePayload.instructionProposal.artifactPath, "utf8");
+    expect(proposalPayload.instructionProposal.artifactPath).toContain(
+      `${path.sep}dream${path.sep}review${path.sep}proposals${path.sep}`
+    );
+
+    await fs.writeFile(
+      path.join(repoDir, "AGENTS.md"),
+      `# Repo rules\n\n${proposalPayload.instructionProposal.guidanceBlock}\n`,
+      "utf8"
+    );
+
+    const verifyPayload = JSON.parse(
+      await runDream("verify-apply" as never, {
+        cwd: repoDir,
+        candidateId: instructionCandidate!.candidateId,
+        json: true
+      })
+    ) as {
+      action: string;
+      entry: {
+        status: string;
+      };
+      instructionProposal: {
+        artifactPath: string;
+      };
+    };
+    expect(verifyPayload).toMatchObject({
+      action: "verify-apply",
+      entry: {
+        status: "manual-applied"
+      },
+      instructionProposal: {
+        artifactPath: promotePayload.instructionProposal.artifactPath
+      }
+    });
+    expect(await fs.readFile(promotePayload.instructionProposal.artifactPath, "utf8")).toBe(proposalContents);
+  });
+
   it("keeps shared and project-local candidates active when builds target different scopes", async () => {
     const homeDir = await tempDir("cam-dream-scope-home-");
     const repoDir = await tempDir("cam-dream-scope-repo-");

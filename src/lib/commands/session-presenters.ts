@@ -1,5 +1,8 @@
 import { buildCompactHistoryPreview } from "../domain/reviewer-history.js";
 import {
+  buildInstructionReviewLane,
+} from "../domain/dream-candidates.js";
+import {
   compileSessionContinuity,
   createEmptySessionContinuityState
 } from "../domain/session-continuity.js";
@@ -22,6 +25,7 @@ import type {
   CompiledSessionContinuity,
   ContinuityRecoveryRecord,
   DreamSidecarInspection,
+  InstructionReviewLane,
   SessionResumeContext,
   SessionContinuityAuditEntry,
   SessionContinuityDiagnostics,
@@ -56,6 +60,7 @@ export interface SessionInspectionView {
   continuityRecoveryPath: string;
   dreamSidecar: DreamSidecarInspection["snapshots"]["project"];
   resumeContext: SessionResumeContext;
+  instructionReviewLane: InstructionReviewLane;
 }
 
 function existingContinuitySourceFiles(
@@ -184,7 +189,8 @@ function buildSessionInspectionPayload(view: SessionInspectionView): Record<stri
     pendingContinuityRecovery: view.pendingContinuityRecovery,
     continuityRecoveryPath: view.continuityRecoveryPath,
     dreamSidecar: view.dreamSidecar,
-    resumeContext: view.resumeContext
+    resumeContext: view.resumeContext,
+    instructionReviewLane: view.instructionReviewLane
   };
 }
 
@@ -252,6 +258,7 @@ export async function loadSessionInspectionView(
     continuitySourceFiles,
     allowDreamAutoBuild: false
   });
+  const instructionReviewLane = await buildInstructionReviewLane(runtime);
 
   return {
     autoLoad: runtime.loadedConfig.config.sessionContinuityAutoLoad,
@@ -275,7 +282,8 @@ export async function loadSessionInspectionView(
     pendingContinuityRecovery,
     continuityRecoveryPath: runtime.sessionContinuityStore.getRecoveryPath(),
     dreamSidecar: resumeContext.dreamInspection.snapshots.project,
-    resumeContext: resumeContext.resumeContext
+    resumeContext: resumeContext.resumeContext,
+    instructionReviewLane
   };
 }
 

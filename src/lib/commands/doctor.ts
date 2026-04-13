@@ -5,11 +5,11 @@ import {
   type TopicFileDiagnostic
 } from "../domain/memory-store.js";
 import {
+  buildInstructionReviewLane,
   getDreamCandidateProposalArtifactPath,
   getLatestDreamProposalCandidate,
   listDreamCandidates
 } from "../domain/dream-candidates.js";
-import { discoverInstructionLayer } from "../domain/instruction-memory.js";
 import { buildResolvedCliCommand } from "../integration/retrieval-contract.js";
 import { buildNativeReadinessReport, parseCodexFeatures } from "../runtime/codex-features.js";
 import { buildRuntimeContext } from "../runtime/runtime-context.js";
@@ -39,7 +39,14 @@ interface DoctorInstructionProposalLane {
   summary: string;
   detectedTargets: string[];
   latestProposalArtifactPath: string | null;
+  latestCandidateId: string | null;
+  selectedTargetFile: string | null;
+  selectedTargetKind: string | null;
+  targetHost: string | null;
+  applyReadinessStatus: string | null;
+  recommendedInspectCommand: string;
   recommendedApplyPrepCommand: string;
+  recommendedVerifyApplyCommand: string;
 }
 
 function buildDoctorTopicDiagnostics(diagnostics: TopicFileDiagnostic[]): DoctorTopicDiagnostics {
@@ -113,7 +120,7 @@ export async function runDoctor(options: DoctorOptions = {}): Promise<string> {
     scope: "all",
     state: "all"
   });
-  const instructionLayer = await discoverInstructionLayer(runtime.project.projectRoot);
+  const instructionReviewLane = await buildInstructionReviewLane(runtime);
   const dreamCandidates = await listDreamCandidates(runtime);
   const latestInstructionProposalCandidate = getLatestDreamProposalCandidate(dreamCandidates.entries);
   const instructionProposalLane: DoctorInstructionProposalLane = {
@@ -121,18 +128,16 @@ export async function runDoctor(options: DoctorOptions = {}): Promise<string> {
     summary: latestInstructionProposalCandidate
       ? "Instruction proposal artifacts are present for reviewer-only follow-up."
       : "No instruction proposal artifacts are waiting for reviewer follow-up.",
-    detectedTargets: instructionLayer.detectedFiles.map((file) => file.path),
-    latestProposalArtifactPath: latestInstructionProposalCandidate
-      ? getDreamCandidateProposalArtifactPath(latestInstructionProposalCandidate)
-      : null,
-    recommendedApplyPrepCommand: latestInstructionProposalCandidate
-      ? buildResolvedCliCommand(
-          `dream apply-prep --candidate-id ${latestInstructionProposalCandidate.candidateId}`,
-          { cwd: runtime.project.projectRoot }
-        )
-      : buildResolvedCliCommand("dream candidates --json", {
-          cwd: runtime.project.projectRoot
-        })
+    detectedTargets: instructionReviewLane.detectedInstructionTargets,
+    latestProposalArtifactPath: instructionReviewLane.latestProposalArtifactPath,
+    latestCandidateId: instructionReviewLane.latestCandidateId,
+    selectedTargetFile: instructionReviewLane.selectedTargetFile,
+    selectedTargetKind: instructionReviewLane.selectedTargetKind,
+    targetHost: instructionReviewLane.targetHost,
+    applyReadinessStatus: instructionReviewLane.applyReadinessStatus ?? null,
+    recommendedInspectCommand: instructionReviewLane.recommendedInspectCommand,
+    recommendedApplyPrepCommand: instructionReviewLane.recommendedApplyPrepCommand,
+    recommendedVerifyApplyCommand: instructionReviewLane.recommendedVerifyApplyCommand
   };
   const recommendedRoute: DoctorRecommendedRoute = "companion";
   const recommendedActionCommand = buildResolvedCliCommand("mcp doctor --host codex", {

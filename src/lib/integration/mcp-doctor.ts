@@ -30,6 +30,7 @@ import {
 } from "./retrieval-contract.js";
 import { isCommandAvailableInPath } from "./command-path.js";
 import {
+  buildInstructionReviewLane,
   getDreamCandidateProposalArtifactPath,
   getLatestDreamProposalCandidate,
   listDreamCandidates
@@ -330,8 +331,15 @@ interface McpDoctorInstructionProposalLaneReport {
   summary: string;
   detectedTargets: string[];
   latestProposalArtifactPath: string | null;
+  latestCandidateId: string | null;
+  selectedTargetFile: string | null;
+  selectedTargetKind: string | null;
+  targetHost: string | null;
+  applyReadinessStatus: string | null;
+  recommendedInspectCommand: string;
   recommendedReviewCommand: string;
   recommendedApplyPrepCommand: string;
+  recommendedVerifyApplyCommand: string;
 }
 
 export interface McpDoctorReport {
@@ -1182,6 +1190,9 @@ export async function inspectMcpDoctor(options: {
     })
   );
   const instructionLayer = await discoverInstructionLayer(projectRoot);
+  const instructionReviewLane = await buildInstructionReviewLane(runtime, {
+    cwd: options.explicitCwd ? projectRoot : undefined
+  });
   const dreamCandidates = await listDreamCandidates(runtime);
   const latestInstructionProposalCandidate = getLatestDreamProposalCandidate(dreamCandidates.entries);
   const instructionProposalLane: McpDoctorInstructionProposalLaneReport = {
@@ -1189,23 +1200,17 @@ export async function inspectMcpDoctor(options: {
     summary: latestInstructionProposalCandidate
       ? "Instruction proposal artifacts are present for reviewer-only follow-up."
       : "No instruction proposal artifacts are waiting for reviewer follow-up.",
-    detectedTargets: instructionLayer.detectedFiles.map((file) => file.path),
-    latestProposalArtifactPath: latestInstructionProposalCandidate
-      ? getDreamCandidateProposalArtifactPath(latestInstructionProposalCandidate)
-      : null,
-    recommendedReviewCommand: buildResolvedCliCommand("dream candidates --json", {
-      cwd: options.explicitCwd ? projectRoot : undefined
-    }),
-    recommendedApplyPrepCommand: latestInstructionProposalCandidate
-      ? buildResolvedCliCommand(
-          `dream apply-prep --candidate-id ${latestInstructionProposalCandidate.candidateId} --json`,
-          {
-            cwd: options.explicitCwd ? projectRoot : undefined
-          }
-        )
-      : buildResolvedCliCommand("dream candidates --json", {
-          cwd: options.explicitCwd ? projectRoot : undefined
-        })
+    detectedTargets: instructionReviewLane.detectedInstructionTargets,
+    latestProposalArtifactPath: instructionReviewLane.latestProposalArtifactPath,
+    latestCandidateId: instructionReviewLane.latestCandidateId,
+    selectedTargetFile: instructionReviewLane.selectedTargetFile,
+    selectedTargetKind: instructionReviewLane.selectedTargetKind,
+    targetHost: instructionReviewLane.targetHost,
+    applyReadinessStatus: instructionReviewLane.applyReadinessStatus ?? null,
+    recommendedInspectCommand: instructionReviewLane.recommendedInspectCommand,
+    recommendedReviewCommand: instructionReviewLane.recommendedReviewCommand,
+    recommendedApplyPrepCommand: instructionReviewLane.recommendedApplyPrepCommand,
+    recommendedVerifyApplyCommand: instructionReviewLane.recommendedVerifyApplyCommand
   };
   const codexHost = codexSelected
     ? hosts.find((host) => host.host === "codex") ?? (await inspectHost("codex", projectRoot))

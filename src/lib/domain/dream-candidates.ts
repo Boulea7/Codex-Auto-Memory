@@ -14,12 +14,15 @@ import type {
   DreamQueueSummary,
   DreamSidecarSnapshot,
   DreamCandidateRegistry,
-  InstructionProposalArtifact
+  InstructionReviewLane,
+  InstructionProposalArtifact,
+  InstructionTargetHost
 } from "../types.js";
 import { appendJsonl, readJsonFile, writeJsonFileAtomic, writeTextFileAtomic } from "../util/fs.js";
 import { getDefaultMemoryDirectory } from "./project-context.js";
 import { slugify } from "../util/text.js";
-import { rankInstructionProposalTargets } from "./instruction-memory.js";
+import { buildResolvedCliCommand } from "../integration/retrieval-contract.js";
+import { discoverInstructionLayer, rankInstructionProposalTargets } from "./instruction-memory.js";
 import {
   buildInstructionProposalArtifact,
   buildInstructionProposalDigests
@@ -56,6 +59,8 @@ const actionableInstructionProposalStatuses: DreamCandidateStatus[] = [
   "approved",
   "manual-apply-pending"
 ];
+
+const actionableInstructionProposalReadinessStatuses = new Set(["safe", "blocked", undefined]);
 
 function buildDreamCandidatePaths(runtime: RuntimeContext): DreamCandidatePaths {
   const baseDir = runtime.loadedConfig.config.autoMemoryDirectory ?? getDefaultMemoryDirectory();
@@ -241,6 +246,7 @@ export function getLatestDreamProposalCandidate(
     (entry) =>
       entry.targetSurface === "instruction-memory" &&
       actionableInstructionProposalStatuses.includes(entry.status) &&
+      actionableInstructionProposalReadinessStatuses.has(entry.promotion.applyReadinessStatus) &&
       getDreamCandidateProposalArtifactPath(entry)
   );
   if (candidates.length === 0) {
@@ -649,6 +655,7 @@ export async function markDreamCandidatePromoted(
     proposalArtifactPath?: string;
     selectedTargetFile?: string;
     selectedTargetKind?: DreamCandidateRecord["promotion"]["selectedTargetKind"];
+    targetHost?: InstructionTargetHost;
     guidanceDigest?: string;
     patchDigest?: string;
   }
@@ -674,6 +681,7 @@ export async function markDreamCandidatePromoted(
       ...(options.proposalArtifactPath ? { proposalArtifactPath: options.proposalArtifactPath } : {}),
       ...(options.selectedTargetFile ? { selectedTargetFile: options.selectedTargetFile } : {}),
       ...(options.selectedTargetKind ? { selectedTargetKind: options.selectedTargetKind } : {}),
+      ...(options.targetHost ? { targetHost: options.targetHost } : {}),
       ...(options.guidanceDigest ? { guidanceDigest: options.guidanceDigest } : {}),
       ...(options.patchDigest ? { patchDigest: options.patchDigest } : {})
     }
@@ -811,16 +819,67 @@ export async function markDreamCandidateApplyPrepared(
   return nextEntry;
 }
 
+export async function markDreamCandidateManualApplied(
+  runtime: RuntimeContext,
+  candidateId: string,
+  options: {
+    applyReadinessStatus: DreamCandidateRecord["promotion"]["applyReadinessStatus"];
+  }
+): Promise<DreamCandidateRecord> {
+  const { paths, registry } = await readRegistryOrDefault(runtime);
+  const currentEntry = registry.entries.find((entry) => entry.candidateId === candidateId);
+  if (!currentEntry) {
+    throw new Error(`Dream candidate "${candidateId}" was not found.`);
+  }
+
+  const verifiedAppliedAt = new Date().toISOString();
+  const nextEntry: DreamCandidateRecord = {
+    ...currentEntry,
+    status: "manual-applied",
+    promotion: {
+      ...currentEntry.promotion,
+      verifiedAppliedAt,
+      applyReadinessStatus: options.applyReadinessStatus
+    }
+  };
+  const nextRegistry: DreamCandidateRegistry = {
+    version: registry.version,
+    updatedAt: verifiedAppliedAt,
+    entries: registry.entries.map((entry) =>
+      entry.candidateId === nextEntry.candidateId ? nextEntry : entry
+    )
+  };
+  await writeJsonFileAtomic(paths.registryFile, nextRegistry);
+  try {
+    await appendCandidateAuditEntry(paths, buildAuditEntry("manual-apply-verified", nextEntry));
+  } catch (error) {
+    await writeCandidateRecoveryRecord(paths, {
+      recordedAt: verifiedAppliedAt,
+      candidateId: nextEntry.candidateId,
+      failedStage: "candidate-audit-write",
+      failureMessage: error instanceof Error ? error.message : String(error),
+      registryPath: paths.registryFile
+    });
+    throw error;
+  }
+
+  return nextEntry;
+}
+
 export async function buildInstructionProposal(
   runtime: RuntimeContext,
   entry: DreamCandidateRecord,
   options: {
     targetFile?: string;
+    targetHost?: InstructionTargetHost;
   } = {}
 ) {
   const paths = buildDreamCandidatePaths(runtime);
   const artifactPath = buildProposalArtifactPath(paths, entry.candidateId);
-  const rankedTargets = await rankInstructionProposalTargets(runtime.project.projectRoot);
+  const rankedTargets = await rankInstructionProposalTargets(
+    runtime.project.projectRoot,
+    options.targetHost ?? "shared"
+  );
   const explicitTargetPath = options.targetFile
     ? path.resolve(runtime.project.projectRoot, options.targetFile)
     : undefined;
@@ -842,7 +901,8 @@ export async function buildInstructionProposal(
     );
   }
   const artifact = buildInstructionProposalArtifact(entry, rankedTargets, artifactPath, {
-    selectedTargetPath: resolvedExplicitTargetPath
+    selectedTargetPath: resolvedExplicitTargetPath,
+    targetHost: options.targetHost ?? "shared"
   });
 
   try {
@@ -909,4 +969,97 @@ export async function readInstructionProposalArtifact(
   }
 
   return artifact;
+}
+
+export async function buildInstructionReviewLane(
+  runtime: RuntimeContext,
+  options: {
+    cwd?: string;
+  } = {}
+): Promise<InstructionReviewLane> {
+  const instructionLayer = await discoverInstructionLayer(runtime.project.projectRoot);
+  const dreamCandidates = await listDreamCandidates(runtime);
+  const instructionCandidates = dreamCandidates.entries.filter(
+    (entry) => entry.targetSurface === "instruction-memory"
+  );
+  const latestInstructionProposalCandidate = getLatestDreamProposalCandidate(dreamCandidates.entries);
+  const commandCwd = options.cwd ?? runtime.project.projectRoot;
+  const latestProposalArtifact =
+    latestInstructionProposalCandidate !== null
+      ? await readInstructionProposalArtifact(runtime, latestInstructionProposalCandidate.candidateId).catch(
+          () => null
+        )
+      : null;
+  const resolvedApplyReadinessStatus =
+    latestInstructionProposalCandidate?.promotion.applyReadinessStatus ??
+    latestProposalArtifact?.applyReadiness.status ??
+    null;
+
+  return {
+    queueSummary: buildDreamQueueSummary(instructionCandidates),
+    pendingInstructionCandidateCount: instructionCandidates.filter((entry) => entry.status === "pending").length,
+    approvedInstructionCandidateCount: instructionCandidates.filter((entry) => entry.status === "approved").length,
+    manualApplyPendingInstructionCandidateCount: instructionCandidates.filter(
+      (entry) => entry.status === "manual-apply-pending"
+    ).length,
+    blockedSubagentInstructionCandidateCount: instructionCandidates.filter(
+      (entry) => entry.status === "blocked" && entry.originKind === "subagent"
+    ).length,
+    latestCandidateId: latestInstructionProposalCandidate?.candidateId ?? null,
+    latestProposalArtifactPath: latestInstructionProposalCandidate
+      ? getDreamCandidateProposalArtifactPath(latestInstructionProposalCandidate)
+      : null,
+    selectedTargetFile:
+      latestInstructionProposalCandidate?.promotion.selectedTargetFile ??
+      latestProposalArtifact?.selectedTarget.path ??
+      null,
+    selectedTargetKind:
+      latestInstructionProposalCandidate?.promotion.selectedTargetKind ??
+      latestProposalArtifact?.selectedTarget.kind ??
+      null,
+    targetHost:
+      latestInstructionProposalCandidate?.promotion.targetHost ??
+      latestProposalArtifact?.targetHost ??
+      null,
+    applyReadinessStatus: resolvedApplyReadinessStatus,
+    candidateRecoveryPath: dreamCandidates.recoveryPath,
+    detectedInstructionTargets: instructionLayer.detectedFiles.map((file) => file.path),
+    recommendedReviewCommand: buildResolvedCliCommand("dream candidates --json", {
+      cwd: commandCwd
+    }),
+    recommendedInspectCommand:
+      latestInstructionProposalCandidate !== null
+        ? buildResolvedCliCommand(
+            `dream proposal --candidate-id ${latestInstructionProposalCandidate.candidateId} --json`,
+            {
+              cwd: commandCwd
+            }
+          )
+        : buildResolvedCliCommand("dream candidates --json", {
+            cwd: commandCwd
+          }),
+    recommendedApplyPrepCommand:
+      latestInstructionProposalCandidate !== null
+        ? buildResolvedCliCommand(
+            `dream apply-prep --candidate-id ${latestInstructionProposalCandidate.candidateId} --json`,
+            {
+              cwd: commandCwd
+            }
+          )
+        : buildResolvedCliCommand("dream candidates --json", {
+            cwd: commandCwd
+          }),
+    recommendedVerifyApplyCommand:
+      latestInstructionProposalCandidate !== null &&
+      resolvedApplyReadinessStatus === "safe"
+        ? buildResolvedCliCommand(
+            `dream verify-apply --candidate-id ${latestInstructionProposalCandidate.candidateId} --json`,
+            {
+              cwd: commandCwd
+            }
+          )
+        : buildResolvedCliCommand("dream candidates --json", {
+            cwd: commandCwd
+          })
+  };
 }

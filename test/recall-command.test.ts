@@ -2118,6 +2118,96 @@ describe("runRecall", () => {
         })
       ])
     );
+    expect(response.querySurfacing.instructionReviewLane).toMatchObject({
+      latestCandidateId: null,
+      latestProposalArtifactPath: null,
+      selectedTargetFile: null,
+      targetHost: null
+    });
+  });
+
+  it("surfaces instruction review lane hints during recall search when a proposal artifact is pending", async () => {
+    const homeDir = await tempDir("cam-recall-instruction-lane-home-");
+    const projectDir = await tempDir("cam-recall-instruction-lane-project-");
+    const memoryRoot = await tempDir("cam-recall-instruction-lane-memory-");
+    process.env.HOME = homeDir;
+
+    const projectConfig = makeAppConfig({
+      dreamSidecarEnabled: true
+    });
+    await writeCamConfig(projectDir, projectConfig, {
+      autoMemoryDirectory: memoryRoot,
+      dreamSidecarEnabled: true
+    });
+    await fs.writeFile(path.join(projectDir, "AGENTS.md"), "# Repo rules\n", "utf8");
+
+    const rolloutPath = path.join(projectDir, "instruction-rollout.jsonl");
+    await fs.writeFile(
+      rolloutPath,
+      makeRolloutFixture(projectDir, "Always run pnpm lint before pnpm build."),
+      "utf8"
+    );
+
+    await runDream("build", {
+      cwd: projectDir,
+      rollout: rolloutPath,
+      json: true
+    });
+    const candidatePayload = JSON.parse(
+      await runDream("candidates", {
+        cwd: projectDir,
+        json: true
+      })
+    ) as {
+      entries: Array<{ candidateId: string; targetSurface: string }>;
+    };
+    const instructionCandidate = candidatePayload.entries.find(
+      (entry) => entry.targetSurface === "instruction-memory"
+    );
+    expect(instructionCandidate).toBeDefined();
+
+    await runDream("review", {
+      cwd: projectDir,
+      candidateId: instructionCandidate!.candidateId,
+      approve: true,
+      json: true
+    });
+    await runDream("promote-prep", {
+      cwd: projectDir,
+      candidateId: instructionCandidate!.candidateId,
+      json: true
+    });
+
+    const result = runCli(projectDir, ["recall", "search", "pnpm", "--json"]);
+    expect(result.exitCode).toBe(0);
+
+    const response = JSON.parse(result.stdout) as MemorySearchResponse & {
+      querySurfacing: {
+        instructionReviewLane: {
+          latestCandidateId: string | null;
+          latestProposalArtifactPath: string | null;
+          selectedTargetFile: string | null;
+          selectedTargetKind: string | null;
+          targetHost: string | null;
+          applyReadinessStatus: string | null;
+          recommendedInspectCommand: string;
+          recommendedApplyPrepCommand: string;
+        };
+      };
+    };
+
+    expect(response.querySurfacing.instructionReviewLane).toMatchObject({
+      latestCandidateId: instructionCandidate!.candidateId,
+      latestProposalArtifactPath: expect.stringContaining(
+        `${path.sep}dream${path.sep}review${path.sep}proposals${path.sep}`
+      ),
+      selectedTargetFile: expect.stringContaining(`${path.sep}AGENTS.md`),
+      selectedTargetKind: "agents-root",
+      targetHost: "shared",
+      applyReadinessStatus: "safe",
+      recommendedInspectCommand: expect.stringContaining("dream proposal --candidate-id"),
+      recommendedApplyPrepCommand: expect.stringContaining("dream apply-prep --candidate-id")
+    });
   });
 
   it("keeps recall search read-only even when dream auto-build is enabled", async () => {

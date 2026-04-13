@@ -1,6 +1,22 @@
-import { describe, expect, it } from "vitest";
+import fs from "node:fs/promises";
+import os from "node:os";
+import path from "node:path";
+import { afterEach, describe, expect, it } from "vitest";
 import { buildInstructionProposalArtifact } from "../src/lib/domain/instruction-proposal.js";
+import { rankInstructionProposalTargets } from "../src/lib/domain/instruction-memory.js";
 import type { DreamCandidateRecord, InstructionProposalTarget } from "../src/lib/types.js";
+
+const tempDirs: string[] = [];
+
+async function tempDir(prefix: string): Promise<string> {
+  const dir = await fs.mkdtemp(path.join(os.tmpdir(), prefix));
+  tempDirs.push(dir);
+  return dir;
+}
+
+afterEach(async () => {
+  await Promise.all(tempDirs.splice(0).map((dir) => fs.rm(dir, { recursive: true, force: true })));
+});
 
 function makeCandidate(overrides: Partial<DreamCandidateRecord> = {}): DreamCandidateRecord {
   return {
@@ -29,6 +45,39 @@ function makeCandidate(overrides: Partial<DreamCandidateRecord> = {}): DreamCand
 }
 
 describe("instruction proposal artifact", () => {
+  it("ranks instruction targets with host-aware policy before falling back to shared order", async () => {
+    const projectDir = await tempDir("cam-instruction-targets-");
+    await fs.writeFile(path.join(projectDir, "AGENTS.md"), "# Repo rules\n", "utf8");
+    await fs.writeFile(path.join(projectDir, "CLAUDE.md"), "# Claude rules\n", "utf8");
+    await fs.writeFile(path.join(projectDir, "GEMINI.md"), "# Gemini rules\n", "utf8");
+
+    const claudeTargets = await rankInstructionProposalTargets(projectDir, "claude");
+    const codexTargets = await rankInstructionProposalTargets(projectDir, "codex");
+    const geminiTargets = await rankInstructionProposalTargets(projectDir, "gemini");
+    const sharedTargets = await rankInstructionProposalTargets(projectDir, "shared");
+
+    expect(claudeTargets.slice(0, 3).map((target) => target.kind)).toEqual([
+      "claude-project",
+      "claude-hidden",
+      "agents-root"
+    ]);
+    expect(codexTargets.slice(0, 3).map((target) => target.kind)).toEqual([
+      "agents-root",
+      "claude-project",
+      "claude-hidden"
+    ]);
+    expect(geminiTargets.slice(0, 3).map((target) => target.kind)).toEqual([
+      "gemini-project",
+      "gemini-hidden",
+      "agents-root"
+    ]);
+    expect(sharedTargets.slice(0, 3).map((target) => target.kind)).toEqual([
+      "agents-root",
+      "claude-project",
+      "claude-hidden"
+    ]);
+  });
+
   it("builds a safe create-file bundle for a missing instruction target", () => {
     const artifact = buildInstructionProposalArtifact(
       makeCandidate(),

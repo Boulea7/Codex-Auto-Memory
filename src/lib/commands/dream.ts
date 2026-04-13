@@ -13,6 +13,7 @@ import {
   getDreamCandidateProposalArtifactPath,
   getLatestDreamProposalCandidate,
   listDreamCandidates,
+  markDreamCandidateManualApplied,
   markDreamCandidateApplyPrepared,
   markDreamCandidatePrepared,
   markDreamCandidatePromoted,
@@ -29,6 +30,7 @@ import type {
   DreamCandidateOriginKind,
   DreamCandidateStatus,
   DreamCandidateTargetSurface,
+  InstructionTargetHost,
   SessionContinuityScope
 } from "../types.js";
 
@@ -38,9 +40,11 @@ type DreamAction =
   | "candidates"
   | "review"
   | "adopt"
+  | "proposal"
   | "promote"
   | "promote-prep"
-  | "apply-prep";
+  | "apply-prep"
+  | "verify-apply";
 
 interface DreamOptions {
   cwd?: string;
@@ -58,12 +62,14 @@ interface DreamOptions {
   topic?: string;
   id?: string;
   targetFile?: string;
+  targetHost?: InstructionTargetHost;
 }
 
 const dreamCandidateStatuses = [
   "pending",
   "approved",
   "manual-apply-pending",
+  "manual-applied",
   "rejected",
   "promoted",
   "stale",
@@ -73,6 +79,7 @@ const dreamCandidateStatuses = [
 const dreamCandidateTargetSurfaces = ["durable-memory", "instruction-memory"] as const;
 
 const dreamCandidateOriginKinds = ["primary", "subagent"] as const;
+const instructionTargetHosts = ["codex", "claude", "gemini", "shared"] as const;
 
 function selectedScope(scope?: SessionContinuityScope | "both"): SessionContinuityScope | "both" {
   if (!scope) {
@@ -131,6 +138,16 @@ function normalizeDreamOriginKind(value?: string): DreamCandidateOriginKind | un
   throw new Error(`Dream origin kind must be one of: ${dreamCandidateOriginKinds.join(", ")}.`);
 }
 
+function normalizeInstructionTargetHost(value?: string): InstructionTargetHost | undefined {
+  if (!value) {
+    return undefined;
+  }
+  if (instructionTargetHosts.includes(value as InstructionTargetHost)) {
+    return value as InstructionTargetHost;
+  }
+  throw new Error(`Dream target host must be one of: ${instructionTargetHosts.join(", ")}.`);
+}
+
 function digest(value: string): string {
   return createHash("sha256").update(value).digest("hex");
 }
@@ -172,12 +189,31 @@ async function buildDreamReviewerPayload(
     !entry
       ? latestProposalCandidate
         ? [
-            buildResolvedCliCommand(
-              `dream apply-prep --candidate-id ${latestProposalCandidate.candidateId} --json`,
-              {
-                cwd: runtime.project.projectRoot
-              }
-            ),
+            ...(latestProposalCandidate.promotion.applyReadinessStatus === "safe"
+              ? [
+                  buildResolvedCliCommand(
+                    `dream apply-prep --candidate-id ${latestProposalCandidate.candidateId} --json`,
+                    {
+                      cwd: runtime.project.projectRoot
+                    }
+                  ),
+                  buildResolvedCliCommand(
+                    `dream verify-apply --candidate-id ${latestProposalCandidate.candidateId} --json`,
+                    {
+                      cwd: runtime.project.projectRoot
+                    }
+                  )
+                ]
+              : latestProposalCandidate.promotion.applyReadinessStatus === "blocked"
+                ? [
+                    buildResolvedCliCommand(
+                      `dream promote-prep --candidate-id ${latestProposalCandidate.candidateId} --json`,
+                      {
+                        cwd: runtime.project.projectRoot
+                      }
+                    )
+                  ]
+                : []),
             ...helperCommands
           ]
         : helperCommands
@@ -204,11 +240,27 @@ async function buildDreamReviewerPayload(
             ...(getDreamCandidateProposalArtifactPath(entry)
               ? [
                   buildResolvedCliCommand(
+                    `dream proposal --candidate-id ${entry.candidateId} --json`,
+                    {
+                      cwd: runtime.project.projectRoot
+                    }
+                  ),
+                  buildResolvedCliCommand(
                     `dream apply-prep --candidate-id ${entry.candidateId} --json`,
                     {
                       cwd: runtime.project.projectRoot
                     }
-                  )
+                  ),
+                  ...(entry.promotion.applyReadinessStatus === "safe"
+                    ? [
+                        buildResolvedCliCommand(
+                          `dream verify-apply --candidate-id ${entry.candidateId} --json`,
+                          {
+                            cwd: runtime.project.projectRoot
+                          }
+                        )
+                      ]
+                    : [])
                 ]
               : [])
           ]
@@ -404,6 +456,44 @@ export async function runDream(
     ].join("\n");
   }
 
+  if (action === "proposal") {
+    if (!options.candidateId) {
+      throw new Error("Dream proposal requires --candidate-id.");
+    }
+
+    const candidate = await getDreamCandidate(runtime, options.candidateId);
+    if (candidate.entry.targetSurface !== "instruction-memory") {
+      throw new Error(`Dream candidate "${options.candidateId}" does not target instruction memory.`);
+    }
+
+    const instructionProposal = await readInstructionProposalArtifact(runtime, options.candidateId);
+    const reviewerPayload = await buildDreamReviewerPayload(runtime, candidate.entry);
+    if (options.json) {
+      return JSON.stringify(
+        {
+          action: "proposal",
+          entry: candidate.entry,
+          instructionProposal,
+          registryPath: candidate.registryPath,
+          auditPath: candidate.auditPath,
+          recoveryPath: candidate.recoveryPath,
+          reviewerSummary: reviewerPayload.reviewerSummary,
+          nextRecommendedActions: reviewerPayload.nextRecommendedActions,
+          helperCommands: reviewerPayload.helperCommands
+        },
+        null,
+        2
+      );
+    }
+
+    return [
+      `Instruction proposal for ${candidate.entry.candidateId}`,
+      `Target: ${instructionProposal.selectedTarget.path}`,
+      `Readiness: ${instructionProposal.applyReadiness.status}`,
+      `Artifact: ${instructionProposal.artifactPath}`
+    ].join("\n");
+  }
+
   if (action === "promote-prep") {
     if (!options.candidateId) {
       throw new Error("Dream promote-prep requires --candidate-id.");
@@ -420,7 +510,8 @@ export async function runDream(
 
     if (candidate.entry.targetSurface === "instruction-memory") {
       const instructionProposal = await buildInstructionProposal(runtime, candidate.entry, {
-        targetFile: options.targetFile
+        targetFile: options.targetFile,
+        targetHost: normalizeInstructionTargetHost(options.targetHost) ?? "shared"
       });
       const preparedEntry = await markDreamCandidatePrepared(runtime, options.candidateId, {
         previewDigest: instructionProposal.artifact.patchPlan?.diffDigestSha256 ?? instructionProposal.patchDigest,
@@ -588,6 +679,67 @@ export async function runDream(
     ].join("\n");
   }
 
+  if (action === "verify-apply") {
+    if (!options.candidateId) {
+      throw new Error("Dream verify-apply requires --candidate-id.");
+    }
+
+    const candidate = await getDreamCandidate(runtime, options.candidateId);
+    if (candidate.entry.targetSurface !== "instruction-memory") {
+      throw new Error(`Dream candidate "${options.candidateId}" does not target instruction memory.`);
+    }
+    if (candidate.entry.status !== "manual-apply-pending") {
+      throw new Error(
+        `Dream candidate "${options.candidateId}" must be manual-apply-pending before verify-apply.`
+      );
+    }
+
+    const instructionProposal = await readInstructionProposalArtifact(runtime, options.candidateId);
+    const targetPath = instructionProposal.selectedTarget.path;
+    const targetExists = await fileExists(targetPath);
+    if (!targetExists) {
+      throw new Error(`Dream verify-apply could not find target file "${targetPath}".`);
+    }
+    const currentContents = await readTextFile(targetPath);
+    const normalizedCurrentContents = currentContents.replace(/\r\n/g, "\n").replace(/\r/g, "\n");
+    const normalizedGuidanceBlock = instructionProposal.guidanceBlock
+      .replace(/\r\n/g, "\n")
+      .replace(/\r/g, "\n");
+    if (!normalizedCurrentContents.includes(normalizedGuidanceBlock)) {
+      throw new Error(
+        `Dream verify-apply could not confirm that "${targetPath}" contains the current proposal artifact block.`
+      );
+    }
+
+    const updatedEntry = await markDreamCandidateManualApplied(runtime, options.candidateId, {
+      applyReadinessStatus: "safe"
+    });
+    const reviewerPayload = await buildDreamReviewerPayload(runtime, updatedEntry);
+    if (options.json) {
+      return JSON.stringify(
+        {
+          action: "verify-apply",
+          entry: updatedEntry,
+          instructionProposal,
+          registryPath: candidate.registryPath,
+          auditPath: candidate.auditPath,
+          recoveryPath: candidate.recoveryPath,
+          reviewerSummary: reviewerPayload.reviewerSummary,
+          nextRecommendedActions: reviewerPayload.nextRecommendedActions,
+          helperCommands: reviewerPayload.helperCommands
+        },
+        null,
+        2
+      );
+    }
+
+    return [
+      `Verified manual apply for ${updatedEntry.candidateId}`,
+      `Target: ${targetPath}`,
+      `Status: ${updatedEntry.status}`
+    ].join("\n");
+  }
+
   if (action === "promote") {
     if (!options.candidateId) {
       throw new Error("Dream promote requires --candidate-id.");
@@ -607,13 +759,15 @@ export async function runDream(
 
     if (candidate.entry.targetSurface === "instruction-memory") {
       const instructionProposal = await buildInstructionProposal(runtime, candidate.entry, {
-        targetFile: options.targetFile
+        targetFile: options.targetFile,
+        targetHost: normalizeInstructionTargetHost(options.targetHost) ?? "shared"
       });
       const nextEntry = await markDreamCandidatePromoted(runtime, options.candidateId, {
         outcome: "proposal-only",
         proposalArtifactPath: instructionProposal.artifact.artifactPath,
         selectedTargetFile: instructionProposal.artifact.selectedTarget.path,
         selectedTargetKind: instructionProposal.artifact.selectedTarget.kind,
+        targetHost: instructionProposal.artifact.targetHost,
         guidanceDigest: instructionProposal.guidanceDigest,
         patchDigest: instructionProposal.patchDigest
       });
