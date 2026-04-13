@@ -28,6 +28,7 @@
   - `querySurfacing`
   - `querySurfacing.suggestedDreamRefs`
   - `querySurfacing.suggestedInstructionFiles`
+  - `querySurfacing.suggestedTeamEntries`
 
 ## Dream Sidecar Contract
 
@@ -45,13 +46,14 @@
 - promotion candidates 继续保持 pending：
   - `instructionLikeCandidates`
   - `durableMemoryCandidates`
-- reviewer 命令面继续朝 `cam dream candidates` / `cam dream review` / `cam dream promote` 收口：
-  - candidates 负责列出 sidecar 中待审条目
+- reviewer 命令面继续朝 `cam dream candidates` / `cam dream review` / `cam dream adopt` / `cam dream promote-prep` / `cam dream promote` / `cam dream apply-prep` 收口：
+  - candidates 负责列出 sidecar 中待审条目，其中 subagent candidates 默认先 blocked
   - review 负责做 reviewer-facing inspection
   - `cam dream adopt` 会把 blocked subagent candidate 提升进 primary review lane，但不会直接写 durable memory
-  - `cam dream promote-prep` 负责给 approved candidate 做只读预演，不改 canonical memory
+  - `cam dream promote-prep` 负责给 approved candidate 做只读预演，不改 canonical memory；instruction-like prep 仍保持 `proposal-only`
   - durable-memory candidate 的 `promote` 只会通过现有 reviewer/audit 路径显式写入 canonical memory
-  - instruction-like candidate 的 `promote` 继续保持 `proposal-only`，不直接写 instruction files，而是返回结构化 proposal artifact（target ranking、guidance block、patch preview）
+  - instruction-like candidate 的 `promote` 继续保持 `proposal-only`，不直接写 instruction files，而是返回结构化 proposal bundle（target ranking、guidance block、patch preview、artifact path）
+  - `cam dream apply-prep` 负责把 instruction-like proposal bundle 整理成 manual-apply 准备产物，继续保持 `proposal-only`，永不自动改 instruction files
 
 ## Round 2 增量
 
@@ -66,12 +68,19 @@
   - blocked subagent candidate 需要先 `cam dream adopt`
   - adopt 之后仍然要走 `review --approve`
   - `cam dream promote-prep` 只预演 lifecycle / target，不写 Markdown canonical store
+  - `cam dream apply-prep` 只整理 proposal bundle / manual apply 提示，不写 instruction files
 - instruction-like lane 继续保持 `proposal-only`，但 payload 更完整：
   - `selectedTarget`
   - `rankedTargets`
   - `guidanceBlock`
   - `patchPreview`
   - `artifactPath`
+  - `proposalBundle`
+
+## Wrapper startup alignment
+
+- wrapper startup 的公开顺序现在统一为 `continuity -> instruction files -> dream refs -> top durable refs -> team/shared refs`
+- 其中 `team/shared refs` 仍然是 read-only、non-canonical 的 reviewer hints，不会变成第二真相层
 
 ## 这轮明确不做的事
 
@@ -98,3 +107,5 @@
 5. `pnpm test:dist-cli-smoke`
 6. `pnpm pack:check`
 7. `pnpm test:tarball-install-smoke`
+
+注意：`pnpm test:dist-cli-smoke` 与 `pnpm test:tarball-install-smoke` 必须串行执行，避免 `prepack -> rimraf dist` 造成假阴性。

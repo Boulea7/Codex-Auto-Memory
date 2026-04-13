@@ -541,6 +541,104 @@ describe("runMemory", () => {
     });
   });
 
+  it("surfaces instruction review lane summaries when proposal artifacts exist", async () => {
+    const homeDir = await tempDir("cam-memory-instruction-lane-home-");
+    const projectDir = await tempDir("cam-memory-instruction-lane-project-");
+    const memoryRoot = await tempDir("cam-memory-instruction-lane-memory-");
+    process.env.HOME = homeDir;
+
+    await fs.writeFile(path.join(projectDir, "AGENTS.md"), "# Repo rules\n", "utf8");
+    await writeCamConfig(
+      projectDir,
+      makeAppConfig({
+        dreamSidecarEnabled: true
+      }),
+      {
+        autoMemoryDirectory: memoryRoot,
+        dreamSidecarEnabled: true
+      }
+    );
+
+    const rolloutPath = path.join(projectDir, "instruction-rollout.jsonl");
+    await fs.writeFile(
+      rolloutPath,
+      [
+        JSON.stringify({
+          type: "session_meta",
+          payload: {
+            id: "session-memory-instruction-lane",
+            timestamp: "2026-03-15T00:00:00.000Z",
+            cwd: projectDir
+          }
+        }),
+        JSON.stringify({
+          type: "event_msg",
+          payload: {
+            type: "user_message",
+            message: "Always run pnpm lint before pnpm build."
+          }
+        })
+      ].join("\n"),
+      "utf8"
+    );
+
+    await runDream("build", {
+      cwd: projectDir,
+      rollout: rolloutPath,
+      json: true
+    });
+    const candidatePayload = JSON.parse(
+      await runDream("candidates", {
+        cwd: projectDir,
+        json: true
+      })
+    ) as {
+      entries: Array<{ candidateId: string; targetSurface: string }>;
+    };
+    const instructionCandidate = candidatePayload.entries.find(
+      (entry) => entry.targetSurface === "instruction-memory"
+    );
+    expect(instructionCandidate).toBeDefined();
+    await runDream("review", {
+      cwd: projectDir,
+      candidateId: instructionCandidate!.candidateId,
+      approve: true,
+      json: true
+    });
+    await runDream("promote", {
+      cwd: projectDir,
+      candidateId: instructionCandidate!.candidateId,
+      json: true
+    });
+
+    const output = JSON.parse(
+      await runMemory({
+        cwd: projectDir,
+        json: true
+      })
+    ) as MemoryCommandOutput & {
+      instructionReviewLane?: {
+        queueSummary: {
+          totalCount: number;
+        };
+        approvedInstructionCandidateCount: number;
+        latestProposalArtifactPath: string | null;
+        detectedInstructionTargets: string[];
+      };
+    };
+
+    expect(output.instructionReviewLane).toMatchObject({
+      queueSummary: {
+        totalCount: expect.any(Number)
+      },
+      approvedInstructionCandidateCount: 1,
+      latestProposalArtifactPath: expect.stringContaining(
+        `${path.sep}dream${path.sep}review${path.sep}proposals${path.sep}`
+      ),
+      detectedInstructionTargets: [expect.stringContaining(`${path.sep}AGENTS.md`)]
+    });
+  });
+
   it("keeps json recent sync audit raw while compacting repeated sync events in text output", async () => {
     const homeDir = await tempDir("cam-memory-compact-home-");
     const projectDir = await tempDir("cam-memory-compact-project-");

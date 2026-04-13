@@ -71,9 +71,10 @@
 - 本轮已经新增 `instruction memory` / `learned durable memory` 的 reviewer 分层：前者只做发现与解释，不进入 canonical durable mutation；后者继续由 `cam sync` / `cam remember` / `cam forget` 管理
 - `MEMORY.md` 现在进一步收紧为 `index-only`：latest summary preview 不再回写进 index，startup usefulness 继续由 `highlights` block 与 topic refs 提供
 - 当前还新增了最小可用 `dream sidecar`：`cam dream build` / `cam dream inspect` 会写入可审计的 JSON sidecar，用于 continuity compaction、query-time relevant refs 和 pending promotion candidates，但不会直接改 canonical Markdown memory
-- `cam session status/load --json` 现在还会额外暴露 additive `resumeContext`，包括当前 goal、`suggestedDurableRefs` 与 instruction files；这是一层 resume surfacing，不是 durable mutation
-- `cam recall search --json` 现在还会额外暴露 additive `querySurfacing`，包括 `suggestedDreamRefs` 与 `suggestedInstructionFiles`；它们只做 query-time reviewer hints，不会改动 `results[]`
-- dream reviewer lane 会继续收口到 `cam dream candidates` / `cam dream review` / `cam dream promote`；其中 durable-memory candidate 的 `promote` 会通过现有 reviewer/audit 路径显式写入 canonical memory，而 instruction-like candidate 继续保持 `proposal-only`，不会直接写 instruction files
+- `cam session status/load --json` 现在还会额外暴露 additive `resumeContext`，包括当前 goal、`suggestedDurableRefs`、instruction files 与 read-only `suggestedTeamEntries`；这是一层 resume surfacing，不是 durable mutation
+- wrapper startup 的公开顺序现在统一为 `continuity -> instruction files -> dream refs -> top durable refs -> team/shared refs`
+- `cam recall search --json` 现在还会额外暴露 additive `querySurfacing`，包括 `suggestedDreamRefs`、`suggestedInstructionFiles` 与 `suggestedTeamEntries`；它们只做 query-time reviewer hints，不会改动 `results[]`
+- dream reviewer lane 会继续收口到 `cam dream candidates` / `cam dream review` / `cam dream adopt` / `cam dream promote-prep` / `cam dream promote` / `cam dream apply-prep`；其中 subagent candidate 默认先 blocked，需显式 `adopt`；durable-memory candidate 的 `promote` 会通过现有 reviewer/audit 路径显式写入 canonical memory，而 instruction-like candidate 的 `promote` / `promote-prep` / `apply-prep` 继续保持 `proposal-only`，不会直接写 instruction files，只会返回 proposal bundle 与 manual-apply 准备信息
 - `cam integrations apply --json` 现在也会显式暴露 `postApplyReadinessCommand`，把“apply 之后该回哪条 doctor 命令确认 route”提升成 machine-readable contract
 - startup recall 仍保持 Markdown-first 和 line-budget discipline，但现在会额外注入少量 active-only content highlights；它不是 topic body dump，也不会让 archived memory 重新参与默认 startup recall
 - `cam memory --json` 现在还会额外暴露 `highlightCount`、`omittedHighlightCount`、`highlightsByScope`、`startupSectionsRendered`、`startupOmissions`、`startupOmissionCounts` 与新的 `layoutDiagnostics`，让 reviewer 能直接看到 startup highlights 是否被 budget 裁掉、哪些 startup section 真正进入了 payload，以及 canonical Markdown layout 是否出现异常
@@ -85,7 +86,8 @@
 - 当前官方 Codex skills discovery 文档以 `.agents/skills` 为准；本仓 runtime 仍兼容 `.codex/skills` / `CODEX_HOME`，但它更适合作为 runtime / historical compatibility surface，而不是新的官方 canonical path
 - `cam recall search` 的多词查询现在会跨 `id/topic/summary/details` 聚合命中，不再要求所有 term 都落在同一字段；startup highlights 也会跨 scope 去重相同 summary，减少低信号重复项挤占 startup budget
 - `cam integrations apply --host codex` 现在会在 AGENTS apply late-block 或 staged write failure 时回滚已写入的 project-scoped MCP wiring、hook bundle 与 skill assets，降低半成功状态
-- session / recall / dream 三条 reviewer 面现在要一起看：`resumeContext` 负责 resume surfacing，`querySurfacing` 负责 query-time surfacing，而 instruction-like dream promote 继续保持 `proposal-only`
+- session / recall / dream 三条 reviewer 面现在要一起看：`resumeContext` 负责 resume surfacing，`querySurfacing` 负责 query-time surfacing，而 instruction-like dream `promote/prep/apply-prep` 继续保持 `proposal-only`
+- release-facing 验证要继续保持 `dist-cli-smoke` 与 `tarball-install-smoke` 串行执行，避免打包阶段清理 `dist/` 时制造假阴性
 
 ## 语言策略
 

@@ -246,9 +246,10 @@ ${buildSharedWorkflowDisciplineLines(projectRoot ? { cwd: projectRoot } : {})
 function buildPostWorkMemoryReviewScript(projectRoot?: string): string {
   return `#!/bin/sh
 ${buildShellAssetVersionComment()}
-# Sync the latest durable memory updates, then show the recent audit surface for review.
+# Sync the latest durable memory updates, review the recent durable audit surface, then show the current dream queue.
 ${buildProjectRootResolutionBlock(projectRoot)}${buildResolvedPostWorkSyncCommand()} --cwd "$PROJECT_ROOT" "$@" || exit $?
-exec ${buildResolvedPostWorkRecentReviewCommand()} --cwd "$PROJECT_ROOT"
+${buildResolvedPostWorkRecentReviewCommand()} --cwd "$PROJECT_ROOT" || exit $?
+exec ${buildResolvedCliCommand("dream candidates")} --cwd "$PROJECT_ROOT"
 `;
 }
 
@@ -366,7 +367,12 @@ ${buildProjectRootResolutionBlock(context.projectRoot)}${buildResolvedCliCommand
     executable: true,
     role: "capture-helper",
     doctorVisible: true,
-    doctorSignatures: ['PROJECT_ROOT="${CAM_PROJECT_ROOT:-$PWD}"', ' sync --cwd "$PROJECT_ROOT"', ' memory --recent --cwd "$PROJECT_ROOT"'],
+    doctorSignatures: [
+      'PROJECT_ROOT="${CAM_PROJECT_ROOT:-$PWD}"',
+      ' sync --cwd "$PROJECT_ROOT"',
+      ' memory --recent --cwd "$PROJECT_ROOT"',
+      ' dream candidates --cwd "$PROJECT_ROOT"'
+    ],
     renderContents: (context) => buildPostWorkMemoryReviewScript(context.projectRoot)
   },
   {

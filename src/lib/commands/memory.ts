@@ -4,8 +4,14 @@ import { buildCompactHistoryPreview } from "../domain/reviewer-history.js";
 import { openPath } from "../util/open.js";
 import { compileStartupMemory } from "../domain/startup-memory.js";
 import { filterUnsafeTopicDiagnostics } from "../domain/memory-store.js";
+import {
+  buildDreamQueueSummary,
+  getLatestDreamProposalCandidate,
+  getDreamCandidateProposalArtifactPath,
+  listDreamCandidates
+} from "../domain/dream-candidates.js";
 import { discoverInstructionLayer } from "../domain/instruction-memory.js";
-import { ensureDreamSidecarFresh } from "../domain/dream-sidecar.js";
+import { inspectDreamSidecar } from "../domain/dream-sidecar.js";
 import type {
   ConfigScope,
   MemoryLayoutDiagnostic,
@@ -260,7 +266,12 @@ export async function runMemory(options: MemoryOptions = {}): Promise<string> {
     maxLines: runtime.loadedConfig.config.maxStartupLines
   };
   const instructionLayer = await discoverInstructionLayer(runtime.project.projectRoot);
-  const dreamInspection = await ensureDreamSidecarFresh(runtime);
+  const dreamInspection = await inspectDreamSidecar(runtime);
+  const dreamCandidates = await listDreamCandidates(runtime);
+  const instructionCandidates = dreamCandidates.entries.filter(
+    (entry) => entry.targetSurface === "instruction-memory"
+  );
+  const latestInstructionProposalCandidate = getLatestDreamProposalCandidate(dreamCandidates.entries);
   const refCountsByScope = {
     global: {
       startupFiles: startupFilesByScope.global.length,
@@ -334,6 +345,19 @@ export async function runMemory(options: MemoryOptions = {}): Promise<string> {
         maxLines: runtime.loadedConfig.config.maxStartupLines,
         sectionFlags: startup.sectionsRendered,
         omissionCounts: startup.omissionCounts
+      },
+      instructionReviewLane: {
+        queueSummary: buildDreamQueueSummary(instructionCandidates),
+        pendingInstructionCandidateCount: instructionCandidates.filter((entry) => entry.status === "pending").length,
+        approvedInstructionCandidateCount: instructionCandidates.filter((entry) => entry.status === "approved").length,
+        blockedSubagentInstructionCandidateCount: instructionCandidates.filter(
+          (entry) => entry.status === "blocked" && entry.originKind === "subagent"
+        ).length,
+        latestProposalArtifactPath: latestInstructionProposalCandidate
+          ? getDreamCandidateProposalArtifactPath(latestInstructionProposalCandidate)
+          : null,
+        candidateRecoveryPath: dreamCandidates.recoveryPath,
+        detectedInstructionTargets: instructionLayer.detectedFiles.map((file) => file.path)
       },
       dreamSidecar: dreamInspection.snapshots.project
     };

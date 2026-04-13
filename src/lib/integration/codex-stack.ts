@@ -393,7 +393,7 @@ export function buildCodexStackNotes(
     "Recommended route prefers project-scoped MCP, then local bridge recall helpers, then direct cam recall CLI usage.",
     `Recommended retrieval preset: ${workflowContract.recommendedPreset}.`,
     ...buildSharedWorkflowDisciplineLines(options).slice(2),
-    `When the local bridge bundle is installed, prefer \`${workflowContract.postWorkSyncReview.helperScript}\` to combine \`${workflowContract.resolvedPostWorkSyncReview.syncCommand}\` with \`${workflowContract.resolvedPostWorkSyncReview.reviewCommand}\`.`,
+    `When the local bridge bundle is installed, prefer \`${workflowContract.postWorkSyncReview.helperScript}\` to combine \`${workflowContract.resolvedPostWorkSyncReview.syncCommand}\`, \`${workflowContract.resolvedPostWorkSyncReview.reviewCommand}\`, and \`${workflowContract.resolvedPostWorkSyncReview.dreamReviewCommand}\`.`,
     `Run \`${buildResolvedCliCommand("mcp print-config --host codex", options)}\` to inspect the recommended project-scoped MCP wiring together with an AGENTS.md snippet for Codex agents.`,
     `Run \`${buildResolvedCliCommand("mcp apply-guidance --host codex", options)}\` to create or update the managed Codex Auto Memory block inside the repository-level AGENTS.md.`,
     "Codex skill readiness is guidance-only and does not replace executable hook fallback helpers.",

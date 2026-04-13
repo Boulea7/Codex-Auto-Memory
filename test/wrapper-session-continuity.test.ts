@@ -205,6 +205,24 @@ describe("runWrappedCodex with session continuity", () => {
       ["Use pnpm instead of npm in this repository."],
       "Manual note."
     );
+    await fs.writeFile(path.join(repoDir, "TEAM_MEMORY.md"), "# Team Memory\n", "utf8");
+    await fs.mkdir(path.join(repoDir, "team-memory"), { recursive: true });
+    await fs.writeFile(
+      path.join(repoDir, "team-memory", "workflow.md"),
+      [
+        "# Workflow",
+        "",
+        "<!-- cam:team-topic workflow -->",
+        "",
+        "## prefer-pnpm-shared",
+        '<!-- cam:team-entry {"id":"prefer-pnpm-shared","scopeHint":"project","updatedAt":"2026-03-15T00:00:00.000Z"} -->',
+        "Summary: Prefer pnpm from the shared workflow memory.",
+        "Details:",
+        "- Use pnpm across the shared project workflow.",
+        ""
+      ].join("\n"),
+      "utf8"
+    );
 
     await writeSessionRolloutFile(
       path.join(todayDir, "rollout-2026-03-15T00-00-00-000Z-existing.jsonl"),
@@ -244,6 +262,17 @@ describe("runWrappedCodex with session continuity", () => {
     expect(baseInstructionsArg).toContain("Dream refs:");
     expect(baseInstructionsArg).toContain("project:active:workflow:prefer-pnpm");
     expect(baseInstructionsArg).toContain("Top durable refs:");
+    expect(baseInstructionsArg).toContain("Read-only team memory hints (non-canonical):");
+    expect(baseInstructionsArg).toContain("Prefer pnpm from the shared workflow memory.");
+    expect(baseInstructionsArg!.indexOf("Instruction files:")).toBeLessThan(
+      baseInstructionsArg!.indexOf("Dream refs:")
+    );
+    expect(baseInstructionsArg!.indexOf("Dream refs:")).toBeLessThan(
+      baseInstructionsArg!.indexOf("Top durable refs:")
+    );
+    expect(baseInstructionsArg!.indexOf("Top durable refs:")).toBeLessThan(
+      baseInstructionsArg!.indexOf("Read-only team memory hints (non-canonical):")
+    );
   }, 30_000);
 
   it("auto-builds dream sidecar for wrapper startup when enabled", async () => {

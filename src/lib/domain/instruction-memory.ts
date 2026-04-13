@@ -1,6 +1,6 @@
 import path from "node:path";
 import type { InstructionMemoryFile, InstructionMemoryLayer, InstructionProposalTarget } from "../types.js";
-import { fileExists } from "../util/fs.js";
+import { fileExists, readTextFile } from "../util/fs.js";
 
 const instructionCandidates: Array<Pick<InstructionMemoryFile, "kind"> & { relativePath: string }> = [
   { kind: "agents-root", relativePath: "AGENTS.md" },
@@ -36,15 +36,17 @@ export async function discoverInstructionFiles(projectRoot: string): Promise<str
 
 export async function rankInstructionProposalTargets(
   projectRoot: string
-): Promise<InstructionProposalTarget[]> {
-  const rankedTargets: InstructionProposalTarget[] = [];
+): Promise<Array<InstructionProposalTarget & { currentContents?: string }>> {
+  const rankedTargets: Array<InstructionProposalTarget & { currentContents?: string }> = [];
 
   for (const candidate of instructionCandidates) {
     const candidatePath = path.join(projectRoot, candidate.relativePath);
+    const exists = await fileExists(candidatePath);
     rankedTargets.push({
       path: candidatePath,
       kind: candidate.kind,
-      exists: await fileExists(candidatePath)
+      exists,
+      ...(exists ? { currentContents: await readTextFile(candidatePath) } : {})
     });
   }
 

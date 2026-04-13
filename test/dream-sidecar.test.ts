@@ -406,6 +406,8 @@ describe("dream sidecar", () => {
     });
 
     const beforeInstructionPromote = await store.listEntries("project");
+    const agentsPath = path.join(repoDir, "AGENTS.md");
+    const beforeInstructionFile = await fs.readFile(agentsPath, "utf8");
     const promoteInstruction = JSON.parse(
       await runDream("promote", {
         cwd: repoDir,
@@ -419,18 +421,51 @@ describe("dream sidecar", () => {
         targetSurface: string;
       };
       instructionProposal?: {
+        schemaVersion: number;
         proposalOnly: boolean;
+        neverAutoEditsInstructionFiles: boolean;
+        artifactDir: string;
+        selectedTargetByPolicy: {
+          path: string;
+          kind: string;
+          exists: boolean;
+          selectionReason: string;
+        };
+        resolvedApplyTarget: {
+          path: string;
+          kind: string;
+          exists: boolean;
+        } | null;
         selectedTarget: {
           path: string;
           kind: string;
           exists: boolean;
           selectionReason: string;
         };
+        applyReadiness?: {
+          status: string;
+          recommendedOperation: string;
+        };
+        patchPlan?: {
+          operation: string;
+          anchor: string;
+          unifiedDiff: string;
+        } | null;
+        manualWorkflow?: {
+          summaryPath: string;
+          diffPath: string;
+          applyPrepPath: string;
+          nextRecommendedActions: string[];
+        };
         rankedTargets: Array<{
           path: string;
           kind: string;
           exists: boolean;
         }>;
+        managedBlock?: {
+          startMarker: string;
+          endMarker: string;
+        };
         guidanceBlock: string;
         patchPreview: string;
         artifactPath: string;
@@ -443,8 +478,20 @@ describe("dream sidecar", () => {
         targetSurface: "instruction-memory"
       },
       instructionProposal: {
-        proposalOnly: true
+        schemaVersion: 2,
+        proposalOnly: true,
+        neverAutoEditsInstructionFiles: true
       }
+    });
+    expect(promoteInstruction.instructionProposal?.selectedTargetByPolicy).toMatchObject({
+      path: expect.stringContaining(`${path.sep}AGENTS.md`),
+      kind: "agents-root",
+      exists: true
+    });
+    expect(promoteInstruction.instructionProposal?.resolvedApplyTarget).toMatchObject({
+      path: expect.stringContaining(`${path.sep}AGENTS.md`),
+      kind: "agents-root",
+      exists: true
     });
     expect(promoteInstruction.instructionProposal?.selectedTarget).toMatchObject({
       path: expect.stringContaining(`${path.sep}AGENTS.md`),
@@ -458,14 +505,187 @@ describe("dream sidecar", () => {
     expect(promoteInstruction.instructionProposal?.guidanceBlock).toContain(
       "Always run pnpm test before build"
     );
+    expect(promoteInstruction.instructionProposal?.managedBlock).toMatchObject({
+      startMarker: "<!-- codex-auto-memory:instruction-proposal:start -->",
+      endMarker: "<!-- codex-auto-memory:instruction-proposal:end -->"
+    });
+    expect(promoteInstruction.instructionProposal?.applyReadiness).toMatchObject({
+      status: "safe"
+    });
+    expect(promoteInstruction.instructionProposal?.patchPlan).toMatchObject({
+      operation: expect.stringMatching(/append-block|replace-block/),
+      unifiedDiff: expect.stringContaining("AGENTS.md")
+    });
+    expect(promoteInstruction.instructionProposal?.manualWorkflow?.diffPath).toContain(
+      `${path.sep}dream${path.sep}review${path.sep}proposals${path.sep}`
+    );
     expect(promoteInstruction.instructionProposal?.patchPreview).toContain("AGENTS.md");
     expect(promoteInstruction.instructionProposal?.artifactPath).toContain(
       `${path.sep}dream${path.sep}review${path.sep}proposals${path.sep}`
     );
     await expect(
+      fs.stat(promoteInstruction.instructionProposal!.artifactDir)
+    ).resolves.toBeDefined();
+    await expect(
       fs.stat(promoteInstruction.instructionProposal!.artifactPath)
     ).resolves.toBeDefined();
+    await expect(
+      fs.stat(promoteInstruction.instructionProposal!.manualWorkflow!.summaryPath)
+    ).resolves.toBeDefined();
+    await expect(
+      fs.stat(promoteInstruction.instructionProposal!.manualWorkflow!.diffPath)
+    ).resolves.toBeDefined();
+    expect(await fs.readFile(agentsPath, "utf8")).toBe(beforeInstructionFile);
     expect(await store.listEntries("project")).toEqual(beforeInstructionPromote);
+  });
+
+  it("supports apply-prep for instruction proposals and reports stale targets without editing files", async () => {
+    const homeDir = await tempDir("cam-dream-apply-prep-home-");
+    const repoDir = await tempDir("cam-dream-apply-prep-repo-");
+    const memoryRoot = await tempDir("cam-dream-apply-prep-memory-");
+    process.env.HOME = homeDir;
+    await initGitRepo(repoDir);
+    await fs.writeFile(path.join(repoDir, "AGENTS.md"), "# Repo rules\n", "utf8");
+    await writeCamConfig(
+      repoDir,
+      makeAppConfig({
+        dreamSidecarEnabled: true
+      }),
+      {
+        autoMemoryDirectory: memoryRoot,
+        dreamSidecarEnabled: true
+      }
+    );
+
+    const rolloutPath = path.join(repoDir, "instruction-rollout.jsonl");
+    await fs.writeFile(
+      rolloutPath,
+      makeRolloutFixture(repoDir, "Always run pnpm lint before pnpm build."),
+      "utf8"
+    );
+
+    await runDream("build", {
+      cwd: repoDir,
+      rollout: rolloutPath,
+      json: true
+    });
+
+    const candidatesPayload = JSON.parse(
+      await runDream("candidates", {
+        cwd: repoDir,
+        json: true
+      })
+    ) as {
+      entries: Array<{
+        candidateId: string;
+        targetSurface: string;
+      }>;
+    };
+    const instructionCandidate = candidatesPayload.entries.find(
+      (entry) => entry.targetSurface === "instruction-memory"
+    );
+    expect(instructionCandidate).toBeDefined();
+
+    await runDream("review", {
+      cwd: repoDir,
+      candidateId: instructionCandidate!.candidateId,
+      approve: true,
+      json: true
+    });
+    await runDream("promote", {
+      cwd: repoDir,
+      candidateId: instructionCandidate!.candidateId,
+      json: true
+    });
+
+    const beforeApplyPrepContents = await fs.readFile(path.join(repoDir, "AGENTS.md"), "utf8");
+    const applyPrepPayload = JSON.parse(
+      await runDream("apply-prep" as never, {
+        cwd: repoDir,
+        candidateId: instructionCandidate!.candidateId,
+        json: true
+      })
+    ) as {
+      action: string;
+      applyReadiness: {
+        status: string;
+      };
+      instructionProposal: {
+        neverAutoEditsInstructionFiles: boolean;
+      };
+    };
+    expect(applyPrepPayload).toMatchObject({
+      action: "apply-prep",
+      applyReadiness: {
+        status: "safe"
+      },
+      instructionProposal: {
+        neverAutoEditsInstructionFiles: true
+      }
+    });
+    expect(await fs.readFile(path.join(repoDir, "AGENTS.md"), "utf8")).toBe(beforeApplyPrepContents);
+
+    await fs.writeFile(path.join(repoDir, "AGENTS.md"), "# Repo rules\n\nManual drift.\n", "utf8");
+    const staleApplyPrepPayload = JSON.parse(
+      await runDream("apply-prep" as never, {
+        cwd: repoDir,
+        candidateId: instructionCandidate!.candidateId,
+        json: true
+      })
+    ) as {
+      applyReadiness: {
+        status: string;
+        staleReason?: string;
+      };
+      instructionProposal: {
+        applyReadiness: {
+          status: string;
+        };
+      };
+    };
+    expect(staleApplyPrepPayload.applyReadiness).toMatchObject({
+      status: "stale"
+    });
+    expect(staleApplyPrepPayload.applyReadiness.staleReason).toBeTruthy();
+    expect(staleApplyPrepPayload.instructionProposal.applyReadiness).toMatchObject({
+      status: "stale"
+    });
+    const staleCandidatesPayload = JSON.parse(
+      await runDream("candidates", {
+        cwd: repoDir,
+        json: true
+      })
+    ) as {
+      entries: Array<{
+        candidateId: string;
+        promotion: {
+          applyReadinessStatus?: string;
+        };
+      }>;
+    };
+    expect(
+      staleCandidatesPayload.entries.find((entry) => entry.candidateId === instructionCandidate!.candidateId)
+    ).toMatchObject({
+      promotion: {
+        applyReadinessStatus: "stale"
+      }
+    });
+
+    await fs.writeFile(path.join(repoDir, "AGENTS.md"), "", "utf8");
+    const emptyFileApplyPrepPayload = JSON.parse(
+      await runDream("apply-prep" as never, {
+        cwd: repoDir,
+        candidateId: instructionCandidate!.candidateId,
+        json: true
+      })
+    ) as {
+      applyReadiness: {
+        status: string;
+      };
+    };
+    expect(emptyFileApplyPrepPayload.applyReadiness).toMatchObject({
+      status: "stale"
+    });
   });
 
   it("keeps subagent-derived candidates in a blocked reviewer lane", async () => {
@@ -647,6 +867,13 @@ describe("dream sidecar", () => {
       })
     ) as {
       action: string;
+      entry: {
+        candidateId: string;
+        promotion: {
+          preparedAt?: string;
+          preparedPreviewDigest?: string;
+        };
+      };
       resolvedTarget: {
         targetSurface: string;
         scope: string;
@@ -662,6 +889,13 @@ describe("dream sidecar", () => {
     };
     expect(previewPayload).toMatchObject({
       action: "promote-prep",
+      entry: {
+        candidateId: durableCandidate!.candidateId,
+        promotion: {
+          preparedAt: expect.any(String),
+          preparedPreviewDigest: expect.any(String)
+        }
+      },
       resolvedTarget: {
         targetSurface: "durable-memory",
         scope: "project"

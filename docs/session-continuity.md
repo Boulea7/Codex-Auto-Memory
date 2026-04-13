@@ -161,9 +161,9 @@ The reviewer-facing expansion around this seam is now split into three additive 
 
 - `resumeContext` from `cam session status --json` / `cam session load --json`
 - `querySurfacing` from `cam recall search --json`
-- dream-sidecar review lanes such as `cam dream candidates` / `cam dream review` / `cam dream promote`
+- dream-sidecar review lanes such as `cam dream candidates` / `cam dream review` / `cam dream adopt` / `cam dream promote-prep` / `cam dream promote` / `cam dream apply-prep`
 
-These surfaces are intentionally reviewer aids first. Durable-memory dream promote still requires explicit review and then flows through the existing reviewer/audit write path before canonical durable memory changes. Instruction-like dream promote remains `proposal-only`: it can stage or describe a proposed instruction update, but it does not directly mutate instruction files.
+These surfaces are intentionally reviewer aids first. Subagent candidates start blocked and must be explicitly adopted before they enter the primary review lane. Durable-memory dream promote still requires explicit review and then flows through the existing reviewer/audit write path before canonical durable memory changes. Instruction-like `promote`, `promote-prep`, and `apply-prep` all remain `proposal-only`: they can stage or describe a proposed instruction update, emit a proposal bundle, and prepare manual-apply hints, but they never directly mutate instruction files.
 
 ## Why the project-local layer is not the shared layer
 
@@ -208,7 +208,7 @@ Command contract:
 
 `cam session status` now renders the latest generation path, the latest rollout path, the audit-log location, the same latest-generation drill-down, and the same compact prior-generation audit preview without printing the full shared/local continuity bodies.
 
-`cam session status --json` and `cam session load --json` now also expose additive `resumeContext`, which includes the current goal, next steps, discovered instruction files, and `suggestedDurableRefs`. Those refs are resume hints only; they do not auto-promote sidecar candidates into durable memory.
+`cam session status --json` and `cam session load --json` now also expose additive `resumeContext`, which includes the current goal, next steps, discovered instruction files, `suggestedDurableRefs`, and read-only `suggestedTeamEntries`. Those refs are resume hints only; they do not auto-promote sidecar candidates into durable memory.
 
 `cam session refresh` renders a compact reviewer surface only:
 
@@ -220,6 +220,14 @@ Command contract:
 Automatic injection and automatic saving are disabled by default.
 
 This keeps the main Claude-style auto memory contract stable and prevents temporary state from silently entering every session unless the user explicitly opts in.
+
+When wrapper auto-load is enabled, the public startup-layering order is kept explicit and stable:
+
+- continuity
+- instruction files
+- dream refs
+- top durable refs
+- team/shared refs
 
 ## Continuity diagnostics audit
 

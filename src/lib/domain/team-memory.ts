@@ -355,6 +355,9 @@ export async function searchTeamMemory(
   options: InspectTeamMemoryOptions = {}
 ): Promise<TeamMemorySuggestion[]> {
   const inspection = await inspectTeamMemory(project, config, options);
+  if (inspection.summary.status !== "available") {
+    return [];
+  }
   const normalizedTerms = normalizeQueryTerms(query);
   if (normalizedTerms.length === 0) {
     return inspection.entries.slice(0, limit).map((entry) => buildSuggestion(entry, query));

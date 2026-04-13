@@ -90,6 +90,14 @@ async function compileStartupPayload(cwd: string): Promise<string> {
             (ref) => `- ${ref.ref}: ${ref.reason}`
           )
         ]
+      : []),
+    ...((resumeContext.resumeContext.suggestedTeamEntries ?? []).length > 0
+      ? [
+          "Read-only team memory hints (non-canonical):",
+          ...(resumeContext.resumeContext.suggestedTeamEntries ?? []).map(
+            (entry) => `- ${entry.key}: ${entry.summary}`
+          )
+        ]
       : [])
   ];
   const resumeBlock = resumeLines.length > 2 ? `${resumeLines.join("\n")}\n\n` : "";

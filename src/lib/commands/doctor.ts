@@ -4,6 +4,12 @@ import {
   type RetrievalSidecarCheck,
   type TopicFileDiagnostic
 } from "../domain/memory-store.js";
+import {
+  getDreamCandidateProposalArtifactPath,
+  getLatestDreamProposalCandidate,
+  listDreamCandidates
+} from "../domain/dream-candidates.js";
+import { discoverInstructionLayer } from "../domain/instruction-memory.js";
 import { buildResolvedCliCommand } from "../integration/retrieval-contract.js";
 import { buildNativeReadinessReport, parseCodexFeatures } from "../runtime/codex-features.js";
 import { buildRuntimeContext } from "../runtime/runtime-context.js";
@@ -26,6 +32,14 @@ interface DoctorRetrievalSidecar {
   summary: string;
   repairCommand: string;
   checks: RetrievalSidecarCheck[];
+}
+
+interface DoctorInstructionProposalLane {
+  status: "ok" | "warning";
+  summary: string;
+  detectedTargets: string[];
+  latestProposalArtifactPath: string | null;
+  recommendedApplyPrepCommand: string;
 }
 
 function buildDoctorTopicDiagnostics(diagnostics: TopicFileDiagnostic[]): DoctorTopicDiagnostics {
@@ -99,6 +113,27 @@ export async function runDoctor(options: DoctorOptions = {}): Promise<string> {
     scope: "all",
     state: "all"
   });
+  const instructionLayer = await discoverInstructionLayer(runtime.project.projectRoot);
+  const dreamCandidates = await listDreamCandidates(runtime);
+  const latestInstructionProposalCandidate = getLatestDreamProposalCandidate(dreamCandidates.entries);
+  const instructionProposalLane: DoctorInstructionProposalLane = {
+    status: latestInstructionProposalCandidate ? "warning" : "ok",
+    summary: latestInstructionProposalCandidate
+      ? "Instruction proposal artifacts are present for reviewer-only follow-up."
+      : "No instruction proposal artifacts are waiting for reviewer follow-up.",
+    detectedTargets: instructionLayer.detectedFiles.map((file) => file.path),
+    latestProposalArtifactPath: latestInstructionProposalCandidate
+      ? getDreamCandidateProposalArtifactPath(latestInstructionProposalCandidate)
+      : null,
+    recommendedApplyPrepCommand: latestInstructionProposalCandidate
+      ? buildResolvedCliCommand(
+          `dream apply-prep --candidate-id ${latestInstructionProposalCandidate.candidateId}`,
+          { cwd: runtime.project.projectRoot }
+        )
+      : buildResolvedCliCommand("dream candidates --json", {
+          cwd: runtime.project.projectRoot
+        })
+  };
   const recommendedRoute: DoctorRecommendedRoute = "companion";
   const recommendedActionCommand = buildResolvedCliCommand("mcp doctor --host codex", {
     cwd: runtime.project.projectRoot
@@ -133,6 +168,7 @@ export async function runDoctor(options: DoctorOptions = {}): Promise<string> {
         retrievalSidecar,
         topicDiagnostics,
         layoutDiagnostics,
+        instructionProposalLane,
         features: parsedFeatures,
         readiness
       },
@@ -156,6 +192,7 @@ export async function runDoctor(options: DoctorOptions = {}): Promise<string> {
     `Retrieval sidecar: ${retrievalSidecar.status} (${retrievalSidecar.summary})`,
     `Topic diagnostics: ${topicDiagnostics.status} (${topicDiagnostics.summary})`,
     `Layout diagnostics: ${layoutDiagnostics.length === 0 ? "none" : layoutDiagnostics.length}`,
+    `Instruction proposal lane: ${instructionProposalLane.status} (${instructionProposalLane.summary})`,
     `Companion session source: rollout-jsonl`,
     `Companion runtime injector: wrapper-base-instructions`,
     `Config files: ${runtime.loadedConfig.files.length ? runtime.loadedConfig.files.join(", ") : "none"}`,

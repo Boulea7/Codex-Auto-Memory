@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { buildRuntimeContext } from "../runtime/runtime-context.js";
 import {
   buildDreamSnapshot,
@@ -9,14 +10,21 @@ import {
   adoptDreamCandidate,
   buildInstructionProposal,
   getDreamCandidate,
+  getDreamCandidateProposalArtifactPath,
+  getLatestDreamProposalCandidate,
   listDreamCandidates,
+  markDreamCandidateApplyPrepared,
+  markDreamCandidatePrepared,
   markDreamCandidatePromoted,
+  readInstructionProposalArtifact,
   recordDreamCandidateRecovery,
   reconcileDreamCandidates,
   reviewDreamCandidate
 } from "../domain/dream-candidates.js";
 import { findLatestProjectRollout } from "../domain/rollout.js";
 import { buildManualMutationReviewEntry } from "./manual-mutation-review.js";
+import { fileExists, readTextFile, writeJsonFileAtomic } from "../util/fs.js";
+import { buildResolvedCliCommand } from "../integration/retrieval-contract.js";
 import type {
   DreamCandidateOriginKind,
   DreamCandidateStatus,
@@ -24,7 +32,15 @@ import type {
   SessionContinuityScope
 } from "../types.js";
 
-type DreamAction = "build" | "inspect" | "candidates" | "review" | "adopt" | "promote" | "promote-prep";
+type DreamAction =
+  | "build"
+  | "inspect"
+  | "candidates"
+  | "review"
+  | "adopt"
+  | "promote"
+  | "promote-prep"
+  | "apply-prep";
 
 interface DreamOptions {
   cwd?: string;
@@ -113,6 +129,109 @@ function normalizeDreamOriginKind(value?: string): DreamCandidateOriginKind | un
   throw new Error(`Dream origin kind must be one of: ${dreamCandidateOriginKinds.join(", ")}.`);
 }
 
+function digest(value: string): string {
+  return createHash("sha256").update(value).digest("hex");
+}
+
+async function buildDreamReviewerPayload(
+  runtime: Awaited<ReturnType<typeof buildRuntimeContext>>,
+  entry?: Awaited<ReturnType<typeof getDreamCandidate>>["entry"]
+): Promise<{
+  reviewerSummary: {
+    queueSummary: Awaited<ReturnType<typeof listDreamCandidates>>["summary"];
+    blockedCount: number;
+    approvedCount: number;
+    proposalArtifactCount: number;
+  };
+  nextRecommendedActions: string[];
+  helperCommands: string[];
+}> {
+  const queue = await listDreamCandidates(runtime);
+  const latestProposalCandidate = getLatestDreamProposalCandidate(queue.entries);
+  const reviewerSummary = {
+    queueSummary: queue.summary,
+    blockedCount: queue.entries.filter((candidate) => candidate.status === "blocked").length,
+    approvedCount: queue.entries.filter((candidate) => candidate.status === "approved").length,
+    proposalArtifactCount: queue.entries.filter(
+      (candidate) => getDreamCandidateProposalArtifactPath(candidate) !== null
+    ).length
+  };
+
+  const helperCommands = [
+    buildResolvedCliCommand("dream candidates --json", {
+      cwd: runtime.project.projectRoot
+    }),
+    buildResolvedCliCommand("memory --recent --json", {
+      cwd: runtime.project.projectRoot
+    })
+  ];
+
+  const nextRecommendedActions =
+    !entry ? helperCommands : entry.status === "blocked"
+      ? [
+          buildResolvedCliCommand(`dream adopt --candidate-id ${entry.candidateId} --json`, {
+            cwd: runtime.project.projectRoot
+          }),
+          ...helperCommands
+        ]
+      : entry.status === "approved" && entry.targetSurface === "instruction-memory"
+        ? [
+            buildResolvedCliCommand(`dream promote-prep --candidate-id ${entry.candidateId} --json`, {
+              cwd: runtime.project.projectRoot
+            }),
+            buildResolvedCliCommand(`dream promote --candidate-id ${entry.candidateId} --json`, {
+              cwd: runtime.project.projectRoot
+            }),
+            ...(getDreamCandidateProposalArtifactPath(entry)
+              ? [
+                  buildResolvedCliCommand(
+                    `dream apply-prep --candidate-id ${entry.candidateId} --json`,
+                    {
+                      cwd: runtime.project.projectRoot
+                    }
+                  )
+                ]
+              : [])
+          ]
+        : entry.status === "approved"
+          ? [
+              buildResolvedCliCommand(`dream promote-prep --candidate-id ${entry.candidateId} --json`, {
+                cwd: runtime.project.projectRoot
+              }),
+              buildResolvedCliCommand(`dream promote --candidate-id ${entry.candidateId} --json`, {
+                cwd: runtime.project.projectRoot
+              })
+            ]
+          : entry.status === "pending"
+            ? [
+                buildResolvedCliCommand(`dream review --candidate-id ${entry.candidateId} --approve --json`, {
+                  cwd: runtime.project.projectRoot
+                }),
+                buildResolvedCliCommand(`dream review --candidate-id ${entry.candidateId} --reject --json`, {
+                  cwd: runtime.project.projectRoot
+                })
+              ]
+            : helperCommands;
+
+  return {
+    reviewerSummary,
+    nextRecommendedActions:
+      nextRecommendedActions.length > 0
+        ? nextRecommendedActions
+        : latestProposalCandidate
+          ? [
+              buildResolvedCliCommand(
+                `dream apply-prep --candidate-id ${latestProposalCandidate.candidateId} --json`,
+                {
+                  cwd: runtime.project.projectRoot
+                }
+              )
+            ]
+          : helperCommands,
+    helperCommands
+  };
+}
+
 export async function runDream(
   action: DreamAction,
   options: DreamOptions = {}
@@ -122,7 +241,8 @@ export async function runDream(
   });
 
   if (action === "inspect") {
-    const inspection = await ensureDreamSidecarFresh(runtime);
+    const inspection = await inspectDreamSidecar(runtime);
+    const reviewerPayload = await buildDreamReviewerPayload(runtime);
     if (options.json) {
       return JSON.stringify(
         {
@@ -134,7 +254,10 @@ export async function runDream(
           queueSummary: inspection.queueSummary,
           candidateRegistryPath: inspection.candidateRegistryPath,
           candidateAuditPath: inspection.candidateAuditPath,
-          candidateRecoveryPath: inspection.candidateRecoveryPath
+          candidateRecoveryPath: inspection.candidateRecoveryPath,
+          reviewerSummary: reviewerPayload.reviewerSummary,
+          nextRecommendedActions: reviewerPayload.nextRecommendedActions,
+          helperCommands: reviewerPayload.helperCommands
         },
         null,
         2
@@ -165,6 +288,7 @@ export async function runDream(
         ? { originKind: normalizeDreamOriginKind(options.originKind) }
         : {})
     });
+    const reviewerPayload = await buildDreamReviewerPayload(runtime);
     if (options.json) {
       return JSON.stringify(
         {
@@ -173,7 +297,10 @@ export async function runDream(
           summary: candidates.summary,
           registryPath: candidates.registryPath,
           auditPath: candidates.auditPath,
-          recoveryPath: candidates.recoveryPath
+          recoveryPath: candidates.recoveryPath,
+          reviewerSummary: reviewerPayload.reviewerSummary,
+          nextRecommendedActions: reviewerPayload.nextRecommendedActions,
+          helperCommands: reviewerPayload.helperCommands
         },
         null,
         2
@@ -193,7 +320,7 @@ export async function runDream(
       `Entries: ${candidates.entries.length}`,
       ...candidates.entries.map(
         (entry) =>
-          `- ${entry.candidateId} [${entry.status}] ${entry.targetSurface}/${entry.originKind}: ${entry.summary}`
+          `- ${entry.candidateId} [${entry.status}${entry.promotion.promotionOutcome ? ` | ${entry.promotion.promotionOutcome}` : ""}] ${entry.targetSurface}/${entry.originKind}: ${entry.summary}`
       )
     ].join("\n");
   }
@@ -213,6 +340,7 @@ export async function runDream(
       decision: options.approve ? "approved" : options.reject ? "rejected" : "pending",
       note: options.note
     });
+    const reviewerPayload = await buildDreamReviewerPayload(runtime, result.entry);
     if (options.json) {
       return JSON.stringify(
         {
@@ -220,7 +348,10 @@ export async function runDream(
           entry: result.entry,
           registryPath: result.registryPath,
           auditPath: result.auditPath,
-          recoveryPath: result.recoveryPath
+          recoveryPath: result.recoveryPath,
+          reviewerSummary: reviewerPayload.reviewerSummary,
+          nextRecommendedActions: reviewerPayload.nextRecommendedActions,
+          helperCommands: reviewerPayload.helperCommands
         },
         null,
         2
@@ -241,6 +372,7 @@ export async function runDream(
     }
 
     const result = await adoptDreamCandidate(runtime, options.candidateId, options.note);
+    const reviewerPayload = await buildDreamReviewerPayload(runtime, result.entry);
     if (options.json) {
       return JSON.stringify(
         {
@@ -248,7 +380,10 @@ export async function runDream(
           entry: result.entry,
           registryPath: result.registryPath,
           auditPath: result.auditPath,
-          recoveryPath: result.recoveryPath
+          recoveryPath: result.recoveryPath,
+          reviewerSummary: reviewerPayload.reviewerSummary,
+          nextRecommendedActions: reviewerPayload.nextRecommendedActions,
+          helperCommands: reviewerPayload.helperCommands
         },
         null,
         2
@@ -274,17 +409,26 @@ export async function runDream(
 
     if (candidate.entry.targetSurface === "instruction-memory") {
       const instructionProposal = await buildInstructionProposal(runtime, candidate.entry);
+      const preparedEntry = await markDreamCandidatePrepared(runtime, options.candidateId, {
+        previewDigest: instructionProposal.artifact.patchPlan?.diffDigestSha256 ?? instructionProposal.patchDigest,
+        artifactPath: instructionProposal.artifact.artifactPath,
+        applyReadinessStatus: instructionProposal.artifact.applyReadiness.status
+      });
+      const reviewerPayload = await buildDreamReviewerPayload(runtime, preparedEntry);
       if (options.json) {
         return JSON.stringify(
           {
             action: "promote-prep",
-            entry: candidate.entry,
+            entry: preparedEntry,
             resolvedTarget: {
               targetSurface: "instruction-memory",
               path: instructionProposal.artifact.selectedTarget.path,
               kind: instructionProposal.artifact.selectedTarget.kind
             },
-            preview: instructionProposal.artifact
+            preview: instructionProposal.artifact,
+            reviewerSummary: reviewerPayload.reviewerSummary,
+            nextRecommendedActions: reviewerPayload.nextRecommendedActions,
+            helperCommands: reviewerPayload.helperCommands
           },
           null,
           2
@@ -316,12 +460,23 @@ export async function runDream(
     if (!preview.record) {
       throw new Error("Dream promote-prep did not produce a preview record.");
     }
+    const preparedEntry = await markDreamCandidatePrepared(runtime, options.candidateId, {
+      previewDigest: digest(
+        JSON.stringify({
+          lifecycleAction: preview.record.lifecycleAction,
+          wouldWrite: preview.wouldWrite,
+          ref: preview.ref,
+          targetPath: preview.targetPath
+        })
+      )
+    });
+    const reviewerPayload = await buildDreamReviewerPayload(runtime, preparedEntry);
 
     if (options.json) {
       return JSON.stringify(
         {
           action: "promote-prep",
-          entry: candidate.entry,
+          entry: preparedEntry,
           resolvedTarget: {
             targetSurface: "durable-memory",
             scope,
@@ -333,7 +488,10 @@ export async function runDream(
             wouldWrite: preview.wouldWrite,
             ref: preview.ref,
             targetPath: preview.targetPath
-          }
+          },
+          reviewerSummary: reviewerPayload.reviewerSummary,
+          nextRecommendedActions: reviewerPayload.nextRecommendedActions,
+          helperCommands: reviewerPayload.helperCommands
         },
         null,
         2
@@ -345,6 +503,75 @@ export async function runDream(
       `Lifecycle: ${preview.record.lifecycleAction}`,
       `Ref: ${preview.ref}`,
       `Target path: ${preview.targetPath}`
+    ].join("\n");
+  }
+
+  if (action === "apply-prep") {
+    if (!options.candidateId) {
+      throw new Error("Dream apply-prep requires --candidate-id.");
+    }
+
+    const candidate = await getDreamCandidate(runtime, options.candidateId);
+    const instructionProposal = await readInstructionProposalArtifact(runtime, options.candidateId);
+    const targetPath = instructionProposal.selectedTargetByPolicy.path;
+    const targetExists = await fileExists(targetPath);
+    const currentContents = targetExists ? await readTextFile(targetPath) : "";
+    const currentDigest = targetExists
+      ? digest(currentContents.replace(/\r\n/g, "\n").replace(/\r/g, "\n"))
+      : null;
+    const expectedDigest = instructionProposal.applyReadiness.targetSnapshotDigestSha256 ?? null;
+    const isStale = expectedDigest !== currentDigest;
+    const applyReadiness = {
+      ...instructionProposal.applyReadiness,
+      ...(isStale
+        ? {
+            status: "stale" as const,
+            staleReason:
+              "The target instruction file changed after the proposal artifact was prepared. Re-run promote-prep or promote before any manual edit.",
+            targetSnapshotDigestSha256: currentDigest
+          }
+        : {})
+    };
+    const updatedInstructionProposal = {
+      ...instructionProposal,
+      applyReadiness
+    };
+    const updatedEntry = await markDreamCandidateApplyPrepared(runtime, options.candidateId, {
+      applyReadinessStatus: applyReadiness.status
+    });
+    const reviewerPayload = await buildDreamReviewerPayload(runtime, updatedEntry);
+    await writeJsonFileAtomic(instructionProposal.manualWorkflow.applyPrepPath, {
+      action: "apply-prep",
+      candidateId: options.candidateId,
+      targetPath,
+      applyReadiness,
+      artifactPath: instructionProposal.artifactPath
+    });
+    await writeJsonFileAtomic(instructionProposal.artifactPath, updatedInstructionProposal);
+
+    if (options.json) {
+      return JSON.stringify(
+        {
+          action: "apply-prep",
+          entry: updatedEntry,
+          applyReadiness,
+          instructionProposal: updatedInstructionProposal,
+          registryPath: candidate.registryPath,
+          auditPath: candidate.auditPath,
+          recoveryPath: candidate.recoveryPath,
+          reviewerSummary: reviewerPayload.reviewerSummary,
+          nextRecommendedActions: reviewerPayload.nextRecommendedActions,
+          helperCommands: reviewerPayload.helperCommands
+        },
+        null,
+        2
+      );
+    }
+
+    return [
+      `Prepared instruction apply preview for ${candidate.entry.candidateId}`,
+      `Target: ${targetPath}`,
+      `Readiness: ${applyReadiness.status}`
     ].join("\n");
   }
 
@@ -371,6 +598,7 @@ export async function runDream(
         guidanceDigest: instructionProposal.guidanceDigest,
         patchDigest: instructionProposal.patchDigest
       });
+      const reviewerPayload = await buildDreamReviewerPayload(runtime, nextEntry);
       if (options.json) {
         return JSON.stringify(
           {
@@ -379,7 +607,10 @@ export async function runDream(
             entry: nextEntry,
             instructionProposal: instructionProposal.artifact,
             auditPath: candidate.auditPath,
-            recoveryPath: candidate.recoveryPath
+            recoveryPath: candidate.recoveryPath,
+            reviewerSummary: reviewerPayload.reviewerSummary,
+            nextRecommendedActions: reviewerPayload.nextRecommendedActions,
+            helperCommands: reviewerPayload.helperCommands
           },
           null,
           2
@@ -429,6 +660,7 @@ export async function runDream(
       });
       throw error;
     }
+    const reviewerPayload = await buildDreamReviewerPayload(runtime, nextEntry);
 
     if (options.json) {
       return JSON.stringify(
@@ -443,7 +675,10 @@ export async function runDream(
           },
           registryPath: candidate.registryPath,
           auditPath: candidate.auditPath,
-          recoveryPath: candidate.recoveryPath
+          recoveryPath: candidate.recoveryPath,
+          reviewerSummary: reviewerPayload.reviewerSummary,
+          nextRecommendedActions: reviewerPayload.nextRecommendedActions,
+          helperCommands: reviewerPayload.helperCommands
         },
         null,
         2
@@ -469,6 +704,7 @@ export async function runDream(
     scope
   });
   const candidates = await reconcileDreamCandidates(runtime, snapshot, persisted.snapshotPaths);
+  const reviewerPayload = await buildDreamReviewerPayload(runtime);
 
   if (options.json) {
     return JSON.stringify(
@@ -483,7 +719,10 @@ export async function runDream(
         queueSummary: candidates.summary,
         candidateRegistryPath: candidates.registryPath,
         candidateAuditPath: candidates.auditPath,
-        candidateRecoveryPath: candidates.recoveryPath
+        candidateRecoveryPath: candidates.recoveryPath,
+        reviewerSummary: reviewerPayload.reviewerSummary,
+        nextRecommendedActions: reviewerPayload.nextRecommendedActions,
+        helperCommands: reviewerPayload.helperCommands
       },
       null,
       2

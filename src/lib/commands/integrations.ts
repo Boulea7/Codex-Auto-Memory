@@ -344,6 +344,7 @@ interface IntegrationDoctorResult {
   retrievalSidecar: McpDoctorReport["retrievalSidecar"];
   topicDiagnostics: McpDoctorReport["topicDiagnostics"];
   layoutDiagnostics: McpDoctorReport["layoutDiagnostics"];
+  instructionProposalLane: McpDoctorReport["instructionProposalLane"];
   workflowContract: McpDoctorReport["workflowContract"];
   experimentalHooks: NonNullable<McpDoctorReport["experimentalHooks"]>;
   applyReadiness: {
@@ -804,6 +805,7 @@ function buildIntegrationsDoctorResult(
     retrievalSidecar: report.retrievalSidecar,
     topicDiagnostics: report.topicDiagnostics,
     layoutDiagnostics: report.layoutDiagnostics,
+    instructionProposalLane: report.instructionProposalLane,
     workflowContract: report.workflowContract,
     experimentalHooks,
     applyReadiness,
@@ -837,6 +839,7 @@ function formatIntegrationsDoctorResult(result: IntegrationDoctorResult): string
     `Retrieval sidecar: ${result.retrievalSidecar.status} (${result.retrievalSidecar.summary})`,
     `Topic diagnostics: ${result.topicDiagnostics.status} (${result.topicDiagnostics.summary})`,
     `Layout diagnostics: ${result.layoutDiagnostics.status} (${result.layoutDiagnostics.summary})`,
+    `Instruction proposal lane: ${result.instructionProposalLane.status} (${result.instructionProposalLane.summary})`,
     `Apply readiness: ${result.applyReadiness.status}${result.applyReadiness.reason ? ` (${result.applyReadiness.reason})` : ""}`,
     `Preferred skill surface: ${formatCodexSkillInstallSurface(result.preferredSkillSurface)}`,
     `Recommended skill install command: ${result.recommendedSkillInstallCommand}`,

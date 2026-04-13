@@ -12,9 +12,10 @@ import type {
   DreamPromotionCandidate,
   DreamQueueSummary,
   DreamSidecarSnapshot,
-  DreamCandidateRegistry
+  DreamCandidateRegistry,
+  InstructionProposalArtifact
 } from "../types.js";
-import { appendJsonl, readJsonFile, writeJsonFileAtomic } from "../util/fs.js";
+import { appendJsonl, readJsonFile, writeJsonFileAtomic, writeTextFileAtomic } from "../util/fs.js";
 import { getDefaultMemoryDirectory } from "./project-context.js";
 import { slugify } from "../util/text.js";
 import { rankInstructionProposalTargets } from "./instruction-memory.js";
@@ -59,7 +60,7 @@ function buildDreamCandidatePaths(runtime: RuntimeContext): DreamCandidatePaths 
 }
 
 function buildProposalArtifactPath(paths: DreamCandidatePaths, candidateId: string): string {
-  return path.join(paths.reviewDir, "proposals", `${candidateId}.json`);
+  return path.join(paths.reviewDir, "proposals", candidateId, "manifest.json");
 }
 
 function candidateTargetSurface(
@@ -214,6 +215,37 @@ export function buildDreamQueueSummary(entries: DreamCandidateRecord[]): DreamQu
   }
 
   return summary;
+}
+
+export function getDreamCandidateProposalArtifactPath(
+  entry: DreamCandidateRecord
+): string | null {
+  return entry.promotion.proposalArtifactPath ?? entry.promotion.preparedArtifactPath ?? null;
+}
+
+export function getLatestDreamProposalCandidate(
+  entries: DreamCandidateRecord[]
+): DreamCandidateRecord | null {
+  const candidates = entries.filter(
+    (entry) => entry.targetSurface === "instruction-memory" && getDreamCandidateProposalArtifactPath(entry)
+  );
+  if (candidates.length === 0) {
+    return null;
+  }
+
+  return candidates.sort((left, right) => {
+    const leftTimestamp =
+      left.promotion.applyPreparedAt ??
+      left.promotion.promotedAt ??
+      left.promotion.preparedAt ??
+      left.lastSeenAt;
+    const rightTimestamp =
+      right.promotion.applyPreparedAt ??
+      right.promotion.promotedAt ??
+      right.promotion.preparedAt ??
+      right.lastSeenAt;
+    return rightTimestamp.localeCompare(leftTimestamp);
+  })[0] ?? null;
 }
 
 async function readRegistryOrDefault(
@@ -630,6 +662,102 @@ export async function markDreamCandidatePromoted(
   return nextEntry;
 }
 
+export async function markDreamCandidatePrepared(
+  runtime: RuntimeContext,
+  candidateId: string,
+  options: {
+    previewDigest: string;
+    artifactPath?: string;
+    applyReadinessStatus?: DreamCandidateRecord["promotion"]["applyReadinessStatus"];
+  }
+): Promise<DreamCandidateRecord> {
+  const { paths, registry } = await readRegistryOrDefault(runtime);
+  const currentEntry = registry.entries.find((entry) => entry.candidateId === candidateId);
+  if (!currentEntry) {
+    throw new Error(`Dream candidate "${candidateId}" was not found.`);
+  }
+
+  const preparedAt = new Date().toISOString();
+  const nextEntry: DreamCandidateRecord = {
+    ...currentEntry,
+    promotion: {
+      ...currentEntry.promotion,
+      preparedAt,
+      preparedPreviewDigest: options.previewDigest,
+      ...(options.artifactPath ? { preparedArtifactPath: options.artifactPath } : {}),
+      ...(options.applyReadinessStatus ? { applyReadinessStatus: options.applyReadinessStatus } : {})
+    }
+  };
+  const nextRegistry: DreamCandidateRegistry = {
+    version: registry.version,
+    updatedAt: preparedAt,
+    entries: registry.entries.map((entry) =>
+      entry.candidateId === nextEntry.candidateId ? nextEntry : entry
+    )
+  };
+  await writeJsonFileAtomic(paths.registryFile, nextRegistry);
+  try {
+    await appendCandidateAuditEntry(paths, buildAuditEntry("promotion-prepared", nextEntry));
+  } catch (error) {
+    await writeCandidateRecoveryRecord(paths, {
+      recordedAt: preparedAt,
+      candidateId: nextEntry.candidateId,
+      failedStage: "candidate-audit-write",
+      failureMessage: error instanceof Error ? error.message : String(error),
+      registryPath: paths.registryFile
+    });
+    throw error;
+  }
+
+  return nextEntry;
+}
+
+export async function markDreamCandidateApplyPrepared(
+  runtime: RuntimeContext,
+  candidateId: string,
+  options: {
+    applyReadinessStatus: DreamCandidateRecord["promotion"]["applyReadinessStatus"];
+  }
+): Promise<DreamCandidateRecord> {
+  const { paths, registry } = await readRegistryOrDefault(runtime);
+  const currentEntry = registry.entries.find((entry) => entry.candidateId === candidateId);
+  if (!currentEntry) {
+    throw new Error(`Dream candidate "${candidateId}" was not found.`);
+  }
+
+  const applyPreparedAt = new Date().toISOString();
+  const nextEntry: DreamCandidateRecord = {
+    ...currentEntry,
+    promotion: {
+      ...currentEntry.promotion,
+      applyPreparedAt,
+      applyReadinessStatus: options.applyReadinessStatus
+    }
+  };
+  const nextRegistry: DreamCandidateRegistry = {
+    version: registry.version,
+    updatedAt: applyPreparedAt,
+    entries: registry.entries.map((entry) =>
+      entry.candidateId === nextEntry.candidateId ? nextEntry : entry
+    )
+  };
+  await writeJsonFileAtomic(paths.registryFile, nextRegistry);
+  try {
+    await appendCandidateAuditEntry(paths, buildAuditEntry("apply-prepared", nextEntry));
+  } catch (error) {
+    await writeCandidateRecoveryRecord(paths, {
+      recordedAt: applyPreparedAt,
+      candidateId: nextEntry.candidateId,
+      failedStage: "candidate-audit-write",
+      failureMessage: error instanceof Error ? error.message : String(error),
+      registryPath: paths.registryFile
+    });
+    throw error;
+  }
+
+  return nextEntry;
+}
+
 export async function buildInstructionProposal(
   runtime: RuntimeContext,
   entry: DreamCandidateRecord
@@ -641,6 +769,37 @@ export async function buildInstructionProposal(
 
   try {
     await writeJsonFileAtomic(artifactPath, artifact);
+    await writeTextFileAtomic(
+      artifact.manualWorkflow.summaryPath,
+      [
+        "# Instruction Proposal Summary",
+        "",
+        `Candidate: ${entry.candidateId}`,
+        `Target: ${artifact.selectedTargetByPolicy.path}`,
+        `Readiness: ${artifact.applyReadiness.status}`,
+        `Recommended operation: ${artifact.applyReadiness.recommendedOperation}`,
+        "",
+        "Summary:",
+        artifact.normalizedInstruction.summary,
+        "",
+        "Details:",
+        ...artifact.normalizedInstruction.details.map((detail) => `- ${detail}`),
+        "",
+        "Next actions:",
+        ...artifact.manualWorkflow.nextRecommendedActions.map((detail) => `- ${detail}`)
+      ].join("\n")
+    );
+    await writeTextFileAtomic(
+      artifact.manualWorkflow.diffPath,
+      `${artifact.patchPlan?.unifiedDiff ?? ""}${artifact.patchPlan ? "\n" : ""}`
+    );
+    await writeJsonFileAtomic(artifact.manualWorkflow.applyPrepPath, {
+      action: "apply-prep",
+      candidateId: entry.candidateId,
+      targetPath: artifact.selectedTargetByPolicy.path,
+      applyReadiness: artifact.applyReadiness,
+      artifactPath
+    });
   } catch (error) {
     await writeCandidateRecoveryRecord(paths, {
       recordedAt: new Date().toISOString(),
@@ -656,4 +815,20 @@ export async function buildInstructionProposal(
     artifact,
     ...buildInstructionProposalDigests(artifact)
   };
+}
+
+export async function readInstructionProposalArtifact(
+  runtime: RuntimeContext,
+  candidateId: string
+): Promise<InstructionProposalArtifact> {
+  const paths = buildDreamCandidatePaths(runtime);
+  const artifactPath = buildProposalArtifactPath(paths, candidateId);
+  const artifact = await readJsonFile<InstructionProposalArtifact>(artifactPath);
+  if (!artifact) {
+    throw new Error(
+      `Instruction proposal artifact for dream candidate "${candidateId}" was not found.`
+    );
+  }
+
+  return artifact;
 }
