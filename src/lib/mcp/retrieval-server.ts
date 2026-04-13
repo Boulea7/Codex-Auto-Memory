@@ -131,6 +131,20 @@ const memorySearchResponseSchema = z.object({
             matchedQuery: z.string()
           })
         )
+        .optional(),
+      suggestedTeamEntries: z
+        .array(
+          z.object({
+            key: z.string(),
+            topic: z.string(),
+            scopeHint: z.enum(["project", "project-local"]),
+            summary: z.string(),
+            path: z.string(),
+            approxReadCost: z.number().int().nonnegative(),
+            matchedQuery: z.string(),
+            reason: z.string()
+          })
+        )
         .optional()
     })
     .optional(),

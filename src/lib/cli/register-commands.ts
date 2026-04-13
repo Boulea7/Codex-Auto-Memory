@@ -179,6 +179,27 @@ function registerDreamCommands(program: Command): void {
   ).action(withStdout(async (options) => runDream("review", options)));
 
   addJsonOption(
+    addDreamCandidateIdOption(
+      dreamCommand
+        .command("adopt")
+        .description("Adopt a blocked subagent dream candidate into the primary review lane")
+        .option("--note <text>", "Reviewer note to record with the adoption")
+    )
+  ).action(withStdout(async (options) => runDream("adopt", options)));
+
+  addJsonOption(
+    addSessionScopeOption(
+      addDreamCandidateIdOption(
+        dreamCommand
+          .command("promote-prep")
+          .description("Preview the outcome of promoting an approved dream candidate without mutating canonical memory")
+          .option("--topic <topic>", "Override the inferred durable memory topic")
+          .option("--id <id>", "Override the inferred durable memory id")
+      )
+    )
+  ).action(withStdout(async (options) => runDream("promote-prep", options)));
+
+  addJsonOption(
     addSessionScopeOption(
       addDreamCandidateIdOption(
         dreamCommand

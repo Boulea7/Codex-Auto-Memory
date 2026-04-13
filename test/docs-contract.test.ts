@@ -24,6 +24,9 @@ describe("docs contract", () => {
     const docsReadme = await readDoc("docs/README.md");
     const docsReadmeEn = await readDoc("docs/README.en.md");
     const architecture = await readDoc("docs/architecture.md");
+    const claudeMemoryDream = await readDoc("docs/claude-memory-dream-r1.md");
+    const integrationStrategyDoc = await readDoc("docs/integration-strategy.md");
+    const nativeMigration = await readDoc("docs/native-migration.md");
     const sessionContinuity = await readDoc("docs/session-continuity.md");
     const nativeMigrationEn = await readDoc("docs/native-migration.en.md");
     const releaseChecklist = await readDoc("docs/release-checklist.md");
@@ -446,8 +449,11 @@ describe("docs contract", () => {
     expect(releaseChecklist).toContain("node dist/cli.js integrations doctor --host codex --json");
     expect(releaseChecklist).toContain("node dist/cli.js dream build --json");
     expect(releaseChecklist).toContain("node dist/cli.js dream inspect --json");
+    expect(releaseChecklist).toContain("node dist/cli.js dream adopt --help");
+    expect(releaseChecklist).toContain("node dist/cli.js dream promote-prep --help");
     expect(releaseChecklist).toContain("promotionCandidates");
     expect(releaseChecklist).toContain("proposal-only");
+    expect(releaseChecklist).toContain("teamMemory");
     expect(releaseChecklist).toContain("node dist/cli.js mcp install --help");
     expect(releaseChecklist).toContain("node dist/cli.js mcp print-config --help");
     expect(releaseChecklist).toContain("node dist/cli.js mcp apply-guidance --help");
@@ -471,6 +477,11 @@ describe("docs contract", () => {
     expect(contributing).toContain("cam mcp apply-guidance");
     expect(contributing).toContain("cam integrations apply");
     expect(contributing).toContain("skill surface selection");
+    expect(claudeMemoryDream).toContain("cam dream adopt");
+    expect(claudeMemoryDream).toContain("cam dream promote-prep");
+    expect(claudeMemoryDream).toContain("teamMemory");
+    expect(integrationStrategyDoc).toContain("canonical memory");
+    expect(nativeMigration).toContain("wrapper startup injection");
     expect(packageJson.scripts["test:cli-smoke"]).toContain("test/recall-command.test.ts");
     expect(packageJson.scripts["test:cli-smoke"]).toContain("test/doctor-command.test.ts");
     expect(packageJson.scripts["test:cli-smoke"]).toContain("test/hooks-command.test.ts");

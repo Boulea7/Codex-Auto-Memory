@@ -428,7 +428,15 @@ export function formatSessionLoadText(
             (ref) => `- ${ref.ref}: ${ref.reason}`
           )
         ]
-      : ["Top durable refs:", "- None suggested."])
+      : ["Top durable refs:", "- None suggested."]),
+    ...((view.resumeContext.suggestedTeamEntries ?? []).length > 0
+      ? [
+          "Team memory suggestions:",
+          ...(view.resumeContext.suggestedTeamEntries ?? []).map(
+            (entry) => `- ${entry.key}: ${entry.summary}`
+          )
+        ]
+      : ["Team memory suggestions:", "- None suggested."])
   ];
 
   if (printStartup) {

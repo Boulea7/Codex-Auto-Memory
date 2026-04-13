@@ -1,10 +1,12 @@
 import { buildRuntimeContext } from "../runtime/runtime-context.js";
 import {
   buildDreamSnapshot,
+  ensureDreamSidecarFresh,
   inspectDreamSidecar,
   persistDreamSnapshot
 } from "../domain/dream-sidecar.js";
 import {
+  adoptDreamCandidate,
   buildInstructionProposal,
   getDreamCandidate,
   listDreamCandidates,
@@ -14,7 +16,6 @@ import {
   reviewDreamCandidate
 } from "../domain/dream-candidates.js";
 import { findLatestProjectRollout } from "../domain/rollout.js";
-import { discoverInstructionFiles } from "../domain/instruction-memory.js";
 import { buildManualMutationReviewEntry } from "./manual-mutation-review.js";
 import type {
   DreamCandidateOriginKind,
@@ -23,7 +24,7 @@ import type {
   SessionContinuityScope
 } from "../types.js";
 
-type DreamAction = "build" | "inspect" | "candidates" | "review" | "promote";
+type DreamAction = "build" | "inspect" | "candidates" | "review" | "adopt" | "promote" | "promote-prep";
 
 interface DreamOptions {
   cwd?: string;
@@ -121,7 +122,7 @@ export async function runDream(
   });
 
   if (action === "inspect") {
-    const inspection = await inspectDreamSidecar(runtime);
+    const inspection = await ensureDreamSidecarFresh(runtime);
     if (options.json) {
       return JSON.stringify(
         {
@@ -234,6 +235,119 @@ export async function runDream(
     ].join("\n");
   }
 
+  if (action === "adopt") {
+    if (!options.candidateId) {
+      throw new Error("Dream adopt requires --candidate-id.");
+    }
+
+    const result = await adoptDreamCandidate(runtime, options.candidateId, options.note);
+    if (options.json) {
+      return JSON.stringify(
+        {
+          action: "adopt",
+          entry: result.entry,
+          registryPath: result.registryPath,
+          auditPath: result.auditPath,
+          recoveryPath: result.recoveryPath
+        },
+        null,
+        2
+      );
+    }
+
+    return [
+      `Adopted dream candidate ${result.entry.candidateId}`,
+      `Status: ${result.entry.status}`,
+      `Registry: ${result.registryPath}`
+    ].join("\n");
+  }
+
+  if (action === "promote-prep") {
+    if (!options.candidateId) {
+      throw new Error("Dream promote-prep requires --candidate-id.");
+    }
+
+    const candidate = await getDreamCandidate(runtime, options.candidateId);
+    if (candidate.entry.status !== "approved") {
+      throw new Error(`Dream candidate "${options.candidateId}" must be approved before promote-prep.`);
+    }
+
+    if (candidate.entry.targetSurface === "instruction-memory") {
+      const instructionProposal = await buildInstructionProposal(runtime, candidate.entry);
+      if (options.json) {
+        return JSON.stringify(
+          {
+            action: "promote-prep",
+            entry: candidate.entry,
+            resolvedTarget: {
+              targetSurface: "instruction-memory",
+              path: instructionProposal.artifact.selectedTarget.path,
+              kind: instructionProposal.artifact.selectedTarget.kind
+            },
+            preview: instructionProposal.artifact
+          },
+          null,
+          2
+        );
+      }
+
+      return [
+        `Prepared instruction promote preview for ${candidate.entry.candidateId}`,
+        `Target: ${instructionProposal.artifact.selectedTarget.path}`,
+        instructionProposal.artifact.guidanceBlock
+      ].join("\n");
+    }
+
+    const scope = options.scope === "project" || options.scope === "project-local"
+      ? options.scope
+      : candidate.entry.targetScopeHint === "project" || candidate.entry.targetScopeHint === "project-local"
+        ? candidate.entry.targetScopeHint
+        : "project";
+    const topic = options.topic ?? candidate.entry.topicHint;
+    const id = options.id ?? candidate.entry.idHint;
+    const preview = await runtime.syncService.memoryStore.previewRemember(
+      scope,
+      topic,
+      id,
+      candidate.entry.summary,
+      candidate.entry.details,
+      `Dream promote prep request from ${candidate.entry.candidateId}.`
+    );
+    if (!preview.record) {
+      throw new Error("Dream promote-prep did not produce a preview record.");
+    }
+
+    if (options.json) {
+      return JSON.stringify(
+        {
+          action: "promote-prep",
+          entry: candidate.entry,
+          resolvedTarget: {
+            targetSurface: "durable-memory",
+            scope,
+            topic,
+            id
+          },
+          preview: {
+            lifecycleAction: preview.record.lifecycleAction,
+            wouldWrite: preview.wouldWrite,
+            ref: preview.ref,
+            targetPath: preview.targetPath
+          }
+        },
+        null,
+        2
+      );
+    }
+
+    return [
+      `Prepared durable promote preview for ${candidate.entry.candidateId}`,
+      `Lifecycle: ${preview.record.lifecycleAction}`,
+      `Ref: ${preview.ref}`,
+      `Target path: ${preview.targetPath}`
+    ].join("\n");
+  }
+
   if (action === "promote") {
     if (!options.candidateId) {
       throw new Error("Dream promote requires --candidate-id.");
@@ -248,10 +362,14 @@ export async function runDream(
     }
 
     if (candidate.entry.targetSurface === "instruction-memory") {
-      const instructionFiles = await discoverInstructionFiles(runtime.project.projectRoot);
-      const instructionProposal = buildInstructionProposal(candidate.entry, instructionFiles);
+      const instructionProposal = await buildInstructionProposal(runtime, candidate.entry);
       const nextEntry = await markDreamCandidatePromoted(runtime, options.candidateId, {
-        outcome: "proposal-only"
+        outcome: "proposal-only",
+        proposalArtifactPath: instructionProposal.artifact.artifactPath,
+        selectedTargetFile: instructionProposal.artifact.selectedTarget.path,
+        selectedTargetKind: instructionProposal.artifact.selectedTarget.kind,
+        guidanceDigest: instructionProposal.guidanceDigest,
+        patchDigest: instructionProposal.patchDigest
       });
       if (options.json) {
         return JSON.stringify(
@@ -259,7 +377,7 @@ export async function runDream(
             action: "promote",
             promotionOutcome: "proposal-only",
             entry: nextEntry,
-            instructionProposal,
+            instructionProposal: instructionProposal.artifact,
             auditPath: candidate.auditPath,
             recoveryPath: candidate.recoveryPath
           },
@@ -270,8 +388,8 @@ export async function runDream(
 
       return [
         `Prepared instruction proposal for ${nextEntry.candidateId}`,
-        `Suggested target: ${instructionProposal.suggestedTargetFile ?? "none detected"}`,
-        instructionProposal.suggestedBlock
+        `Suggested target: ${instructionProposal.artifact.selectedTarget.path}`,
+        instructionProposal.artifact.guidanceBlock
       ].join("\n");
     }
 

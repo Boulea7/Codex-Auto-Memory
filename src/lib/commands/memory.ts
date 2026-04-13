@@ -5,7 +5,7 @@ import { openPath } from "../util/open.js";
 import { compileStartupMemory } from "../domain/startup-memory.js";
 import { filterUnsafeTopicDiagnostics } from "../domain/memory-store.js";
 import { discoverInstructionLayer } from "../domain/instruction-memory.js";
-import { inspectDreamSidecar } from "../domain/dream-sidecar.js";
+import { ensureDreamSidecarFresh } from "../domain/dream-sidecar.js";
 import type {
   ConfigScope,
   MemoryLayoutDiagnostic,
@@ -260,7 +260,7 @@ export async function runMemory(options: MemoryOptions = {}): Promise<string> {
     maxLines: runtime.loadedConfig.config.maxStartupLines
   };
   const instructionLayer = await discoverInstructionLayer(runtime.project.projectRoot);
-  const dreamInspection = await inspectDreamSidecar(runtime);
+  const dreamInspection = await ensureDreamSidecarFresh(runtime);
   const refCountsByScope = {
     global: {
       startupFiles: startupFilesByScope.global.length,

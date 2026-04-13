@@ -2600,6 +2600,57 @@ export class MemoryStore {
     return records[0] ?? null;
   }
 
+  public async previewRemember(
+    scope: MemoryScope,
+    topic: string,
+    id: string,
+    summary: string,
+    details: string[],
+    reason?: string
+  ): Promise<{
+    record: MemoryApplyRecord | null;
+    ref: string;
+    targetPath: string;
+    wouldWrite: boolean;
+  }> {
+    await this.ensureLayout();
+    await this.assertMutationTargetsAreSafe([
+      {
+        action: "upsert",
+        scope,
+        topic,
+        id,
+        summary,
+        details,
+        reason,
+        sources: ["manual"]
+      }
+    ]);
+
+    const plan = await this.buildMutationCommitPlan(
+      [
+        {
+          action: "upsert",
+          scope,
+          topic,
+          id,
+          summary,
+          details,
+          reason,
+          sources: ["manual"]
+        }
+      ],
+      {}
+    );
+    const normalizedTopic = normalizeTopicName(topic);
+    return {
+      record: plan.applied[0] ?? null,
+      ref: buildMemoryRef(scope, "active", normalizedTopic, id),
+      targetPath: this.getTopicFile(scope, normalizedTopic),
+      wouldWrite: plan.fileChanges.length > 0
+    };
+  }
+
   private async upsertEntry(
     entry: MemoryEntry,
     state: MemoryRecordState = "active"

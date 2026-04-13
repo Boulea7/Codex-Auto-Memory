@@ -16,9 +16,10 @@ import type {
 } from "../types.js";
 import { appendJsonl, fileExists, readJsonFile, writeJsonFileAtomic } from "../util/fs.js";
 import { getDefaultMemoryDirectory } from "./project-context.js";
-import { parseRolloutEvidence } from "./rollout.js";
+import { findLatestProjectRollout, parseRolloutEvidence } from "./rollout.js";
 import { SessionContinuitySummarizer } from "../extractor/session-continuity-summarizer.js";
-import { listDreamCandidates } from "./dream-candidates.js";
+import { listDreamCandidates, reconcileDreamCandidates } from "./dream-candidates.js";
+import { inspectTeamMemory, rebuildTeamMemoryIndex } from "./team-memory.js";
 
 interface BuildDreamSnapshotOptions {
   runtime: RuntimeContext;
@@ -258,6 +259,10 @@ export async function buildDreamSnapshot(
   };
   const summarizer = new SessionContinuitySummarizer(options.runtime.loadedConfig.config);
   const generation = await summarizer.summarizeWithDiagnostics(evidence, existingState);
+  const teamMemory = await rebuildTeamMemoryIndex(
+    options.runtime.project,
+    options.runtime.loadedConfig.config
+  );
   const snapshot: DreamSidecarSnapshot = {
     version: 1,
     generatedAt: generation.diagnostics.generatedAt,
@@ -274,9 +279,7 @@ export async function buildDreamSnapshot(
       instructionLikeCandidates: [],
       durableMemoryCandidates: []
     },
-    teamMemory: {
-      available: false
-    }
+    teamMemory: teamMemory.summary
   };
 
   const seenRefs = new Set<string>();
@@ -380,6 +383,14 @@ export async function persistDreamSnapshot(
   };
 }
 
+function shouldRefreshDreamSnapshot(
+  status: DreamSidecarSummary["status"],
+  rolloutPath: string | null,
+  latestPrimaryRollout: string
+): boolean {
+  return status !== "available" || rolloutPath !== latestPrimaryRollout;
+}
+
 async function readDreamSnapshotSummary(
   enabled: boolean,
   autoBuild: boolean,
@@ -437,7 +448,8 @@ async function readDreamSnapshotSummary(
         pendingPromotionCount:
           snapshot.promotionCandidates.instructionLikeCandidates.length +
           snapshot.promotionCandidates.durableMemoryCandidates.length,
-        suggestedRefCount: snapshot.relevantMemoryRefs.length
+        suggestedRefCount: snapshot.relevantMemoryRefs.length,
+        teamMemory: snapshot.teamMemory
       },
       snapshot
     };
@@ -465,6 +477,9 @@ export async function inspectDreamSidecar(
   const paths = buildDreamPaths(runtime);
   const enabled = runtime.loadedConfig.config.dreamSidecarEnabled === true;
   const autoBuild = runtime.loadedConfig.config.dreamSidecarAutoBuild === true;
+  const teamInspection = await inspectTeamMemory(runtime.project, runtime.loadedConfig.config, {
+    autoBuild
+  });
   const projectSnapshot = await readDreamSnapshotSummary(enabled, autoBuild, paths.sharedFile);
   const projectLocalSnapshot = await readDreamSnapshotSummary(enabled, autoBuild, paths.localFile);
   const candidateQueue = await listDreamCandidates(runtime);
@@ -475,12 +490,14 @@ export async function inspectDreamSidecar(
     snapshots: {
       project: {
         ...projectSnapshot.summary,
+        teamMemory: projectSnapshot.summary.teamMemory ?? teamInspection.summary,
         queueSummary: candidateQueue.summary,
         candidateRegistryPath: candidateQueue.registryPath,
         candidateAuditPath: candidateQueue.auditPath
       },
       projectLocal: {
         ...projectLocalSnapshot.summary,
+        teamMemory: projectLocalSnapshot.summary.teamMemory ?? teamInspection.summary,
         queueSummary: candidateQueue.summary,
         candidateRegistryPath: candidateQueue.registryPath,
         candidateAuditPath: candidateQueue.auditPath
@@ -495,6 +512,47 @@ export async function inspectDreamSidecar(
     projectSnapshot: projectSnapshot.snapshot,
     projectLocalSnapshot: projectLocalSnapshot.snapshot
   };
+}
+
+export async function ensureDreamSidecarFresh(
+  runtime: RuntimeContext
+): Promise<DreamSidecarInspection & { projectSnapshot: DreamSidecarSnapshot | null; projectLocalSnapshot: DreamSidecarSnapshot | null }> {
+  const inspection = await inspectDreamSidecar(runtime);
+  if (!inspection.enabled || !inspection.autoBuild) {
+    return inspection;
+  }
+
+  const latestPrimaryRollout = await findLatestProjectRollout(runtime.project);
+  if (!latestPrimaryRollout) {
+    return inspection;
+  }
+
+  if (
+    !shouldRefreshDreamSnapshot(
+      inspection.snapshots.project.status,
+      inspection.snapshots.project.rolloutPath,
+      latestPrimaryRollout
+    ) &&
+    !shouldRefreshDreamSnapshot(
+      inspection.snapshots.projectLocal.status,
+      inspection.snapshots.projectLocal.rolloutPath,
+      latestPrimaryRollout
+    )
+  ) {
+    return inspection;
+  }
+
+  const snapshot = await buildDreamSnapshot({
+    runtime,
+    rolloutPath: latestPrimaryRollout
+  });
+  const persisted = await persistDreamSnapshot({
+    runtime,
+    snapshot,
+    scope: "both"
+  });
+  await reconcileDreamCandidates(runtime, snapshot, persisted.snapshotPaths);
+  return inspectDreamSidecar(runtime);
 }
 
 export function filterDreamRelevantRefs(

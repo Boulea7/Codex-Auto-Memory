@@ -170,6 +170,7 @@ export interface MemorySearchResponse {
     suggestedDreamRefs: DreamRelevantMemoryRef[];
     suggestedInstructionFiles: string[];
     topDurableRefs?: DreamRelevantMemoryRef[];
+    suggestedTeamEntries?: TeamMemorySuggestion[];
   };
 }
 
@@ -629,6 +630,34 @@ export interface InstructionMemoryLayer {
   detectedFiles: InstructionMemoryFile[];
 }
 
+export interface InstructionProposalTarget {
+  path: string;
+  kind: InstructionMemoryFile["kind"];
+  exists: boolean;
+  selectionReason?: string;
+}
+
+export interface InstructionProposalArtifact {
+  proposalOnly: true;
+  selectedTarget: InstructionProposalTarget;
+  rankedTargets: InstructionProposalTarget[];
+  normalizedInstruction: {
+    summary: string;
+    details: string[];
+    sourceSection: DreamPromotionCandidate["sourceSection"];
+    continuityScopeHint: SessionContinuityScope;
+  };
+  guidanceBlock: string;
+  patchPreview: string;
+  artifactPath: string;
+  sourceContext: {
+    candidateId: string;
+    rolloutPath: string;
+    sourceSection: DreamPromotionCandidate["sourceSection"];
+    continuityScopeHint: SessionContinuityScope | "unknown";
+  };
+}
+
 export interface RolloutToolCall {
   callId?: string;
   name: string;
@@ -842,6 +871,28 @@ export interface DreamRelevantMemoryRef {
   matchedQuery: string;
 }
 
+export interface TeamMemorySuggestion {
+  key: string;
+  topic: string;
+  scopeHint: SessionContinuityScope;
+  summary: string;
+  path: string;
+  approxReadCost: number;
+  matchedQuery: string;
+  reason: string;
+}
+
+export interface TeamMemorySummary {
+  available: boolean;
+  status: "missing" | "available" | "invalid" | "stale";
+  sourceRoot: string | null;
+  indexPath: string | null;
+  generatedAt: string | null;
+  topicCount: number;
+  entryCount: number;
+  warningCount: number;
+}
+
 export interface DreamPromotionCandidate {
   summary: string;
   details: string[];
@@ -880,6 +931,14 @@ export interface DreamCandidateReviewState {
   reviewerSessionId?: string;
 }
 
+export interface DreamCandidateAdoptionState {
+  adoptedAt: string;
+  adoptionKind: "manual";
+  adoptedFromBlockedSubagent: true;
+  note?: string;
+  adoptedBySessionId?: string;
+}
+
 export interface DreamCandidatePromotionState {
   eligible: boolean;
   eligibleReason?: string;
@@ -887,6 +946,11 @@ export interface DreamCandidatePromotionState {
   promotionOutcome?: "applied" | "noop" | "proposal-only" | "blocked";
   resultRef?: string;
   resultAuditPath?: string;
+  proposalArtifactPath?: string;
+  selectedTargetFile?: string;
+  selectedTargetKind?: InstructionMemoryFile["kind"];
+  guidanceDigest?: string;
+  patchDigest?: string;
 }
 
 export interface DreamCandidateRecord {
@@ -907,6 +971,7 @@ export interface DreamCandidateRecord {
   lastSeenRolloutPath: string;
   lastSeenSnapshotPath: string | null;
   review?: DreamCandidateReviewState;
+  adoption?: DreamCandidateAdoptionState;
   promotion: DreamCandidatePromotionState;
   blockedReason?: string;
 }
@@ -937,9 +1002,7 @@ export interface DreamSidecarSnapshot {
   };
   relevantMemoryRefs: DreamRelevantMemoryRef[];
   promotionCandidates: DreamPromotionCandidates;
-  teamMemory: {
-    available: false;
-  };
+  teamMemory: TeamMemorySummary;
 }
 
 export interface DreamSidecarAuditEntry {
@@ -967,9 +1030,11 @@ export interface DreamSidecarRecoveryRecord {
 
 export type DreamCandidateAuditAction =
   | "observed"
+  | "adopted"
   | "review-approved"
   | "review-rejected"
   | "review-deferred"
+  | "promotion-prepared"
   | "promotion-applied"
   | "promotion-noop"
   | "promotion-proposal-only"
@@ -991,7 +1056,9 @@ export interface DreamCandidateAuditEntry {
 
 export type DreamCandidateRecoveryStage =
   | "registry-write"
+  | "adoption-write"
   | "candidate-audit-write"
+  | "proposal-artifact-write"
   | "promotion-bridge";
 
 export interface DreamCandidateRecoveryRecord {
@@ -1005,13 +1072,14 @@ export interface DreamCandidateRecoveryRecord {
 export interface DreamSidecarSummary {
   enabled: boolean;
   autoBuild: boolean;
-  status: "disabled" | "missing" | "available" | "invalid";
+  status: "disabled" | "missing" | "available" | "invalid" | "stale";
   latestPath: string | null;
   generatedAt: string | null;
   rolloutPath: string | null;
   relevantMemoryRefCount: number;
   pendingPromotionCount: number;
   suggestedRefCount: number;
+  teamMemory?: TeamMemorySummary;
   queueSummary?: DreamQueueSummary;
   candidateRegistryPath?: string;
   candidateAuditPath?: string;
@@ -1282,5 +1350,6 @@ export interface SessionResumeContext {
   instructionFiles: string[];
   suggestedDurableRefs: DreamRelevantMemoryRef[];
   topDurableRefs?: DreamRelevantMemoryRef[];
+  suggestedTeamEntries?: TeamMemorySuggestion[];
   continuitySourceFiles?: string[];
 }

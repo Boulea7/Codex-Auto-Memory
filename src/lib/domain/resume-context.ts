@@ -1,8 +1,9 @@
 import { compileStartupMemory } from "./startup-memory.js";
 import { createEmptySessionContinuityState } from "./session-continuity.js";
 import { discoverInstructionFiles } from "./instruction-memory.js";
-import { filterDreamRelevantRefs, inspectDreamSidecar } from "./dream-sidecar.js";
+import { filterDreamRelevantRefs, ensureDreamSidecarFresh } from "./dream-sidecar.js";
 import { buildMemoryRef } from "./memory-lifecycle.js";
+import { searchTeamMemory } from "./team-memory.js";
 import type {
   DreamRelevantMemoryRef,
   MemorySearchResponse,
@@ -20,7 +21,7 @@ interface BuildSessionResumeContextOptions {
 
 interface SessionResumeContextBuildResult {
   resumeContext: SessionResumeContext;
-  dreamInspection: Awaited<ReturnType<typeof inspectDreamSidecar>>;
+  dreamInspection: Awaited<ReturnType<typeof ensureDreamSidecarFresh>>;
   mergedDreamRelevantRefs: DreamRelevantMemoryRef[];
   topDurableRefs: DreamRelevantMemoryRef[];
 }
@@ -66,7 +67,7 @@ export async function buildSessionResumeContext(
   runtime: RuntimeContext,
   options: BuildSessionResumeContextOptions = {}
 ): Promise<SessionResumeContextBuildResult> {
-  const dreamInspection = await inspectDreamSidecar(runtime);
+  const dreamInspection = await ensureDreamSidecarFresh(runtime);
   const instructionFiles = await discoverInstructionFiles(runtime.project.projectRoot);
   const mergedState =
     options.mergedState ??
@@ -88,6 +89,13 @@ export async function buildSessionResumeContext(
     runtime,
     options.topDurableRefLimit ?? 3
   );
+  const suggestedTeamEntries = await searchTeamMemory(
+    runtime.project,
+    runtime.loadedConfig.config,
+    mergedState.goal || topDurableRefs[0]?.ref || "team",
+    3,
+    { autoBuild: runtime.loadedConfig.config.dreamSidecarAutoBuild === true }
+  );
 
   return {
     dreamInspection,
@@ -99,6 +107,7 @@ export async function buildSessionResumeContext(
       instructionFiles,
       suggestedDurableRefs,
       topDurableRefs,
+      suggestedTeamEntries,
       continuitySourceFiles: options.continuitySourceFiles
     }
   };
@@ -113,6 +122,13 @@ export async function buildMemoryQuerySurfacing(
   return {
     suggestedDreamRefs: filterDreamRelevantRefs(mergedDreamRelevantRefs, query),
     suggestedInstructionFiles: resumeContext.instructionFiles,
-    topDurableRefs: resumeContext.topDurableRefs
+    topDurableRefs: resumeContext.topDurableRefs,
+    suggestedTeamEntries: await searchTeamMemory(
+      runtime.project,
+      runtime.loadedConfig.config,
+      query,
+      3,
+      { autoBuild: runtime.loadedConfig.config.dreamSidecarAutoBuild === true }
+    )
   };
 }

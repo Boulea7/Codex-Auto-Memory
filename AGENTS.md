@@ -46,6 +46,8 @@ cam dream build
 cam dream inspect
 cam dream candidates
 cam dream review
+cam dream adopt
+cam dream promote-prep
 cam dream promote
 cam session save
 cam session refresh
@@ -86,12 +88,12 @@ cam session status
 - `cam memory --json`: 返回 startup files、topic refs、recent sync audit、`topicDiagnostics`、`layoutDiagnostics`、`instructionLayer`、`startupBudgetLedger`、`dreamSidecar` 等 inspect 信息
 - `cam memory reindex --json`: 返回 rebuilt sidecar 摘要与对应 `indexPath` / `generatedAt`
 - `cam recall search --json`: 返回 compact refs、`retrievalMode`、`stateResolution`、`executionSummary`、`diagnostics.checkedPaths`、`querySurfacing`
-- `cam session status/load --json`: 额外暴露 additive `resumeContext`，包括 goal、instruction files 与 `suggestedDurableRefs`
+- `cam session status/load --json`: 额外暴露 additive `resumeContext`，包括 goal、instruction files、`suggestedDurableRefs` 与 `suggestedTeamEntries`
 - `cam recall timeline --json`: 返回 lifecycle history、`warnings`、`lineageSummary`
 - `cam recall details --json`: 返回 detail、`latestState`、`latestAudit`、`warnings`
 - `cam dream build --json`: 返回 dream sidecar snapshot、`snapshotPaths`、`auditPath`、`recoveryPath`
 - `cam dream inspect --json`: 返回 shared / local dream sidecar 状态、`auditPath`、`recoveryPath`
-- `cam dream candidates/review/promote`: 继续保持 sidecar reviewer lane；其中 durable-memory candidate 只能通过显式 promote + 现有 reviewer/audit 路径写入 canonical Markdown memory，而 instruction-like candidate 继续保持 `proposal-only`，不直接改 instruction files
+- `cam dream candidates/review/adopt/promote-prep/promote`: 继续保持 sidecar reviewer lane；其中 subagent candidate 需要先显式 `adopt` 才能进入 primary review lane，`promote-prep` 只做 reviewer 预演，durable-memory candidate 只能通过显式 promote + 现有 reviewer/audit 路径写入 canonical Markdown memory，而 instruction-like candidate 继续保持 `proposal-only`，不直接改 instruction files，只返回结构化 proposal artifact
 - `cam mcp print-config --json`: 对 Codex 暴露 project-scoped MCP snippet、`workflowContract`、推荐 `AGENTS.md` guidance
 - `cam mcp doctor --json`: 暴露 retrieval MCP wiring、fallback assets、`codexStack`、`retrievalSidecar`
 - `cam integrations install/apply --json`: 暴露 staged subactions、rollback payload、`postInstallReadinessCommand` / `postApplyReadinessCommand`
@@ -106,7 +108,7 @@ cam session status
 3. 把 Claude Code / Gemini CLI 的官方公开宿主能力面，与本仓当前真实支持的 manual-only host 边界继续写清楚
 4. 保持 `Markdown-first` canonical store 与 sidecar retrieval plane 的边界稳定
 5. 把 `instruction memory` 与 `learned durable memory` 的 reviewer 分层继续收紧，但不让 instruction discovery 越界进 durable mutation
-6. 把 `futureCompactionSeam` 继续演进成可审计、可关闭、fail-closed 的 `dream sidecar`
+6. 把 `futureCompactionSeam` 继续演进成可审计、可关闭、fail-closed 的 `dream sidecar`，并保持 `dreamSidecarAutoBuild` 只吃 latest primary rollout
 7. 保持 `cam integrations install` 与 `cam integrations apply` 的 AGENTS mutation boundary 清晰
 8. 继续扩大 deterministic release gate：`lint`、`test`、`docs-contract`、`dist-cli-smoke`、`tarball-install-smoke`
 
@@ -116,11 +118,12 @@ cam session status
 2. 优先把 help / docs / smoke contract 固定成同一套公开语义
 3. 在不扩张宿主边界的前提下，继续维持 Codex-first、manual-only 非 Codex host 的产品表述
 4. 将 issue5 剩余 closeout seams 继续拆成小 PR：`cam init` 幂等/`--force`、`cam session status/load` 只读化、Vitest `.worktrees/**` 边界、docs/help parity
-5. 给 dream sidecar 增补 explicit promotion / review lane，再决定是否把 query-time surfacing 扩展到 wrapper / MCP
+5. 继续把 shared/team memory 维持在 reviewer/recall additive surface，不让它越界变成第二 canonical truth
 6. 保持发布面验证串行执行：`dist-cli-smoke` 与 `tarball-install-smoke` 不并行跑，避免 `prepack -> rimraf dist` 造成假阴性
 
 ## 变更记录
 
+- 2026-04-13: Claude memory / dream R2 已继续往“真实工作流”推进：`dreamSidecarAutoBuild` 现在会在 `session` / `recall` / `wrapper` / MCP 消费面按需重建 latest primary dream snapshot；shared/team memory 以 repo-tracked `TEAM_MEMORY.md` + `team-memory/*.md` 进入 project-scoped read-only sidecar，并通过 `dreamSidecar.teamMemory`、`resumeContext.suggestedTeamEntries`、`querySurfacing.suggestedTeamEntries` 暴露 reviewer / recall surfacing；dream reviewer lane 新增 `cam dream adopt` 与 `cam dream promote-prep`，并把 instruction-like `proposal-only` promote 扩成结构化 proposal artifact（target ranking、guidance block、patch preview、artifact path），同时补齐对应单测与 release-facing smoke 断言。
 - 2026-04-12: docs/help/release-smoke 切片已补齐 dream reviewer 文档与契约说明：四语 README、`docs/README.md`、`docs/session-continuity.md`、`docs/claude-memory-dream-r1.md`、`docs/release-checklist.md` 现在明确写出 additive `resumeContext` / `querySurfacing`、dream reviewer lane，以及“durable-memory promote 走显式 reviewer/audit 写入、instruction-like promote 保持 `proposal-only`”这条边界；同时 `test/docs-contract.test.ts`、`test/dist-cli-smoke.test.ts`、`test/tarball-install-smoke.test.ts` 补上对应的 docs/help/release-smoke 断言。
 - 2026-04-12: 第一轮 Claude memory / dream 迁移已经落地：新增 `instruction memory` 与 `learned durable memory` 的 reviewer 分层；`MEMORY.md` 进一步收紧为 `index-only`，不再回写 latest summary preview；新增最小可用 `dream sidecar` 命令面 `cam dream build` / `cam dream inspect`，把 continuity compaction、relevant refs 与 pending promotion candidates 写入可审计 JSON sidecar，但不改 canonical Markdown memory；同时 `cam memory --json`、`cam session status/load --json` 与 `cam recall search --json` 分别补上 `instructionLayer` / `startupBudgetLedger` / `dreamSidecar`、`resumeContext` / `dreamSidecar`、`querySurfacing` 等 additive reviewer 字段。
 - 2026-04-11: issue5 tail closeout 新增 cross-host issue-tracker 回归保护：`directive-utils` 现在用完整的 non-generic hostname 片段构造 issue-tracker resource key，避免不同 host 但相同 repo/path 或 ticket id 的 URL 互相覆盖；同时补强 `vitest.config.ts` 的默认 exclude contract 测试，并把 `integrations apply --cwd` 的 invalid-path fail-closed 行为纳入 source / dist / tarball 回归覆盖。

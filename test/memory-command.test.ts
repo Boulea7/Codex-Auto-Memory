@@ -454,6 +454,93 @@ describe("runMemory", () => {
     });
   });
 
+  it("surfaces shared team memory summary in memory json output", async () => {
+    const homeDir = await tempDir("cam-memory-team-home-");
+    const projectDir = await tempDir("cam-memory-team-project-");
+    const memoryRoot = await tempDir("cam-memory-team-root-");
+    process.env.HOME = homeDir;
+
+    const projectConfig = buildProjectConfig({
+      dreamSidecarEnabled: true
+    });
+    await writeProjectConfig(projectDir, projectConfig, {
+      autoMemoryDirectory: memoryRoot,
+      dreamSidecarEnabled: true
+    });
+    await fs.writeFile(path.join(projectDir, "TEAM_MEMORY.md"), "# Team Memory\n", "utf8");
+    await fs.mkdir(path.join(projectDir, "team-memory"), { recursive: true });
+    await fs.writeFile(
+      path.join(projectDir, "team-memory", "workflow.md"),
+      [
+        "# Workflow",
+        "",
+        "<!-- cam:team-topic workflow -->",
+        "",
+        "## prefer-pnpm-shared",
+        '<!-- cam:team-entry {"id":"prefer-pnpm-shared","scopeHint":"project","updatedAt":"2026-03-15T00:00:00.000Z"} -->',
+        "Summary: Prefer pnpm from the shared workflow memory.",
+        "Details:",
+        "- Use pnpm across the shared project workflow.",
+        ""
+      ].join("\n"),
+      "utf8"
+    );
+
+    const rolloutPath = path.join(projectDir, "team-rollout.jsonl");
+    await fs.writeFile(
+      rolloutPath,
+      JSON.stringify({
+        type: "session_meta",
+        payload: {
+          id: "session-team-1",
+          timestamp: "2026-03-15T00:00:00.000Z",
+          cwd: projectDir
+        }
+      }) +
+        "\n" +
+        JSON.stringify({
+          type: "event_msg",
+          payload: { type: "user_message", message: "Continue the shared pnpm workflow." }
+        }) +
+        "\n",
+      "utf8"
+    );
+    await runDream("build", {
+      cwd: projectDir,
+      rollout: rolloutPath,
+      json: true
+    });
+
+    const output = JSON.parse(
+      await runMemory({
+        cwd: projectDir,
+        json: true
+      })
+    ) as MemoryCommandOutput & {
+      dreamSidecar: {
+        enabled: boolean;
+        status: string;
+        teamMemory?: {
+          available: boolean;
+          status: string;
+          topicCount: number;
+          entryCount: number;
+        };
+      };
+    };
+
+    expect(output.dreamSidecar).toMatchObject({
+      enabled: true,
+      status: "available",
+      teamMemory: {
+        available: true,
+        status: "available",
+        topicCount: 1,
+        entryCount: 1
+      }
+    });
+  });
+
   it("keeps json recent sync audit raw while compacting repeated sync events in text output", async () => {
     const homeDir = await tempDir("cam-memory-compact-home-");
     const projectDir = await tempDir("cam-memory-compact-project-");

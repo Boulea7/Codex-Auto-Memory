@@ -16,6 +16,7 @@ import { runCli } from "./helpers/cli-runner.js";
 
 const tempDirs: string[] = [];
 const originalHome = process.env.HOME;
+const originalSessionsDir = process.env.CAM_CODEX_SESSIONS_DIR;
 
 async function tempDir(prefix: string): Promise<string> {
   const dir = await fs.mkdtemp(path.join(os.tmpdir(), prefix));
@@ -71,6 +72,7 @@ function buildParseableUnsafeWorkflowTopicContents(
 
 afterEach(async () => {
   process.env.HOME = originalHome;
+  process.env.CAM_CODEX_SESSIONS_DIR = originalSessionsDir;
   await Promise.all(tempDirs.splice(0).map((dir) => fs.rm(dir, { recursive: true, force: true })));
 });
 
@@ -2020,6 +2022,94 @@ describe("runRecall", () => {
       expect.arrayContaining([
         expect.objectContaining({
           ref: "project:active:workflow:prefer-pnpm-shared"
+        })
+      ])
+    );
+  });
+
+  it("auto-builds dream surfacing and includes team memory suggestions when enabled", async () => {
+    const homeDir = await tempDir("cam-recall-autobuild-home-");
+    const projectDir = await tempDir("cam-recall-autobuild-project-");
+    const memoryRoot = await tempDir("cam-recall-autobuild-memory-");
+    const sessionsDir = await tempDir("cam-recall-autobuild-sessions-");
+    process.env.HOME = homeDir;
+    process.env.CAM_CODEX_SESSIONS_DIR = sessionsDir;
+
+    const projectConfig = makeAppConfig({
+      dreamSidecarEnabled: true,
+      dreamSidecarAutoBuild: true
+    });
+    await writeCamConfig(projectDir, projectConfig, {
+      autoMemoryDirectory: memoryRoot,
+      dreamSidecarEnabled: true,
+      dreamSidecarAutoBuild: true
+    });
+
+    const store = new MemoryStore(detectProjectContext(projectDir), {
+      ...projectConfig,
+      autoMemoryDirectory: memoryRoot
+    });
+    await store.ensureLayout();
+    await store.remember(
+      "project",
+      "workflow",
+      "prefer-pnpm",
+      "Prefer pnpm in this repository.",
+      ["Use pnpm instead of npm in this repository."],
+      "Manual note."
+    );
+
+    await fs.writeFile(path.join(projectDir, "TEAM_MEMORY.md"), "# Team Memory\n", "utf8");
+    await fs.mkdir(path.join(projectDir, "team-memory"), { recursive: true });
+    await fs.writeFile(
+      path.join(projectDir, "team-memory", "workflow.md"),
+      [
+        "# Workflow",
+        "",
+        "<!-- cam:team-topic workflow -->",
+        "",
+        "## prefer-pnpm-shared",
+        '<!-- cam:team-entry {"id":"prefer-pnpm-shared","scopeHint":"project","updatedAt":"2026-03-15T00:00:00.000Z"} -->',
+        "Summary: Prefer pnpm from the shared workflow memory.",
+        "Details:",
+        "- Use pnpm across the shared project workflow.",
+        ""
+      ].join("\n"),
+      "utf8"
+    );
+
+    const rolloutDir = path.join(sessionsDir, "2026", "03", "15");
+    await fs.mkdir(rolloutDir, { recursive: true });
+    const rolloutPath = path.join(rolloutDir, "rollout-2026-03-15T00-00-00-000Z-primary.jsonl");
+    await fs.writeFile(
+      rolloutPath,
+      makeRolloutFixture(projectDir, "Continue the middleware work and keep using pnpm in this repository."),
+      "utf8"
+    );
+
+    const result = runCli(projectDir, ["recall", "search", "pnpm", "--json"]);
+    expect(result.exitCode).toBe(0);
+
+    const response = JSON.parse(result.stdout) as MemorySearchResponse & {
+      querySurfacing: {
+        suggestedDreamRefs: Array<{ ref: string; reason: string }>;
+        suggestedTeamEntries: Array<{ key: string; summary: string; path: string }>;
+      };
+    };
+
+    expect(response.querySurfacing.suggestedDreamRefs).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          ref: "project:active:workflow:prefer-pnpm"
+        })
+      ])
+    );
+    expect(response.querySurfacing.suggestedTeamEntries).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          key: "team:workflow:prefer-pnpm-shared",
+          summary: "Prefer pnpm from the shared workflow memory.",
+          path: expect.stringContaining(`${path.sep}team-memory${path.sep}workflow.md`)
         })
       ])
     );

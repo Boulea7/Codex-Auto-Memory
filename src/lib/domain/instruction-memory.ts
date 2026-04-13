@@ -1,5 +1,5 @@
 import path from "node:path";
-import type { InstructionMemoryFile, InstructionMemoryLayer } from "../types.js";
+import type { InstructionMemoryFile, InstructionMemoryLayer, InstructionProposalTarget } from "../types.js";
 import { fileExists } from "../util/fs.js";
 
 const instructionCandidates: Array<Pick<InstructionMemoryFile, "kind"> & { relativePath: string }> = [
@@ -32,4 +32,21 @@ export async function discoverInstructionLayer(
 
 export async function discoverInstructionFiles(projectRoot: string): Promise<string[]> {
   return (await discoverInstructionLayer(projectRoot)).detectedFiles.map((file) => file.path);
+}
+
+export async function rankInstructionProposalTargets(
+  projectRoot: string
+): Promise<InstructionProposalTarget[]> {
+  const rankedTargets: InstructionProposalTarget[] = [];
+
+  for (const candidate of instructionCandidates) {
+    const candidatePath = path.join(projectRoot, candidate.relativePath);
+    rankedTargets.push({
+      path: candidatePath,
+      kind: candidate.kind,
+      exists: await fileExists(candidatePath)
+    });
+  }
+
+  return rankedTargets;
 }
