@@ -93,8 +93,8 @@ cam session status
 - `cam recall timeline --json`: 返回 lifecycle history、`warnings`、`lineageSummary`
 - `cam recall details --json`: 返回 detail、`latestState`、`latestAudit`、`warnings`
 - `cam dream build --json`: 返回 dream sidecar snapshot、`snapshotPaths`、`auditPath`、`recoveryPath`，其中可包含 read-only `teamMemory` reviewer hints
-- `cam dream inspect --json`: 返回 shared / local dream sidecar 状态、`auditPath`、`recoveryPath`
-- `cam dream candidates/review/adopt/promote-prep/promote/apply-prep`: 继续保持 sidecar reviewer lane；其中 subagent candidate 默认以 blocked 状态起步，需先显式 `adopt` 才能进入 primary review lane；`promote-prep` 与 `apply-prep` 都只做 reviewer / manual-apply 预演，不改 canonical memory 或 instruction files；durable-memory candidate 只能通过显式 `promote` + 现有 reviewer/audit 路径写入 canonical Markdown memory，而 instruction-like candidate 的 `promote`、`promote-prep`、`apply-prep` 都继续保持 `proposal-only`，只返回 proposal bundle / patch preview / artifact path 等结构化 proposal 产物，永不自动改 instruction files
+- `cam dream inspect --json`: 返回 shared / local dream sidecar 状态、`auditPath`、`recoveryPath`，以及 reviewer-facing queue / helper 元数据；inspect 保持只读，不隐式重建 sidecar 或 team index
+- `cam dream candidates/review/adopt/promote-prep/promote/apply-prep`: 继续保持 sidecar reviewer lane；其中 subagent candidate 默认以 blocked 状态起步，需先显式 `adopt` 才能进入 primary review lane；`promote-prep` 与 `apply-prep` 都只做 reviewer / manual-apply 预演，不改 canonical memory 或 instruction files；durable-memory candidate 只能通过显式 `promote` + 现有 reviewer/audit 路径写入 canonical Markdown memory，而 instruction-like candidate 的 `promote`、`promote-prep`、`apply-prep` 都继续保持 `proposal-only`，只返回 proposal artifact / patch preview / artifact path 等结构化 proposal 产物；`promote` 之后进入 `manual-apply-pending` reviewer 状态，永不自动改 instruction files
 - `cam mcp print-config --json`: 对 Codex 暴露 project-scoped MCP snippet、`workflowContract`、推荐 `AGENTS.md` guidance
 - `cam mcp doctor --json`: 暴露 retrieval MCP wiring、fallback assets、`codexStack`、`retrievalSidecar`
 - `cam integrations install/apply --json`: 暴露 staged subactions、rollback payload、`postInstallReadinessCommand` / `postApplyReadinessCommand`
@@ -134,3 +134,4 @@ cam session status
 - 2026-04-10: 新增根级 `AGENTS.md`，补齐仓库级功能说明、命令面、关键 JSON 契约与项目规划。
 - 2026-04-10: 明确 `cam integrations install --help` 与四语 README 命令表的公开边界：install 编排 stack，但不更新 `AGENTS.md`。
 - 2026-04-10: 新增 Claude Code / Gemini CLI 宿主接入边界文档，并同步收紧宿主策略文档与 README 入口，明确非 Codex 宿主当前仍是 manual-only / snippet-first。
+- 2026-04-14: 收紧 Claude memory / dream R1 reviewer contract：`TEAM_MEMORY.md` 现在明确为 team pack 的 root manifest / index-only 入口，真实 team entry 只来自 `team-memory/*.md`；`cam memory`、`cam dream inspect`、`cam recall`、retrieval MCP、`cam session status/load` 这些 inspect / retrieval surface 不再因 `dreamSidecarAutoBuild=true` 隐式写 dream snapshot 或 team index，而是保持只读并返回 diagnostics / next steps；instruction-like proposal lane 新增 `manual-apply-pending` 状态，并补上显式 `--target-file` override、rejected/stale proposal follow-up 过滤，以及 release-facing `dream inspect/help` smoke。

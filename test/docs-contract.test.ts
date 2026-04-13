@@ -503,7 +503,9 @@ describe("docs contract", () => {
     expect(packageJson.scripts["test:reviewer-smoke"]).toContain("test/integrations-command.test.ts");
     expect(packageJson.scripts["test:reviewer-smoke"]).toContain("test/mcp-command.test.ts");
     expect(packageJson.scripts["test:reviewer-smoke"]).toContain("test/skills-command.test.ts");
-    expect(packageJson.scripts["test:dist-cli-smoke"]).toBe("vitest run test/dist-cli-smoke.test.ts");
+    expect(packageJson.scripts["test:dist-cli-smoke"]).toBe(
+      "pnpm build && vitest run test/dist-cli-smoke.test.ts"
+    );
     expect(packageJson.scripts["test:tarball-install-smoke"]).toBe(
       "vitest run test/tarball-install-smoke.test.ts"
     );
