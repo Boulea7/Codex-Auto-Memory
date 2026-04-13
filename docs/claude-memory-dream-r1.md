@@ -57,8 +57,8 @@
 
 ## Round 2 增量
 
-- `dreamSidecarAutoBuild` 现在是实际能力，而不是只读配置：
-  - 开启后，`session` / `recall` / `wrapper` / MCP 会在 snapshot 缺失、无效或落后于 latest primary rollout 时按需重建 dream sidecar
+- `dreamSidecarAutoBuild` 现在只在允许写 sidecar 的运行路径中触发：
+  - wrapper startup 允许按需重建 latest primary dream snapshot
   - auto-build 仍然只吃 primary rollout，不把 subagent rollout 升格成 durable sync 来源
 - `teamMemory` 不再只是 inspect stub：
   - 当前仓库支持 repo-tracked team pack：`TEAM_MEMORY.md` 作为 root manifest / index-only 入口，真实 entry 只来自 `team-memory/*.md`
@@ -77,6 +77,7 @@
   - `artifactPath`
   - `manualWorkflow`
   - `applyReadiness`
+  - reviewer 也可以通过 `--target-file` 显式指定本次 proposal 指向的 instruction file，而不改默认 ranking
 
 - `dreamSidecarAutoBuild` 现在只在允许写 sidecar 的运行路径中触发：
   - wrapper startup 允许按需重建 latest primary dream snapshot
