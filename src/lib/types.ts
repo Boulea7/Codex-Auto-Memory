@@ -967,6 +967,7 @@ export type DreamCandidateOriginKind = RolloutProvenanceKind;
 export type DreamCandidateStatus =
   | "pending"
   | "approved"
+  | "manual-apply-pending"
   | "rejected"
   | "promoted"
   | "stale"
@@ -1317,6 +1318,7 @@ export interface MemoryCommandOutput {
     queueSummary: DreamQueueSummary;
     pendingInstructionCandidateCount: number;
     approvedInstructionCandidateCount: number;
+    manualApplyPendingInstructionCandidateCount: number;
     blockedSubagentInstructionCandidateCount: number;
     latestProposalArtifactPath: string | null;
     candidateRecoveryPath: string;

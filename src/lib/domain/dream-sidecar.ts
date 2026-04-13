@@ -37,6 +37,10 @@ interface DreamSnapshotReadResult {
   snapshot: DreamSidecarSnapshot | null;
 }
 
+interface InspectDreamSidecarOptions {
+  allowTeamIndexBuild?: boolean;
+}
+
 export interface PersistedDreamSnapshotResult {
   snapshot: DreamSidecarSnapshot;
   snapshotPaths: string[];
@@ -472,13 +476,14 @@ async function readDreamSnapshotSummary(
 }
 
 export async function inspectDreamSidecar(
-  runtime: RuntimeContext
+  runtime: RuntimeContext,
+  options: InspectDreamSidecarOptions = {}
 ): Promise<DreamSidecarInspection & { projectSnapshot: DreamSidecarSnapshot | null; projectLocalSnapshot: DreamSidecarSnapshot | null }> {
   const paths = buildDreamPaths(runtime);
   const enabled = runtime.loadedConfig.config.dreamSidecarEnabled === true;
   const autoBuild = runtime.loadedConfig.config.dreamSidecarAutoBuild === true;
   const teamInspection = await inspectTeamMemory(runtime.project, runtime.loadedConfig.config, {
-    autoBuild
+    autoBuild: autoBuild && options.allowTeamIndexBuild === true
   });
   const projectSnapshot = await readDreamSnapshotSummary(enabled, autoBuild, paths.sharedFile);
   const projectLocalSnapshot = await readDreamSnapshotSummary(enabled, autoBuild, paths.localFile);

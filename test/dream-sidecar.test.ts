@@ -255,6 +255,65 @@ describe("dream sidecar", () => {
     });
   });
 
+  it("requires TEAM_MEMORY.md before surfacing team-memory entries", async () => {
+    const homeDir = await tempDir("cam-dream-team-manifest-home-");
+    const repoDir = await tempDir("cam-dream-team-manifest-repo-");
+    const memoryRoot = await tempDir("cam-dream-team-manifest-memory-");
+    process.env.HOME = homeDir;
+    await initGitRepo(repoDir);
+    await fs.mkdir(path.join(repoDir, "team-memory"), { recursive: true });
+    await fs.writeFile(
+      path.join(repoDir, "team-memory", "workflow.md"),
+      teamWorkflowContents(
+        "prefer-pnpm-shared",
+        "Prefer pnpm from the shared workflow memory.",
+        "Use pnpm across the shared project workflow."
+      ),
+      "utf8"
+    );
+    await writeCamConfig(
+      repoDir,
+      makeAppConfig({
+        dreamSidecarEnabled: true
+      }),
+      {
+        autoMemoryDirectory: memoryRoot,
+        dreamSidecarEnabled: true
+      }
+    );
+
+    const rolloutPath = path.join(repoDir, "team-rollout.jsonl");
+    await fs.writeFile(
+      rolloutPath,
+      makeRolloutFixture(repoDir, "Continue the shared pnpm workflow review."),
+      "utf8"
+    );
+
+    const buildPayload = JSON.parse(
+      await runDream("build", {
+        cwd: repoDir,
+        rollout: rolloutPath,
+        json: true
+      })
+    ) as {
+      snapshot: {
+        teamMemory: {
+          available: boolean;
+          status: string;
+          topicCount: number;
+          entryCount: number;
+        };
+      };
+    };
+
+    expect(buildPayload.snapshot.teamMemory).toMatchObject({
+      available: false,
+      status: "missing",
+      topicCount: 0,
+      entryCount: 0
+    });
+  });
+
   it("reconciles candidates into an explicit review queue and only promotes durable memory after approval", async () => {
     const homeDir = await tempDir("cam-dream-review-home-");
     const repoDir = await tempDir("cam-dream-review-repo-");
@@ -295,22 +354,7 @@ describe("dream sidecar", () => {
       json: true
     });
 
-    const instructionRolloutPath = path.join(repoDir, "instruction-rollout.jsonl");
-    await fs.writeFile(
-      instructionRolloutPath,
-      makeRolloutFixture(
-        repoDir,
-        "Always run pnpm test before build in this repository."
-      ),
-      "utf8"
-    );
-    await runDream("build", {
-      cwd: repoDir,
-      rollout: instructionRolloutPath,
-      json: true
-    });
-
-    const candidatesPayload = JSON.parse(
+    const durableCandidatesPayload = JSON.parse(
       await runDream("candidates", {
         cwd: repoDir,
         json: true
@@ -322,18 +366,8 @@ describe("dream sidecar", () => {
         status: string;
         summary: string;
       }>;
-      summary: {
-        totalCount: number;
-        statusCounts: Record<string, number>;
-      };
-      registryPath: string;
     };
-
-    expect(candidatesPayload.summary.totalCount).toBeGreaterThanOrEqual(2);
-    expect(candidatesPayload.summary.statusCounts.pending).toBeGreaterThanOrEqual(2);
-    await expect(fs.stat(candidatesPayload.registryPath)).resolves.toBeDefined();
-
-    const durableCandidate = candidatesPayload.entries.find(
+    const durableCandidate = durableCandidatesPayload.entries.find(
       (entry) =>
         entry.targetSurface === "durable-memory" &&
         entry.summary.includes("runbook lives")
@@ -382,6 +416,44 @@ describe("dream sidecar", () => {
       targetSurface: "durable-memory"
     });
     expect(promoteDurable.durableMemory?.ref).toContain("project:active:");
+
+    const instructionRolloutPath = path.join(repoDir, "instruction-rollout.jsonl");
+    await fs.writeFile(
+      instructionRolloutPath,
+      makeRolloutFixture(
+        repoDir,
+        "Always run pnpm test before build in this repository."
+      ),
+      "utf8"
+    );
+    await runDream("build", {
+      cwd: repoDir,
+      rollout: instructionRolloutPath,
+      json: true
+    });
+
+    const candidatesPayload = JSON.parse(
+      await runDream("candidates", {
+        cwd: repoDir,
+        json: true
+      })
+    ) as {
+      entries: Array<{
+        candidateId: string;
+        targetSurface: "durable-memory" | "instruction-memory";
+        status: string;
+        summary: string;
+      }>;
+      summary: {
+        totalCount: number;
+        statusCounts: Record<string, number>;
+      };
+      registryPath: string;
+    };
+
+    expect(candidatesPayload.summary.totalCount).toBeGreaterThanOrEqual(2);
+    expect(candidatesPayload.summary.statusCounts.pending).toBeGreaterThanOrEqual(1);
+    await expect(fs.stat(candidatesPayload.registryPath)).resolves.toBeDefined();
 
     const promotedEntries = await store.listEntries("project");
     expect(
@@ -474,7 +546,7 @@ describe("dream sidecar", () => {
     expect(promoteInstruction).toMatchObject({
       promotionOutcome: "proposal-only",
       entry: {
-        status: "approved",
+        status: "manual-apply-pending",
         targetSurface: "instruction-memory"
       },
       instructionProposal: {
@@ -685,6 +757,282 @@ describe("dream sidecar", () => {
     };
     expect(emptyFileApplyPrepPayload.applyReadiness).toMatchObject({
       status: "stale"
+    });
+  });
+
+  it("keeps shared and project-local candidates active when builds target different scopes", async () => {
+    const homeDir = await tempDir("cam-dream-scope-home-");
+    const repoDir = await tempDir("cam-dream-scope-repo-");
+    const memoryRoot = await tempDir("cam-dream-scope-memory-");
+    process.env.HOME = homeDir;
+    await initGitRepo(repoDir);
+    await fs.writeFile(path.join(repoDir, "AGENTS.md"), "# Repo rules\n", "utf8");
+    await writeCamConfig(
+      repoDir,
+      makeAppConfig({
+        dreamSidecarEnabled: true
+      }),
+      {
+        autoMemoryDirectory: memoryRoot,
+        dreamSidecarEnabled: true
+      }
+    );
+
+    const sharedRolloutPath = path.join(repoDir, "shared-rollout.jsonl");
+    await fs.writeFile(
+      sharedRolloutPath,
+      makeRolloutFixture(repoDir, "The shared runbook lives at https://docs.example.com/runbook."),
+      "utf8"
+    );
+    await runDream("build", {
+      cwd: repoDir,
+      rollout: sharedRolloutPath,
+      scope: "project",
+      json: true
+    });
+
+    const localRolloutPath = path.join(repoDir, "local-rollout.jsonl");
+    await fs.writeFile(
+      localRolloutPath,
+      makeRolloutFixture(repoDir, "Keep the worktree-local scratch command handy for this branch."),
+      "utf8"
+    );
+    await runDream("build", {
+      cwd: repoDir,
+      rollout: localRolloutPath,
+      scope: "project-local",
+      json: true
+    });
+
+    const candidatesPayload = JSON.parse(
+      await runDream("candidates", {
+        cwd: repoDir,
+        json: true
+      })
+    ) as {
+      entries: Array<{
+        summary: string;
+        status: string;
+        targetSurface: string;
+      }>;
+    };
+
+    expect(
+      candidatesPayload.entries.find((entry) => entry.summary.includes("shared runbook lives"))
+    ).toMatchObject({
+      status: "pending",
+      targetSurface: "durable-memory"
+    });
+    expect(
+      candidatesPayload.entries.find((entry) => entry.summary.includes("worktree-local scratch command"))
+    ).toMatchObject({
+      status: "pending",
+      targetSurface: "durable-memory"
+    });
+  });
+
+  it("does not reopen stale or promoted candidates through review", async () => {
+    const homeDir = await tempDir("cam-dream-terminal-home-");
+    const repoDir = await tempDir("cam-dream-terminal-repo-");
+    const memoryRoot = await tempDir("cam-dream-terminal-memory-");
+    process.env.HOME = homeDir;
+    await initGitRepo(repoDir);
+    await writeCamConfig(
+      repoDir,
+      makeAppConfig({
+        dreamSidecarEnabled: true
+      }),
+      {
+        autoMemoryDirectory: memoryRoot,
+        dreamSidecarEnabled: true
+      }
+    );
+
+    const rolloutPath = path.join(repoDir, "terminal-rollout.jsonl");
+    await fs.writeFile(
+      rolloutPath,
+      makeRolloutFixture(repoDir, "The runbook lives at https://docs.example.com/runbook."),
+      "utf8"
+    );
+    await runDream("build", {
+      cwd: repoDir,
+      rollout: rolloutPath,
+      json: true
+    });
+    const firstCandidates = JSON.parse(
+      await runDream("candidates", {
+        cwd: repoDir,
+        json: true
+      })
+    ) as {
+      entries: Array<{ candidateId: string; targetSurface: string; summary: string }>;
+    };
+    const durableCandidate = firstCandidates.entries.find(
+      (entry) => entry.targetSurface === "durable-memory"
+    );
+    expect(durableCandidate).toBeDefined();
+
+    await runDream("review", {
+      cwd: repoDir,
+      candidateId: durableCandidate!.candidateId,
+      approve: true,
+      json: true
+    });
+    await runDream("promote", {
+      cwd: repoDir,
+      candidateId: durableCandidate!.candidateId,
+      json: true
+    });
+
+    await expect(
+      runDream("review", {
+        cwd: repoDir,
+        candidateId: durableCandidate!.candidateId,
+        defer: true,
+        json: true
+      })
+    ).rejects.toThrow(/cannot be reviewed/i);
+
+    const staleRolloutPath = path.join(repoDir, "stale-rollout.jsonl");
+    await fs.writeFile(
+      staleRolloutPath,
+      makeRolloutFixture(repoDir, "Keep the temporary debug shell alias handy while this branch is active."),
+      "utf8"
+    );
+    await runDream("build", {
+      cwd: repoDir,
+      rollout: staleRolloutPath,
+      json: true
+    });
+    const staleCandidatesBeforeReplacement = JSON.parse(
+      await runDream("candidates", {
+        cwd: repoDir,
+        json: true
+      })
+    ) as {
+      entries: Array<{ candidateId: string; summary: string; status: string }>;
+    };
+    const reviewableStaleCandidate = staleCandidatesBeforeReplacement.entries.find(
+      (entry) =>
+        entry.summary.includes("temporary debug shell alias") &&
+        entry.status === "pending"
+    );
+    expect(reviewableStaleCandidate).toBeDefined();
+
+    const replacementRolloutPath = path.join(repoDir, "replacement-rollout.jsonl");
+    await fs.writeFile(
+      replacementRolloutPath,
+      makeRolloutFixture(repoDir, "Prefer pnpm in this repository."),
+      "utf8"
+    );
+    await runDream("build", {
+      cwd: repoDir,
+      rollout: replacementRolloutPath,
+      json: true
+    });
+
+    const secondCandidates = JSON.parse(
+      await runDream("candidates", {
+        cwd: repoDir,
+        json: true
+      })
+    ) as {
+      entries: Array<{ candidateId: string; targetSurface: string; summary: string; status: string }>;
+    };
+    const staleCandidate = secondCandidates.entries.find(
+      (entry) => entry.candidateId === reviewableStaleCandidate!.candidateId
+    );
+    expect(staleCandidate).toBeDefined();
+    expect(staleCandidate?.status).toBe("stale");
+
+    await expect(
+      runDream("review", {
+        cwd: repoDir,
+        candidateId: reviewableStaleCandidate!.candidateId,
+        approve: true,
+        json: true
+      })
+    ).rejects.toThrow(/cannot be reviewed/i);
+  });
+
+  it("supports explicit instruction target override without changing the default ranking", async () => {
+    const homeDir = await tempDir("cam-dream-target-home-");
+    const repoDir = await tempDir("cam-dream-target-repo-");
+    const memoryRoot = await tempDir("cam-dream-target-memory-");
+    process.env.HOME = homeDir;
+    await initGitRepo(repoDir);
+    await fs.writeFile(path.join(repoDir, "AGENTS.md"), "# Repo rules\n", "utf8");
+    await fs.writeFile(path.join(repoDir, "CLAUDE.md"), "# Claude rules\n", "utf8");
+    await writeCamConfig(
+      repoDir,
+      makeAppConfig({
+        dreamSidecarEnabled: true
+      }),
+      {
+        autoMemoryDirectory: memoryRoot,
+        dreamSidecarEnabled: true
+      }
+    );
+
+    const rolloutPath = path.join(repoDir, "instruction-target-rollout.jsonl");
+    await fs.writeFile(
+      rolloutPath,
+      makeRolloutFixture(repoDir, "Always run pnpm lint before pnpm build."),
+      "utf8"
+    );
+    await runDream("build", {
+      cwd: repoDir,
+      rollout: rolloutPath,
+      json: true
+    });
+
+    const candidatePayload = JSON.parse(
+      await runDream("candidates", {
+        cwd: repoDir,
+        json: true
+      })
+    ) as {
+      entries: Array<{ candidateId: string; targetSurface: string }>;
+    };
+    const instructionCandidate = candidatePayload.entries.find(
+      (entry) => entry.targetSurface === "instruction-memory"
+    );
+    expect(instructionCandidate).toBeDefined();
+
+    await runDream("review", {
+      cwd: repoDir,
+      candidateId: instructionCandidate!.candidateId,
+      approve: true,
+      json: true
+    });
+
+    const previewPayload = JSON.parse(
+      await runDream("promote-prep", {
+        cwd: repoDir,
+        candidateId: instructionCandidate!.candidateId,
+        targetFile: path.join(repoDir, "CLAUDE.md"),
+        json: true
+      } as never)
+    ) as {
+      entry: {
+        status: string;
+      };
+      preview: {
+        selectedTargetByPolicy: {
+          path: string;
+        };
+        selectedTarget: {
+          path: string;
+          kind: string;
+        };
+      };
+    };
+
+    expect(previewPayload.entry.status).toBe("approved");
+    expect(previewPayload.preview.selectedTargetByPolicy.path).toContain(`${path.sep}AGENTS.md`);
+    expect(previewPayload.preview.selectedTarget).toMatchObject({
+      path: expect.stringContaining(`${path.sep}CLAUDE.md`),
+      kind: "claude-project"
     });
   });
 

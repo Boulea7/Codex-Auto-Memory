@@ -65,7 +65,15 @@ function addDreamCandidateIdOption(command: Command): Command {
   return command.option("--candidate-id <id>", "Dream candidate id");
 }
 
-const dreamStatusChoices = ["pending", "approved", "rejected", "promoted", "stale", "blocked"];
+const dreamStatusChoices = [
+  "pending",
+  "approved",
+  "manual-apply-pending",
+  "rejected",
+  "promoted",
+  "stale",
+  "blocked"
+];
 const dreamTargetSurfaceChoices = ["durable-memory", "instruction-memory"];
 const dreamOriginKindChoices = ["primary", "subagent"];
 
@@ -195,6 +203,7 @@ function registerDreamCommands(program: Command): void {
           .description("Preview the outcome of promoting an approved dream candidate without mutating canonical memory")
           .option("--topic <topic>", "Override the inferred durable memory topic")
           .option("--id <id>", "Override the inferred durable memory id")
+          .option("--target-file <path>", "Override the selected instruction target for proposal-only preparation")
       )
     )
   ).action(withStdout(async (options) => runDream("promote-prep", options)));
@@ -207,6 +216,7 @@ function registerDreamCommands(program: Command): void {
           .description("Explicitly promote an approved dream candidate")
           .option("--topic <topic>", "Override the inferred durable memory topic")
           .option("--id <id>", "Override the inferred durable memory id")
+          .option("--target-file <path>", "Override the selected instruction target for proposal-only promotion")
       )
     )
   ).action(withStdout(async (options) => runDream("promote", options)));

@@ -204,9 +204,9 @@ export async function rebuildTeamMemoryIndex(
   config: AppConfig
 ): Promise<TeamMemoryInspection> {
   const paths = buildTeamMemoryPaths(project, config);
-  const hasAnySource =
-    (await fileExists(paths.sourceIndexFile)) || (await fileExists(paths.sourceDir));
-  if (!hasAnySource) {
+  const hasIndexManifest = await fileExists(paths.sourceIndexFile);
+  const hasEntryDir = await fileExists(paths.sourceDir);
+  if (!hasIndexManifest || !hasEntryDir) {
     return {
       summary: {
         available: false,
@@ -275,9 +275,9 @@ export async function inspectTeamMemory(
   options: InspectTeamMemoryOptions = {}
 ): Promise<TeamMemoryInspection> {
   const paths = buildTeamMemoryPaths(project, config);
-  const hasAnySource =
-    (await fileExists(paths.sourceIndexFile)) || (await fileExists(paths.sourceDir));
-  if (!hasAnySource) {
+  const hasIndexManifest = await fileExists(paths.sourceIndexFile);
+  const hasEntryDir = await fileExists(paths.sourceDir);
+  if (!hasIndexManifest || !hasEntryDir) {
     return {
       summary: {
         available: false,

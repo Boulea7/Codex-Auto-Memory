@@ -350,6 +350,9 @@ export async function runMemory(options: MemoryOptions = {}): Promise<string> {
         queueSummary: buildDreamQueueSummary(instructionCandidates),
         pendingInstructionCandidateCount: instructionCandidates.filter((entry) => entry.status === "pending").length,
         approvedInstructionCandidateCount: instructionCandidates.filter((entry) => entry.status === "approved").length,
+        manualApplyPendingInstructionCandidateCount: instructionCandidates.filter(
+          (entry) => entry.status === "manual-apply-pending"
+        ).length,
         blockedSubagentInstructionCandidateCount: instructionCandidates.filter(
           (entry) => entry.status === "blocked" && entry.originKind === "subagent"
         ).length,

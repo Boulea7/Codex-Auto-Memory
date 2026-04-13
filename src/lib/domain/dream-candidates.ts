@@ -1,3 +1,4 @@
+import fs from "node:fs/promises";
 import path from "node:path";
 import { createHash } from "node:crypto";
 import type { RuntimeContext } from "../runtime/runtime-context.js";
@@ -44,7 +45,17 @@ interface ReviewDreamCandidateOptions {
   note?: string;
 }
 
-const nonTerminalDreamStatuses: DreamCandidateStatus[] = ["pending", "approved", "blocked"];
+const nonTerminalDreamStatuses: DreamCandidateStatus[] = [
+  "pending",
+  "approved",
+  "manual-apply-pending",
+  "blocked"
+];
+
+const actionableInstructionProposalStatuses: DreamCandidateStatus[] = [
+  "approved",
+  "manual-apply-pending"
+];
 
 function buildDreamCandidatePaths(runtime: RuntimeContext): DreamCandidatePaths {
   const baseDir = runtime.loadedConfig.config.autoMemoryDirectory ?? getDefaultMemoryDirectory();
@@ -227,7 +238,10 @@ export function getLatestDreamProposalCandidate(
   entries: DreamCandidateRecord[]
 ): DreamCandidateRecord | null {
   const candidates = entries.filter(
-    (entry) => entry.targetSurface === "instruction-memory" && getDreamCandidateProposalArtifactPath(entry)
+    (entry) =>
+      entry.targetSurface === "instruction-memory" &&
+      actionableInstructionProposalStatuses.includes(entry.status) &&
+      getDreamCandidateProposalArtifactPath(entry)
   );
   if (candidates.length === 0) {
     return null;
@@ -307,7 +321,12 @@ function buildAuditEntry(
 
 export async function reconcileDreamCandidates(
   runtime: RuntimeContext,
-  snapshot: DreamSidecarSnapshot,
+  snapshotSources:
+    | DreamSidecarSnapshot
+    | Array<{
+        snapshot: DreamSidecarSnapshot;
+        snapshotPath: string | null;
+      }>,
   snapshotPaths: string[] = []
 ): Promise<{ entries: DreamCandidateRecord[]; summary: DreamQueueSummary; registryPath: string; auditPath: string; recoveryPath: string }> {
   const { paths, registry } = await readRegistryOrDefault(runtime);
@@ -317,9 +336,13 @@ export async function reconcileDreamCandidates(
   const observedEntries: DreamCandidateRecord[] = [];
   const staleEntries: DreamCandidateRecord[] = [];
   const observedCandidateIds = new Set<string>();
-  const snapshotPath = snapshotPaths[0] ?? null;
+  const sources = Array.isArray(snapshotSources)
+    ? snapshotSources
+    : [{ snapshot: snapshotSources, snapshotPath: snapshotPaths[0] ?? null }];
 
   const observe = (
+    snapshot: DreamSidecarSnapshot,
+    snapshotPath: string | null,
     candidates: DreamPromotionCandidate[],
     targetSurface: DreamCandidateTargetSurface
   ): void => {
@@ -333,8 +356,20 @@ export async function reconcileDreamCandidates(
     }
   };
 
-  observe(snapshot.promotionCandidates.durableMemoryCandidates, "durable-memory");
-  observe(snapshot.promotionCandidates.instructionLikeCandidates, "instruction-memory");
+  for (const source of sources) {
+    observe(
+      source.snapshot,
+      source.snapshotPath,
+      source.snapshot.promotionCandidates.durableMemoryCandidates,
+      "durable-memory"
+    );
+    observe(
+      source.snapshot,
+      source.snapshotPath,
+      source.snapshot.promotionCandidates.instructionLikeCandidates,
+      "instruction-memory"
+    );
+  }
 
   for (const current of registry.entries) {
     if (observedCandidateIds.has(current.candidateId)) {
@@ -359,7 +394,9 @@ export async function reconcileDreamCandidates(
 
   const nextRegistry: DreamCandidateRegistry = {
     version: 1,
-    updatedAt: snapshot.generatedAt,
+    updatedAt: sources
+      .map((source) => source.snapshot.generatedAt)
+      .sort((left, right) => right.localeCompare(left))[0] ?? new Date().toISOString(),
     entries: [...entryById.values()].sort((left, right) =>
       left.lastSeenAt === right.lastSeenAt
         ? left.candidateId.localeCompare(right.candidateId)
@@ -457,6 +494,16 @@ export async function reviewDreamCandidate(
   const currentEntry = registry.entries.find((entry) => entry.candidateId === options.candidateId);
   if (!currentEntry) {
     throw new Error(`Dream candidate "${options.candidateId}" was not found.`);
+  }
+  if (
+    currentEntry.status === "rejected" ||
+    currentEntry.status === "stale" ||
+    currentEntry.status === "promoted" ||
+    currentEntry.status === "manual-apply-pending"
+  ) {
+    throw new Error(
+      `Dream candidate "${options.candidateId}" is already in terminal reviewer state "${currentEntry.status}" and cannot be reviewed again.`
+    );
   }
   if (
     currentEntry.originKind === "subagent" &&
@@ -611,7 +658,9 @@ export async function markDreamCandidatePromoted(
   const promotedAt = new Date().toISOString();
   const nextEntry: DreamCandidateRecord = {
     ...currentEntry,
-    ...(options.outcome === "proposal-only" ? {} : { status: "promoted" as const }),
+    ...(options.outcome === "proposal-only"
+      ? { status: "manual-apply-pending" as const }
+      : { status: "promoted" as const }),
     promotion: {
       ...currentEntry.promotion,
       promotedAt,
@@ -760,12 +809,37 @@ export async function markDreamCandidateApplyPrepared(
 
 export async function buildInstructionProposal(
   runtime: RuntimeContext,
-  entry: DreamCandidateRecord
+  entry: DreamCandidateRecord,
+  options: {
+    targetFile?: string;
+  } = {}
 ) {
   const paths = buildDreamCandidatePaths(runtime);
   const artifactPath = buildProposalArtifactPath(paths, entry.candidateId);
   const rankedTargets = await rankInstructionProposalTargets(runtime.project.projectRoot);
-  const artifact = buildInstructionProposalArtifact(entry, rankedTargets, artifactPath);
+  const explicitTargetPath = options.targetFile
+    ? path.resolve(runtime.project.projectRoot, options.targetFile)
+    : undefined;
+  const resolvedExplicitTargetPath = explicitTargetPath
+    ? await fs.realpath(explicitTargetPath).catch(() => explicitTargetPath)
+    : undefined;
+  const rankedTargetPaths = await Promise.all(
+    rankedTargets.map(async (target) => ({
+      target,
+      resolvedPath: await fs.realpath(target.path).catch(() => target.path)
+    }))
+  );
+  if (
+    resolvedExplicitTargetPath &&
+    !rankedTargetPaths.some(({ resolvedPath }) => resolvedPath === resolvedExplicitTargetPath)
+  ) {
+    throw new Error(
+      `Dream target-file must resolve to one of the discovered instruction targets for this repository.`
+    );
+  }
+  const artifact = buildInstructionProposalArtifact(entry, rankedTargets, artifactPath, {
+    selectedTargetPath: resolvedExplicitTargetPath
+  });
 
   try {
     await writeJsonFileAtomic(artifactPath, artifact);
@@ -775,7 +849,7 @@ export async function buildInstructionProposal(
         "# Instruction Proposal Summary",
         "",
         `Candidate: ${entry.candidateId}`,
-        `Target: ${artifact.selectedTargetByPolicy.path}`,
+        `Target: ${artifact.selectedTarget.path}`,
         `Readiness: ${artifact.applyReadiness.status}`,
         `Recommended operation: ${artifact.applyReadiness.recommendedOperation}`,
         "",
@@ -796,7 +870,7 @@ export async function buildInstructionProposal(
     await writeJsonFileAtomic(artifact.manualWorkflow.applyPrepPath, {
       action: "apply-prep",
       candidateId: entry.candidateId,
-      targetPath: artifact.selectedTargetByPolicy.path,
+      targetPath: artifact.selectedTarget.path,
       applyReadiness: artifact.applyReadiness,
       artifactPath
     });

@@ -249,7 +249,8 @@ export async function loadSessionInspectionView(
   const resumeContext = await buildSessionResumeContext(runtime, {
     mergedState,
     suggestedRefLimit: 5,
-    continuitySourceFiles
+    continuitySourceFiles,
+    allowDreamAutoBuild: false
   });
 
   return {
