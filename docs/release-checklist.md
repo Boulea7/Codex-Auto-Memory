@@ -82,8 +82,8 @@ Use this checklist before cutting any alpha or beta release of `codex-auto-memor
 - Confirm `cam dream promote` stays reviewer-gated: durable-memory candidates only write through the existing reviewer/audit path, while instruction-like candidates remain `proposal-only` and do not directly write instruction files.
 - Confirm instruction-like `cam dream promote-prep` and `cam dream apply-prep` also stay `proposal-only` and never auto-edit instruction files.
 - Confirm proposal-only promote now leaves instruction-like candidates in `manual-apply-pending`, and that rejected/stale proposal artifacts are no longer recommended as the latest actionable follow-up.
-- Confirm `node dist/cli.js dream promote --json` for an instruction-like candidate returns `proposal-only` plus a structured proposal bundle instead of mutating instruction files.
-- Confirm `node dist/cli.js dream apply-prep --json` returns manual-apply prep and proposal-bundle metadata instead of modifying instruction files.
+- Confirm `node dist/cli.js dream promote --json` for an instruction-like candidate returns `proposal-only` plus a structured proposal artifact with `patchPreview`, `artifactPath`, `manualWorkflow`, and `applyReadiness` instead of mutating instruction files.
+- Confirm `node dist/cli.js dream apply-prep --json` returns manual-apply prep plus proposal-artifact metadata, including `manualWorkflow` and `applyReadiness`, instead of modifying instruction files.
 - Confirm `dreamSidecar.teamMemory` stays additive and reviewer-facing: teamMemory can surface availability/counts and recall hints, but it does not become canonical durable memory.
 - Run `node dist/cli.js recall details <ref> --json` for one returned ref and confirm the path resolves to Markdown-backed memory, including archived refs when relevant.
 - Confirm `node dist/cli.js recall details <ref> --json` now also exposes additive provenance summary fields such as `latestLifecycleAction`, `latestSessionId`, `latestRolloutPath`, and `historyPath`.
@@ -187,9 +187,9 @@ Use this checklist before cutting any alpha or beta release of `codex-auto-memor
   - `node dist/cli.js dream candidates --help` should describe candidate listing rather than canonical memory mutation.
   - `node dist/cli.js dream review --help` should stay reviewer-oriented and sidecar-only.
   - `node dist/cli.js dream adopt --help` should describe unblocking blocked subagent candidates without claiming canonical writes.
-  - `node dist/cli.js dream promote-prep --help` should stay proposal-oriented and preflight-only.
+  - `node dist/cli.js dream promote-prep --help` should stay proposal-oriented and preflight-only, including the explicit `--target-file` override for instruction-like proposals.
   - `node dist/cli.js dream promote --help` should describe an explicit promote path without claiming that every promote is `proposal-only`.
-  - `node dist/cli.js dream apply-prep --help` should describe proposal-bundle/manual-apply preparation and stay instruction-file read-only.
+  - `node dist/cli.js dream apply-prep --help` should describe proposal-artifact/manual-apply preparation, mention the explicit `--target-file` override, and stay instruction-file read-only.
   - `node dist/cli.js mcp install --help` should keep the supported install-host list at `codex` only.
   - `node dist/cli.js mcp print-config --help` should keep the supported snippet-host list at `codex, claude, gemini, or generic`.
   - `node dist/cli.js mcp apply-guidance --help` should stay Codex-only and describe managed `AGENTS.md` updates.
