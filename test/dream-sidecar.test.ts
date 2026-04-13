@@ -760,6 +760,90 @@ describe("dream sidecar", () => {
     });
   });
 
+  it("lets reviewers reject a manual-apply-pending instruction proposal", async () => {
+    const homeDir = await tempDir("cam-dream-manual-apply-review-home-");
+    const repoDir = await tempDir("cam-dream-manual-apply-review-repo-");
+    const memoryRoot = await tempDir("cam-dream-manual-apply-review-memory-");
+    process.env.HOME = homeDir;
+    await initGitRepo(repoDir);
+    await fs.writeFile(path.join(repoDir, "AGENTS.md"), "# Repo rules\n", "utf8");
+    await writeCamConfig(
+      repoDir,
+      makeAppConfig({
+        dreamSidecarEnabled: true
+      }),
+      {
+        autoMemoryDirectory: memoryRoot,
+        dreamSidecarEnabled: true
+      }
+    );
+
+    const rolloutPath = path.join(repoDir, "instruction-rollout.jsonl");
+    await fs.writeFile(
+      rolloutPath,
+      makeRolloutFixture(repoDir, "Always run pnpm lint before pnpm build."),
+      "utf8"
+    );
+
+    await runDream("build", {
+      cwd: repoDir,
+      rollout: rolloutPath,
+      json: true
+    });
+    const candidatesPayload = JSON.parse(
+      await runDream("candidates", {
+        cwd: repoDir,
+        json: true
+      })
+    ) as {
+      entries: Array<{
+        candidateId: string;
+        targetSurface: string;
+      }>;
+    };
+    const instructionCandidate = candidatesPayload.entries.find(
+      (entry) => entry.targetSurface === "instruction-memory"
+    );
+    expect(instructionCandidate).toBeDefined();
+
+    await runDream("review", {
+      cwd: repoDir,
+      candidateId: instructionCandidate!.candidateId,
+      approve: true,
+      json: true
+    });
+    const promotePayload = JSON.parse(
+      await runDream("promote", {
+        cwd: repoDir,
+        candidateId: instructionCandidate!.candidateId,
+        json: true
+      })
+    ) as {
+      entry: {
+        status: string;
+      };
+    };
+    expect(promotePayload.entry.status).toBe("manual-apply-pending");
+
+    const rejectedPayload = JSON.parse(
+      await runDream("review", {
+        cwd: repoDir,
+        candidateId: instructionCandidate!.candidateId,
+        reject: true,
+        json: true
+      })
+    ) as {
+      entry: {
+        candidateId: string;
+        status: string;
+      };
+    };
+    expect(rejectedPayload.entry).toMatchObject({
+      candidateId: instructionCandidate!.candidateId,
+      status: "rejected"
+    });
+  });
+
   it("keeps shared and project-local candidates active when builds target different scopes", async () => {
     const homeDir = await tempDir("cam-dream-scope-home-");
     const repoDir = await tempDir("cam-dream-scope-repo-");

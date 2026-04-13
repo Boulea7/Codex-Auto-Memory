@@ -498,11 +498,15 @@ export async function reviewDreamCandidate(
   if (
     currentEntry.status === "rejected" ||
     currentEntry.status === "stale" ||
-    currentEntry.status === "promoted" ||
-    currentEntry.status === "manual-apply-pending"
+    currentEntry.status === "promoted"
   ) {
     throw new Error(
       `Dream candidate "${options.candidateId}" is already in terminal reviewer state "${currentEntry.status}" and cannot be reviewed again.`
+    );
+  }
+  if (currentEntry.status === "manual-apply-pending" && options.decision === "approved") {
+    throw new Error(
+      `Dream candidate "${options.candidateId}" is already waiting for manual apply follow-up and cannot be approved again.`
     );
   }
   if (

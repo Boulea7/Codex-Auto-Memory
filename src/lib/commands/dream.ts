@@ -169,7 +169,19 @@ async function buildDreamReviewerPayload(
   ];
 
   const nextRecommendedActions =
-    !entry ? helperCommands : entry.status === "blocked"
+    !entry
+      ? latestProposalCandidate
+        ? [
+            buildResolvedCliCommand(
+              `dream apply-prep --candidate-id ${latestProposalCandidate.candidateId} --json`,
+              {
+                cwd: runtime.project.projectRoot
+              }
+            ),
+            ...helperCommands
+          ]
+        : helperCommands
+      : entry.status === "blocked"
       ? [
           buildResolvedCliCommand(`dream adopt --candidate-id ${entry.candidateId} --json`, {
             cwd: runtime.project.projectRoot
@@ -222,19 +234,7 @@ async function buildDreamReviewerPayload(
 
   return {
     reviewerSummary,
-    nextRecommendedActions:
-      nextRecommendedActions.length > 0
-        ? nextRecommendedActions
-        : latestProposalCandidate
-          ? [
-              buildResolvedCliCommand(
-                `dream apply-prep --candidate-id ${latestProposalCandidate.candidateId} --json`,
-                {
-                  cwd: runtime.project.projectRoot
-                }
-              )
-            ]
-          : helperCommands,
+    nextRecommendedActions: nextRecommendedActions.length > 0 ? nextRecommendedActions : helperCommands,
     helperCommands
   };
 }
