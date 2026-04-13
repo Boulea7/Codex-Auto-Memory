@@ -1,6 +1,11 @@
 import path from "node:path";
 import { createHash } from "node:crypto";
-import type { DreamCandidateRecord, InstructionProposalArtifact, InstructionProposalTarget } from "../types.js";
+import type {
+  DreamCandidateRecord,
+  InstructionProposalArtifact,
+  InstructionProposalTarget,
+  InstructionTargetHost
+} from "../types.js";
 
 const instructionProposalFormatVersion = "cam-dream-instruction-v2" as const;
 const instructionProposalStartMarker = "<!-- codex-auto-memory:instruction-proposal:start -->";
@@ -225,6 +230,7 @@ export function buildInstructionProposalArtifact(
   artifactPath: string,
   options: {
     selectedTargetPath?: string;
+    targetHost?: InstructionTargetHost;
   } = {}
 ): InstructionProposalArtifact {
   const artifactDir = path.dirname(artifactPath);
@@ -248,8 +254,8 @@ export function buildInstructionProposalArtifact(
       explicitTarget !== null
         ? "Selected by explicit reviewer target override."
         : selectedTargetByPolicy.exists
-          ? "Selected the first existing instruction file in the preferred Codex-first order."
-          : "No instruction file exists yet; recommend AGENTS.md as the shared Codex-first target."
+          ? `Selected the first existing instruction file in the preferred ${options.targetHost ?? "shared"} host order.`
+          : `No instruction file exists yet; recommend ${selectedTargetByPolicy.path || "AGENTS.md"} as the ${options.targetHost ?? "shared"} host target.`
   };
   const lineEnding = detectLineEnding(selectedTarget.currentContents);
   const managedBlockBody = buildManagedBlockBody(entry);
@@ -354,6 +360,7 @@ export function buildInstructionProposalArtifact(
     proposalOnly: true,
     neverAutoEditsInstructionFiles: true,
     artifactDir,
+    targetHost: options.targetHost ?? "shared",
     selectedTargetByPolicy: toPublicTarget(selectedTargetByPolicy),
     resolvedApplyTarget: resolvedApplyTarget ? toPublicTarget(resolvedApplyTarget) : null,
     selectedTarget: toPublicTarget(selectedTarget),

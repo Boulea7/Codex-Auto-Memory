@@ -1917,6 +1917,12 @@ describe("runSession", () => {
         status: string;
         suggestedRefCount: number;
       };
+      instructionReviewLane: {
+        latestCandidateId: string | null;
+        latestProposalArtifactPath: string | null;
+        selectedTargetFile: string | null;
+        targetHost: string | null;
+      };
     };
 
     expect(statusPayload.resumeContext.goal).toContain("middleware retry work");
@@ -1930,6 +1936,12 @@ describe("runSession", () => {
       status: "available"
     });
     expect(statusPayload.dreamSidecar.suggestedRefCount).toBeGreaterThanOrEqual(0);
+    expect(statusPayload.instructionReviewLane).toMatchObject({
+      latestCandidateId: null,
+      latestProposalArtifactPath: null,
+      selectedTargetFile: null,
+      targetHost: null
+    });
   });
 
   it("merges shared and local dream refs into the session resume context", async () => {

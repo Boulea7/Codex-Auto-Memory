@@ -5,6 +5,7 @@ import { openPath } from "../util/open.js";
 import { compileStartupMemory } from "../domain/startup-memory.js";
 import { filterUnsafeTopicDiagnostics } from "../domain/memory-store.js";
 import {
+  buildInstructionReviewLane,
   buildDreamQueueSummary,
   getLatestDreamProposalCandidate,
   getDreamCandidateProposalArtifactPath,
@@ -265,13 +266,9 @@ export async function runMemory(options: MemoryOptions = {}): Promise<string> {
     usedLines: startup.lineCount,
     maxLines: runtime.loadedConfig.config.maxStartupLines
   };
-  const instructionLayer = await discoverInstructionLayer(runtime.project.projectRoot);
   const dreamInspection = await inspectDreamSidecar(runtime);
-  const dreamCandidates = await listDreamCandidates(runtime);
-  const instructionCandidates = dreamCandidates.entries.filter(
-    (entry) => entry.targetSurface === "instruction-memory"
-  );
-  const latestInstructionProposalCandidate = getLatestDreamProposalCandidate(dreamCandidates.entries);
+  const instructionLayer = await discoverInstructionLayer(runtime.project.projectRoot);
+  const instructionReviewLane = await buildInstructionReviewLane(runtime);
   const refCountsByScope = {
     global: {
       startupFiles: startupFilesByScope.global.length,
@@ -346,22 +343,7 @@ export async function runMemory(options: MemoryOptions = {}): Promise<string> {
         sectionFlags: startup.sectionsRendered,
         omissionCounts: startup.omissionCounts
       },
-      instructionReviewLane: {
-        queueSummary: buildDreamQueueSummary(instructionCandidates),
-        pendingInstructionCandidateCount: instructionCandidates.filter((entry) => entry.status === "pending").length,
-        approvedInstructionCandidateCount: instructionCandidates.filter((entry) => entry.status === "approved").length,
-        manualApplyPendingInstructionCandidateCount: instructionCandidates.filter(
-          (entry) => entry.status === "manual-apply-pending"
-        ).length,
-        blockedSubagentInstructionCandidateCount: instructionCandidates.filter(
-          (entry) => entry.status === "blocked" && entry.originKind === "subagent"
-        ).length,
-        latestProposalArtifactPath: latestInstructionProposalCandidate
-          ? getDreamCandidateProposalArtifactPath(latestInstructionProposalCandidate)
-          : null,
-        candidateRecoveryPath: dreamCandidates.recoveryPath,
-        detectedInstructionTargets: instructionLayer.detectedFiles.map((file) => file.path)
-      },
+      instructionReviewLane,
       dreamSidecar: dreamInspection.snapshots.project
     };
     return JSON.stringify(

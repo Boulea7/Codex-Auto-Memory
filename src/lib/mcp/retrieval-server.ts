@@ -8,6 +8,7 @@ import {
   toMemorySearchRequest,
 } from "../domain/memory-retrieval-contract.js";
 import { buildMemoryQuerySurfacing } from "../domain/resume-context.js";
+import { buildInstructionReviewLane } from "../domain/dream-candidates.js";
 import { assertValidMemoryRef } from "../domain/memory-lifecycle.js";
 import {
   buildRecommendedMcpSearchInstruction,
@@ -145,6 +146,32 @@ const memorySearchResponseSchema = z.object({
             reason: z.string()
           })
         )
+        .optional(),
+      instructionReviewLane: z
+        .object({
+          queueSummary: z.object({
+            totalCount: z.number().int().nonnegative(),
+            statusCounts: z.record(z.string(), z.number().int().nonnegative()),
+            surfaceCounts: z.record(z.string(), z.number().int().nonnegative()),
+            originCounts: z.record(z.string(), z.number().int().nonnegative())
+          }),
+          pendingInstructionCandidateCount: z.number().int().nonnegative(),
+          approvedInstructionCandidateCount: z.number().int().nonnegative(),
+          manualApplyPendingInstructionCandidateCount: z.number().int().nonnegative(),
+          blockedSubagentInstructionCandidateCount: z.number().int().nonnegative(),
+          latestCandidateId: z.string().nullable(),
+          latestProposalArtifactPath: z.string().nullable(),
+          selectedTargetFile: z.string().nullable(),
+          selectedTargetKind: z.string().nullable(),
+          targetHost: z.string().nullable(),
+          applyReadinessStatus: z.string().nullable(),
+          candidateRecoveryPath: z.string(),
+          detectedInstructionTargets: z.array(z.string()),
+          recommendedReviewCommand: z.string(),
+          recommendedInspectCommand: z.string(),
+          recommendedApplyPrepCommand: z.string(),
+          recommendedVerifyApplyCommand: z.string()
+        })
         .optional()
     })
     .optional(),
@@ -396,7 +423,10 @@ export function createRetrievalMcpServer(cwd = process.cwd()): McpServer {
 
         return memorySearchResponseSchema.parse({
           ...response,
-          querySurfacing: await buildMemoryQuerySurfacing(runtime, request.query)
+          querySurfacing: {
+            ...(await buildMemoryQuerySurfacing(runtime, request.query)),
+            instructionReviewLane: await buildInstructionReviewLane(runtime)
+          }
         });
       });
 

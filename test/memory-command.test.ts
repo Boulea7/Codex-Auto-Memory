@@ -623,8 +623,16 @@ describe("runMemory", () => {
         };
         approvedInstructionCandidateCount: number;
         manualApplyPendingInstructionCandidateCount: number;
+        latestCandidateId: string | null;
         latestProposalArtifactPath: string | null;
+        selectedTargetFile: string | null;
+        selectedTargetKind: string | null;
+        targetHost: string | null;
+        applyReadinessStatus: string | null;
         detectedInstructionTargets: string[];
+        recommendedInspectCommand: string;
+        recommendedApplyPrepCommand: string;
+        recommendedVerifyApplyCommand: string;
       };
     };
 
@@ -634,10 +642,24 @@ describe("runMemory", () => {
       },
       approvedInstructionCandidateCount: 0,
       manualApplyPendingInstructionCandidateCount: 1,
+      latestCandidateId: instructionCandidate!.candidateId,
       latestProposalArtifactPath: expect.stringContaining(
         `${path.sep}dream${path.sep}review${path.sep}proposals${path.sep}`
       ),
-      detectedInstructionTargets: [expect.stringContaining(`${path.sep}AGENTS.md`)]
+      selectedTargetFile: expect.stringContaining(`${path.sep}AGENTS.md`),
+      selectedTargetKind: "agents-root",
+      targetHost: "shared",
+      applyReadinessStatus: "safe",
+      detectedInstructionTargets: [expect.stringContaining(`${path.sep}AGENTS.md`)],
+      recommendedInspectCommand: expect.stringContaining(
+        `dream proposal --candidate-id ${instructionCandidate!.candidateId} --json`
+      ),
+      recommendedApplyPrepCommand: expect.stringContaining(
+        `dream apply-prep --candidate-id ${instructionCandidate!.candidateId} --json`
+      ),
+      recommendedVerifyApplyCommand: expect.stringContaining(
+        `dream verify-apply --candidate-id ${instructionCandidate!.candidateId} --json`
+      )
     });
   });
 

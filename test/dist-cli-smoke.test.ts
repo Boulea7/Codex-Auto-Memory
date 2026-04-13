@@ -689,6 +689,25 @@ describe("dist cli smoke", () => {
       preview: {
         schemaVersion: number;
         neverAutoEditsInstructionFiles: boolean;
+        targetHost: string;
+        selectedTargetByPolicy: {
+          kind: string;
+        };
+        selectedTarget: {
+          path: string;
+          kind: string;
+        };
+        rankedTargets: Array<{
+          kind: string;
+        }>;
+        applyReadiness: {
+          status: string;
+          recommendedOperation: string;
+        };
+        patchPlan: {
+          operation: string;
+          anchor: string;
+        } | null;
         artifactDir: string;
         manualWorkflow: {
           applyPrepPath: string;
@@ -704,6 +723,21 @@ describe("dist cli smoke", () => {
       preview: {
         schemaVersion: 2,
         neverAutoEditsInstructionFiles: true,
+        targetHost: "shared",
+        selectedTargetByPolicy: {
+          kind: "claude-project"
+        },
+        selectedTarget: {
+          kind: "claude-project"
+        },
+        applyReadiness: {
+          status: "safe",
+          recommendedOperation: "append-block"
+        },
+        patchPlan: {
+          operation: "append-block",
+          anchor: "end-of-file"
+        },
         artifactDir: expect.stringContaining(
           `${path.sep}dream${path.sep}review${path.sep}proposals${path.sep}`
         ),
@@ -712,6 +746,58 @@ describe("dist cli smoke", () => {
         }
       }
     });
+    expect(instructionPromotePrepPayload.preview.rankedTargets.map((target) => target.kind)).toEqual(
+      expect.arrayContaining(["agents-root", "claude-project"])
+    );
+
+    await fs.mkdir(path.join(projectDir, ".claude"), { recursive: true });
+    await fs.writeFile(path.join(projectDir, ".claude", "CLAUDE.md"), "# Hidden Claude rules\n", "utf8");
+    await fs.writeFile(path.join(projectDir, "GEMINI.md"), "# Gemini rules\n", "utf8");
+    const instructionTargetOverrideResult = runCli(
+      projectDir,
+      [
+        "dream",
+        "promote-prep",
+        "--candidate-id",
+        instructionCandidate!.candidateId,
+        "--target-host",
+        "gemini",
+        "--target-file",
+        ".claude/CLAUDE.md",
+        "--json"
+      ],
+      {
+        entrypoint: "dist",
+        env: cliEnv
+      }
+    );
+    expect(instructionTargetOverrideResult.exitCode, instructionTargetOverrideResult.stderr).toBe(0);
+    expect(JSON.parse(instructionTargetOverrideResult.stdout)).toMatchObject({
+      action: "promote-prep",
+      resolvedTarget: {
+        targetSurface: "instruction-memory",
+        path: expect.stringContaining(`${path.sep}.claude${path.sep}CLAUDE.md`),
+        kind: "claude-hidden"
+      },
+      preview: {
+        targetHost: "gemini",
+        selectedTargetByPolicy: {
+          kind: "gemini-project"
+        },
+        selectedTarget: {
+          kind: "claude-hidden"
+        }
+      }
+    });
+    const instructionPromotePrepResetResult = runCli(
+      projectDir,
+      ["dream", "promote-prep", "--candidate-id", instructionCandidate!.candidateId, "--json"],
+      {
+        entrypoint: "dist",
+        env: cliEnv
+      }
+    );
+    expect(instructionPromotePrepResetResult.exitCode, instructionPromotePrepResetResult.stderr).toBe(0);
 
     const instructionApplyPrepResult = runCli(
       projectDir,
@@ -731,6 +817,10 @@ describe("dist cli smoke", () => {
         schemaVersion: number;
         neverAutoEditsInstructionFiles: boolean;
         artifactDir: string;
+        selectedTarget: {
+          path: string;
+          kind: string;
+        };
         manualWorkflow: {
           applyPrepPath: string;
         };
@@ -747,6 +837,9 @@ describe("dist cli smoke", () => {
         artifactDir: expect.stringContaining(
           `${path.sep}dream${path.sep}review${path.sep}proposals${path.sep}`
         ),
+        selectedTarget: {
+          kind: "claude-project"
+        },
         manualWorkflow: {
           applyPrepPath: expect.stringContaining(`${path.sep}apply-prep.json`)
         }
@@ -765,7 +858,34 @@ describe("dist cli smoke", () => {
       }
     );
     expect(instructionPromoteResult.exitCode, instructionPromoteResult.stderr).toBe(0);
-    expect(JSON.parse(instructionPromoteResult.stdout)).toMatchObject({
+    const instructionPromotePayload = JSON.parse(instructionPromoteResult.stdout) as {
+      action: string;
+      promotionOutcome: string;
+      entry: {
+        candidateId: string;
+        status: string;
+        targetSurface: string;
+      };
+      instructionProposal: {
+        proposalOnly: boolean;
+        schemaVersion: number;
+        neverAutoEditsInstructionFiles: boolean;
+        artifactDir: string;
+        targetHost: string;
+        selectedTarget: {
+          path: string;
+          kind: string;
+        };
+        guidanceBlock: string;
+        patchPlan: {
+          operation: string;
+        } | null;
+        manualWorkflow: {
+          applyPrepPath: string;
+        };
+      };
+    };
+    expect(instructionPromotePayload).toMatchObject({
       action: "promote",
       promotionOutcome: "proposal-only",
       entry: {
@@ -780,8 +900,73 @@ describe("dist cli smoke", () => {
         artifactDir: expect.stringContaining(
           `${path.sep}dream${path.sep}review${path.sep}proposals${path.sep}`
         ),
+        targetHost: "shared",
+        selectedTarget: {
+          kind: "claude-project"
+        },
+        patchPlan: {
+          operation: "append-block"
+        },
         manualWorkflow: {
           applyPrepPath: expect.stringContaining(`${path.sep}apply-prep.json`)
+        }
+      }
+    });
+
+    const instructionProposalResult = runCli(
+      projectDir,
+      ["dream", "proposal", "--candidate-id", instructionCandidate!.candidateId, "--json"],
+      {
+        entrypoint: "dist",
+        env: cliEnv
+      }
+    );
+    expect(instructionProposalResult.exitCode, instructionProposalResult.stderr).toBe(0);
+    expect(JSON.parse(instructionProposalResult.stdout)).toMatchObject({
+      action: "proposal",
+      entry: {
+        status: "manual-apply-pending"
+      },
+      instructionProposal: {
+        artifactPath: instructionPromotePayload.instructionProposal.artifactDir + `${path.sep}manifest.json`,
+        targetHost: "shared"
+      }
+    });
+
+    await fs.writeFile(
+      path.join(projectDir, "CLAUDE.md"),
+      `# Project rules\n\n${instructionPromotePayload.instructionProposal.guidanceBlock}\n`,
+      "utf8"
+    );
+    const instructionVerifyApplyResult = runCli(
+      projectDir,
+      ["dream", "verify-apply", "--candidate-id", instructionCandidate!.candidateId, "--json"],
+      {
+        entrypoint: "dist",
+        env: cliEnv
+      }
+    );
+    expect(instructionVerifyApplyResult.exitCode, instructionVerifyApplyResult.stderr).toBe(0);
+    expect(JSON.parse(instructionVerifyApplyResult.stdout)).toMatchObject({
+      action: "verify-apply",
+      entry: {
+        candidateId: instructionCandidate!.candidateId,
+        status: "manual-applied",
+        targetSurface: "instruction-memory"
+      }
+    });
+
+    const recallInstructionLaneResult = runCli(projectDir, ["recall", "search", "pnpm", "--json"], {
+      entrypoint: "dist",
+      env: cliEnv
+    });
+    expect(recallInstructionLaneResult.exitCode, recallInstructionLaneResult.stderr).toBe(0);
+    expect(JSON.parse(recallInstructionLaneResult.stdout)).toMatchObject({
+      querySurfacing: {
+        instructionReviewLane: {
+          latestCandidateId: null,
+          selectedTargetKind: null,
+          targetHost: null
         }
       }
     });
@@ -2339,6 +2524,112 @@ fs.writeFileSync(${JSON.stringify(capturedArgsPath)}, JSON.stringify(process.arg
     expect(capturedArgs.some((value) => value.startsWith("base_instructions="))).toBe(true);
   }, 30_000);
 
+  it("surfaces instruction review lane parity through the compiled MCP server", async () => {
+    const homeDir = await tempDir("cam-dist-mcp-instruction-home-");
+    const projectDir = await tempDir("cam-dist-mcp-instruction-project-");
+    const memoryRoot = await tempDir("cam-dist-mcp-instruction-memory-");
+    const cliEnv = { HOME: homeDir };
+
+    const config = makeAppConfig({
+      dreamSidecarEnabled: true
+    });
+    await writeCamConfig(projectDir, config, {
+      autoMemoryDirectory: memoryRoot,
+      dreamSidecarEnabled: true
+    });
+    await fs.writeFile(path.join(projectDir, "AGENTS.md"), "# Repo rules\n", "utf8");
+
+    const rolloutPath = path.join(projectDir, "instruction-rollout.jsonl");
+    await fs.writeFile(
+      rolloutPath,
+      JSON.stringify({
+        type: "session_meta",
+        payload: {
+          id: "session-dist-mcp-instruction",
+          timestamp: "2026-04-12T11:00:00.000Z",
+          cwd: projectDir
+        }
+      }) +
+        "\n" +
+        JSON.stringify({
+          type: "event_msg",
+          payload: {
+            type: "user_message",
+            message: "Always run pnpm lint before pnpm build."
+          }
+        }) +
+        "\n",
+      "utf8"
+    );
+
+    expect(
+      runCli(projectDir, ["dream", "build", "--rollout", rolloutPath, "--json"], {
+        entrypoint: "dist",
+        env: cliEnv
+      }).exitCode
+    ).toBe(0);
+    const candidatePayload = JSON.parse(
+      runCli(projectDir, ["dream", "candidates", "--json"], {
+        entrypoint: "dist",
+        env: cliEnv
+      }).stdout
+    ) as {
+      entries: Array<{ candidateId: string; targetSurface: string }>;
+    };
+    const instructionCandidate = candidatePayload.entries.find(
+      (entry) => entry.targetSurface === "instruction-memory"
+    );
+    expect(instructionCandidate).toBeDefined();
+
+    expect(
+      runCli(
+        projectDir,
+        ["dream", "review", "--candidate-id", instructionCandidate!.candidateId, "--approve", "--json"],
+        {
+          entrypoint: "dist",
+          env: cliEnv
+        }
+      ).exitCode
+    ).toBe(0);
+    expect(
+      runCli(
+        projectDir,
+        ["dream", "promote-prep", "--candidate-id", instructionCandidate!.candidateId, "--json"],
+        {
+          entrypoint: "dist",
+          env: cliEnv
+        }
+      ).exitCode
+    ).toBe(0);
+
+    const client = await connectCliMcpClient(projectDir, {
+      entrypoint: "dist",
+      env: cliEnv
+    });
+
+    try {
+      const result = await client.callTool({
+        name: "search_memories",
+        arguments: {
+          query: "pnpm",
+          limit: 8
+        }
+      });
+      expect(result.structuredContent).toMatchObject({
+        querySurfacing: {
+          instructionReviewLane: {
+            latestCandidateId: instructionCandidate!.candidateId,
+            selectedTargetKind: "agents-root",
+            targetHost: "shared",
+            applyReadinessStatus: "safe"
+          }
+        }
+      });
+    } finally {
+      await client.close();
+    }
+  }, 30_000);
+
   it("keeps key compiled help surfaces aligned with the release-facing command contract", async () => {
     const projectDir = await tempDir("cam-dist-help-project-");
     const homeDir = await tempDir("cam-dist-help-home-");
@@ -2361,8 +2652,10 @@ fs.writeFileSync(${JSON.stringify(capturedArgsPath)}, JSON.stringify(process.arg
     expect(dreamHelp.stdout).toContain("candidates");
     expect(dreamHelp.stdout).toContain("review");
     expect(dreamHelp.stdout).toContain("adopt");
+    expect(dreamHelp.stdout).toContain("proposal");
     expect(dreamHelp.stdout).toContain("promote-prep");
     expect(dreamHelp.stdout).toContain("apply-prep");
+    expect(dreamHelp.stdout).toContain("verify-apply");
     expect(dreamHelp.stdout).toContain("promote");
 
     const dreamBuildHelp = runCli(projectDir, ["dream", "build", "--help"], {
@@ -2412,6 +2705,8 @@ fs.writeFileSync(${JSON.stringify(capturedArgsPath)}, JSON.stringify(process.arg
     });
     expect(dreamPromotePrepHelp.exitCode, dreamPromotePrepHelp.stderr).toBe(0);
     expect(dreamPromotePrepHelp.stdout).toContain("Preview the outcome of promoting an approved dream candidate");
+    expect(dreamPromotePrepHelp.stdout).toContain("--target-host");
+    expect(dreamPromotePrepHelp.stdout).toContain("--target-file");
 
     const dreamApplyPrepHelp = runCli(projectDir, ["dream", "apply-prep", "--help"], {
       entrypoint: "dist",
@@ -2428,6 +2723,27 @@ fs.writeFileSync(${JSON.stringify(capturedArgsPath)}, JSON.stringify(process.arg
     });
     expect(dreamPromoteHelp.exitCode, dreamPromoteHelp.stderr).toBe(0);
     expect(dreamPromoteHelp.stdout).toContain("Explicitly promote an approved dream candidate");
+    expect(dreamPromoteHelp.stdout).toContain("--target-host");
+    expect(dreamPromoteHelp.stdout).toContain("--target-file");
+
+    const dreamProposalHelp = runCli(projectDir, ["dream", "proposal", "--help"], {
+      entrypoint: "dist",
+      env
+    });
+    expect(dreamProposalHelp.exitCode, dreamProposalHelp.stderr).toBe(0);
+    expect(dreamProposalHelp.stdout).toContain(
+      "Read a proposal-only instruction artifact without changing reviewer state"
+    );
+
+    const dreamVerifyApplyHelp = runCli(projectDir, ["dream", "verify-apply", "--help"], {
+      entrypoint: "dist",
+      env
+    });
+    expect(dreamVerifyApplyHelp.exitCode, dreamVerifyApplyHelp.stderr).toBe(0);
+    expect(dreamVerifyApplyHelp.stdout).toContain(
+      "Verify a manual instruction apply against the proposal artifact"
+    );
+    expect(dreamVerifyApplyHelp.stdout).toContain("reviewer lane");
 
     const hooksHelp = runCli(projectDir, ["hooks", "install", "--help"], {
       entrypoint: "dist",

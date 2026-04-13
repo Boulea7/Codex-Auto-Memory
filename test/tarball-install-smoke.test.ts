@@ -682,6 +682,25 @@ describe("tarball install smoke", () => {
       preview: {
         schemaVersion: number;
         neverAutoEditsInstructionFiles: boolean;
+        targetHost: string;
+        selectedTargetByPolicy: {
+          kind: string;
+        };
+        selectedTarget: {
+          path: string;
+          kind: string;
+        };
+        rankedTargets: Array<{
+          kind: string;
+        }>;
+        applyReadiness: {
+          status: string;
+          recommendedOperation: string;
+        };
+        patchPlan: {
+          operation: string;
+          anchor: string;
+        } | null;
         artifactDir: string;
         manualWorkflow: {
           applyPrepPath: string;
@@ -697,6 +716,21 @@ describe("tarball install smoke", () => {
       preview: {
         schemaVersion: 2,
         neverAutoEditsInstructionFiles: true,
+        targetHost: "shared",
+        selectedTargetByPolicy: {
+          kind: "claude-project"
+        },
+        selectedTarget: {
+          kind: "claude-project"
+        },
+        applyReadiness: {
+          status: "safe",
+          recommendedOperation: "append-block"
+        },
+        patchPlan: {
+          operation: "append-block",
+          anchor: "end-of-file"
+        },
         artifactDir: expect.stringContaining(
           `${path.sep}dream${path.sep}review${path.sep}proposals${path.sep}`
         ),
@@ -705,6 +739,54 @@ describe("tarball install smoke", () => {
         }
       }
     });
+    expect(instructionPromotePrepPayload.preview.rankedTargets.map((target) => target.kind)).toEqual(
+      expect.arrayContaining(["agents-root", "claude-project"])
+    );
+
+    await fs.mkdir(path.join(installDir, ".claude"), { recursive: true });
+    await fs.writeFile(path.join(installDir, ".claude", "CLAUDE.md"), "# Hidden Claude rules\n", "utf8");
+    await fs.writeFile(path.join(installDir, "GEMINI.md"), "# Gemini rules\n", "utf8");
+    const instructionTargetOverrideResult = runCommandCapture(
+      camBinaryPath(installDir),
+      [
+        "dream",
+        "promote-prep",
+        "--candidate-id",
+        instructionCandidate!.candidateId,
+        "--target-host",
+        "gemini",
+        "--target-file",
+        ".claude/CLAUDE.md",
+        "--json"
+      ],
+      installDir,
+      envWithBin
+    );
+    expect(instructionTargetOverrideResult.exitCode, instructionTargetOverrideResult.stderr).toBe(0);
+    expect(JSON.parse(instructionTargetOverrideResult.stdout)).toMatchObject({
+      action: "promote-prep",
+      resolvedTarget: {
+        targetSurface: "instruction-memory",
+        path: expect.stringContaining(`${path.sep}.claude${path.sep}CLAUDE.md`),
+        kind: "claude-hidden"
+      },
+      preview: {
+        targetHost: "gemini",
+        selectedTargetByPolicy: {
+          kind: "gemini-project"
+        },
+        selectedTarget: {
+          kind: "claude-hidden"
+        }
+      }
+    });
+    const instructionPromotePrepResetResult = runCommandCapture(
+      camBinaryPath(installDir),
+      ["dream", "promote-prep", "--candidate-id", instructionCandidate!.candidateId, "--json"],
+      installDir,
+      envWithBin
+    );
+    expect(instructionPromotePrepResetResult.exitCode, instructionPromotePrepResetResult.stderr).toBe(0);
 
     const instructionApplyPrepResult = runCommandCapture(
       camBinaryPath(installDir),
@@ -722,6 +804,10 @@ describe("tarball install smoke", () => {
         schemaVersion: number;
         neverAutoEditsInstructionFiles: boolean;
         artifactDir: string;
+        selectedTarget: {
+          path: string;
+          kind: string;
+        };
         manualWorkflow: {
           applyPrepPath: string;
         };
@@ -738,6 +824,9 @@ describe("tarball install smoke", () => {
         artifactDir: expect.stringContaining(
           `${path.sep}dream${path.sep}review${path.sep}proposals${path.sep}`
         ),
+        selectedTarget: {
+          kind: "claude-project"
+        },
         manualWorkflow: {
           applyPrepPath: expect.stringContaining(`${path.sep}apply-prep.json`)
         }
@@ -754,7 +843,34 @@ describe("tarball install smoke", () => {
       envWithBin
     );
     expect(instructionPromoteResult.exitCode, instructionPromoteResult.stderr).toBe(0);
-    expect(JSON.parse(instructionPromoteResult.stdout)).toMatchObject({
+    const instructionPromotePayload = JSON.parse(instructionPromoteResult.stdout) as {
+      action: string;
+      promotionOutcome: string;
+      entry: {
+        candidateId: string;
+        status: string;
+        targetSurface: string;
+      };
+      instructionProposal: {
+        proposalOnly: boolean;
+        schemaVersion: number;
+        neverAutoEditsInstructionFiles: boolean;
+        artifactDir: string;
+        targetHost: string;
+        selectedTarget: {
+          path: string;
+          kind: string;
+        };
+        guidanceBlock: string;
+        patchPlan: {
+          operation: string;
+        } | null;
+        manualWorkflow: {
+          applyPrepPath: string;
+        };
+      };
+    };
+    expect(instructionPromotePayload).toMatchObject({
       action: "promote",
       promotionOutcome: "proposal-only",
       entry: {
@@ -769,8 +885,71 @@ describe("tarball install smoke", () => {
         artifactDir: expect.stringContaining(
           `${path.sep}dream${path.sep}review${path.sep}proposals${path.sep}`
         ),
+        targetHost: "shared",
+        selectedTarget: {
+          kind: "claude-project"
+        },
+        patchPlan: {
+          operation: "append-block"
+        },
         manualWorkflow: {
           applyPrepPath: expect.stringContaining(`${path.sep}apply-prep.json`)
+        }
+      }
+    });
+
+    const instructionProposalResult = runCommandCapture(
+      camBinaryPath(installDir),
+      ["dream", "proposal", "--candidate-id", instructionCandidate!.candidateId, "--json"],
+      installDir,
+      envWithBin
+    );
+    expect(instructionProposalResult.exitCode, instructionProposalResult.stderr).toBe(0);
+    expect(JSON.parse(instructionProposalResult.stdout)).toMatchObject({
+      action: "proposal",
+      entry: {
+        status: "manual-apply-pending"
+      },
+      instructionProposal: {
+        artifactPath: instructionPromotePayload.instructionProposal.artifactDir + `${path.sep}manifest.json`,
+        targetHost: "shared"
+      }
+    });
+
+    await fs.writeFile(
+      path.join(installDir, "CLAUDE.md"),
+      `# Project rules\n\n${instructionPromotePayload.instructionProposal.guidanceBlock}\n`,
+      "utf8"
+    );
+    const instructionVerifyApplyResult = runCommandCapture(
+      camBinaryPath(installDir),
+      ["dream", "verify-apply", "--candidate-id", instructionCandidate!.candidateId, "--json"],
+      installDir,
+      envWithBin
+    );
+    expect(instructionVerifyApplyResult.exitCode, instructionVerifyApplyResult.stderr).toBe(0);
+    expect(JSON.parse(instructionVerifyApplyResult.stdout)).toMatchObject({
+      action: "verify-apply",
+      entry: {
+        candidateId: instructionCandidate!.candidateId,
+        status: "manual-applied",
+        targetSurface: "instruction-memory"
+      }
+    });
+
+    const recallInstructionLaneResult = runCommandCapture(
+      camBinaryPath(installDir),
+      ["recall", "search", "pnpm", "--json"],
+      installDir,
+      envWithBin
+    );
+    expect(recallInstructionLaneResult.exitCode, recallInstructionLaneResult.stderr).toBe(0);
+    expect(JSON.parse(recallInstructionLaneResult.stdout)).toMatchObject({
+      querySurfacing: {
+        instructionReviewLane: {
+          latestCandidateId: null,
+          selectedTargetKind: null,
+          targetHost: null
         }
       }
     });
@@ -1490,8 +1669,10 @@ describe("tarball install smoke", () => {
     expect(dreamHelpResult.stdout).toContain("candidates");
     expect(dreamHelpResult.stdout).toContain("review");
     expect(dreamHelpResult.stdout).toContain("adopt");
+    expect(dreamHelpResult.stdout).toContain("proposal");
     expect(dreamHelpResult.stdout).toContain("promote-prep");
     expect(dreamHelpResult.stdout).toContain("apply-prep");
+    expect(dreamHelpResult.stdout).toContain("verify-apply");
     expect(dreamHelpResult.stdout).toContain("promote");
 
     const dreamBuildHelpResult = runCommandCapture(
@@ -1557,6 +1738,8 @@ describe("tarball install smoke", () => {
     expect(dreamPromotePrepHelpResult.stdout).toContain(
       "Preview the outcome of promoting an approved dream candidate"
     );
+    expect(dreamPromotePrepHelpResult.stdout).toContain("--target-host");
+    expect(dreamPromotePrepHelpResult.stdout).toContain("--target-file");
 
     const dreamApplyPrepHelpResult = runCommandCapture(
       camBinaryPath(installDir),
@@ -1577,6 +1760,31 @@ describe("tarball install smoke", () => {
     );
     expect(dreamPromoteHelpResult.exitCode).toBe(0);
     expect(dreamPromoteHelpResult.stdout).toContain("Explicitly promote an approved dream candidate");
+    expect(dreamPromoteHelpResult.stdout).toContain("--target-host");
+    expect(dreamPromoteHelpResult.stdout).toContain("--target-file");
+
+    const dreamProposalHelpResult = runCommandCapture(
+      camBinaryPath(installDir),
+      ["dream", "proposal", "--help"],
+      installDir,
+      envWithBin
+    );
+    expect(dreamProposalHelpResult.exitCode).toBe(0);
+    expect(dreamProposalHelpResult.stdout).toContain(
+      "Read a proposal-only instruction artifact without changing reviewer state"
+    );
+
+    const dreamVerifyApplyHelpResult = runCommandCapture(
+      camBinaryPath(installDir),
+      ["dream", "verify-apply", "--help"],
+      installDir,
+      envWithBin
+    );
+    expect(dreamVerifyApplyHelpResult.exitCode).toBe(0);
+    expect(dreamVerifyApplyHelpResult.stdout).toContain(
+      "Verify a manual instruction apply against the proposal artifact"
+    );
+    expect(dreamVerifyApplyHelpResult.stdout).toContain("reviewer lane");
 
     const hooksHelpResult = runCommandCapture(
       camBinaryPath(installDir),

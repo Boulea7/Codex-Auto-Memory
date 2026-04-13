@@ -362,19 +362,33 @@ describe("doctor command", () => {
     const payload = JSON.parse(result.stdout) as {
       instructionProposalLane?: {
         status: string;
+        latestCandidateId: string | null;
         latestProposalArtifactPath: string | null;
+        selectedTargetFile: string | null;
+        selectedTargetKind: string | null;
+        targetHost: string | null;
+        applyReadinessStatus: string | null;
         detectedTargets: string[];
+        recommendedInspectCommand: string;
         recommendedApplyPrepCommand: string;
+        recommendedVerifyApplyCommand: string;
       };
     };
 
     expect(payload.instructionProposalLane).toMatchObject({
       status: expect.stringMatching(/ok|warning/),
+      latestCandidateId: instructionCandidate!.candidateId,
       latestProposalArtifactPath: expect.stringContaining(
         `${path.sep}dream${path.sep}review${path.sep}proposals${path.sep}`
       ),
+      selectedTargetFile: expect.stringContaining(`${path.sep}AGENTS.md`),
+      selectedTargetKind: "agents-root",
+      targetHost: "shared",
+      applyReadinessStatus: "safe",
       detectedTargets: [expect.stringContaining(`${path.sep}AGENTS.md`)],
-      recommendedApplyPrepCommand: expect.stringContaining("dream apply-prep --candidate-id")
+      recommendedInspectCommand: expect.stringContaining("dream proposal --candidate-id"),
+      recommendedApplyPrepCommand: expect.stringContaining("dream apply-prep --candidate-id"),
+      recommendedVerifyApplyCommand: expect.stringContaining("dream verify-apply --candidate-id")
     });
   });
 

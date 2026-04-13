@@ -1,5 +1,6 @@
 import { buildRuntimeContext } from "../runtime/runtime-context.js";
 import { MemoryRetrievalService } from "../domain/memory-retrieval.js";
+import { buildInstructionReviewLane } from "../domain/dream-candidates.js";
 import { buildMemoryQuerySurfacing } from "../domain/resume-context.js";
 import type {
   MemoryDetailsResult,
@@ -293,7 +294,10 @@ export async function runRecall(
         return JSON.stringify(
           {
             ...response,
-            querySurfacing: await buildMemoryQuerySurfacing(runtime, target)
+            querySurfacing: {
+              ...(await buildMemoryQuerySurfacing(runtime, target)),
+              instructionReviewLane: await buildInstructionReviewLane(runtime)
+            }
           },
           null,
           2

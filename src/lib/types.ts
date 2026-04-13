@@ -171,6 +171,7 @@ export interface MemorySearchResponse {
     suggestedInstructionFiles: string[];
     topDurableRefs?: DreamRelevantMemoryRef[];
     suggestedTeamEntries?: TeamMemorySuggestion[];
+    instructionReviewLane?: InstructionReviewLane;
   };
 }
 
@@ -630,6 +631,8 @@ export interface InstructionMemoryLayer {
   detectedFiles: InstructionMemoryFile[];
 }
 
+export type InstructionTargetHost = "codex" | "claude" | "gemini" | "shared";
+
 export interface InstructionProposalTarget {
   path: string;
   kind: InstructionMemoryFile["kind"];
@@ -642,6 +645,7 @@ export interface InstructionProposalArtifact {
   proposalOnly: true;
   neverAutoEditsInstructionFiles: true;
   artifactDir: string;
+  targetHost: InstructionTargetHost;
   selectedTargetByPolicy: InstructionProposalTarget;
   resolvedApplyTarget: InstructionProposalTarget | null;
   selectedTarget: InstructionProposalTarget;
@@ -968,6 +972,7 @@ export type DreamCandidateStatus =
   | "pending"
   | "approved"
   | "manual-apply-pending"
+  | "manual-applied"
   | "rejected"
   | "promoted"
   | "stale"
@@ -997,12 +1002,14 @@ export interface DreamCandidatePromotionState {
   preparedPreviewDigest?: string;
   preparedArtifactPath?: string;
   applyPreparedAt?: string;
+  verifiedAppliedAt?: string;
   applyReadinessStatus?: "safe" | "blocked" | "stale";
   resultRef?: string;
   resultAuditPath?: string;
   proposalArtifactPath?: string;
   selectedTargetFile?: string;
   selectedTargetKind?: InstructionMemoryFile["kind"];
+  targetHost?: InstructionTargetHost;
   guidanceDigest?: string;
   patchDigest?: string;
 }
@@ -1090,6 +1097,7 @@ export type DreamCandidateAuditAction =
   | "review-deferred"
   | "promotion-prepared"
   | "apply-prepared"
+  | "manual-apply-verified"
   | "promotion-applied"
   | "promotion-noop"
   | "promotion-proposal-only"
@@ -1314,17 +1322,28 @@ export interface MemoryCommandOutput {
     sectionFlags: CompiledStartupMemory["sectionsRendered"];
     omissionCounts: CompiledStartupMemory["omissionCounts"];
   };
-  instructionReviewLane?: {
-    queueSummary: DreamQueueSummary;
-    pendingInstructionCandidateCount: number;
-    approvedInstructionCandidateCount: number;
-    manualApplyPendingInstructionCandidateCount: number;
-    blockedSubagentInstructionCandidateCount: number;
-    latestProposalArtifactPath: string | null;
-    candidateRecoveryPath: string;
-    detectedInstructionTargets: string[];
-  };
+  instructionReviewLane?: InstructionReviewLane;
   dreamSidecar: DreamSidecarSummary;
+}
+
+export interface InstructionReviewLane {
+  queueSummary: DreamQueueSummary;
+  pendingInstructionCandidateCount: number;
+  approvedInstructionCandidateCount: number;
+  manualApplyPendingInstructionCandidateCount: number;
+  blockedSubagentInstructionCandidateCount: number;
+  latestCandidateId: string | null;
+  latestProposalArtifactPath: string | null;
+  selectedTargetFile: string | null;
+  selectedTargetKind: InstructionMemoryFile["kind"] | null;
+  targetHost: InstructionTargetHost | null;
+  applyReadinessStatus: DreamCandidatePromotionState["applyReadinessStatus"] | null;
+  candidateRecoveryPath: string;
+  detectedInstructionTargets: string[];
+  recommendedReviewCommand: string;
+  recommendedInspectCommand: string;
+  recommendedApplyPrepCommand: string;
+  recommendedVerifyApplyCommand: string;
 }
 
 export interface MemoryReindexCheck {

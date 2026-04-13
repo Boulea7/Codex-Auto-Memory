@@ -69,6 +69,7 @@ const dreamStatusChoices = [
   "pending",
   "approved",
   "manual-apply-pending",
+  "manual-applied",
   "rejected",
   "promoted",
   "stale",
@@ -76,6 +77,7 @@ const dreamStatusChoices = [
 ];
 const dreamTargetSurfaceChoices = ["durable-memory", "instruction-memory"];
 const dreamOriginKindChoices = ["primary", "subagent"];
+const instructionTargetHostChoices = ["codex", "claude", "gemini", "shared"];
 
 function registerSessionCommands(program: Command): void {
   const sessionCommand = program
@@ -196,6 +198,14 @@ function registerDreamCommands(program: Command): void {
   ).action(withStdout(async (options) => runDream("adopt", options)));
 
   addJsonOption(
+    addDreamCandidateIdOption(
+      dreamCommand
+        .command("proposal")
+        .description("Read a proposal-only instruction artifact without changing reviewer state")
+    )
+  ).action(withStdout(async (options) => runDream("proposal", options)));
+
+  addJsonOption(
     addSessionScopeOption(
       addDreamCandidateIdOption(
         dreamCommand
@@ -203,6 +213,12 @@ function registerDreamCommands(program: Command): void {
           .description("Preview the outcome of promoting an approved dream candidate without mutating canonical memory")
           .option("--topic <topic>", "Override the inferred durable memory topic")
           .option("--id <id>", "Override the inferred durable memory id")
+          .addOption(
+            new Option(
+              "--target-host <host>",
+              "Prefer the default instruction target order for a specific host"
+            ).choices(instructionTargetHostChoices)
+          )
           .option("--target-file <path>", "Override the selected instruction target for proposal-only preparation")
       )
     )
@@ -216,6 +232,12 @@ function registerDreamCommands(program: Command): void {
           .description("Explicitly promote an approved dream candidate")
           .option("--topic <topic>", "Override the inferred durable memory topic")
           .option("--id <id>", "Override the inferred durable memory id")
+          .addOption(
+            new Option(
+              "--target-host <host>",
+              "Prefer the default instruction target order for a specific host"
+            ).choices(instructionTargetHostChoices)
+          )
           .option("--target-file <path>", "Override the selected instruction target for proposal-only promotion")
       )
     )
@@ -228,6 +250,14 @@ function registerDreamCommands(program: Command): void {
         .description("Re-check a proposal-only instruction artifact without editing instruction files")
     )
   ).action(withStdout(async (options) => runDream("apply-prep", options)));
+
+  addJsonOption(
+    addDreamCandidateIdOption(
+      dreamCommand
+        .command("verify-apply")
+        .description("Verify a manual instruction apply against the proposal artifact and close the reviewer lane")
+    )
+  ).action(withStdout(async (options) => runDream("verify-apply", options)));
 }
 
 function registerHookCommands(program: Command): void {
