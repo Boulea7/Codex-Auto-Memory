@@ -622,6 +622,7 @@ describe("runMemory", () => {
           totalCount: number;
         };
         approvedInstructionCandidateCount: number;
+        manualApplyPendingInstructionCandidateCount: number;
         latestProposalArtifactPath: string | null;
         detectedInstructionTargets: string[];
       };
@@ -631,11 +632,109 @@ describe("runMemory", () => {
       queueSummary: {
         totalCount: expect.any(Number)
       },
-      approvedInstructionCandidateCount: 1,
+      approvedInstructionCandidateCount: 0,
+      manualApplyPendingInstructionCandidateCount: 1,
       latestProposalArtifactPath: expect.stringContaining(
         `${path.sep}dream${path.sep}review${path.sep}proposals${path.sep}`
       ),
       detectedInstructionTargets: [expect.stringContaining(`${path.sep}AGENTS.md`)]
+    });
+  });
+
+  it("does not keep rejected proposal artifacts as the latest actionable instruction follow-up", async () => {
+    const homeDir = await tempDir("cam-memory-instruction-filter-home-");
+    const projectDir = await tempDir("cam-memory-instruction-filter-project-");
+    const memoryRoot = await tempDir("cam-memory-instruction-filter-memory-");
+    process.env.HOME = homeDir;
+
+    await fs.writeFile(path.join(projectDir, "AGENTS.md"), "# Repo rules\n", "utf8");
+    await writeCamConfig(
+      projectDir,
+      makeAppConfig({
+        dreamSidecarEnabled: true
+      }),
+      {
+        autoMemoryDirectory: memoryRoot,
+        dreamSidecarEnabled: true
+      }
+    );
+
+    const rolloutPath = path.join(projectDir, "instruction-rollout.jsonl");
+    await fs.writeFile(
+      rolloutPath,
+      [
+        JSON.stringify({
+          type: "session_meta",
+          payload: {
+            id: "session-memory-instruction-filter",
+            timestamp: "2026-03-15T00:00:00.000Z",
+            cwd: projectDir
+          }
+        }),
+        JSON.stringify({
+          type: "event_msg",
+          payload: {
+            type: "user_message",
+            message: "Always run pnpm lint before pnpm build."
+          }
+        })
+      ].join("\n"),
+      "utf8"
+    );
+
+    await runDream("build", {
+      cwd: projectDir,
+      rollout: rolloutPath,
+      json: true
+    });
+    const candidatePayload = JSON.parse(
+      await runDream("candidates", {
+        cwd: projectDir,
+        json: true
+      })
+    ) as {
+      entries: Array<{ candidateId: string; targetSurface: string }>;
+    };
+    const instructionCandidate = candidatePayload.entries.find(
+      (entry) => entry.targetSurface === "instruction-memory"
+    );
+    expect(instructionCandidate).toBeDefined();
+
+    await runDream("review", {
+      cwd: projectDir,
+      candidateId: instructionCandidate!.candidateId,
+      approve: true,
+      json: true
+    });
+    await runDream("promote-prep", {
+      cwd: projectDir,
+      candidateId: instructionCandidate!.candidateId,
+      json: true
+    });
+    await runDream("review", {
+      cwd: projectDir,
+      candidateId: instructionCandidate!.candidateId,
+      reject: true,
+      json: true
+    });
+
+    const output = JSON.parse(
+      await runMemory({
+        cwd: projectDir,
+        json: true
+      })
+    ) as MemoryCommandOutput & {
+      instructionReviewLane?: {
+        approvedInstructionCandidateCount: number;
+        manualApplyPendingInstructionCandidateCount: number;
+        latestProposalArtifactPath: string | null;
+      };
+    };
+
+    expect(output.instructionReviewLane).toMatchObject({
+      approvedInstructionCandidateCount: 0,
+      manualApplyPendingInstructionCandidateCount: 0,
+      latestProposalArtifactPath: null
     });
   });
 

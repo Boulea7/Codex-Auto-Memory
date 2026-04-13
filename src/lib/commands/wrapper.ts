@@ -57,7 +57,8 @@ async function compileStartupPayload(cwd: string): Promise<string> {
 
   const resumeContext = await buildSessionResumeContext(runtime, {
     suggestedRefLimit: 5,
-    topDurableRefLimit: 3
+    topDurableRefLimit: 3,
+    allowDreamAutoBuild: true
   });
   const resumeLines = [
     "# Resume Context",

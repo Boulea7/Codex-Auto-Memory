@@ -57,11 +57,13 @@ interface DreamOptions {
   note?: string;
   topic?: string;
   id?: string;
+  targetFile?: string;
 }
 
 const dreamCandidateStatuses = [
   "pending",
   "approved",
+  "manual-apply-pending",
   "rejected",
   "promoted",
   "stale",
@@ -174,14 +176,19 @@ async function buildDreamReviewerPayload(
           }),
           ...helperCommands
         ]
-      : entry.status === "approved" && entry.targetSurface === "instruction-memory"
+      : (entry.status === "approved" || entry.status === "manual-apply-pending") &&
+          entry.targetSurface === "instruction-memory"
         ? [
             buildResolvedCliCommand(`dream promote-prep --candidate-id ${entry.candidateId} --json`, {
               cwd: runtime.project.projectRoot
             }),
-            buildResolvedCliCommand(`dream promote --candidate-id ${entry.candidateId} --json`, {
-              cwd: runtime.project.projectRoot
-            }),
+            ...(entry.status === "approved"
+              ? [
+                  buildResolvedCliCommand(`dream promote --candidate-id ${entry.candidateId} --json`, {
+                    cwd: runtime.project.projectRoot
+                  })
+                ]
+              : []),
             ...(getDreamCandidateProposalArtifactPath(entry)
               ? [
                   buildResolvedCliCommand(
@@ -193,7 +200,7 @@ async function buildDreamReviewerPayload(
                 ]
               : [])
           ]
-        : entry.status === "approved"
+      : entry.status === "approved"
           ? [
               buildResolvedCliCommand(`dream promote-prep --candidate-id ${entry.candidateId} --json`, {
                 cwd: runtime.project.projectRoot
@@ -403,12 +410,18 @@ export async function runDream(
     }
 
     const candidate = await getDreamCandidate(runtime, options.candidateId);
-    if (candidate.entry.status !== "approved") {
+    if (
+      candidate.entry.targetSurface === "instruction-memory"
+        ? candidate.entry.status !== "approved" && candidate.entry.status !== "manual-apply-pending"
+        : candidate.entry.status !== "approved"
+    ) {
       throw new Error(`Dream candidate "${options.candidateId}" must be approved before promote-prep.`);
     }
 
     if (candidate.entry.targetSurface === "instruction-memory") {
-      const instructionProposal = await buildInstructionProposal(runtime, candidate.entry);
+      const instructionProposal = await buildInstructionProposal(runtime, candidate.entry, {
+        targetFile: options.targetFile
+      });
       const preparedEntry = await markDreamCandidatePrepared(runtime, options.candidateId, {
         previewDigest: instructionProposal.artifact.patchPlan?.diffDigestSha256 ?? instructionProposal.patchDigest,
         artifactPath: instructionProposal.artifact.artifactPath,
@@ -513,7 +526,7 @@ export async function runDream(
 
     const candidate = await getDreamCandidate(runtime, options.candidateId);
     const instructionProposal = await readInstructionProposalArtifact(runtime, options.candidateId);
-    const targetPath = instructionProposal.selectedTargetByPolicy.path;
+    const targetPath = instructionProposal.selectedTarget.path;
     const targetExists = await fileExists(targetPath);
     const currentContents = targetExists ? await readTextFile(targetPath) : "";
     const currentDigest = targetExists
@@ -584,12 +597,18 @@ export async function runDream(
     if (candidate.entry.status === "blocked") {
       throw new Error(`Dream candidate "${options.candidateId}" is blocked and cannot be promoted.`);
     }
-    if (candidate.entry.status !== "approved") {
+    if (
+      candidate.entry.targetSurface === "instruction-memory"
+        ? candidate.entry.status !== "approved" && candidate.entry.status !== "manual-apply-pending"
+        : candidate.entry.status !== "approved"
+    ) {
       throw new Error(`Dream candidate "${options.candidateId}" must be approved before promote.`);
     }
 
     if (candidate.entry.targetSurface === "instruction-memory") {
-      const instructionProposal = await buildInstructionProposal(runtime, candidate.entry);
+      const instructionProposal = await buildInstructionProposal(runtime, candidate.entry, {
+        targetFile: options.targetFile
+      });
       const nextEntry = await markDreamCandidatePromoted(runtime, options.candidateId, {
         outcome: "proposal-only",
         proposalArtifactPath: instructionProposal.artifact.artifactPath,
@@ -703,7 +722,25 @@ export async function runDream(
     snapshot,
     scope
   });
-  const candidates = await reconcileDreamCandidates(runtime, snapshot, persisted.snapshotPaths);
+  const inspection = await inspectDreamSidecar(runtime);
+  const candidates = await reconcileDreamCandidates(runtime, [
+    ...(inspection.projectSnapshot && inspection.snapshots.project.latestPath
+      ? [
+          {
+            snapshot: inspection.projectSnapshot,
+            snapshotPath: inspection.snapshots.project.latestPath
+          }
+        ]
+      : []),
+    ...(inspection.projectLocalSnapshot && inspection.snapshots.projectLocal.latestPath
+      ? [
+          {
+            snapshot: inspection.projectLocalSnapshot,
+            snapshotPath: inspection.snapshots.projectLocal.latestPath
+          }
+        ]
+      : [])
+  ]);
   const reviewerPayload = await buildDreamReviewerPayload(runtime);
 
   if (options.json) {

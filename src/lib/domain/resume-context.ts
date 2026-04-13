@@ -1,7 +1,7 @@
 import { compileStartupMemory } from "./startup-memory.js";
 import { createEmptySessionContinuityState } from "./session-continuity.js";
 import { discoverInstructionFiles } from "./instruction-memory.js";
-import { filterDreamRelevantRefs, ensureDreamSidecarFresh } from "./dream-sidecar.js";
+import { filterDreamRelevantRefs, ensureDreamSidecarFresh, inspectDreamSidecar } from "./dream-sidecar.js";
 import { buildMemoryRef } from "./memory-lifecycle.js";
 import { searchTeamMemory } from "./team-memory.js";
 import type {
@@ -17,6 +17,7 @@ interface BuildSessionResumeContextOptions {
   suggestedRefLimit?: number;
   continuitySourceFiles?: string[];
   topDurableRefLimit?: number;
+  allowDreamAutoBuild?: boolean;
 }
 
 interface SessionResumeContextBuildResult {
@@ -29,7 +30,8 @@ interface SessionResumeContextBuildResult {
 async function buildSuggestedTeamEntries(
   runtime: RuntimeContext,
   queries: string[],
-  limit: number
+  limit: number,
+  allowDreamAutoBuild: boolean
 ): Promise<SessionResumeContext["suggestedTeamEntries"]> {
   for (const query of queries) {
     if (!query.trim()) {
@@ -41,7 +43,10 @@ async function buildSuggestedTeamEntries(
       runtime.loadedConfig.config,
       query,
       limit,
-      { autoBuild: runtime.loadedConfig.config.dreamSidecarAutoBuild === true }
+      {
+        autoBuild:
+          allowDreamAutoBuild && runtime.loadedConfig.config.dreamSidecarAutoBuild === true
+      }
     );
     if (matches.length > 0) {
       return matches;
@@ -92,7 +97,10 @@ export async function buildSessionResumeContext(
   runtime: RuntimeContext,
   options: BuildSessionResumeContextOptions = {}
 ): Promise<SessionResumeContextBuildResult> {
-  const dreamInspection = await ensureDreamSidecarFresh(runtime);
+  const dreamInspection =
+    options.allowDreamAutoBuild === true
+      ? await ensureDreamSidecarFresh(runtime)
+      : await inspectDreamSidecar(runtime);
   const instructionFiles = await discoverInstructionFiles(runtime.project.projectRoot);
   const mergedState =
     options.mergedState ??
@@ -121,7 +129,8 @@ export async function buildSessionResumeContext(
       ...mergedDreamRelevantRefs.map((ref) => ref.matchedQuery),
       ...topDurableRefs.map((ref) => ref.reason)
     ],
-    3
+    3,
+    options.allowDreamAutoBuild === true
   );
 
   return {
@@ -150,6 +159,6 @@ export async function buildMemoryQuerySurfacing(
     suggestedDreamRefs: filterDreamRelevantRefs(mergedDreamRelevantRefs, query),
     suggestedInstructionFiles: resumeContext.instructionFiles,
     topDurableRefs: resumeContext.topDurableRefs,
-    suggestedTeamEntries: await buildSuggestedTeamEntries(runtime, [query], 3)
+    suggestedTeamEntries: await buildSuggestedTeamEntries(runtime, [query], 3, false)
   };
 }

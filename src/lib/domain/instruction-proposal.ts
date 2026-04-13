@@ -222,7 +222,10 @@ function toPublicTarget(
 export function buildInstructionProposalArtifact(
   entry: DreamCandidateRecord,
   rankedTargets: Array<InstructionProposalTarget & { currentContents?: string }>,
-  artifactPath: string
+  artifactPath: string,
+  options: {
+    selectedTargetPath?: string;
+  } = {}
 ): InstructionProposalArtifact {
   const artifactDir = path.dirname(artifactPath);
   const normalizedTargets = rankedTargets.map(normalizeTarget);
@@ -234,11 +237,19 @@ export function buildInstructionProposalArtifact(
       exists: false,
       currentContents: ""
     };
+  const explicitTarget =
+    options.selectedTargetPath === undefined
+      ? null
+      : normalizedTargets.find((target) => path.resolve(target.path) === options.selectedTargetPath) ?? null;
+  const selectedTargetSource = explicitTarget ?? selectedTargetByPolicy;
   const selectedTarget = {
-    ...selectedTargetByPolicy,
-    selectionReason: selectedTargetByPolicy.exists
-      ? "Selected the first existing instruction file in the preferred Codex-first order."
-      : "No instruction file exists yet; recommend AGENTS.md as the shared Codex-first target."
+    ...selectedTargetSource,
+    selectionReason:
+      explicitTarget !== null
+        ? "Selected by explicit reviewer target override."
+        : selectedTargetByPolicy.exists
+          ? "Selected the first existing instruction file in the preferred Codex-first order."
+          : "No instruction file exists yet; recommend AGENTS.md as the shared Codex-first target."
   };
   const lineEnding = detectLineEnding(selectedTarget.currentContents);
   const managedBlockBody = buildManagedBlockBody(entry);
@@ -343,7 +354,7 @@ export function buildInstructionProposalArtifact(
     proposalOnly: true,
     neverAutoEditsInstructionFiles: true,
     artifactDir,
-    selectedTargetByPolicy: toPublicTarget(selectedTarget),
+    selectedTargetByPolicy: toPublicTarget(selectedTargetByPolicy),
     resolvedApplyTarget: resolvedApplyTarget ? toPublicTarget(resolvedApplyTarget) : null,
     selectedTarget: toPublicTarget(selectedTarget),
     rankedTargets: rankedTargets.map(toPublicTarget),
