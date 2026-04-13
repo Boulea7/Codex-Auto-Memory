@@ -163,7 +163,12 @@ The reviewer-facing expansion around this seam is now split into three additive 
 - `querySurfacing` from `cam recall search --json`
 - dream-sidecar review lanes such as `cam dream candidates` / `cam dream review` / `cam dream adopt` / `cam dream promote-prep` / `cam dream promote` / `cam dream apply-prep`
 
-These surfaces are intentionally reviewer aids first. Subagent candidates start blocked and must be explicitly adopted before they enter the primary review lane. Durable-memory dream promote still requires explicit review and then flows through the existing reviewer/audit write path before canonical durable memory changes. Instruction-like `promote`, `promote-prep`, and `apply-prep` all remain `proposal-only`: they can stage or describe a proposed instruction update, emit a proposal bundle, and prepare manual-apply hints, but they never directly mutate instruction files.
+These surfaces are intentionally reviewer aids first. Subagent candidates start blocked and must be explicitly adopted before they enter the primary review lane. Durable-memory dream promote still requires explicit review and then flows through the existing reviewer/audit write path before canonical durable memory changes. Instruction-like `promote`, `promote-prep`, and `apply-prep` all remain `proposal-only`: they can stage or describe a proposed instruction update, emit a proposal artifact, and prepare manual-apply hints, but they never directly mutate instruction files. After a proposal-only promote, the candidate moves into a `manual-apply-pending` reviewer state instead of pretending it is still a plain approved candidate.
+
+Read-only continuity / retrieval surfaces also stay fail-closed:
+
+- wrapper startup may rebuild the latest primary dream snapshot when `dreamSidecarAutoBuild=true`
+- `cam session status/load`, `cam memory`, `cam dream inspect`, `cam recall`, and retrieval MCP stay read-only and only surface diagnostics when sidecars or team indexes are missing/stale
 
 ## Why the project-local layer is not the shared layer
 

@@ -286,6 +286,41 @@ describe("tarball install smoke", () => {
       envWithBin
     );
     expect(dreamBuildResult.exitCode, dreamBuildResult.stderr).toBe(0);
+    const dreamInspectResult = runCommandCapture(
+      camBinaryPath(installDir),
+      ["dream", "inspect", "--json"],
+      installDir,
+      envWithBin
+    );
+    expect(dreamInspectResult.exitCode, dreamInspectResult.stderr).toBe(0);
+    expect(JSON.parse(dreamInspectResult.stdout)).toMatchObject({
+      enabled: true,
+      snapshots: {
+        project: {
+          status: "available",
+          latestPath: expect.any(String)
+        }
+      },
+      queueSummary: {
+        totalCount: expect.any(Number)
+      },
+      candidateRegistryPath: expect.stringContaining(
+        `${path.sep}dream${path.sep}review${path.sep}registry.json`
+      ),
+      candidateAuditPath: expect.stringContaining(
+        `${path.sep}audit${path.sep}dream-candidate-log.jsonl`
+      ),
+      candidateRecoveryPath: expect.stringContaining(
+        `${path.sep}audit${path.sep}dream-candidate-recovery.json`
+      ),
+      reviewerSummary: {
+        queueSummary: {
+          totalCount: expect.any(Number)
+        }
+      },
+      nextRecommendedActions: expect.any(Array),
+      helperCommands: expect.any(Array)
+    });
 
     const recallSearchResult = runCommandCapture(
       camBinaryPath(installDir),
@@ -365,14 +400,14 @@ describe("tarball install smoke", () => {
       }
     });
 
-    const dreamInspectResult = runCommandCapture(
+    const dreamInspectResultAfterFlow = runCommandCapture(
       camBinaryPath(installDir),
       ["dream", "inspect", "--json"],
       installDir,
       envWithBin
     );
-    expect(dreamInspectResult.exitCode, dreamInspectResult.stderr).toBe(0);
-    expect(JSON.parse(dreamInspectResult.stdout)).toMatchObject({
+    expect(dreamInspectResultAfterFlow.exitCode, dreamInspectResultAfterFlow.stderr).toBe(0);
+    expect(JSON.parse(dreamInspectResultAfterFlow.stdout)).toMatchObject({
       enabled: true,
       snapshots: {
         project: {
@@ -724,6 +759,7 @@ describe("tarball install smoke", () => {
       promotionOutcome: "proposal-only",
       entry: {
         candidateId: instructionCandidate!.candidateId,
+        status: "manual-apply-pending",
         targetSurface: "instruction-memory"
       },
       instructionProposal: {
@@ -1457,6 +1493,26 @@ describe("tarball install smoke", () => {
     expect(dreamHelpResult.stdout).toContain("promote-prep");
     expect(dreamHelpResult.stdout).toContain("apply-prep");
     expect(dreamHelpResult.stdout).toContain("promote");
+
+    const dreamBuildHelpResult = runCommandCapture(
+      camBinaryPath(installDir),
+      ["dream", "build", "--help"],
+      installDir,
+      envWithBin
+    );
+    expect(dreamBuildHelpResult.exitCode).toBe(0);
+    expect(dreamBuildHelpResult.stdout).toContain("Build a dream sidecar snapshot from the selected rollout");
+
+    const dreamInspectHelpResult = runCommandCapture(
+      camBinaryPath(installDir),
+      ["dream", "inspect", "--help"],
+      installDir,
+      envWithBin
+    );
+    expect(dreamInspectHelpResult.exitCode).toBe(0);
+    expect(dreamInspectHelpResult.stdout).toContain(
+      "Inspect the latest dream sidecar snapshots and audit paths"
+    );
 
     const dreamCandidatesHelpResult = runCommandCapture(
       camBinaryPath(installDir),

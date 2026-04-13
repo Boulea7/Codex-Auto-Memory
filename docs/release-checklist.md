@@ -27,6 +27,7 @@ Use this checklist before cutting any alpha or beta release of `codex-auto-memor
 - Run `pnpm test:cli-smoke`
 - Run `pnpm test`
 - Run `pnpm build`
+- `pnpm test:dist-cli-smoke` now self-builds; it should still be runnable directly from a clean tree.
 - Run `pnpm test:dist-cli-smoke` and `pnpm test:tarball-install-smoke` serially, not in parallel, because `prepack -> rimraf dist` can otherwise create false negatives.
 - Run `pnpm test:dist-cli-smoke`
 - Run `pnpm test:tarball-install-smoke`
@@ -75,10 +76,12 @@ Use this checklist before cutting any alpha or beta release of `codex-auto-memor
 - Confirm `node dist/cli.js memory reindex --scope all --state all --json` stays read-only on an uninitialized project, returning `rebuilt: []` instead of creating a durable memory layout implicitly.
 - Run `node dist/cli.js dream build --json` and confirm the sidecar snapshot exposes `promotionCandidates` without mutating canonical Markdown memory.
 - Run `node dist/cli.js dream inspect --json` and confirm the project snapshot stays auditable and read-only.
+- Confirm `dream inspect --json` exposes reviewer-facing queue and helper metadata such as `queueSummary`, candidate registry/audit/recovery paths, `reviewerSummary`, `nextRecommendedActions`, and `helperCommands`.
 - Run `node dist/cli.js dream adopt --help`, `node dist/cli.js dream promote-prep --help`, and `node dist/cli.js dream apply-prep --help` and confirm the public reviewer lane now documents explicit subagent adoption plus promote/apply prep preview.
 - Confirm subagent candidates start blocked and only enter the primary review lane after explicit `adopt`.
 - Confirm `cam dream promote` stays reviewer-gated: durable-memory candidates only write through the existing reviewer/audit path, while instruction-like candidates remain `proposal-only` and do not directly write instruction files.
 - Confirm instruction-like `cam dream promote-prep` and `cam dream apply-prep` also stay `proposal-only` and never auto-edit instruction files.
+- Confirm proposal-only promote now leaves instruction-like candidates in `manual-apply-pending`, and that rejected/stale proposal artifacts are no longer recommended as the latest actionable follow-up.
 - Confirm `node dist/cli.js dream promote --json` for an instruction-like candidate returns `proposal-only` plus a structured proposal bundle instead of mutating instruction files.
 - Confirm `node dist/cli.js dream apply-prep --json` returns manual-apply prep and proposal-bundle metadata instead of modifying instruction files.
 - Confirm `dreamSidecar.teamMemory` stays additive and reviewer-facing: teamMemory can surface availability/counts and recall hints, but it does not become canonical durable memory.

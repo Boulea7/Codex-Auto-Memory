@@ -386,6 +386,19 @@ describe("dist cli smoke", () => {
     };
     const dreamInspectPayload = JSON.parse(dreamInspectResult.stdout) as {
       enabled: boolean;
+      queueSummary: {
+        totalCount: number;
+      };
+      candidateRegistryPath: string;
+      candidateAuditPath: string;
+      candidateRecoveryPath: string;
+      reviewerSummary: {
+        queueSummary: {
+          totalCount: number;
+        };
+      };
+      nextRecommendedActions: string[];
+      helperCommands: string[];
       snapshots: {
         project: {
           status: string;
@@ -757,6 +770,7 @@ describe("dist cli smoke", () => {
       promotionOutcome: "proposal-only",
       entry: {
         candidateId: instructionCandidate!.candidateId,
+        status: "manual-apply-pending",
         targetSurface: "instruction-memory"
       },
       instructionProposal: {
@@ -857,6 +871,19 @@ describe("dist cli smoke", () => {
     expect(dreamInspectPayload.enabled).toBe(true);
     expect(dreamInspectPayload.snapshots.project.status).toBe("available");
     expect(dreamInspectPayload.snapshots.project.latestPath).toBeTruthy();
+    expect(dreamInspectPayload.queueSummary.totalCount).toBeGreaterThan(0);
+    expect(dreamInspectPayload.candidateRegistryPath).toContain(
+      `${path.sep}dream${path.sep}review${path.sep}registry.json`
+    );
+    expect(dreamInspectPayload.candidateAuditPath).toContain(
+      `${path.sep}audit${path.sep}dream-candidate-log.jsonl`
+    );
+    expect(dreamInspectPayload.candidateRecoveryPath).toContain(
+      `${path.sep}audit${path.sep}dream-candidate-recovery.json`
+    );
+    expect(dreamInspectPayload.reviewerSummary.queueSummary.totalCount).toBeGreaterThan(0);
+    expect(dreamInspectPayload.nextRecommendedActions.length).toBeGreaterThan(0);
+    expect(dreamInspectPayload.helperCommands.length).toBeGreaterThan(0);
   }, 30_000);
 
   it("keeps session inspection read-only from the compiled cli entrypoint", async () => {
@@ -2337,6 +2364,20 @@ fs.writeFileSync(${JSON.stringify(capturedArgsPath)}, JSON.stringify(process.arg
     expect(dreamHelp.stdout).toContain("promote-prep");
     expect(dreamHelp.stdout).toContain("apply-prep");
     expect(dreamHelp.stdout).toContain("promote");
+
+    const dreamBuildHelp = runCli(projectDir, ["dream", "build", "--help"], {
+      entrypoint: "dist",
+      env
+    });
+    expect(dreamBuildHelp.exitCode, dreamBuildHelp.stderr).toBe(0);
+    expect(dreamBuildHelp.stdout).toContain("Build a dream sidecar snapshot from the selected rollout");
+
+    const dreamInspectHelp = runCli(projectDir, ["dream", "inspect", "--help"], {
+      entrypoint: "dist",
+      env
+    });
+    expect(dreamInspectHelp.exitCode, dreamInspectHelp.stderr).toBe(0);
+    expect(dreamInspectHelp.stdout).toContain("Inspect the latest dream sidecar snapshots and audit paths");
 
     const dreamCandidatesHelp = runCli(projectDir, ["dream", "candidates", "--help"], {
       entrypoint: "dist",

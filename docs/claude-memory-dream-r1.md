@@ -61,9 +61,9 @@
   - 开启后，`session` / `recall` / `wrapper` / MCP 会在 snapshot 缺失、无效或落后于 latest primary rollout 时按需重建 dream sidecar
   - auto-build 仍然只吃 primary rollout，不把 subagent rollout 升格成 durable sync 来源
 - `teamMemory` 不再只是 inspect stub：
-  - 当前仓库支持 repo-tracked team pack：`TEAM_MEMORY.md` + `team-memory/*.md`
+  - 当前仓库支持 repo-tracked team pack：`TEAM_MEMORY.md` 作为 root manifest / index-only 入口，真实 entry 只来自 `team-memory/*.md`
   - 它会被编进 project-scoped read-only sidecar index，并通过 `dreamSidecar.teamMemory`、`resumeContext.suggestedTeamEntries`、`querySurfacing.suggestedTeamEntries` 暴露 reviewer / recall 提示
-  - 它仍然是 non-canonical，不直接进入 startup 注入，也不开放 `timeline/details`
+  - 它仍然是 non-canonical，不进入 canonical durable startup memory；只有 wrapper resume context 会以 read-only team/shared refs 的形式提示，也不开放 `timeline/details`
 - subagent candidate lane 现在补上了显式 adopt / prep：
   - blocked subagent candidate 需要先 `cam dream adopt`
   - adopt 之后仍然要走 `review --approve`
@@ -75,7 +75,12 @@
   - `guidanceBlock`
   - `patchPreview`
   - `artifactPath`
-  - `proposalBundle`
+  - `manualWorkflow`
+  - `applyReadiness`
+
+- `dreamSidecarAutoBuild` 现在只在允许写 sidecar 的运行路径中触发：
+  - wrapper startup 允许按需重建 latest primary dream snapshot
+  - `cam memory`、`cam dream inspect`、`cam recall`、MCP retrieval、`cam session status/load` 保持只读；snapshot 或 team index 缺失时只返回 diagnostics / follow-up，不隐式写盘
 
 ## Wrapper startup alignment
 
