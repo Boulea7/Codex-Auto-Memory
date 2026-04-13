@@ -427,6 +427,88 @@ describe("tarball install smoke", () => {
       }
     });
 
+    const instructionDreamRolloutPath = path.join(installDir, "dream-instruction-rollout.jsonl");
+    await fs.writeFile(
+      instructionDreamRolloutPath,
+      JSON.stringify({
+        type: "session_meta",
+        payload: {
+          id: "session-tarball-dream-instruction",
+          timestamp: "2026-03-15T00:06:00.000Z",
+          cwd: installDir
+        }
+      }) +
+        "\n" +
+        JSON.stringify({
+          type: "event_msg",
+          payload: {
+            type: "user_message",
+            message: "Always run pnpm test before build in this repository."
+          }
+        }) +
+        "\n",
+      "utf8"
+    );
+    const instructionDreamBuildResult = runCommandCapture(
+      camBinaryPath(installDir),
+      ["dream", "build", "--rollout", instructionDreamRolloutPath, "--json"],
+      installDir,
+      envWithBin
+    );
+    expect(instructionDreamBuildResult.exitCode, instructionDreamBuildResult.stderr).toBe(0);
+
+    const instructionCandidatesResult = runCommandCapture(
+      camBinaryPath(installDir),
+      ["dream", "candidates", "--json"],
+      installDir,
+      envWithBin
+    );
+    expect(instructionCandidatesResult.exitCode, instructionCandidatesResult.stderr).toBe(0);
+    const instructionCandidatesPayload = JSON.parse(instructionCandidatesResult.stdout) as {
+      entries: Array<{
+        candidateId: string;
+        targetSurface: string;
+        summary: string;
+      }>;
+    };
+    const instructionCandidate = instructionCandidatesPayload.entries.find(
+      (entry) =>
+        entry.targetSurface === "instruction-memory" &&
+        entry.summary.includes("Always run pnpm test before build")
+    );
+    expect(instructionCandidate).toBeDefined();
+
+    const instructionReviewResult = runCommandCapture(
+      camBinaryPath(installDir),
+      ["dream", "review", "--candidate-id", instructionCandidate!.candidateId, "--approve", "--json"],
+      installDir,
+      envWithBin
+    );
+    expect(instructionReviewResult.exitCode, instructionReviewResult.stderr).toBe(0);
+
+    const instructionPromoteResult = runCommandCapture(
+      camBinaryPath(installDir),
+      ["dream", "promote", "--candidate-id", instructionCandidate!.candidateId, "--json"],
+      installDir,
+      envWithBin
+    );
+    expect(instructionPromoteResult.exitCode, instructionPromoteResult.stderr).toBe(0);
+    expect(JSON.parse(instructionPromoteResult.stdout)).toMatchObject({
+      action: "promote",
+      promotionOutcome: "proposal-only",
+      entry: {
+        candidateId: instructionCandidate!.candidateId,
+        targetSurface: "instruction-memory"
+      },
+      instructionProposal: {
+        proposalOnly: true,
+        selectedTarget: {
+          kind: "claude-project",
+          exists: true
+        }
+      }
+    });
+
     const recallDetailsResult = runCommandCapture(
       camBinaryPath(installDir),
       ["recall", "details", "project:active:workflow:prefer-pnpm", "--json"],
@@ -1141,6 +1223,8 @@ describe("tarball install smoke", () => {
     expect(dreamHelpResult.exitCode).toBe(0);
     expect(dreamHelpResult.stdout).toContain("candidates");
     expect(dreamHelpResult.stdout).toContain("review");
+    expect(dreamHelpResult.stdout).toContain("adopt");
+    expect(dreamHelpResult.stdout).toContain("promote-prep");
     expect(dreamHelpResult.stdout).toContain("promote");
 
     const dreamCandidatesHelpResult = runCommandCapture(
@@ -1163,6 +1247,28 @@ describe("tarball install smoke", () => {
     expect(dreamReviewHelpResult.exitCode).toBe(0);
     expect(dreamReviewHelpResult.stdout).toContain(
       "Review a dream candidate without mutating canonical memory"
+    );
+
+    const dreamAdoptHelpResult = runCommandCapture(
+      camBinaryPath(installDir),
+      ["dream", "adopt", "--help"],
+      installDir,
+      envWithBin
+    );
+    expect(dreamAdoptHelpResult.exitCode).toBe(0);
+    expect(dreamAdoptHelpResult.stdout).toContain(
+      "Adopt a blocked subagent dream candidate into the primary review lane"
+    );
+
+    const dreamPromotePrepHelpResult = runCommandCapture(
+      camBinaryPath(installDir),
+      ["dream", "promote-prep", "--help"],
+      installDir,
+      envWithBin
+    );
+    expect(dreamPromotePrepHelpResult.exitCode).toBe(0);
+    expect(dreamPromotePrepHelpResult.stdout).toContain(
+      "Preview the outcome of promoting an approved dream candidate"
     );
 
     const dreamPromoteHelpResult = runCommandCapture(

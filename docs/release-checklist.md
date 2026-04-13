@@ -73,7 +73,10 @@ Use this checklist before cutting any alpha or beta release of `codex-auto-memor
 - Confirm `node dist/cli.js memory reindex --scope all --state all --json` stays read-only on an uninitialized project, returning `rebuilt: []` instead of creating a durable memory layout implicitly.
 - Run `node dist/cli.js dream build --json` and confirm the sidecar snapshot exposes `promotionCandidates` without mutating canonical Markdown memory.
 - Run `node dist/cli.js dream inspect --json` and confirm the project snapshot stays auditable and read-only.
+- Run `node dist/cli.js dream adopt --help` and `node dist/cli.js dream promote-prep --help` and confirm the public reviewer lane now documents explicit subagent adoption and pre-promote preview.
 - Confirm `cam dream promote` stays reviewer-gated: durable-memory candidates only write through the existing reviewer/audit path, while instruction-like candidates remain `proposal-only` and do not directly write instruction files.
+- Confirm `node dist/cli.js dream promote --json` for an instruction-like candidate returns `proposal-only` plus a structured proposal artifact instead of mutating instruction files.
+- Confirm `dreamSidecar.teamMemory` stays additive and reviewer-facing: teamMemory can surface availability/counts and recall hints, but it does not become canonical durable memory.
 - Run `node dist/cli.js recall details <ref> --json` for one returned ref and confirm the path resolves to Markdown-backed memory, including archived refs when relevant.
 - Confirm `node dist/cli.js recall details <ref> --json` now also exposes additive provenance summary fields such as `latestLifecycleAction`, `latestSessionId`, `latestRolloutPath`, and `historyPath`.
 - Confirm `node dist/cli.js recall details <ref> --json` now also exposes additive `latestAudit` provenance so a reviewer can jump from lifecycle state to the latest sync-audit summary without manually correlating sidecars.

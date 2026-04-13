@@ -48,8 +48,30 @@
 - reviewer 命令面继续朝 `cam dream candidates` / `cam dream review` / `cam dream promote` 收口：
   - candidates 负责列出 sidecar 中待审条目
   - review 负责做 reviewer-facing inspection
+  - `cam dream adopt` 会把 blocked subagent candidate 提升进 primary review lane，但不会直接写 durable memory
+  - `cam dream promote-prep` 负责给 approved candidate 做只读预演，不改 canonical memory
   - durable-memory candidate 的 `promote` 只会通过现有 reviewer/audit 路径显式写入 canonical memory
-  - instruction-like candidate 的 `promote` 继续保持 `proposal-only`，不直接写 instruction files
+  - instruction-like candidate 的 `promote` 继续保持 `proposal-only`，不直接写 instruction files，而是返回结构化 proposal artifact（target ranking、guidance block、patch preview）
+
+## Round 2 增量
+
+- `dreamSidecarAutoBuild` 现在是实际能力，而不是只读配置：
+  - 开启后，`session` / `recall` / `wrapper` / MCP 会在 snapshot 缺失、无效或落后于 latest primary rollout 时按需重建 dream sidecar
+  - auto-build 仍然只吃 primary rollout，不把 subagent rollout 升格成 durable sync 来源
+- `teamMemory` 不再只是 inspect stub：
+  - 当前仓库支持 repo-tracked team pack：`TEAM_MEMORY.md` + `team-memory/*.md`
+  - 它会被编进 project-scoped read-only sidecar index，并通过 `dreamSidecar.teamMemory`、`resumeContext.suggestedTeamEntries`、`querySurfacing.suggestedTeamEntries` 暴露 reviewer / recall 提示
+  - 它仍然是 non-canonical，不直接进入 startup 注入，也不开放 `timeline/details`
+- subagent candidate lane 现在补上了显式 adopt / prep：
+  - blocked subagent candidate 需要先 `cam dream adopt`
+  - adopt 之后仍然要走 `review --approve`
+  - `cam dream promote-prep` 只预演 lifecycle / target，不写 Markdown canonical store
+- instruction-like lane 继续保持 `proposal-only`，但 payload 更完整：
+  - `selectedTarget`
+  - `rankedTargets`
+  - `guidanceBlock`
+  - `patchPreview`
+  - `artifactPath`
 
 ## 这轮明确不做的事
 

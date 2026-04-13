@@ -23,6 +23,7 @@ async function tempDir(prefix: string): Promise<string> {
 
 function subagentRolloutFixture(
   projectDir: string,
+  message = "remember that reviewer subagents always use npm",
   sessionId = "session-subagent",
   parentSessionId = "session-primary"
 ): string {
@@ -49,9 +50,24 @@ function subagentRolloutFixture(
       type: "event_msg",
       payload: {
         type: "user_message",
-        message: "remember that reviewer subagents always use npm"
+        message
       }
     })
+  ].join("\n");
+}
+
+function teamWorkflowContents(entryId: string, summary: string, detail: string): string {
+  return [
+    "# Workflow",
+    "",
+    "<!-- cam:team-topic workflow -->",
+    "",
+    `## ${entryId}`,
+    `<!-- cam:team-entry {"id":"${entryId}","scopeHint":"project","updatedAt":"2026-03-15T00:00:00.000Z"} -->`,
+    `Summary: ${summary}`,
+    "Details:",
+    `- ${detail}`,
+    ""
   ].join("\n");
 }
 
@@ -145,7 +161,12 @@ describe("dream sidecar", () => {
     );
     expect(buildPayload.snapshot.promotionCandidates.instructionLikeCandidates).toBeDefined();
     expect(buildPayload.snapshot.promotionCandidates.durableMemoryCandidates).toBeDefined();
-    expect(buildPayload.snapshot.teamMemory).toEqual({ available: false });
+    expect(buildPayload.snapshot.teamMemory).toMatchObject({
+      available: false,
+      status: "missing",
+      entryCount: 0,
+      topicCount: 0
+    });
     await Promise.all(buildPayload.snapshotPaths.map((filePath) => expect(fs.stat(filePath)).resolves.toBeDefined()));
     expect(await fs.readFile(store.getMemoryFile("project"), "utf8")).toBe(memoryBefore);
 
@@ -170,6 +191,68 @@ describe("dream sidecar", () => {
     expect(inspectPayload.snapshots.project.relevantMemoryRefCount).toBeGreaterThan(0);
     expect(inspectPayload.auditPath).toBe(buildPayload.auditPath);
     expect(inspectPayload.recoveryPath).toBe(buildPayload.recoveryPath);
+  });
+
+  it("surfaces shared team memory availability in dream snapshots", async () => {
+    const homeDir = await tempDir("cam-dream-team-home-");
+    const repoDir = await tempDir("cam-dream-team-repo-");
+    const memoryRoot = await tempDir("cam-dream-team-memory-");
+    process.env.HOME = homeDir;
+    await initGitRepo(repoDir);
+    await fs.writeFile(path.join(repoDir, "TEAM_MEMORY.md"), "# Team Memory\n", "utf8");
+    await fs.mkdir(path.join(repoDir, "team-memory"), { recursive: true });
+    await fs.writeFile(
+      path.join(repoDir, "team-memory", "workflow.md"),
+      teamWorkflowContents(
+        "prefer-pnpm-shared",
+        "Prefer pnpm from the shared workflow memory.",
+        "Use pnpm across the shared project workflow."
+      ),
+      "utf8"
+    );
+    await writeCamConfig(
+      repoDir,
+      makeAppConfig({
+        dreamSidecarEnabled: true
+      }),
+      {
+        autoMemoryDirectory: memoryRoot,
+        dreamSidecarEnabled: true
+      }
+    );
+
+    const rolloutPath = path.join(repoDir, "team-rollout.jsonl");
+    await fs.writeFile(
+      rolloutPath,
+      makeRolloutFixture(repoDir, "Continue the shared pnpm workflow review."),
+      "utf8"
+    );
+
+    const buildPayload = JSON.parse(
+      await runDream("build", {
+        cwd: repoDir,
+        rollout: rolloutPath,
+        json: true
+      })
+    ) as {
+      snapshot: {
+        teamMemory: {
+          available: boolean;
+          status: string;
+          topicCount: number;
+          entryCount: number;
+          sourceRoot: string | null;
+        };
+      };
+    };
+
+    expect(buildPayload.snapshot.teamMemory).toMatchObject({
+      available: true,
+      status: "available",
+      topicCount: 1,
+      entryCount: 1,
+      sourceRoot: expect.stringContaining(`${path.sep}team-memory`)
+    });
   });
 
   it("reconciles candidates into an explicit review queue and only promotes durable memory after approval", async () => {
@@ -337,8 +420,20 @@ describe("dream sidecar", () => {
       };
       instructionProposal?: {
         proposalOnly: boolean;
-        suggestedTargetFile: string | null;
-        suggestedBlock: string;
+        selectedTarget: {
+          path: string;
+          kind: string;
+          exists: boolean;
+          selectionReason: string;
+        };
+        rankedTargets: Array<{
+          path: string;
+          kind: string;
+          exists: boolean;
+        }>;
+        guidanceBlock: string;
+        patchPreview: string;
+        artifactPath: string;
       };
     };
     expect(promoteInstruction).toMatchObject({
@@ -351,9 +446,25 @@ describe("dream sidecar", () => {
         proposalOnly: true
       }
     });
-    expect(promoteInstruction.instructionProposal?.suggestedBlock).toContain(
+    expect(promoteInstruction.instructionProposal?.selectedTarget).toMatchObject({
+      path: expect.stringContaining(`${path.sep}AGENTS.md`),
+      kind: "agents-root",
+      exists: true
+    });
+    expect(promoteInstruction.instructionProposal?.rankedTargets[0]).toMatchObject({
+      path: expect.stringContaining(`${path.sep}AGENTS.md`),
+      kind: "agents-root"
+    });
+    expect(promoteInstruction.instructionProposal?.guidanceBlock).toContain(
       "Always run pnpm test before build"
     );
+    expect(promoteInstruction.instructionProposal?.patchPreview).toContain("AGENTS.md");
+    expect(promoteInstruction.instructionProposal?.artifactPath).toContain(
+      `${path.sep}dream${path.sep}review${path.sep}proposals${path.sep}`
+    );
+    await expect(
+      fs.stat(promoteInstruction.instructionProposal!.artifactPath)
+    ).resolves.toBeDefined();
     expect(await store.listEntries("project")).toEqual(beforeInstructionPromote);
   });
 
@@ -416,6 +527,153 @@ describe("dream sidecar", () => {
         json: true
       })
     ).rejects.toThrow("is blocked and cannot be promoted");
+  });
+
+  it("allows explicit adopt and promote-prep for blocked subagent durable candidates", async () => {
+    const homeDir = await tempDir("cam-dream-subagent-adopt-home-");
+    const repoDir = await tempDir("cam-dream-subagent-adopt-repo-");
+    const memoryRoot = await tempDir("cam-dream-subagent-adopt-memory-");
+    process.env.HOME = homeDir;
+    await initGitRepo(repoDir);
+    await writeCamConfig(
+      repoDir,
+      makeAppConfig({
+        dreamSidecarEnabled: true
+      }),
+      {
+        autoMemoryDirectory: memoryRoot,
+        dreamSidecarEnabled: true
+      }
+    );
+
+    const project = detectProjectContext(repoDir);
+    const store = new MemoryStore(project, {
+      ...makeAppConfig({
+        dreamSidecarEnabled: true
+      }),
+      autoMemoryDirectory: memoryRoot
+    });
+    await store.ensureLayout();
+
+    const rolloutPath = path.join(repoDir, "subagent-durable-rollout.jsonl");
+    await fs.writeFile(
+      rolloutPath,
+      subagentRolloutFixture(
+        repoDir,
+        "The runbook lives at https://docs.example.com/runbook.",
+        "session-subagent-durable"
+      ),
+      "utf8"
+    );
+
+    await runDream("build", {
+      cwd: repoDir,
+      rollout: rolloutPath,
+      json: true
+    });
+
+    const candidatesPayload = JSON.parse(
+      await runDream("candidates", {
+        cwd: repoDir,
+        json: true
+      })
+    ) as {
+      entries: Array<{
+        candidateId: string;
+        targetSurface: string;
+        originKind: string;
+        status: string;
+        summary: string;
+      }>;
+    };
+    const durableCandidate = candidatesPayload.entries.find(
+      (entry) =>
+        entry.originKind === "subagent" &&
+        entry.targetSurface === "durable-memory" &&
+        entry.summary.includes("runbook lives")
+    );
+    expect(durableCandidate).toBeDefined();
+
+    const adoptPayload = JSON.parse(
+      await runDream("adopt", {
+        cwd: repoDir,
+        candidateId: durableCandidate!.candidateId,
+        note: "Escalate this subagent note into the primary review lane.",
+        json: true
+      })
+    ) as {
+      action: string;
+      entry: {
+        candidateId: string;
+        status: string;
+        originKind: string;
+        adoption?: {
+          adoptionKind: string;
+        };
+      };
+    };
+    expect(adoptPayload).toMatchObject({
+      action: "adopt",
+      entry: {
+        candidateId: durableCandidate!.candidateId,
+        status: "pending",
+        originKind: "subagent",
+        adoption: {
+          adoptionKind: "manual"
+        }
+      }
+    });
+
+    const reviewPayload = JSON.parse(
+      await runDream("review", {
+        cwd: repoDir,
+        candidateId: durableCandidate!.candidateId,
+        approve: true,
+        json: true
+      })
+    ) as {
+      entry: {
+        status: string;
+      };
+    };
+    expect(reviewPayload.entry.status).toBe("approved");
+
+    const beforePromotePrep = await store.listEntries("project");
+    const previewPayload = JSON.parse(
+      await runDream("promote-prep", {
+        cwd: repoDir,
+        candidateId: durableCandidate!.candidateId,
+        json: true
+      })
+    ) as {
+      action: string;
+      resolvedTarget: {
+        targetSurface: string;
+        scope: string;
+        topic: string;
+        id: string;
+      };
+      preview: {
+        lifecycleAction: string;
+        wouldWrite: boolean;
+        ref: string;
+        targetPath: string;
+      };
+    };
+    expect(previewPayload).toMatchObject({
+      action: "promote-prep",
+      resolvedTarget: {
+        targetSurface: "durable-memory",
+        scope: "project"
+      },
+      preview: {
+        lifecycleAction: "add",
+        wouldWrite: true,
+        ref: expect.stringContaining("project:active:"),
+        targetPath: expect.stringContaining(`${path.sep}reference.md`)
+      }
+    });
+    expect(await store.listEntries("project")).toEqual(beforePromotePrep);
   });
 
   it("marks disappeared candidates as stale on a later build", async () => {

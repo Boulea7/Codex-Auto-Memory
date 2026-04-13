@@ -17,6 +17,11 @@ import type {
 import { appendJsonl, readJsonFile, writeJsonFileAtomic } from "../util/fs.js";
 import { getDefaultMemoryDirectory } from "./project-context.js";
 import { slugify } from "../util/text.js";
+import { rankInstructionProposalTargets } from "./instruction-memory.js";
+import {
+  buildInstructionProposalArtifact,
+  buildInstructionProposalDigests
+} from "./instruction-proposal.js";
 
 interface DreamCandidatePaths {
   reviewDir: string;
@@ -51,6 +56,10 @@ function buildDreamCandidatePaths(runtime: RuntimeContext): DreamCandidatePaths 
     candidateAuditFile: path.join(auditDir, "dream-candidate-log.jsonl"),
     candidateRecoveryFile: path.join(auditDir, "dream-candidate-recovery.json")
   };
+}
+
+function buildProposalArtifactPath(paths: DreamCandidatePaths, candidateId: string): string {
+  return path.join(paths.reviewDir, "proposals", `${candidateId}.json`);
 }
 
 function candidateTargetSurface(
@@ -148,6 +157,18 @@ function createCandidateRecord(
     },
     ...(blockedReason ? { blockedReason } : {})
   };
+}
+
+function isAdoptedSubagentCandidate(entry: DreamCandidateRecord): boolean {
+  return entry.originKind === "subagent" && entry.adoption !== undefined;
+}
+
+function isCandidatePromotionEligible(entry: DreamCandidateRecord): boolean {
+  if (entry.status === "rejected" || entry.status === "stale" || entry.status === "promoted") {
+    return false;
+  }
+
+  return entry.originKind !== "subagent" || isAdoptedSubagentCandidate(entry);
 }
 
 function mergeCandidateRecord(
@@ -405,7 +426,11 @@ export async function reviewDreamCandidate(
   if (!currentEntry) {
     throw new Error(`Dream candidate "${options.candidateId}" was not found.`);
   }
-  if (currentEntry.originKind === "subagent" && options.decision === "approved") {
+  if (
+    currentEntry.originKind === "subagent" &&
+    currentEntry.adoption === undefined &&
+    options.decision === "approved"
+  ) {
     throw new Error(
       `Dream candidate "${options.candidateId}" comes from a subagent rollout and cannot be approved directly.`
     );
@@ -416,7 +441,7 @@ export async function reviewDreamCandidate(
       ? "approved"
       : options.decision === "rejected"
         ? "rejected"
-        : currentEntry.originKind === "subagent"
+        : currentEntry.originKind === "subagent" && currentEntry.adoption === undefined
           ? "blocked"
           : "pending";
   const decisionAt = new Date().toISOString();
@@ -470,6 +495,67 @@ export async function reviewDreamCandidate(
   };
 }
 
+export async function adoptDreamCandidate(
+  runtime: RuntimeContext,
+  candidateId: string,
+  note?: string
+): Promise<{ entry: DreamCandidateRecord; registryPath: string; auditPath: string; recoveryPath: string }> {
+  const { paths, registry } = await readRegistryOrDefault(runtime);
+  const currentEntry = registry.entries.find((entry) => entry.candidateId === candidateId);
+  if (!currentEntry) {
+    throw new Error(`Dream candidate "${candidateId}" was not found.`);
+  }
+  if (currentEntry.originKind !== "subagent" || currentEntry.status !== "blocked") {
+    throw new Error(`Dream candidate "${candidateId}" is not a blocked subagent candidate.`);
+  }
+
+  const adoptedAt = new Date().toISOString();
+  const nextEntry: DreamCandidateRecord = {
+    ...currentEntry,
+    status: "pending",
+    blockedReason: undefined,
+    adoption: {
+      adoptedAt,
+      adoptionKind: "manual",
+      adoptedFromBlockedSubagent: true,
+      ...(note ? { note } : {})
+    },
+    promotion: {
+      ...currentEntry.promotion,
+      eligible: true,
+      eligibleReason: "Adopted into the primary review lane; explicit review is still required."
+    }
+  };
+  const nextRegistry: DreamCandidateRegistry = {
+    version: registry.version,
+    updatedAt: adoptedAt,
+    entries: registry.entries.map((entry) =>
+      entry.candidateId === nextEntry.candidateId ? nextEntry : entry
+    )
+  };
+
+  await writeJsonFileAtomic(paths.registryFile, nextRegistry);
+  try {
+    await appendCandidateAuditEntry(paths, buildAuditEntry("adopted", nextEntry, note));
+  } catch (error) {
+    await writeCandidateRecoveryRecord(paths, {
+      recordedAt: adoptedAt,
+      candidateId: nextEntry.candidateId,
+      failedStage: "adoption-write",
+      failureMessage: error instanceof Error ? error.message : String(error),
+      registryPath: paths.registryFile
+    });
+    throw error;
+  }
+
+  return {
+    entry: nextEntry,
+    registryPath: paths.registryFile,
+    auditPath: paths.candidateAuditFile,
+    recoveryPath: paths.candidateRecoveryFile
+  };
+}
+
 export async function markDreamCandidatePromoted(
   runtime: RuntimeContext,
   candidateId: string,
@@ -477,6 +563,11 @@ export async function markDreamCandidatePromoted(
     outcome: "applied" | "noop" | "proposal-only";
     resultRef?: string;
     resultAuditPath?: string;
+    proposalArtifactPath?: string;
+    selectedTargetFile?: string;
+    selectedTargetKind?: DreamCandidateRecord["promotion"]["selectedTargetKind"];
+    guidanceDigest?: string;
+    patchDigest?: string;
   }
 ): Promise<DreamCandidateRecord> {
   const { paths, registry } = await readRegistryOrDefault(runtime);
@@ -494,7 +585,12 @@ export async function markDreamCandidatePromoted(
       promotedAt,
       promotionOutcome: options.outcome,
       ...(options.resultRef ? { resultRef: options.resultRef } : {}),
-      ...(options.resultAuditPath ? { resultAuditPath: options.resultAuditPath } : {})
+      ...(options.resultAuditPath ? { resultAuditPath: options.resultAuditPath } : {}),
+      ...(options.proposalArtifactPath ? { proposalArtifactPath: options.proposalArtifactPath } : {}),
+      ...(options.selectedTargetFile ? { selectedTargetFile: options.selectedTargetFile } : {}),
+      ...(options.selectedTargetKind ? { selectedTargetKind: options.selectedTargetKind } : {}),
+      ...(options.guidanceDigest ? { guidanceDigest: options.guidanceDigest } : {}),
+      ...(options.patchDigest ? { patchDigest: options.patchDigest } : {})
     }
   };
   const nextRegistry: DreamCandidateRegistry = {
@@ -534,21 +630,30 @@ export async function markDreamCandidatePromoted(
   return nextEntry;
 }
 
-export function buildInstructionProposal(
-  entry: DreamCandidateRecord,
-  instructionFiles: string[]
-): {
-  proposalOnly: true;
-  suggestedTargetFile: string | null;
-  suggestedBlock: string;
-} {
-  const suggestedTargetFile = instructionFiles[0] ?? null;
+export async function buildInstructionProposal(
+  runtime: RuntimeContext,
+  entry: DreamCandidateRecord
+) {
+  const paths = buildDreamCandidatePaths(runtime);
+  const artifactPath = buildProposalArtifactPath(paths, entry.candidateId);
+  const rankedTargets = await rankInstructionProposalTargets(runtime.project.projectRoot);
+  const artifact = buildInstructionProposalArtifact(entry, rankedTargets, artifactPath);
+
+  try {
+    await writeJsonFileAtomic(artifactPath, artifact);
+  } catch (error) {
+    await writeCandidateRecoveryRecord(paths, {
+      recordedAt: new Date().toISOString(),
+      candidateId: entry.candidateId,
+      failedStage: "proposal-artifact-write",
+      failureMessage: error instanceof Error ? error.message : String(error),
+      registryPath: paths.registryFile
+    });
+    throw error;
+  }
+
   return {
-    proposalOnly: true,
-    suggestedTargetFile,
-    suggestedBlock: [
-      `- ${entry.summary}`,
-      ...entry.details.slice(1).map((detail) => `  ${detail}`)
-    ].join("\n")
+    artifact,
+    ...buildInstructionProposalDigests(artifact)
   };
 }
