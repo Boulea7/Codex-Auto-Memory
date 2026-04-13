@@ -2,6 +2,7 @@ import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
+import { runDream } from "../src/lib/commands/dream.js";
 import { MemoryStore } from "../src/lib/domain/memory-store.js";
 import { detectProjectContext } from "../src/lib/domain/project-context.js";
 import { makeAppConfig, writeCamConfig } from "./helpers/cam-test-fixtures.js";
@@ -280,5 +281,100 @@ describe("doctor command", () => {
     expect(result.exitCode, result.stderr).toBe(0);
     expect(result.stdout).toContain("Native memory/hooks readiness:");
     expect(result.stdout).toContain("Host/UI signals:");
+  });
+
+  it("surfaces instruction proposal lane diagnostics when proposal artifacts exist", async () => {
+    const homeDir = await tempDir("cam-doctor-instruction-home-");
+    const projectDir = await tempDir("cam-doctor-instruction-project-");
+    const memoryRoot = await tempDir("cam-doctor-instruction-memory-");
+    process.env.HOME = homeDir;
+
+    await fs.writeFile(path.join(projectDir, "AGENTS.md"), "# Repo rules\n", "utf8");
+    await writeCamConfig(
+      projectDir,
+      makeAppConfig({
+        dreamSidecarEnabled: true
+      }),
+      {
+        autoMemoryDirectory: memoryRoot,
+        dreamSidecarEnabled: true
+      }
+    );
+
+    const rolloutPath = path.join(projectDir, "instruction-rollout.jsonl");
+    await fs.writeFile(
+      rolloutPath,
+      [
+        JSON.stringify({
+          type: "session_meta",
+          payload: {
+            id: "session-doctor-instruction",
+            timestamp: "2026-03-15T00:00:00.000Z",
+            cwd: projectDir
+          }
+        }),
+        JSON.stringify({
+          type: "event_msg",
+          payload: {
+            type: "user_message",
+            message: "Always run pnpm lint before pnpm build."
+          }
+        })
+      ].join("\n"),
+      "utf8"
+    );
+
+    await runDream("build", {
+      cwd: projectDir,
+      rollout: rolloutPath,
+      json: true
+    });
+    const candidatePayload = JSON.parse(
+      await runDream("candidates", {
+        cwd: projectDir,
+        json: true
+      })
+    ) as {
+      entries: Array<{ candidateId: string; targetSurface: string }>;
+    };
+    const instructionCandidate = candidatePayload.entries.find(
+      (entry) => entry.targetSurface === "instruction-memory"
+    );
+    expect(instructionCandidate).toBeDefined();
+
+    await runDream("review", {
+      cwd: projectDir,
+      candidateId: instructionCandidate!.candidateId,
+      approve: true,
+      json: true
+    });
+    await runDream("promote-prep", {
+      cwd: projectDir,
+      candidateId: instructionCandidate!.candidateId,
+      json: true
+    });
+
+    const result = runCli(projectDir, ["doctor", "--json"], {
+      env: { HOME: homeDir }
+    });
+    expect(result.exitCode, result.stderr).toBe(0);
+
+    const payload = JSON.parse(result.stdout) as {
+      instructionProposalLane?: {
+        status: string;
+        latestProposalArtifactPath: string | null;
+        detectedTargets: string[];
+        recommendedApplyPrepCommand: string;
+      };
+    };
+
+    expect(payload.instructionProposalLane).toMatchObject({
+      status: expect.stringMatching(/ok|warning/),
+      latestProposalArtifactPath: expect.stringContaining(
+        `${path.sep}dream${path.sep}review${path.sep}proposals${path.sep}`
+      ),
+      detectedTargets: [expect.stringContaining(`${path.sep}AGENTS.md`)],
+      recommendedApplyPrepCommand: expect.stringContaining("dream apply-prep --candidate-id")
+    });
   });
 });

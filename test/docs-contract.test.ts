@@ -31,6 +31,7 @@ describe("docs contract", () => {
     const nativeMigrationEn = await readDoc("docs/native-migration.en.md");
     const releaseChecklist = await readDoc("docs/release-checklist.md");
     const contributing = await readDoc("CONTRIBUTING.md");
+    const agentsDoc = await readDoc("AGENTS.md");
     const ciWorkflow = await readDoc(".github/workflows/ci.yml");
     const releaseWorkflow = await readDoc(".github/workflows/release.yml");
     const packageJson = JSON.parse(await readDoc("package.json")) as PackageJsonContract;
@@ -102,12 +103,18 @@ describe("docs contract", () => {
     expect(readme).toContain("learned durable memory");
     expect(readme).toContain("MEMORY.md` 现在继续收紧为 `index-only");
     expect(readme).toContain("dream sidecar");
+    expect(readme).toContain("dreamSidecarAutoBuild");
     expect(readme).toContain("resumeContext");
     expect(readme).toContain("querySurfacing");
+    expect(readme).toContain("resumeContext.suggestedTeamEntries");
+    expect(readme).toContain("querySurfacing.suggestedTeamEntries");
     expect(readme).toContain("suggestedDurableRefs");
     expect(readme).toContain("suggestedInstructionFiles");
     expect(readme).toContain("promotionCandidates");
     expect(readme).toContain("proposal-only");
+    expect(agentsDoc).toContain("dreamSidecarAutoBuild");
+    expect(agentsDoc).toContain("suggestedTeamEntries");
+    expect(agentsDoc).toContain("cam dream promote-prep");
     expect(readmeTw).toContain("README.md");
     expect(readmeTw).toContain("README.en.md");
     expect(readmeTw).toContain("memory-recall.sh");
@@ -479,6 +486,8 @@ describe("docs contract", () => {
     expect(contributing).toContain("skill surface selection");
     expect(claudeMemoryDream).toContain("cam dream adopt");
     expect(claudeMemoryDream).toContain("cam dream promote-prep");
+    expect(claudeMemoryDream).toContain("dreamSidecarAutoBuild");
+    expect(claudeMemoryDream).toContain("suggestedTeamEntries");
     expect(claudeMemoryDream).toContain("teamMemory");
     expect(integrationStrategyDoc).toContain("canonical memory");
     expect(nativeMigration).toContain("wrapper startup injection");
@@ -537,6 +546,7 @@ describe("docs contract", () => {
     const hostSurfaces = await readDoc("docs/host-surfaces.md");
     const readme = await readDoc("README.md");
     const readmeEn = await readDoc("README.en.md");
+    const agentsDoc = await readDoc("AGENTS.md");
     const registerCommands = await readDoc("src/lib/cli/register-commands.ts");
 
     expect(continuityDoc).toContain("save` keeps merge semantics");
@@ -618,6 +628,8 @@ describe("docs contract", () => {
     expect(readmeEn).toContain("companion CLI");
     expect(readme).toContain("当前主任务");
     expect(readmeEn).toContain("Current priorities");
+    expect(agentsDoc).toContain("dreamSidecarAutoBuild");
+    expect(agentsDoc).toContain("suggestedTeamEntries");
     expect(readme).toContain("workflowContract");
     expect(readme).toContain("preflight `blocked`");
     expect(readme).toContain("applyReadiness");
@@ -629,6 +641,9 @@ describe("docs contract", () => {
     );
     expect(registerCommands).toContain(
       "Generate the local bridge / fallback helper bundle, including recall, startup, post-session, and post-work review helpers"
+    );
+    expect(registerCommands).toContain(
+      "Re-check a proposal-only instruction artifact without editing instruction files"
     );
   });
 });

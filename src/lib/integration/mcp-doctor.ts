@@ -30,6 +30,12 @@ import {
 } from "./retrieval-contract.js";
 import { isCommandAvailableInPath } from "./command-path.js";
 import {
+  getDreamCandidateProposalArtifactPath,
+  getLatestDreamProposalCandidate,
+  listDreamCandidates
+} from "../domain/dream-candidates.js";
+import { discoverInstructionLayer } from "../domain/instruction-memory.js";
+import {
   getMcpHostDefinition,
   inspectCanonicalMcpServerConfig,
   listMcpHosts,
@@ -319,6 +325,15 @@ interface McpDoctorLayoutDiagnosticsReport {
   diagnostics: MemoryLayoutDiagnostic[];
 }
 
+interface McpDoctorInstructionProposalLaneReport {
+  status: "ok" | "warning";
+  summary: string;
+  detectedTargets: string[];
+  latestProposalArtifactPath: string | null;
+  recommendedReviewCommand: string;
+  recommendedApplyPrepCommand: string;
+}
+
 export interface McpDoctorReport {
   cwd: string;
   projectRoot: string;
@@ -332,6 +347,7 @@ export interface McpDoctorReport {
   retrievalSidecar: McpDoctorRetrievalSidecarReport;
   topicDiagnostics: McpDoctorTopicDiagnosticsReport;
   layoutDiagnostics: McpDoctorLayoutDiagnosticsReport;
+  instructionProposalLane: McpDoctorInstructionProposalLaneReport;
   workflowContract: ReturnType<typeof buildWorkflowContract>;
   experimentalHooks: ExperimentalCodexHooksGuidance | null;
   hosts: McpDoctorHostReport[];
@@ -1165,6 +1181,32 @@ export async function inspectMcpDoctor(options: {
       state: "all"
     })
   );
+  const instructionLayer = await discoverInstructionLayer(projectRoot);
+  const dreamCandidates = await listDreamCandidates(runtime);
+  const latestInstructionProposalCandidate = getLatestDreamProposalCandidate(dreamCandidates.entries);
+  const instructionProposalLane: McpDoctorInstructionProposalLaneReport = {
+    status: latestInstructionProposalCandidate ? "warning" : "ok",
+    summary: latestInstructionProposalCandidate
+      ? "Instruction proposal artifacts are present for reviewer-only follow-up."
+      : "No instruction proposal artifacts are waiting for reviewer follow-up.",
+    detectedTargets: instructionLayer.detectedFiles.map((file) => file.path),
+    latestProposalArtifactPath: latestInstructionProposalCandidate
+      ? getDreamCandidateProposalArtifactPath(latestInstructionProposalCandidate)
+      : null,
+    recommendedReviewCommand: buildResolvedCliCommand("dream candidates --json", {
+      cwd: options.explicitCwd ? projectRoot : undefined
+    }),
+    recommendedApplyPrepCommand: latestInstructionProposalCandidate
+      ? buildResolvedCliCommand(
+          `dream apply-prep --candidate-id ${latestInstructionProposalCandidate.candidateId} --json`,
+          {
+            cwd: options.explicitCwd ? projectRoot : undefined
+          }
+        )
+      : buildResolvedCliCommand("dream candidates --json", {
+          cwd: options.explicitCwd ? projectRoot : undefined
+        })
+  };
   const codexHost = codexSelected
     ? hosts.find((host) => host.host === "codex") ?? (await inspectHost("codex", projectRoot))
     : null;
@@ -1194,6 +1236,7 @@ export async function inspectMcpDoctor(options: {
     retrievalSidecar,
     topicDiagnostics,
     layoutDiagnostics,
+    instructionProposalLane,
     workflowContract,
     experimentalHooks: codexSelected ? buildExperimentalCodexHooksGuidance() : null,
     hosts,
@@ -1421,6 +1464,7 @@ export function formatMcpDoctorReport(report: McpDoctorReport): string {
       `- Preferred route blockers: ${report.codexStack.preferredRouteBlockers.length > 0 ? report.codexStack.preferredRouteBlockers.join(", ") : "none"}`,
       `- Current operational blockers: ${report.codexStack.currentOperationalBlockers.length > 0 ? report.codexStack.currentOperationalBlockers.join(", ") : "none"}`,
       `- Recommended preset: ${report.codexStack.preset}`,
+      `- Instruction proposal lane: ${report.instructionProposalLane.status} (${report.instructionProposalLane.summary})`,
       `- Asset version: ${report.codexStack.assetVersion}`,
       `- MCP ready: ${report.codexStack.mcpReady ? "yes" : "no"}`,
       `- MCP operational ready: ${report.codexStack.mcpOperationalReady ? "yes" : "no"}`,

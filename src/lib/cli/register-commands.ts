@@ -210,6 +210,14 @@ function registerDreamCommands(program: Command): void {
       )
     )
   ).action(withStdout(async (options) => runDream("promote", options)));
+
+  addJsonOption(
+    addDreamCandidateIdOption(
+      dreamCommand
+        .command("apply-prep")
+        .description("Re-check a proposal-only instruction artifact without editing instruction files")
+    )
+  ).action(withStdout(async (options) => runDream("apply-prep", options)));
 }
 
 function registerHookCommands(program: Command): void {

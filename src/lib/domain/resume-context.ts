@@ -26,6 +26,31 @@ interface SessionResumeContextBuildResult {
   topDurableRefs: DreamRelevantMemoryRef[];
 }
 
+async function buildSuggestedTeamEntries(
+  runtime: RuntimeContext,
+  queries: string[],
+  limit: number
+): Promise<SessionResumeContext["suggestedTeamEntries"]> {
+  for (const query of queries) {
+    if (!query.trim()) {
+      continue;
+    }
+
+    const matches = await searchTeamMemory(
+      runtime.project,
+      runtime.loadedConfig.config,
+      query,
+      limit,
+      { autoBuild: runtime.loadedConfig.config.dreamSidecarAutoBuild === true }
+    );
+    if (matches.length > 0) {
+      return matches;
+    }
+  }
+
+  return [];
+}
+
 function mergeDreamRelevantRefs(
   ...refGroups: Array<DreamRelevantMemoryRef[] | null | undefined>
 ): DreamRelevantMemoryRef[] {
@@ -89,12 +114,14 @@ export async function buildSessionResumeContext(
     runtime,
     options.topDurableRefLimit ?? 3
   );
-  const suggestedTeamEntries = await searchTeamMemory(
-    runtime.project,
-    runtime.loadedConfig.config,
-    mergedState.goal || topDurableRefs[0]?.ref || "team",
-    3,
-    { autoBuild: runtime.loadedConfig.config.dreamSidecarAutoBuild === true }
+  const suggestedTeamEntries = await buildSuggestedTeamEntries(
+    runtime,
+    [
+      mergedState.goal,
+      ...mergedDreamRelevantRefs.map((ref) => ref.matchedQuery),
+      ...topDurableRefs.map((ref) => ref.reason)
+    ],
+    3
   );
 
   return {
@@ -123,12 +150,6 @@ export async function buildMemoryQuerySurfacing(
     suggestedDreamRefs: filterDreamRelevantRefs(mergedDreamRelevantRefs, query),
     suggestedInstructionFiles: resumeContext.instructionFiles,
     topDurableRefs: resumeContext.topDurableRefs,
-    suggestedTeamEntries: await searchTeamMemory(
-      runtime.project,
-      runtime.loadedConfig.config,
-      query,
-      3,
-      { autoBuild: runtime.loadedConfig.config.dreamSidecarAutoBuild === true }
-    )
+    suggestedTeamEntries: await buildSuggestedTeamEntries(runtime, [query], 3)
   };
 }

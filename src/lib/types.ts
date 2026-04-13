@@ -638,14 +638,62 @@ export interface InstructionProposalTarget {
 }
 
 export interface InstructionProposalArtifact {
+  schemaVersion: 2;
   proposalOnly: true;
+  neverAutoEditsInstructionFiles: true;
+  artifactDir: string;
+  selectedTargetByPolicy: InstructionProposalTarget;
+  resolvedApplyTarget: InstructionProposalTarget | null;
   selectedTarget: InstructionProposalTarget;
   rankedTargets: InstructionProposalTarget[];
+  candidate: {
+    candidateId: string;
+    targetSurface: "instruction-memory";
+    originKind: DreamCandidateOriginKind;
+    sourceSection: DreamPromotionCandidate["sourceSection"];
+    targetScopeHint: SessionContinuityScope | "unknown";
+    rolloutPath: string;
+    summary: string;
+    details: string[];
+  };
   normalizedInstruction: {
     summary: string;
     details: string[];
     sourceSection: DreamPromotionCandidate["sourceSection"];
     continuityScopeHint: SessionContinuityScope;
+  };
+  managedBlock: {
+    formatVersion: "cam-dream-instruction-v2";
+    startMarker: string;
+    endMarker: string;
+    body: string;
+    digestSha256: string;
+  };
+  applyReadiness: {
+    status: "safe" | "blocked" | "stale";
+    recommendedOperation:
+      | "create-file"
+      | "append-block"
+      | "replace-block"
+      | "manual-rebase"
+      | "blocked";
+    blockedReason?: string;
+    targetSnapshotDigestSha256?: string | null;
+    existingManagedBlockDigestSha256?: string | null;
+    staleReason?: string;
+  };
+  patchPlan: {
+    unifiedDiff: string;
+    diffDigestSha256: string;
+    lineEnding: "\n" | "\r\n" | "\r";
+    operation: "create-file" | "append-block" | "replace-block";
+    anchor: "end-of-file" | "existing-managed-block";
+  } | null;
+  manualWorkflow: {
+    summaryPath: string;
+    diffPath: string;
+    applyPrepPath: string;
+    nextRecommendedActions: string[];
   };
   guidanceBlock: string;
   patchPreview: string;
@@ -944,6 +992,11 @@ export interface DreamCandidatePromotionState {
   eligibleReason?: string;
   promotedAt?: string;
   promotionOutcome?: "applied" | "noop" | "proposal-only" | "blocked";
+  preparedAt?: string;
+  preparedPreviewDigest?: string;
+  preparedArtifactPath?: string;
+  applyPreparedAt?: string;
+  applyReadinessStatus?: "safe" | "blocked" | "stale";
   resultRef?: string;
   resultAuditPath?: string;
   proposalArtifactPath?: string;
@@ -1035,6 +1088,7 @@ export type DreamCandidateAuditAction =
   | "review-rejected"
   | "review-deferred"
   | "promotion-prepared"
+  | "apply-prepared"
   | "promotion-applied"
   | "promotion-noop"
   | "promotion-proposal-only"
@@ -1258,6 +1312,15 @@ export interface MemoryCommandOutput {
     maxLines: number;
     sectionFlags: CompiledStartupMemory["sectionsRendered"];
     omissionCounts: CompiledStartupMemory["omissionCounts"];
+  };
+  instructionReviewLane?: {
+    queueSummary: DreamQueueSummary;
+    pendingInstructionCandidateCount: number;
+    approvedInstructionCandidateCount: number;
+    blockedSubagentInstructionCandidateCount: number;
+    latestProposalArtifactPath: string | null;
+    candidateRecoveryPath: string;
+    detectedInstructionTargets: string[];
   };
   dreamSidecar: DreamSidecarSummary;
 }

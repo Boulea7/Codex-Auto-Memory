@@ -2114,4 +2114,98 @@ describe("runRecall", () => {
       ])
     );
   });
+
+  it("fails closed on stale team memory suggestions when auto-build is disabled", async () => {
+    const homeDir = await tempDir("cam-recall-stale-team-home-");
+    const projectDir = await tempDir("cam-recall-stale-team-project-");
+    const memoryRoot = await tempDir("cam-recall-stale-team-memory-");
+    process.env.HOME = homeDir;
+
+    const projectConfig = makeAppConfig({
+      dreamSidecarEnabled: true,
+      dreamSidecarAutoBuild: false
+    });
+    await writeCamConfig(projectDir, projectConfig, {
+      autoMemoryDirectory: memoryRoot,
+      dreamSidecarEnabled: true,
+      dreamSidecarAutoBuild: false
+    });
+
+    const store = new MemoryStore(detectProjectContext(projectDir), {
+      ...projectConfig,
+      autoMemoryDirectory: memoryRoot
+    });
+    await store.ensureLayout();
+    await store.remember(
+      "project",
+      "workflow",
+      "prefer-pnpm",
+      "Prefer pnpm in this repository.",
+      ["Use pnpm instead of npm in this repository."],
+      "Manual note."
+    );
+
+    await fs.writeFile(path.join(projectDir, "TEAM_MEMORY.md"), "# Team Memory\n", "utf8");
+    await fs.mkdir(path.join(projectDir, "team-memory"), { recursive: true });
+    const workflowPath = path.join(projectDir, "team-memory", "workflow.md");
+    await fs.writeFile(
+      workflowPath,
+      [
+        "# Workflow",
+        "",
+        "<!-- cam:team-topic workflow -->",
+        "",
+        "## prefer-pnpm-shared",
+        '<!-- cam:team-entry {"id":"prefer-pnpm-shared","scopeHint":"project","updatedAt":"2026-03-15T00:00:00.000Z"} -->',
+        "Summary: Prefer pnpm from the shared workflow memory.",
+        "Details:",
+        "- Use pnpm across the shared project workflow.",
+        ""
+      ].join("\n"),
+      "utf8"
+    );
+
+    const rolloutPath = path.join(projectDir, "rollout.jsonl");
+    await fs.writeFile(
+      rolloutPath,
+      makeRolloutFixture(projectDir, "Continue the middleware work and keep using pnpm in this repository."),
+      "utf8"
+    );
+    await runDream("build", {
+      cwd: projectDir,
+      rollout: rolloutPath,
+      json: true
+    });
+
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    await fs.writeFile(
+      workflowPath,
+      [
+        "# Workflow",
+        "",
+        "<!-- cam:team-topic workflow -->",
+        "",
+        "## prefer-pnpm-shared",
+        '<!-- cam:team-entry {"id":"prefer-pnpm-shared","scopeHint":"project","updatedAt":"2026-03-16T00:00:00.000Z"} -->',
+        "Summary: Prefer pnpm from the updated shared workflow memory.",
+        "Details:",
+        "- Use pnpm across the updated shared project workflow.",
+        ""
+      ].join("\n"),
+      "utf8"
+    );
+
+    const result = runCli(projectDir, ["recall", "search", "pnpm", "--json"], {
+      env: { HOME: homeDir }
+    });
+    expect(result.exitCode).toBe(0);
+
+    const response = JSON.parse(result.stdout) as MemorySearchResponse & {
+      querySurfacing: {
+        suggestedTeamEntries: Array<{ key: string; summary: string }>;
+      };
+    };
+
+    expect(response.querySurfacing.suggestedTeamEntries).toEqual([]);
+  });
 });

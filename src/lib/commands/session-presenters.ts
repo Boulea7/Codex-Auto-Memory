@@ -431,12 +431,12 @@ export function formatSessionLoadText(
       : ["Top durable refs:", "- None suggested."]),
     ...((view.resumeContext.suggestedTeamEntries ?? []).length > 0
       ? [
-          "Team memory suggestions:",
+          "Read-only team memory hints (non-canonical):",
           ...(view.resumeContext.suggestedTeamEntries ?? []).map(
             (entry) => `- ${entry.key}: ${entry.summary}`
           )
         ]
-      : ["Team memory suggestions:", "- None suggested."])
+      : ["Read-only team memory hints (non-canonical):", "- None suggested."])
   ];
 
   if (printStartup) {

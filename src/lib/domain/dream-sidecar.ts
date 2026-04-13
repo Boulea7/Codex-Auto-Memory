@@ -490,14 +490,14 @@ export async function inspectDreamSidecar(
     snapshots: {
       project: {
         ...projectSnapshot.summary,
-        teamMemory: projectSnapshot.summary.teamMemory ?? teamInspection.summary,
+        teamMemory: teamInspection.summary,
         queueSummary: candidateQueue.summary,
         candidateRegistryPath: candidateQueue.registryPath,
         candidateAuditPath: candidateQueue.auditPath
       },
       projectLocal: {
         ...projectLocalSnapshot.summary,
-        teamMemory: projectLocalSnapshot.summary.teamMemory ?? teamInspection.summary,
+        teamMemory: teamInspection.summary,
         queueSummary: candidateQueue.summary,
         candidateRegistryPath: candidateQueue.registryPath,
         candidateAuditPath: candidateQueue.auditPath
