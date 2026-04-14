@@ -23,9 +23,15 @@ describe("docs contract", () => {
     const readmeJa = await readDoc("README.ja.md");
     const docsReadme = await readDoc("docs/README.md");
     const docsReadmeEn = await readDoc("docs/README.en.md");
+    const architecture = await readDoc("docs/architecture.md");
+    const claudeMemoryDream = await readDoc("docs/claude-memory-dream-r1.md");
+    const integrationStrategyDoc = await readDoc("docs/integration-strategy.md");
+    const nativeMigration = await readDoc("docs/native-migration.md");
+    const sessionContinuity = await readDoc("docs/session-continuity.md");
     const nativeMigrationEn = await readDoc("docs/native-migration.en.md");
     const releaseChecklist = await readDoc("docs/release-checklist.md");
     const contributing = await readDoc("CONTRIBUTING.md");
+    const agentsDoc = await readDoc("AGENTS.md");
     const ciWorkflow = await readDoc(".github/workflows/ci.yml");
     const releaseWorkflow = await readDoc(".github/workflows/release.yml");
     const packageJson = JSON.parse(await readDoc("package.json")) as PackageJsonContract;
@@ -91,6 +97,28 @@ describe("docs contract", () => {
     expect(readme).toContain("README.ja.md");
     expect(readme).toContain("集成演进策略");
     expect(readme).toContain("宿主能力面");
+    expect(readme).toContain("cam dream build");
+    expect(readme).toContain("cam dream inspect");
+    expect(readme).toContain("instruction memory");
+    expect(readme).toContain("learned durable memory");
+    expect(readme).toContain("MEMORY.md` 现在继续收紧为 `index-only");
+    expect(readme).toContain("dream sidecar");
+    expect(readme).toContain("dreamSidecarAutoBuild");
+    expect(readme).toContain("resumeContext");
+    expect(readme).toContain("querySurfacing");
+    expect(readme).toContain("resumeContext.suggestedTeamEntries");
+    expect(readme).toContain("querySurfacing.suggestedTeamEntries");
+    expect(readme).toContain("suggestedDurableRefs");
+    expect(readme).toContain("suggestedInstructionFiles");
+    expect(readme).toContain("promotionCandidates");
+    expect(readme).toContain("proposal-only");
+    expect(readme).toContain("cam dream proposal");
+    expect(readme).toContain("cam dream verify-apply");
+    expect(agentsDoc).toContain("dreamSidecarAutoBuild");
+    expect(agentsDoc).toContain("suggestedTeamEntries");
+    expect(agentsDoc).toContain("cam dream promote-prep");
+    expect(agentsDoc).toContain("cam dream proposal");
+    expect(agentsDoc).toContain("cam dream verify-apply");
     expect(readmeTw).toContain("README.md");
     expect(readmeTw).toContain("README.en.md");
     expect(readmeTw).toContain("memory-recall.sh");
@@ -193,6 +221,8 @@ describe("docs contract", () => {
     expect(readmeEn).toContain("cam memory");
     expect(readmeEn).toContain("cam session status");
     expect(readmeEn).toContain("cam recall search");
+    expect(readmeEn).toContain("cam dream build");
+    expect(readmeEn).toContain("cam dream inspect");
     expect(readmeEn).toContain("--state auto");
     expect(readmeEn).toContain("confidence");
     expect(readmeEn).toContain("suppressed conflict candidates");
@@ -252,10 +282,35 @@ describe("docs contract", () => {
     expect(readmeEn).toContain("content highlights");
     expect(readmeEn).toContain("semantic-overwrite");
     expect(readmeEn).toContain("metadata-only");
+    expect(readmeEn).toContain("resumeContext");
+    expect(readmeEn).toContain("querySurfacing");
+    expect(readmeEn).toContain("suggestedDurableRefs");
+    expect(readmeEn).toContain("suggestedInstructionFiles");
+    expect(readmeEn).toContain("promotionCandidates");
+    expect(readmeEn).toContain("proposal-only");
+    expect(readmeEn).toContain("cam dream proposal");
+    expect(readmeEn).toContain("cam dream verify-apply");
     expect(readmeEn).toContain("| `cam hooks install` |");
     expect(readmeEn).toContain("`cam memory`, `cam session`, and `cam recall` reviewer UX");
     expect(readmeEn).toContain("--surface runtime|official-user|official-project");
     expect(docsReadme).toContain("Codex-first Hybrid");
+    expect(docsReadme).toContain("dream sidecar");
+    expect(docsReadme).toContain("instruction memory");
+    expect(docsReadme).toContain("resumeContext");
+    expect(docsReadme).toContain("querySurfacing");
+    expect(docsReadme).toContain("proposal-only");
+    expect(docsReadme).toContain("closeout contract");
+    expect(docsReadme).toContain("cam dream proposal");
+    expect(docsReadme).toContain("cam dream verify-apply");
+    expect(docsReadme).toContain("`cam dream inspect` 只读取最新 snapshot / audit / queue 元数据");
+    expect(architecture).toContain("instruction memory");
+    expect(architecture).toContain("learned durable memory");
+    expect(architecture).toContain("index-only");
+    expect(sessionContinuity).toContain("cam dream build");
+    expect(sessionContinuity).toContain("non-canonical");
+    expect(sessionContinuity).toContain("resumeContext");
+    expect(sessionContinuity).toContain("querySurfacing");
+    expect(sessionContinuity).toContain("proposal-only");
     expect(docsReadme).toContain("cam mcp apply-guidance --host codex");
     expect(docsReadme).toContain("cam integrations apply --host codex");
     expect(docsReadme).toContain("cam integrations doctor --host codex");
@@ -315,10 +370,14 @@ describe("docs contract", () => {
     expect(releaseChecklist).toContain("node dist/cli.js session refresh --json");
     expect(releaseChecklist).toContain("node dist/cli.js session load --json");
     expect(releaseChecklist).toContain("node dist/cli.js session status --json");
+    expect(releaseChecklist).toContain("resumeContext");
+    expect(releaseChecklist).toContain("suggestedDurableRefs");
     expect(releaseChecklist).toContain("node dist/cli.js recall search pnpm --json");
     expect(releaseChecklist).toContain("state=auto, limit=8");
     expect(releaseChecklist).toContain("checkedPaths");
     expect(releaseChecklist).toContain('stateResolution.outcome: "explicit-state"');
+    expect(releaseChecklist).toContain("querySurfacing");
+    expect(releaseChecklist).toContain("suggestedInstructionFiles");
     expect(releaseChecklist).toContain("searchOrder");
     expect(releaseChecklist).toContain("totalMatchedCount");
     expect(releaseChecklist).toContain("returnedCount");
@@ -405,6 +464,16 @@ describe("docs contract", () => {
     expect(releaseChecklist).toContain("node dist/cli.js integrations install --host codex --skill-surface official-project --json");
     expect(releaseChecklist).toContain("node dist/cli.js integrations apply --host codex --skill-surface official-project --json");
     expect(releaseChecklist).toContain("node dist/cli.js integrations doctor --host codex --json");
+    expect(releaseChecklist).toContain("node dist/cli.js dream build --json");
+    expect(releaseChecklist).toContain("node dist/cli.js dream inspect --json");
+    expect(releaseChecklist).toContain("node dist/cli.js dream proposal --help");
+    expect(releaseChecklist).toContain("node dist/cli.js dream verify-apply --help");
+    expect(releaseChecklist).toContain("node dist/cli.js dream adopt --help");
+    expect(releaseChecklist).toContain("node dist/cli.js dream promote-prep --help");
+    expect(releaseChecklist).toContain("promotionCandidates");
+    expect(releaseChecklist).toContain("proposal-only");
+    expect(releaseChecklist).toContain("avoid claiming support for `--target-file`");
+    expect(releaseChecklist).toContain("teamMemory");
     expect(releaseChecklist).toContain("node dist/cli.js mcp install --help");
     expect(releaseChecklist).toContain("node dist/cli.js mcp print-config --help");
     expect(releaseChecklist).toContain("node dist/cli.js mcp apply-guidance --help");
@@ -428,6 +497,13 @@ describe("docs contract", () => {
     expect(contributing).toContain("cam mcp apply-guidance");
     expect(contributing).toContain("cam integrations apply");
     expect(contributing).toContain("skill surface selection");
+    expect(claudeMemoryDream).toContain("cam dream adopt");
+    expect(claudeMemoryDream).toContain("cam dream promote-prep");
+    expect(claudeMemoryDream).toContain("dreamSidecarAutoBuild");
+    expect(claudeMemoryDream).toContain("suggestedTeamEntries");
+    expect(claudeMemoryDream).toContain("teamMemory");
+    expect(integrationStrategyDoc).toContain("canonical memory");
+    expect(nativeMigration).toContain("wrapper startup injection");
     expect(packageJson.scripts["test:cli-smoke"]).toContain("test/recall-command.test.ts");
     expect(packageJson.scripts["test:cli-smoke"]).toContain("test/doctor-command.test.ts");
     expect(packageJson.scripts["test:cli-smoke"]).toContain("test/hooks-command.test.ts");
@@ -440,7 +516,9 @@ describe("docs contract", () => {
     expect(packageJson.scripts["test:reviewer-smoke"]).toContain("test/integrations-command.test.ts");
     expect(packageJson.scripts["test:reviewer-smoke"]).toContain("test/mcp-command.test.ts");
     expect(packageJson.scripts["test:reviewer-smoke"]).toContain("test/skills-command.test.ts");
-    expect(packageJson.scripts["test:dist-cli-smoke"]).toBe("vitest run test/dist-cli-smoke.test.ts");
+    expect(packageJson.scripts["test:dist-cli-smoke"]).toBe(
+      "pnpm build && vitest run test/dist-cli-smoke.test.ts"
+    );
     expect(packageJson.scripts["test:tarball-install-smoke"]).toBe(
       "vitest run test/tarball-install-smoke.test.ts"
     );
@@ -463,6 +541,9 @@ describe("docs contract", () => {
     expect(packageJson.scripts.prepack).toBe("pnpm build");
     expect(packageJson.scripts["verify:release"]).toContain("pnpm test:dist-cli-smoke");
     expect(packageJson.scripts["verify:release"]).toContain("pnpm test:tarball-install-smoke");
+    expect(packageJson.scripts["verify:release"]).toContain(
+      "pnpm test:dist-cli-smoke && pnpm pack:check && pnpm test:tarball-install-smoke"
+    );
     expect(ciWorkflow).toContain("Dist CLI Smoke");
     expect(ciWorkflow).toContain("Tarball Install Smoke");
     expect(releaseWorkflow).toContain("tags:");
@@ -483,6 +564,7 @@ describe("docs contract", () => {
     const hostSurfaces = await readDoc("docs/host-surfaces.md");
     const readme = await readDoc("README.md");
     const readmeEn = await readDoc("README.en.md");
+    const agentsDoc = await readDoc("AGENTS.md");
     const registerCommands = await readDoc("src/lib/cli/register-commands.ts");
 
     expect(continuityDoc).toContain("save` keeps merge semantics");
@@ -564,6 +646,8 @@ describe("docs contract", () => {
     expect(readmeEn).toContain("companion CLI");
     expect(readme).toContain("当前主任务");
     expect(readmeEn).toContain("Current priorities");
+    expect(agentsDoc).toContain("dreamSidecarAutoBuild");
+    expect(agentsDoc).toContain("suggestedTeamEntries");
     expect(readme).toContain("workflowContract");
     expect(readme).toContain("preflight `blocked`");
     expect(readme).toContain("applyReadiness");
@@ -575,6 +659,9 @@ describe("docs contract", () => {
     );
     expect(registerCommands).toContain(
       "Generate the local bridge / fallback helper bundle, including recall, startup, post-session, and post-work review helpers"
+    );
+    expect(registerCommands).toContain(
+      "Re-check a proposal-only instruction artifact without editing instruction files"
     );
   });
 });

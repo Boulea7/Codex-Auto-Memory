@@ -7,6 +7,8 @@ import {
   toMemoryDetailsResultShape,
   toMemorySearchRequest,
 } from "../domain/memory-retrieval-contract.js";
+import { buildMemoryQuerySurfacing } from "../domain/resume-context.js";
+import { buildInstructionReviewLane } from "../domain/dream-candidates.js";
 import { assertValidMemoryRef } from "../domain/memory-lifecycle.js";
 import {
   buildRecommendedMcpSearchInstruction,
@@ -15,7 +17,7 @@ import {
   RETRIEVAL_MCP_TIMELINE_TOOL
 } from "../integration/retrieval-contract.js";
 import { MemoryRetrievalService } from "../domain/memory-retrieval.js";
-import { buildReadOnlyMemoryRetrievalService } from "../runtime/runtime-context.js";
+import { buildRuntimeContext } from "../runtime/runtime-context.js";
 
 const require = createRequire(import.meta.url);
 const { version } = require("../../../package.json") as { version: string };
@@ -110,6 +112,69 @@ const memorySearchResponseSchema = z.object({
     checkedPaths: z.array(memorySearchDiagnosticSchema),
     topicDiagnostics: z.array(topicFileDiagnosticSchema).optional()
   }),
+  querySurfacing: z
+    .object({
+      suggestedDreamRefs: z.array(
+        z.object({
+          ref: z.string(),
+          reason: z.string(),
+          approxReadCost: z.number().int().nonnegative(),
+          matchedQuery: z.string()
+        })
+      ),
+      suggestedInstructionFiles: z.array(z.string()),
+      topDurableRefs: z
+        .array(
+          z.object({
+            ref: z.string(),
+            reason: z.string(),
+            approxReadCost: z.number().int().nonnegative(),
+            matchedQuery: z.string()
+          })
+        )
+        .optional(),
+      suggestedTeamEntries: z
+        .array(
+          z.object({
+            key: z.string(),
+            topic: z.string(),
+            scopeHint: z.enum(["project", "project-local"]),
+            summary: z.string(),
+            path: z.string(),
+            approxReadCost: z.number().int().nonnegative(),
+            matchedQuery: z.string(),
+            reason: z.string()
+          })
+        )
+        .optional(),
+      instructionReviewLane: z
+        .object({
+          queueSummary: z.object({
+            totalCount: z.number().int().nonnegative(),
+            statusCounts: z.record(z.string(), z.number().int().nonnegative()),
+            surfaceCounts: z.record(z.string(), z.number().int().nonnegative()),
+            originCounts: z.record(z.string(), z.number().int().nonnegative())
+          }),
+          pendingInstructionCandidateCount: z.number().int().nonnegative(),
+          approvedInstructionCandidateCount: z.number().int().nonnegative(),
+          manualApplyPendingInstructionCandidateCount: z.number().int().nonnegative(),
+          blockedSubagentInstructionCandidateCount: z.number().int().nonnegative(),
+          latestCandidateId: z.string().nullable(),
+          latestProposalArtifactPath: z.string().nullable(),
+          selectedTargetFile: z.string().nullable(),
+          selectedTargetKind: z.string().nullable(),
+          targetHost: z.string().nullable(),
+          applyReadinessStatus: z.string().nullable(),
+          candidateRecoveryPath: z.string(),
+          detectedInstructionTargets: z.array(z.string()),
+          recommendedReviewCommand: z.string(),
+          recommendedInspectCommand: z.string(),
+          recommendedApplyPrepCommand: z.string(),
+          recommendedVerifyApplyCommand: z.string()
+        })
+        .optional()
+    })
+    .optional(),
   results: z.array(memorySearchResultSchema)
 });
 
@@ -296,10 +361,14 @@ const memoryDetailsResponseSchema = z.object({
 
 async function withRetrievalService<T>(
   cwd: string,
-  handler: (retrieval: MemoryRetrievalService) => Promise<T>
+  handler: (
+    retrieval: MemoryRetrievalService,
+    runtime: Awaited<ReturnType<typeof buildRuntimeContext>>
+  ) => Promise<T>
 ): Promise<T> {
-  const retrieval = await buildReadOnlyMemoryRetrievalService(cwd);
-  return handler(retrieval);
+  const runtime = await buildRuntimeContext(cwd, {}, { ensureMemoryLayout: false });
+  const retrieval = new MemoryRetrievalService(runtime.syncService.memoryStore);
+  return handler(retrieval, runtime);
 }
 
 function createJsonResult<T extends Record<string, unknown>>(payload: T): {
@@ -345,14 +414,20 @@ export function createRetrievalMcpServer(cwd = process.cwd()): McpServer {
         limit
       });
 
-      const payload = await withRetrievalService(cwd, async (retrieval) => {
+      const payload = await withRetrievalService(cwd, async (retrieval, runtime) => {
         const response = await retrieval.searchMemories(request.query, {
           scope: request.scope,
           state: request.state,
           limit: request.limit
         });
 
-        return memorySearchResponseSchema.parse(response);
+        return memorySearchResponseSchema.parse({
+          ...response,
+          querySurfacing: {
+            ...(await buildMemoryQuerySurfacing(runtime, request.query)),
+            instructionReviewLane: await buildInstructionReviewLane(runtime)
+          }
+        });
       });
 
       return createJsonResult(payload);

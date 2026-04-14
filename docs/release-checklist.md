@@ -27,6 +27,8 @@ Use this checklist before cutting any alpha or beta release of `codex-auto-memor
 - Run `pnpm test:cli-smoke`
 - Run `pnpm test`
 - Run `pnpm build`
+- `pnpm test:dist-cli-smoke` now self-builds; it should still be runnable directly from a clean tree.
+- Run `pnpm test:dist-cli-smoke` and `pnpm test:tarball-install-smoke` serially, not in parallel, because `prepack -> rimraf dist` can otherwise create false negatives.
 - Run `pnpm test:dist-cli-smoke`
 - Run `pnpm test:tarball-install-smoke`
 - Run `pnpm pack:check`
@@ -40,8 +42,11 @@ Use this checklist before cutting any alpha or beta release of `codex-auto-memor
 - Run `node dist/cli.js session refresh --json` and confirm `action`, `writeMode`, and `rolloutSelection` reflect the selected provenance.
 - Run `node dist/cli.js session load --json` and confirm older JSON consumers still receive the existing core fields.
 - Run `node dist/cli.js session status --json` and confirm the latest explicit audit drill-down matches the newest audit-log entry when present.
+- Confirm `node dist/cli.js session status --json` / `session load --json` now also expose additive `resumeContext`, including `suggestedDurableRefs` and read-only `suggestedTeamEntries`, while keeping those fields review-only instead of auto-promoting durable memory.
+- Confirm wrapper-startup wording stays aligned everywhere as `continuity -> instruction files -> dream refs -> top durable refs -> team/shared refs`.
 - Run `node dist/cli.js memory --recent --json` and confirm suppressed conflict candidates remain reviewer-visible instead of being silently merged.
 - Run `node dist/cli.js recall search pnpm --json` and confirm the default search contract stays aligned at `state=auto, limit=8`, returning compact refs before any full detail fetch.
+- Confirm `node dist/cli.js recall search pnpm --json` now also exposes additive `querySurfacing`, including `suggestedDreamRefs`, `suggestedInstructionFiles`, and `suggestedTeamEntries`, without changing `results[]`.
 - Confirm `node dist/cli.js recall search pnpm --json` now also reports whether the search used the retrieval sidecar or fell back to Markdown scan through additive `retrievalMode` / `finalRetrievalMode` / `retrievalFallbackReason` fields.
 - Confirm `node dist/cli.js recall search pnpm --json` now also exposes additive `stateResolution` and `executionSummary`, so reviewer-visible auto-state decisions and mixed fallback paths do not have to be inferred from `resolvedState` alone.
 - Confirm `node dist/cli.js recall search pnpm --json` now also exposes `totalMatchedCount`, `returnedCount`, and `resultWindow`, so machine consumers can see the global hit count and returned slice without inferring it from `results.length`.
@@ -69,6 +74,18 @@ Use this checklist before cutting any alpha or beta release of `codex-auto-memor
 - Confirm durable sync audit and sync recovery markers now also surface additive `rejectedOperations` summaries instead of forcing reviewers to infer rejected refs only from counts.
 - Run `node dist/cli.js memory reindex --scope all --state all --json` and confirm retrieval sidecars rebuild explicitly from Markdown canonical memory without mutating topic Markdown or audit logs.
 - Confirm `node dist/cli.js memory reindex --scope all --state all --json` stays read-only on an uninitialized project, returning `rebuilt: []` instead of creating a durable memory layout implicitly.
+- Run `node dist/cli.js dream build --json` and confirm the sidecar snapshot exposes `promotionCandidates` without mutating canonical Markdown memory.
+- Run `node dist/cli.js dream inspect --json` and confirm the project snapshot stays auditable and read-only.
+- Confirm `dream inspect --json` exposes reviewer-facing queue and helper metadata such as `queueSummary`, candidate registry/audit/recovery paths, `reviewerSummary`, `nextRecommendedActions`, and `helperCommands`.
+- Run `node dist/cli.js dream adopt --help`, `node dist/cli.js dream proposal --help`, `node dist/cli.js dream promote-prep --help`, `node dist/cli.js dream apply-prep --help`, and `node dist/cli.js dream verify-apply --help` and confirm the public reviewer lane now documents explicit subagent adoption, proposal inspection, manual-apply prep, and reviewer closeout.
+- Confirm subagent candidates start blocked and only enter the primary review lane after explicit `adopt`.
+- Confirm `cam dream promote` stays reviewer-gated: durable-memory candidates only write through the existing reviewer/audit path, while instruction-like candidates remain `proposal-only` and do not directly write instruction files.
+- Confirm instruction-like `cam dream promote-prep` and `cam dream apply-prep` also stay `proposal-only` and never auto-edit instruction files.
+- Confirm proposal-only promote now leaves instruction-like candidates in `manual-apply-pending`, and that rejected/stale proposal artifacts are no longer recommended as the latest actionable follow-up.
+- Confirm `node dist/cli.js dream promote --json` for an instruction-like candidate returns `proposal-only` plus a structured proposal artifact with `patchPreview`, `artifactPath`, `manualWorkflow`, and `applyReadiness` instead of mutating instruction files.
+- Confirm `node dist/cli.js dream apply-prep --json` returns manual-apply prep plus proposal-artifact metadata, including `manualWorkflow` and `applyReadiness`, instead of modifying instruction files.
+- Confirm `node dist/cli.js dream verify-apply --json` only works after `manual-apply-pending`, then closes the reviewer lane as `manual-applied` instead of leaving the candidate in a mutable proposal state.
+- Confirm `dreamSidecar.teamMemory` stays additive and reviewer-facing: teamMemory can surface availability/counts and recall hints, but it does not become canonical durable memory.
 - Run `node dist/cli.js recall details <ref> --json` for one returned ref and confirm the path resolves to Markdown-backed memory, including archived refs when relevant.
 - Confirm `node dist/cli.js recall details <ref> --json` now also exposes additive provenance summary fields such as `latestLifecycleAction`, `latestSessionId`, `latestRolloutPath`, and `historyPath`.
 - Confirm `node dist/cli.js recall details <ref> --json` now also exposes additive `latestAudit` provenance so a reviewer can jump from lifecycle state to the latest sync-audit summary without manually correlating sidecars.
@@ -167,6 +184,15 @@ Use this checklist before cutting any alpha or beta release of `codex-auto-memor
 - Confirm `node dist/cli.js integrations doctor --host codex --json` also exposes additive skill-surface steering fields: `preferredSkillSurface`, `recommendedSkillInstallCommand`, `installedSkillSurfaces`, and `readySkillSurfaces`.
 - Confirm `workflowConsistency` wording in doctor surfaces now explicitly treats repo-level `AGENTS.md` guidance as part of the shared retrieval workflow contract, not just hooks/skills text.
 - Treat key `--help` output as release-facing contract, not incidental CLI text:
+  - `node dist/cli.js dream --help` should keep the public dream reviewer lane discoverable, including `candidates`, `review`, `adopt`, `proposal`, `promote-prep`, `promote`, `apply-prep`, and `verify-apply`.
+  - `node dist/cli.js dream candidates --help` should describe candidate listing rather than canonical memory mutation.
+  - `node dist/cli.js dream review --help` should stay reviewer-oriented and sidecar-only.
+  - `node dist/cli.js dream adopt --help` should describe unblocking blocked subagent candidates without claiming canonical writes.
+  - `node dist/cli.js dream promote-prep --help` should stay proposal-oriented and preflight-only, including the explicit `--target-file` override for instruction-like proposals.
+  - `node dist/cli.js dream promote --help` should describe an explicit promote path without claiming that every promote is `proposal-only`.
+  - `node dist/cli.js dream proposal --help` should describe read-only artifact inspection without changing reviewer state.
+  - `node dist/cli.js dream apply-prep --help` should describe proposal-artifact/manual-apply preparation, stay instruction-file read-only, and avoid claiming support for `--target-file`.
+  - `node dist/cli.js dream verify-apply --help` should describe manual-apply verification and reviewer closeout.
   - `node dist/cli.js mcp install --help` should keep the supported install-host list at `codex` only.
   - `node dist/cli.js mcp print-config --help` should keep the supported snippet-host list at `codex, claude, gemini, or generic`.
   - `node dist/cli.js mcp apply-guidance --help` should stay Codex-only and describe managed `AGENTS.md` updates.

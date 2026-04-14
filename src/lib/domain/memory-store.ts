@@ -216,8 +216,6 @@ interface MemoryStoreFileOps {
 
 const topicNamePattern = /^[a-z0-9]+(?:-[a-z0-9]+)*$/u;
 const retrievalIndexVersion = 1 as const;
-const maxIndexTopicSummaryPreviews = 8;
-
 function buildSearchDiagnosticKey(scope: MemoryScope, state: MemoryRecordState): string {
   return `${scope}:${state}`;
 }
@@ -401,30 +399,13 @@ function sortEntriesByUpdatedAt(entries: MemoryEntry[]): MemoryEntry[] {
   return [...entries].sort((left, right) => right.updatedAt.localeCompare(left.updatedAt));
 }
 
-function previewSummary(summary: string, maxLength = 120): string {
-  const normalized = summary.trim().replace(/\s+/gu, " ");
-  if (normalized.length <= maxLength) {
-    return normalized;
-  }
-
-  return `${normalized.slice(0, Math.max(0, maxLength - 1)).trimEnd()}...`;
-}
-
 function buildIndexContents(scope: MemoryScope, entries: MemoryEntry[]): string {
   const sortedEntries = sortEntriesByUpdatedAt(entries);
   const topicSections = sortedEntries.length
-    ? Array.from(new Set(sortedEntries.map((entry) => entry.topic))).flatMap((topic, index) => {
+    ? Array.from(new Set(sortedEntries.map((entry) => entry.topic))).map((topic) => {
         const topicEntries = sortedEntries.filter((entry) => entry.topic === topic);
         const count = topicEntries.length;
-        const latestEntry = topicEntries[0];
-        return latestEntry
-          ? [
-              `- [${topic}.md](${topic}.md): ${count} entr${count === 1 ? "y" : "ies"}`,
-              ...(index < maxIndexTopicSummaryPreviews
-                ? [`  - Latest: ${previewSummary(latestEntry.summary)}`]
-                : [])
-            ]
-          : [`- [${topic}.md](${topic}.md): ${count} entr${count === 1 ? "y" : "ies"}`];
+        return `- [${topic}.md](${topic}.md): ${count} entr${count === 1 ? "y" : "ies"}`;
       })
     : ["- No topic files yet."];
   const lines = [
@@ -2617,6 +2598,57 @@ export class MemoryStore {
       }
     ]);
     return records[0] ?? null;
+  }
+
+  public async previewRemember(
+    scope: MemoryScope,
+    topic: string,
+    id: string,
+    summary: string,
+    details: string[],
+    reason?: string
+  ): Promise<{
+    record: MemoryApplyRecord | null;
+    ref: string;
+    targetPath: string;
+    wouldWrite: boolean;
+  }> {
+    await this.ensureLayout();
+    await this.assertMutationTargetsAreSafe([
+      {
+        action: "upsert",
+        scope,
+        topic,
+        id,
+        summary,
+        details,
+        reason,
+        sources: ["manual"]
+      }
+    ]);
+
+    const plan = await this.buildMutationCommitPlan(
+      [
+        {
+          action: "upsert",
+          scope,
+          topic,
+          id,
+          summary,
+          details,
+          reason,
+          sources: ["manual"]
+        }
+      ],
+      {}
+    );
+    const normalizedTopic = normalizeTopicName(topic);
+    return {
+      record: plan.applied[0] ?? null,
+      ref: buildMemoryRef(scope, "active", normalizedTopic, id),
+      targetPath: this.getTopicFile(scope, normalizedTopic),
+      wouldWrite: plan.fileChanges.length > 0
+    };
   }
 
   private async upsertEntry(

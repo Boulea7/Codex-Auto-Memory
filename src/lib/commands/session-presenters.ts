@@ -1,5 +1,8 @@
 import { buildCompactHistoryPreview } from "../domain/reviewer-history.js";
 import {
+  buildInstructionReviewLane,
+} from "../domain/dream-candidates.js";
+import {
   compileSessionContinuity,
   createEmptySessionContinuityState
 } from "../domain/session-continuity.js";
@@ -15,11 +18,15 @@ import {
   defaultRecentContinuityAuditLimit,
   defaultRecentContinuityPreviewReadLimit
 } from "../domain/session-continuity-persistence.js";
+import { buildSessionResumeContext } from "../domain/resume-context.js";
 import type { PersistSessionContinuityResult } from "../domain/session-continuity-persistence.js";
 import type { RuntimeContext } from "../runtime/runtime-context.js";
 import type {
   CompiledSessionContinuity,
   ContinuityRecoveryRecord,
+  DreamSidecarInspection,
+  InstructionReviewLane,
+  SessionResumeContext,
   SessionContinuityAuditEntry,
   SessionContinuityDiagnostics,
   SessionContinuityLocation,
@@ -51,6 +58,9 @@ export interface SessionInspectionView {
   continuityAuditPath: string;
   pendingContinuityRecovery: ContinuityRecoveryRecord | null;
   continuityRecoveryPath: string;
+  dreamSidecar: DreamSidecarInspection["snapshots"]["project"];
+  resumeContext: SessionResumeContext;
+  instructionReviewLane: InstructionReviewLane;
 }
 
 function existingContinuitySourceFiles(
@@ -177,7 +187,10 @@ function buildSessionInspectionPayload(view: SessionInspectionView): Record<stri
     recentContinuityAuditEntries: view.recentContinuityAuditEntries,
     continuityAuditPath: view.continuityAuditPath,
     pendingContinuityRecovery: view.pendingContinuityRecovery,
-    continuityRecoveryPath: view.continuityRecoveryPath
+    continuityRecoveryPath: view.continuityRecoveryPath,
+    dreamSidecar: view.dreamSidecar,
+    resumeContext: view.resumeContext,
+    instructionReviewLane: view.instructionReviewLane
   };
 }
 
@@ -238,6 +251,14 @@ export async function loadSessionInspectionView(
     existingContinuitySourceFiles(projectLocation, localLocation),
     runtime.loadedConfig.config.maxSessionContinuityLines
   );
+  const continuitySourceFiles = existingContinuitySourceFiles(projectLocation, localLocation);
+  const resumeContext = await buildSessionResumeContext(runtime, {
+    mergedState,
+    suggestedRefLimit: 5,
+    continuitySourceFiles,
+    allowDreamAutoBuild: false
+  });
+  const instructionReviewLane = await buildInstructionReviewLane(runtime);
 
   return {
     autoLoad: runtime.loadedConfig.config.sessionContinuityAutoLoad,
@@ -259,7 +280,10 @@ export async function loadSessionInspectionView(
     recentContinuityAuditPreviewEntries,
     continuityAuditPath: runtime.sessionContinuityStore.paths.auditFile,
     pendingContinuityRecovery,
-    continuityRecoveryPath: runtime.sessionContinuityStore.getRecoveryPath()
+    continuityRecoveryPath: runtime.sessionContinuityStore.getRecoveryPath(),
+    dreamSidecar: resumeContext.dreamInspection.snapshots.project,
+    resumeContext: resumeContext.resumeContext,
+    instructionReviewLane
   };
 }
 
@@ -392,7 +416,36 @@ export function formatSessionLoadText(
     "Files / decisions / environment:",
     ...(view.mergedState.filesDecisionsEnvironment.length > 0
       ? view.mergedState.filesDecisionsEnvironment.map((item) => `- ${item}`)
-      : ["- No additional file, decision, or environment notes."])
+      : ["- No additional file, decision, or environment notes."]),
+    "",
+    "Resume context:",
+    ...(view.resumeContext.instructionFiles.length > 0
+      ? ["Instruction files:", ...view.resumeContext.instructionFiles.map((filePath) => `- ${filePath}`)]
+      : ["Instruction files:", "- None detected."]),
+    ...(view.resumeContext.suggestedDurableRefs.length > 0
+      ? [
+          "Dream refs:",
+          ...view.resumeContext.suggestedDurableRefs.map(
+            (ref) => `- ${ref.ref}: ${ref.reason}`
+          )
+        ]
+      : ["Dream refs:", "- None suggested."]),
+    ...((view.resumeContext.topDurableRefs ?? []).length > 0
+      ? [
+          "Top durable refs:",
+          ...(view.resumeContext.topDurableRefs ?? []).map(
+            (ref) => `- ${ref.ref}: ${ref.reason}`
+          )
+        ]
+      : ["Top durable refs:", "- None suggested."]),
+    ...((view.resumeContext.suggestedTeamEntries ?? []).length > 0
+      ? [
+          "Read-only team memory hints (non-canonical):",
+          ...(view.resumeContext.suggestedTeamEntries ?? []).map(
+            (entry) => `- ${entry.key}: ${entry.summary}`
+          )
+        ]
+      : ["Read-only team memory hints (non-canonical):", "- None suggested."])
   ];
 
   if (printStartup) {

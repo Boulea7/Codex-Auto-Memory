@@ -40,6 +40,8 @@ const expectedProjectInitConfig = {
   sessionContinuityAutoSave: false,
   sessionContinuityLocalPathStyle: "codex",
   maxSessionContinuityLines: 60,
+  dreamSidecarEnabled: false,
+  dreamSidecarAutoBuild: false,
   codexBinary: "codex"
 };
 

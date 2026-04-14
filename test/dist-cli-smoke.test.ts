@@ -64,6 +64,39 @@ async function pathExists(targetPath: string): Promise<boolean> {
   }
 }
 
+function subagentRolloutFixture(
+  projectDir: string,
+  message: string,
+  sessionId: string,
+  parentSessionId = "session-dist-primary"
+): string {
+  return [
+    JSON.stringify({
+      type: "session_meta",
+      payload: {
+        id: sessionId,
+        forked_from_id: parentSessionId,
+        timestamp: "2026-03-15T00:07:00.000Z",
+        cwd: projectDir,
+        source: {
+          subagent: {
+            thread_spawn: {
+              parent_thread_id: parentSessionId
+            }
+          }
+        }
+      }
+    }),
+    JSON.stringify({
+      type: "event_msg",
+      payload: {
+        type: "user_message",
+        message
+      }
+    })
+  ].join("\n");
+}
+
 afterEach(async () => {
   if (originalCodexHome === undefined) {
     delete process.env.CODEX_HOME;
@@ -123,15 +156,20 @@ describe("dist cli smoke", () => {
     const memoryRoot = await tempDir("cam-dist-memory-root-");
     const cliEnv = { HOME: homeDir };
 
-    const config = makeAppConfig();
-    await writeCamConfig(projectDir, config, {
-      autoMemoryDirectory: memoryRoot
+    const config = makeAppConfig({
+      dreamSidecarEnabled: true
     });
+    await writeCamConfig(projectDir, config, {
+      autoMemoryDirectory: memoryRoot,
+      dreamSidecarEnabled: true
+    });
+    await fs.writeFile(path.join(projectDir, "CLAUDE.md"), "# Project rules\n", "utf8");
 
     const project = detectProjectContext(projectDir);
     const memoryStore = new MemoryStore(project, {
       ...config,
-      autoMemoryDirectory: memoryRoot
+      autoMemoryDirectory: memoryRoot,
+      dreamSidecarEnabled: true
     });
     await memoryStore.ensureLayout();
     await memoryStore.remember(
@@ -198,6 +236,37 @@ describe("dist cli smoke", () => {
       },
       "project"
     );
+    const rolloutPath = path.join(projectDir, "rollout.jsonl");
+    await fs.writeFile(
+      rolloutPath,
+      JSON.stringify({
+        type: "session_meta",
+        payload: {
+          id: "session-dist-dream",
+          timestamp: "2026-04-12T10:00:00.000Z",
+          cwd: projectDir
+        }
+      }) +
+        "\n" +
+        JSON.stringify({
+          type: "event_msg",
+          payload: {
+            type: "user_message",
+            message: "Continue the release smoke review and keep using pnpm in this repository."
+          }
+        }) +
+        "\n",
+      "utf8"
+    );
+
+    const dreamBuildResult = runCli(
+      projectDir,
+      ["dream", "build", "--rollout", rolloutPath, "--json"],
+      {
+        entrypoint: "dist",
+        env: cliEnv
+      }
+    );
 
     const memoryResult = runCli(projectDir, ["memory", "--recent", "1", "--json"], {
       entrypoint: "dist",
@@ -231,19 +300,43 @@ describe("dist cli smoke", () => {
         env: cliEnv
       }
     );
+    const recallResult = runCli(projectDir, ["recall", "search", "pnpm", "--json"], {
+      entrypoint: "dist",
+      env: cliEnv
+    });
+    const dreamInspectResult = runCli(projectDir, ["dream", "inspect", "--json"], {
+      entrypoint: "dist",
+      env: cliEnv
+    });
 
+    expect(dreamBuildResult.exitCode, dreamBuildResult.stderr).toBe(0);
     expect(memoryResult.exitCode, memoryResult.stderr).toBe(0);
     expect(sessionResult.exitCode, sessionResult.stderr).toBe(0);
     expect(sessionLoadResult.exitCode, sessionLoadResult.stderr).toBe(0);
     expect(rememberResult.exitCode, rememberResult.stderr).toBe(0);
     expect(forgetResult.exitCode, forgetResult.stderr).toBe(0);
+    expect(recallResult.exitCode, recallResult.stderr).toBe(0);
+    expect(dreamInspectResult.exitCode, dreamInspectResult.stderr).toBe(0);
 
     const memoryPayload = JSON.parse(memoryResult.stdout) as {
       recentSyncAudit: Array<{ rolloutPath: string }>;
+      dreamSidecar: {
+        enabled: boolean;
+        status: string;
+      };
     };
     const sessionPayload = JSON.parse(sessionResult.stdout) as {
       projectLocation: { exists: boolean };
       latestContinuityDiagnostics: { confidence: string; fallbackReason?: string | null } | null;
+      resumeContext: {
+        goal: string;
+        instructionFiles: string[];
+        suggestedDurableRefs: Array<{ ref: string }>;
+      };
+      dreamSidecar: {
+        enabled: boolean;
+        status: string;
+      };
     };
     const sessionLoadPayload = JSON.parse(sessionLoadResult.stdout) as {
       startup: {
@@ -258,6 +351,13 @@ describe("dist cli smoke", () => {
         futureCompactionSeam: { kind: string; rebuildsStartupSections: boolean };
       };
       latestContinuityDiagnostics: { confidence: string; fallbackReason?: string | null } | null;
+      resumeContext: {
+        suggestedDurableRefs: Array<{ ref: string }>;
+      };
+      dreamSidecar: {
+        enabled: boolean;
+        status: string;
+      };
     };
     const rememberPayload = JSON.parse(rememberResult.stdout) as {
       mutationKind: string;
@@ -269,12 +369,645 @@ describe("dist cli smoke", () => {
       latestAppliedLifecycle: { action: string } | null;
       followUp: { timelineRefs: string[]; detailsRefs: string[] };
     };
+    const recallPayload = JSON.parse(recallResult.stdout) as {
+      querySurfacing: {
+        suggestedDreamRefs: Array<{ ref: string; reason: string }>;
+        suggestedInstructionFiles: string[];
+      };
+    };
+    const dreamBuildPayload = JSON.parse(dreamBuildResult.stdout) as {
+      action: string;
+      snapshot: {
+        promotionCandidates: {
+          instructionLikeCandidates: unknown[];
+          durableMemoryCandidates: unknown[];
+        };
+      };
+    };
+    const dreamInspectPayload = JSON.parse(dreamInspectResult.stdout) as {
+      enabled: boolean;
+      queueSummary: {
+        totalCount: number;
+      };
+      candidateRegistryPath: string;
+      candidateAuditPath: string;
+      candidateRecoveryPath: string;
+      reviewerSummary: {
+        queueSummary: {
+          totalCount: number;
+        };
+      };
+      nextRecommendedActions: string[];
+      helperCommands: string[];
+      snapshots: {
+        project: {
+          status: string;
+          latestPath: string | null;
+        };
+      };
+    };
+    const durableDreamRolloutPath = path.join(projectDir, "dream-durable-rollout.jsonl");
+    await fs.writeFile(
+      durableDreamRolloutPath,
+      JSON.stringify({
+        type: "session_meta",
+        payload: {
+          id: "session-dist-dream-durable",
+          timestamp: "2026-03-15T00:05:00.000Z",
+          cwd: projectDir
+        }
+      }) +
+        "\n" +
+        JSON.stringify({
+          type: "event_msg",
+          payload: {
+            type: "user_message",
+            message: "The runbook lives at https://docs.example.com/runbook. Continue the release-facing CLI surface."
+          }
+        }) +
+        "\n",
+      "utf8"
+    );
+    const durableDreamBuildResult = runCli(
+      projectDir,
+      ["dream", "build", "--rollout", durableDreamRolloutPath, "--json"],
+      {
+        entrypoint: "dist",
+        env: cliEnv
+      }
+    );
+    expect(durableDreamBuildResult.exitCode, durableDreamBuildResult.stderr).toBe(0);
+
+    const dreamCandidatesResult = runCli(projectDir, ["dream", "candidates", "--json"], {
+      entrypoint: "dist",
+      env: cliEnv
+    });
+    expect(dreamCandidatesResult.exitCode, dreamCandidatesResult.stderr).toBe(0);
+    const dreamCandidatesPayload = JSON.parse(dreamCandidatesResult.stdout) as {
+      entries: Array<{
+        candidateId: string;
+        targetSurface: string;
+        summary: string;
+      }>;
+    };
+    const durableCandidate = dreamCandidatesPayload.entries.find(
+      (entry) =>
+        entry.targetSurface === "durable-memory" && entry.summary.includes("runbook lives")
+    );
+    expect(durableCandidate).toBeDefined();
+
+    const dreamReviewResult = runCli(
+      projectDir,
+      ["dream", "review", "--candidate-id", durableCandidate!.candidateId, "--approve", "--json"],
+      {
+        entrypoint: "dist",
+        env: cliEnv
+      }
+    );
+    expect(dreamReviewResult.exitCode, dreamReviewResult.stderr).toBe(0);
+
+    const dreamPromoteResult = runCli(
+      projectDir,
+      ["dream", "promote", "--candidate-id", durableCandidate!.candidateId, "--json"],
+      {
+        entrypoint: "dist",
+        env: cliEnv
+      }
+    );
+    expect(dreamPromoteResult.exitCode, dreamPromoteResult.stderr).toBe(0);
+    expect(JSON.parse(dreamPromoteResult.stdout)).toMatchObject({
+      action: "promote",
+      promotionOutcome: "applied",
+      entry: {
+        candidateId: durableCandidate!.candidateId,
+        status: "promoted",
+        targetSurface: "durable-memory"
+      },
+      durableMemory: {
+        ref: expect.stringContaining("project:active:")
+      }
+    });
+
+    const blockedSubagentRolloutPath = path.join(projectDir, "dream-subagent-rollout.jsonl");
+    await fs.writeFile(
+      blockedSubagentRolloutPath,
+      subagentRolloutFixture(
+        projectDir,
+        "The subagent runbook lives at https://docs.example.com/subagent-runbook.",
+        "session-dist-dream-subagent"
+      ),
+      "utf8"
+    );
+    const blockedSubagentBuildResult = runCli(
+      projectDir,
+      ["dream", "build", "--rollout", blockedSubagentRolloutPath, "--json"],
+      {
+        entrypoint: "dist",
+        env: cliEnv
+      }
+    );
+    expect(blockedSubagentBuildResult.exitCode, blockedSubagentBuildResult.stderr).toBe(0);
+
+    const blockedSubagentCandidatesResult = runCli(
+      projectDir,
+      [
+        "dream",
+        "candidates",
+        "--origin-kind",
+        "subagent",
+        "--target-surface",
+        "durable-memory",
+        "--json"
+      ],
+      {
+        entrypoint: "dist",
+        env: cliEnv
+      }
+    );
+    expect(blockedSubagentCandidatesResult.exitCode, blockedSubagentCandidatesResult.stderr).toBe(0);
+    const blockedSubagentCandidatesPayload = JSON.parse(blockedSubagentCandidatesResult.stdout) as {
+      entries: Array<{
+        candidateId: string;
+        targetSurface: string;
+        originKind: string;
+        status: string;
+        summary: string;
+      }>;
+    };
+    const blockedSubagentCandidate = blockedSubagentCandidatesPayload.entries.find(
+      (entry) => entry.summary.includes("subagent runbook")
+    );
+    expect(blockedSubagentCandidate).toMatchObject({
+      targetSurface: "durable-memory",
+      originKind: "subagent",
+      status: "blocked"
+    });
+
+    const dreamAdoptResult = runCli(
+      projectDir,
+      ["dream", "adopt", "--candidate-id", blockedSubagentCandidate!.candidateId, "--json"],
+      {
+        entrypoint: "dist",
+        env: cliEnv
+      }
+    );
+    expect(dreamAdoptResult.exitCode, dreamAdoptResult.stderr).toBe(0);
+    expect(JSON.parse(dreamAdoptResult.stdout)).toMatchObject({
+      action: "adopt",
+      entry: {
+        candidateId: blockedSubagentCandidate!.candidateId,
+        status: "pending",
+        originKind: "subagent",
+        adoption: {
+          adoptionKind: "manual",
+          adoptedFromBlockedSubagent: true
+        }
+      }
+    });
+
+    const adoptedSubagentReviewResult = runCli(
+      projectDir,
+      ["dream", "review", "--candidate-id", blockedSubagentCandidate!.candidateId, "--approve", "--json"],
+      {
+        entrypoint: "dist",
+        env: cliEnv
+      }
+    );
+    expect(adoptedSubagentReviewResult.exitCode, adoptedSubagentReviewResult.stderr).toBe(0);
+    expect(JSON.parse(adoptedSubagentReviewResult.stdout)).toMatchObject({
+      action: "review",
+      entry: {
+        candidateId: blockedSubagentCandidate!.candidateId,
+        status: "approved"
+      }
+    });
+
+    const adoptedSubagentPromotePrepResult = runCli(
+      projectDir,
+      ["dream", "promote-prep", "--candidate-id", blockedSubagentCandidate!.candidateId, "--json"],
+      {
+        entrypoint: "dist",
+        env: cliEnv
+      }
+    );
+    expect(adoptedSubagentPromotePrepResult.exitCode, adoptedSubagentPromotePrepResult.stderr).toBe(0);
+    expect(JSON.parse(adoptedSubagentPromotePrepResult.stdout)).toMatchObject({
+      action: "promote-prep",
+      entry: {
+        candidateId: blockedSubagentCandidate!.candidateId,
+        originKind: "subagent"
+      },
+      resolvedTarget: {
+        targetSurface: "durable-memory",
+        scope: "project"
+      },
+      preview: {
+        lifecycleAction: "add",
+        wouldWrite: true,
+        ref: expect.stringContaining("project:active:"),
+        targetPath: expect.stringContaining(`${path.sep}reference.md`)
+      }
+    });
+
+    const instructionDreamRolloutPath = path.join(projectDir, "dream-instruction-rollout.jsonl");
+    await fs.writeFile(
+      instructionDreamRolloutPath,
+      JSON.stringify({
+        type: "session_meta",
+        payload: {
+          id: "session-dist-dream-instruction",
+          timestamp: "2026-03-15T00:06:00.000Z",
+          cwd: projectDir
+        }
+      }) +
+        "\n" +
+        JSON.stringify({
+          type: "event_msg",
+          payload: {
+            type: "user_message",
+            message: "Always run pnpm test before build in this repository."
+          }
+        }) +
+        "\n",
+      "utf8"
+    );
+    const instructionDreamBuildResult = runCli(
+      projectDir,
+      ["dream", "build", "--rollout", instructionDreamRolloutPath, "--json"],
+      {
+        entrypoint: "dist",
+        env: cliEnv
+      }
+    );
+    expect(instructionDreamBuildResult.exitCode, instructionDreamBuildResult.stderr).toBe(0);
+
+    const instructionCandidatesResult = runCli(projectDir, ["dream", "candidates", "--json"], {
+      entrypoint: "dist",
+      env: cliEnv
+    });
+    expect(instructionCandidatesResult.exitCode, instructionCandidatesResult.stderr).toBe(0);
+    const instructionCandidatesPayload = JSON.parse(instructionCandidatesResult.stdout) as {
+      entries: Array<{
+        candidateId: string;
+        targetSurface: string;
+        summary: string;
+      }>;
+    };
+    const instructionCandidate = instructionCandidatesPayload.entries.find(
+      (entry) =>
+        entry.targetSurface === "instruction-memory" &&
+        entry.summary.includes("Always run pnpm test before build")
+    );
+    expect(instructionCandidate).toBeDefined();
+
+    const instructionReviewResult = runCli(
+      projectDir,
+      ["dream", "review", "--candidate-id", instructionCandidate!.candidateId, "--approve", "--json"],
+      {
+        entrypoint: "dist",
+        env: cliEnv
+      }
+    );
+    expect(instructionReviewResult.exitCode, instructionReviewResult.stderr).toBe(0);
+
+    const instructionPromotePrepResult = runCli(
+      projectDir,
+      ["dream", "promote-prep", "--candidate-id", instructionCandidate!.candidateId, "--json"],
+      {
+        entrypoint: "dist",
+        env: cliEnv
+      }
+    );
+    expect(instructionPromotePrepResult.exitCode, instructionPromotePrepResult.stderr).toBe(0);
+    const instructionPromotePrepPayload = JSON.parse(instructionPromotePrepResult.stdout) as {
+      action: string;
+      resolvedTarget: {
+        targetSurface: string;
+        path: string;
+        kind: string;
+      };
+      preview: {
+        schemaVersion: number;
+        neverAutoEditsInstructionFiles: boolean;
+        targetHost: string;
+        selectedTargetByPolicy: {
+          kind: string;
+        };
+        selectedTarget: {
+          path: string;
+          kind: string;
+        };
+        rankedTargets: Array<{
+          kind: string;
+        }>;
+        applyReadiness: {
+          status: string;
+          recommendedOperation: string;
+        };
+        patchPlan: {
+          operation: string;
+          anchor: string;
+        } | null;
+        artifactDir: string;
+        manualWorkflow: {
+          applyPrepPath: string;
+        };
+      };
+    };
+    expect(instructionPromotePrepPayload).toMatchObject({
+      action: "promote-prep",
+      resolvedTarget: {
+        targetSurface: "instruction-memory",
+        kind: "claude-project"
+      },
+      preview: {
+        schemaVersion: 2,
+        neverAutoEditsInstructionFiles: true,
+        targetHost: "shared",
+        selectedTargetByPolicy: {
+          kind: "claude-project"
+        },
+        selectedTarget: {
+          kind: "claude-project"
+        },
+        applyReadiness: {
+          status: "safe",
+          recommendedOperation: "append-block"
+        },
+        patchPlan: {
+          operation: "append-block",
+          anchor: "end-of-file"
+        },
+        artifactDir: expect.stringContaining(
+          `${path.sep}dream${path.sep}review${path.sep}proposals${path.sep}`
+        ),
+        manualWorkflow: {
+          applyPrepPath: expect.stringContaining(`${path.sep}apply-prep.json`)
+        }
+      }
+    });
+    expect(instructionPromotePrepPayload.preview.rankedTargets.map((target) => target.kind)).toEqual(
+      expect.arrayContaining(["agents-root", "claude-project"])
+    );
+
+    await fs.mkdir(path.join(projectDir, ".claude"), { recursive: true });
+    await fs.writeFile(path.join(projectDir, ".claude", "CLAUDE.md"), "# Hidden Claude rules\n", "utf8");
+    await fs.writeFile(path.join(projectDir, "GEMINI.md"), "# Gemini rules\n", "utf8");
+    const instructionTargetOverrideResult = runCli(
+      projectDir,
+      [
+        "dream",
+        "promote-prep",
+        "--candidate-id",
+        instructionCandidate!.candidateId,
+        "--target-host",
+        "gemini",
+        "--target-file",
+        ".claude/CLAUDE.md",
+        "--json"
+      ],
+      {
+        entrypoint: "dist",
+        env: cliEnv
+      }
+    );
+    expect(instructionTargetOverrideResult.exitCode, instructionTargetOverrideResult.stderr).toBe(0);
+    expect(JSON.parse(instructionTargetOverrideResult.stdout)).toMatchObject({
+      action: "promote-prep",
+      resolvedTarget: {
+        targetSurface: "instruction-memory",
+        path: expect.stringContaining(`${path.sep}.claude${path.sep}CLAUDE.md`),
+        kind: "claude-hidden"
+      },
+      preview: {
+        targetHost: "gemini",
+        selectedTargetByPolicy: {
+          kind: "gemini-project"
+        },
+        selectedTarget: {
+          kind: "claude-hidden"
+        }
+      }
+    });
+    const instructionPromotePrepResetResult = runCli(
+      projectDir,
+      ["dream", "promote-prep", "--candidate-id", instructionCandidate!.candidateId, "--json"],
+      {
+        entrypoint: "dist",
+        env: cliEnv
+      }
+    );
+    expect(instructionPromotePrepResetResult.exitCode, instructionPromotePrepResetResult.stderr).toBe(0);
+
+    const instructionApplyPrepResult = runCli(
+      projectDir,
+      ["dream", "apply-prep", "--candidate-id", instructionCandidate!.candidateId, "--json"],
+      {
+        entrypoint: "dist",
+        env: cliEnv
+      }
+    );
+    expect(instructionApplyPrepResult.exitCode, instructionApplyPrepResult.stderr).toBe(0);
+    const instructionApplyPrepPayload = JSON.parse(instructionApplyPrepResult.stdout) as {
+      action: string;
+      applyReadiness: {
+        status: string;
+      };
+      instructionProposal: {
+        schemaVersion: number;
+        neverAutoEditsInstructionFiles: boolean;
+        artifactDir: string;
+        selectedTarget: {
+          path: string;
+          kind: string;
+        };
+        manualWorkflow: {
+          applyPrepPath: string;
+        };
+      };
+    };
+    expect(instructionApplyPrepPayload).toMatchObject({
+      action: "apply-prep",
+      applyReadiness: {
+        status: "safe"
+      },
+      instructionProposal: {
+        schemaVersion: 2,
+        neverAutoEditsInstructionFiles: true,
+        artifactDir: expect.stringContaining(
+          `${path.sep}dream${path.sep}review${path.sep}proposals${path.sep}`
+        ),
+        selectedTarget: {
+          kind: "claude-project"
+        },
+        manualWorkflow: {
+          applyPrepPath: expect.stringContaining(`${path.sep}apply-prep.json`)
+        }
+      }
+    });
+    expect(
+      await pathExists(instructionApplyPrepPayload.instructionProposal.manualWorkflow.applyPrepPath)
+    ).toBe(true);
+
+    const instructionPromoteResult = runCli(
+      projectDir,
+      ["dream", "promote", "--candidate-id", instructionCandidate!.candidateId, "--json"],
+      {
+        entrypoint: "dist",
+        env: cliEnv
+      }
+    );
+    expect(instructionPromoteResult.exitCode, instructionPromoteResult.stderr).toBe(0);
+    const instructionPromotePayload = JSON.parse(instructionPromoteResult.stdout) as {
+      action: string;
+      promotionOutcome: string;
+      entry: {
+        candidateId: string;
+        status: string;
+        targetSurface: string;
+      };
+      instructionProposal: {
+        proposalOnly: boolean;
+        schemaVersion: number;
+        neverAutoEditsInstructionFiles: boolean;
+        artifactDir: string;
+        targetHost: string;
+        selectedTarget: {
+          path: string;
+          kind: string;
+        };
+        guidanceBlock: string;
+        patchPlan: {
+          operation: string;
+        } | null;
+        manualWorkflow: {
+          applyPrepPath: string;
+        };
+      };
+    };
+    expect(instructionPromotePayload).toMatchObject({
+      action: "promote",
+      promotionOutcome: "proposal-only",
+      entry: {
+        candidateId: instructionCandidate!.candidateId,
+        status: "manual-apply-pending",
+        targetSurface: "instruction-memory"
+      },
+      instructionProposal: {
+        proposalOnly: true,
+        schemaVersion: 2,
+        neverAutoEditsInstructionFiles: true,
+        artifactDir: expect.stringContaining(
+          `${path.sep}dream${path.sep}review${path.sep}proposals${path.sep}`
+        ),
+        targetHost: "shared",
+        selectedTarget: {
+          kind: "claude-project"
+        },
+        patchPlan: {
+          operation: "append-block"
+        },
+        manualWorkflow: {
+          applyPrepPath: expect.stringContaining(`${path.sep}apply-prep.json`)
+        }
+      }
+    });
+
+    const instructionProposalResult = runCli(
+      projectDir,
+      ["dream", "proposal", "--candidate-id", instructionCandidate!.candidateId, "--json"],
+      {
+        entrypoint: "dist",
+        env: cliEnv
+      }
+    );
+    expect(instructionProposalResult.exitCode, instructionProposalResult.stderr).toBe(0);
+    expect(JSON.parse(instructionProposalResult.stdout)).toMatchObject({
+      action: "proposal",
+      entry: {
+        status: "manual-apply-pending"
+      },
+      instructionProposal: {
+        artifactPath: instructionPromotePayload.instructionProposal.artifactDir + `${path.sep}manifest.json`,
+        targetHost: "shared"
+      }
+    });
+
+    await fs.writeFile(
+      path.join(projectDir, "CLAUDE.md"),
+      `# Project rules\n\n${instructionPromotePayload.instructionProposal.guidanceBlock}\n`,
+      "utf8"
+    );
+    const instructionVerifyApplyResult = runCli(
+      projectDir,
+      ["dream", "verify-apply", "--candidate-id", instructionCandidate!.candidateId, "--json"],
+      {
+        entrypoint: "dist",
+        env: cliEnv
+      }
+    );
+    expect(instructionVerifyApplyResult.exitCode, instructionVerifyApplyResult.stderr).toBe(0);
+    expect(JSON.parse(instructionVerifyApplyResult.stdout)).toMatchObject({
+      action: "verify-apply",
+      entry: {
+        candidateId: instructionCandidate!.candidateId,
+        status: "manual-applied",
+        targetSurface: "instruction-memory"
+      }
+    });
+
+    const recallInstructionLaneResult = runCli(projectDir, ["recall", "search", "pnpm", "--json"], {
+      entrypoint: "dist",
+      env: cliEnv
+    });
+    expect(recallInstructionLaneResult.exitCode, recallInstructionLaneResult.stderr).toBe(0);
+    expect(JSON.parse(recallInstructionLaneResult.stdout)).toMatchObject({
+      querySurfacing: {
+        instructionReviewLane: {
+          latestCandidateId: null,
+          selectedTargetKind: null,
+          targetHost: null
+        }
+      }
+    });
 
     expect(memoryPayload.recentSyncAudit).toHaveLength(1);
     expect(memoryPayload.recentSyncAudit[0]?.rolloutPath).toBe("/tmp/rollout-dist-smoke.jsonl");
+    expect(memoryPayload.dreamSidecar).toMatchObject({
+      enabled: true,
+      status: "available"
+    });
     expect(sessionPayload.projectLocation.exists).toBe(true);
     expect(sessionPayload.latestContinuityDiagnostics).toBeNull();
+    expect(sessionPayload.resumeContext.goal).toContain("release-facing CLI surface");
+    expect(sessionPayload.resumeContext.suggestedDurableRefs).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          ref: "project:active:workflow:prefer-pnpm"
+        })
+      ])
+    );
+    expect(
+      sessionPayload.resumeContext.instructionFiles.some((filePath) =>
+        filePath.endsWith(`${path.sep}CLAUDE.md`)
+      )
+    ).toBe(true);
+    expect(sessionPayload.dreamSidecar).toMatchObject({
+      enabled: true,
+      status: "available"
+    });
     expect(sessionLoadPayload.latestContinuityDiagnostics).toBeNull();
+    expect(sessionLoadPayload.resumeContext.suggestedDurableRefs).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          ref: "project:active:workflow:prefer-pnpm"
+        })
+      ])
+    );
+    expect(sessionLoadPayload.dreamSidecar).toMatchObject({
+      enabled: true,
+      status: "available"
+    });
     expect(sessionLoadPayload.startup).toMatchObject({
       continuityMode: "startup",
       continuityProvenanceKind: "temporary-continuity",
@@ -305,6 +1038,37 @@ describe("dist cli smoke", () => {
     });
     expect(forgetPayload.followUp.timelineRefs.length).toBeGreaterThan(0);
     expect(forgetPayload.followUp.timelineRefs.length).toBeGreaterThan(0);
+    expect(recallPayload.querySurfacing.suggestedDreamRefs).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          ref: "project:active:workflow:prefer-pnpm"
+        })
+      ])
+    );
+    expect(
+      recallPayload.querySurfacing.suggestedInstructionFiles.some((filePath) =>
+        filePath.endsWith(`${path.sep}CLAUDE.md`)
+      )
+    ).toBe(true);
+    expect(dreamBuildPayload.action).toBe("build");
+    expect(dreamBuildPayload.snapshot.promotionCandidates.instructionLikeCandidates).toBeDefined();
+    expect(dreamBuildPayload.snapshot.promotionCandidates.durableMemoryCandidates).toBeDefined();
+    expect(dreamInspectPayload.enabled).toBe(true);
+    expect(dreamInspectPayload.snapshots.project.status).toBe("available");
+    expect(dreamInspectPayload.snapshots.project.latestPath).toBeTruthy();
+    expect(dreamInspectPayload.queueSummary.totalCount).toBeGreaterThan(0);
+    expect(dreamInspectPayload.candidateRegistryPath).toContain(
+      `${path.sep}dream${path.sep}review${path.sep}registry.json`
+    );
+    expect(dreamInspectPayload.candidateAuditPath).toContain(
+      `${path.sep}audit${path.sep}dream-candidate-log.jsonl`
+    );
+    expect(dreamInspectPayload.candidateRecoveryPath).toContain(
+      `${path.sep}audit${path.sep}dream-candidate-recovery.json`
+    );
+    expect(dreamInspectPayload.reviewerSummary.queueSummary.totalCount).toBeGreaterThan(0);
+    expect(dreamInspectPayload.nextRecommendedActions.length).toBeGreaterThan(0);
+    expect(dreamInspectPayload.helperCommands.length).toBeGreaterThan(0);
   }, 30_000);
 
   it("keeps session inspection read-only from the compiled cli entrypoint", async () => {
@@ -1760,6 +2524,112 @@ fs.writeFileSync(${JSON.stringify(capturedArgsPath)}, JSON.stringify(process.arg
     expect(capturedArgs.some((value) => value.startsWith("base_instructions="))).toBe(true);
   }, 30_000);
 
+  it("surfaces instruction review lane parity through the compiled MCP server", async () => {
+    const homeDir = await tempDir("cam-dist-mcp-instruction-home-");
+    const projectDir = await tempDir("cam-dist-mcp-instruction-project-");
+    const memoryRoot = await tempDir("cam-dist-mcp-instruction-memory-");
+    const cliEnv = { HOME: homeDir };
+
+    const config = makeAppConfig({
+      dreamSidecarEnabled: true
+    });
+    await writeCamConfig(projectDir, config, {
+      autoMemoryDirectory: memoryRoot,
+      dreamSidecarEnabled: true
+    });
+    await fs.writeFile(path.join(projectDir, "AGENTS.md"), "# Repo rules\n", "utf8");
+
+    const rolloutPath = path.join(projectDir, "instruction-rollout.jsonl");
+    await fs.writeFile(
+      rolloutPath,
+      JSON.stringify({
+        type: "session_meta",
+        payload: {
+          id: "session-dist-mcp-instruction",
+          timestamp: "2026-04-12T11:00:00.000Z",
+          cwd: projectDir
+        }
+      }) +
+        "\n" +
+        JSON.stringify({
+          type: "event_msg",
+          payload: {
+            type: "user_message",
+            message: "Always run pnpm lint before pnpm build."
+          }
+        }) +
+        "\n",
+      "utf8"
+    );
+
+    expect(
+      runCli(projectDir, ["dream", "build", "--rollout", rolloutPath, "--json"], {
+        entrypoint: "dist",
+        env: cliEnv
+      }).exitCode
+    ).toBe(0);
+    const candidatePayload = JSON.parse(
+      runCli(projectDir, ["dream", "candidates", "--json"], {
+        entrypoint: "dist",
+        env: cliEnv
+      }).stdout
+    ) as {
+      entries: Array<{ candidateId: string; targetSurface: string }>;
+    };
+    const instructionCandidate = candidatePayload.entries.find(
+      (entry) => entry.targetSurface === "instruction-memory"
+    );
+    expect(instructionCandidate).toBeDefined();
+
+    expect(
+      runCli(
+        projectDir,
+        ["dream", "review", "--candidate-id", instructionCandidate!.candidateId, "--approve", "--json"],
+        {
+          entrypoint: "dist",
+          env: cliEnv
+        }
+      ).exitCode
+    ).toBe(0);
+    expect(
+      runCli(
+        projectDir,
+        ["dream", "promote-prep", "--candidate-id", instructionCandidate!.candidateId, "--json"],
+        {
+          entrypoint: "dist",
+          env: cliEnv
+        }
+      ).exitCode
+    ).toBe(0);
+
+    const client = await connectCliMcpClient(projectDir, {
+      entrypoint: "dist",
+      env: cliEnv
+    });
+
+    try {
+      const result = await client.callTool({
+        name: "search_memories",
+        arguments: {
+          query: "pnpm",
+          limit: 8
+        }
+      });
+      expect(result.structuredContent).toMatchObject({
+        querySurfacing: {
+          instructionReviewLane: {
+            latestCandidateId: instructionCandidate!.candidateId,
+            selectedTargetKind: "agents-root",
+            targetHost: "shared",
+            applyReadinessStatus: "safe"
+          }
+        }
+      });
+    } finally {
+      await client.close();
+    }
+  }, 30_000);
+
   it("keeps key compiled help surfaces aligned with the release-facing command contract", async () => {
     const projectDir = await tempDir("cam-dist-help-project-");
     const homeDir = await tempDir("cam-dist-help-home-");
@@ -1772,6 +2642,109 @@ fs.writeFileSync(${JSON.stringify(capturedArgsPath)}, JSON.stringify(process.arg
     expect(recallHelp.exitCode, recallHelp.stderr).toBe(0);
     expect(recallHelp.stdout).toContain("Search compact memory candidates without loading full details");
     expect(recallHelp.stdout).toContain("Limit memory state: active, archived, all, or auto");
+
+    const dreamHelp = runCli(projectDir, ["dream", "--help"], {
+      entrypoint: "dist",
+      env
+    });
+    expect(dreamHelp.exitCode, dreamHelp.stderr).toBe(0);
+    expect(dreamHelp.stdout).toContain("dream");
+    expect(dreamHelp.stdout).toContain("candidates");
+    expect(dreamHelp.stdout).toContain("review");
+    expect(dreamHelp.stdout).toContain("adopt");
+    expect(dreamHelp.stdout).toContain("proposal");
+    expect(dreamHelp.stdout).toContain("promote-prep");
+    expect(dreamHelp.stdout).toContain("apply-prep");
+    expect(dreamHelp.stdout).toContain("verify-apply");
+    expect(dreamHelp.stdout).toContain("promote");
+
+    const dreamBuildHelp = runCli(projectDir, ["dream", "build", "--help"], {
+      entrypoint: "dist",
+      env
+    });
+    expect(dreamBuildHelp.exitCode, dreamBuildHelp.stderr).toBe(0);
+    expect(dreamBuildHelp.stdout).toContain("Build a dream sidecar snapshot from the selected rollout");
+
+    const dreamInspectHelp = runCli(projectDir, ["dream", "inspect", "--help"], {
+      entrypoint: "dist",
+      env
+    });
+    expect(dreamInspectHelp.exitCode, dreamInspectHelp.stderr).toBe(0);
+    expect(dreamInspectHelp.stdout).toContain("Inspect the latest dream sidecar snapshots and audit paths");
+
+    const dreamCandidatesHelp = runCli(projectDir, ["dream", "candidates", "--help"], {
+      entrypoint: "dist",
+      env
+    });
+    expect(dreamCandidatesHelp.exitCode, dreamCandidatesHelp.stderr).toBe(0);
+    expect(dreamCandidatesHelp.stdout).toContain(
+      "List explicit dream promotion candidates from the reviewer queue"
+    );
+
+    const dreamReviewHelp = runCli(projectDir, ["dream", "review", "--help"], {
+      entrypoint: "dist",
+      env
+    });
+    expect(dreamReviewHelp.exitCode, dreamReviewHelp.stderr).toBe(0);
+    expect(dreamReviewHelp.stdout).toContain(
+      "Review a dream candidate without mutating canonical memory"
+    );
+
+    const dreamAdoptHelp = runCli(projectDir, ["dream", "adopt", "--help"], {
+      entrypoint: "dist",
+      env
+    });
+    expect(dreamAdoptHelp.exitCode, dreamAdoptHelp.stderr).toBe(0);
+    expect(dreamAdoptHelp.stdout).toContain(
+      "Adopt a blocked subagent dream candidate into the primary review lane"
+    );
+
+    const dreamPromotePrepHelp = runCli(projectDir, ["dream", "promote-prep", "--help"], {
+      entrypoint: "dist",
+      env
+    });
+    expect(dreamPromotePrepHelp.exitCode, dreamPromotePrepHelp.stderr).toBe(0);
+    expect(dreamPromotePrepHelp.stdout).toContain("Preview the outcome of promoting an approved dream candidate");
+    expect(dreamPromotePrepHelp.stdout).toContain("--target-host");
+    expect(dreamPromotePrepHelp.stdout).toContain("--target-file");
+
+    const dreamApplyPrepHelp = runCli(projectDir, ["dream", "apply-prep", "--help"], {
+      entrypoint: "dist",
+      env
+    });
+    expect(dreamApplyPrepHelp.exitCode, dreamApplyPrepHelp.stderr).toBe(0);
+    expect(dreamApplyPrepHelp.stdout).toContain(
+      "Re-check a proposal-only instruction artifact without editing instruction files"
+    );
+    expect(dreamApplyPrepHelp.stdout).not.toContain("--target-file");
+
+    const dreamPromoteHelp = runCli(projectDir, ["dream", "promote", "--help"], {
+      entrypoint: "dist",
+      env
+    });
+    expect(dreamPromoteHelp.exitCode, dreamPromoteHelp.stderr).toBe(0);
+    expect(dreamPromoteHelp.stdout).toContain("Explicitly promote an approved dream candidate");
+    expect(dreamPromoteHelp.stdout).toContain("--target-host");
+    expect(dreamPromoteHelp.stdout).toContain("--target-file");
+
+    const dreamProposalHelp = runCli(projectDir, ["dream", "proposal", "--help"], {
+      entrypoint: "dist",
+      env
+    });
+    expect(dreamProposalHelp.exitCode, dreamProposalHelp.stderr).toBe(0);
+    expect(dreamProposalHelp.stdout).toContain(
+      "Read a proposal-only instruction artifact without changing reviewer state"
+    );
+
+    const dreamVerifyApplyHelp = runCli(projectDir, ["dream", "verify-apply", "--help"], {
+      entrypoint: "dist",
+      env
+    });
+    expect(dreamVerifyApplyHelp.exitCode, dreamVerifyApplyHelp.stderr).toBe(0);
+    expect(dreamVerifyApplyHelp.stdout).toContain(
+      "Verify a manual instruction apply against the proposal artifact"
+    );
+    expect(dreamVerifyApplyHelp.stdout).toContain("reviewer lane");
 
     const hooksHelp = runCli(projectDir, ["hooks", "install", "--help"], {
       entrypoint: "dist",

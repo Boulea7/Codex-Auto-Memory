@@ -188,7 +188,10 @@ describe("hooks command", () => {
       /(?:cam|node ".+dist\/cli\.js") sync --cwd "\$PROJECT_ROOT" "\$@"/u
     );
     expect(postWorkReviewScript).toMatch(
-      /(?:cam|exec node ".+dist\/cli\.js") memory --recent --cwd "\$PROJECT_ROOT"/u
+      /(?:cam|node ".+dist\/cli\.js") memory --recent --cwd "\$PROJECT_ROOT"/u
+    );
+    expect(postWorkReviewScript).toMatch(
+      /(?:cam|exec node ".+dist\/cli\.js") dream candidates --cwd "\$PROJECT_ROOT"/u
     );
     expect(recallGuide).toContain("search_memories");
     expect(recallGuide).toContain("memory-recall.sh search");

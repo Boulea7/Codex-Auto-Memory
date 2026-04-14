@@ -29,7 +29,7 @@
     "prepack": "pnpm build",
     "test": "vitest run --exclude test/dist-cli-smoke.test.ts --exclude test/tarball-install-smoke.test.ts",
     "test:cli-smoke": "vitest run test/audit.test.ts test/doctor-command.test.ts test/hooks-command.test.ts test/integrations-command.test.ts test/mcp-command.test.ts test/skills-command.test.ts test/memory-command.test.ts test/recall-command.test.ts test/session-command.test.ts test/wrapper-session-continuity.test.ts",
-    "test:dist-cli-smoke": "vitest run test/dist-cli-smoke.test.ts",
+    "test:dist-cli-smoke": "pnpm build && vitest run test/dist-cli-smoke.test.ts",
     "test:docs-contract": "vitest run test/docs-contract.test.ts",
     "test:reviewer-smoke": "vitest run test/docs-contract.test.ts test/doctor-command.test.ts test/hooks-command.test.ts test/integrations-command.test.ts test/mcp-command.test.ts test/skills-command.test.ts test/memory-command.test.ts test/recall-command.test.ts test/session-command.test.ts test/wrapper-session-continuity.test.ts test/session-continuity.test.ts",
     "test:tarball-install-smoke": "vitest run test/tarball-install-smoke.test.ts",

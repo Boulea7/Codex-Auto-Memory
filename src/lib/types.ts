@@ -166,6 +166,13 @@ export interface MemorySearchResponse {
   executionSummary: MemorySearchExecutionSummary;
   diagnostics: MemorySearchDiagnostics;
   results: MemorySearchResult[];
+  querySurfacing?: {
+    suggestedDreamRefs: DreamRelevantMemoryRef[];
+    suggestedInstructionFiles: string[];
+    topDurableRefs?: DreamRelevantMemoryRef[];
+    suggestedTeamEntries?: TeamMemorySuggestion[];
+    instructionReviewLane?: InstructionReviewLane;
+  };
 }
 
 export interface MemoryTimelineEvent {
@@ -551,6 +558,8 @@ export interface AppConfig {
   sessionContinuityAutoSave: boolean;
   sessionContinuityLocalPathStyle: SessionContinuityLocalPathStyle;
   maxSessionContinuityLines: number;
+  dreamSidecarEnabled?: boolean;
+  dreamSidecarAutoBuild?: boolean;
   codexBinary: string;
 }
 
@@ -592,6 +601,113 @@ export interface SessionContinuityPaths {
   auditDir: string;
   auditFile: string;
   recoveryFile: string;
+}
+
+export interface DreamSidecarPaths {
+  sharedDir: string;
+  sharedFile: string;
+  localDir: string;
+  localFile: string;
+  reviewDir: string;
+  registryFile: string;
+  auditDir: string;
+  auditFile: string;
+  recoveryFile: string;
+  candidateAuditFile: string;
+  candidateRecoveryFile: string;
+}
+
+export interface InstructionMemoryFile {
+  kind:
+    | "agents-root"
+    | "claude-project"
+    | "claude-hidden"
+    | "gemini-project"
+    | "gemini-hidden";
+  path: string;
+}
+
+export interface InstructionMemoryLayer {
+  detectedFiles: InstructionMemoryFile[];
+}
+
+export type InstructionTargetHost = "codex" | "claude" | "gemini" | "shared";
+
+export interface InstructionProposalTarget {
+  path: string;
+  kind: InstructionMemoryFile["kind"];
+  exists: boolean;
+  selectionReason?: string;
+}
+
+export interface InstructionProposalArtifact {
+  schemaVersion: 2;
+  proposalOnly: true;
+  neverAutoEditsInstructionFiles: true;
+  artifactDir: string;
+  targetHost: InstructionTargetHost;
+  selectedTargetByPolicy: InstructionProposalTarget;
+  resolvedApplyTarget: InstructionProposalTarget | null;
+  selectedTarget: InstructionProposalTarget;
+  rankedTargets: InstructionProposalTarget[];
+  candidate: {
+    candidateId: string;
+    targetSurface: "instruction-memory";
+    originKind: DreamCandidateOriginKind;
+    sourceSection: DreamPromotionCandidate["sourceSection"];
+    targetScopeHint: SessionContinuityScope | "unknown";
+    rolloutPath: string;
+    summary: string;
+    details: string[];
+  };
+  normalizedInstruction: {
+    summary: string;
+    details: string[];
+    sourceSection: DreamPromotionCandidate["sourceSection"];
+    continuityScopeHint: SessionContinuityScope;
+  };
+  managedBlock: {
+    formatVersion: "cam-dream-instruction-v2";
+    startMarker: string;
+    endMarker: string;
+    body: string;
+    digestSha256: string;
+  };
+  applyReadiness: {
+    status: "safe" | "blocked" | "stale";
+    recommendedOperation:
+      | "create-file"
+      | "append-block"
+      | "replace-block"
+      | "manual-rebase"
+      | "blocked";
+    blockedReason?: string;
+    targetSnapshotDigestSha256?: string | null;
+    existingManagedBlockDigestSha256?: string | null;
+    staleReason?: string;
+  };
+  patchPlan: {
+    unifiedDiff: string;
+    diffDigestSha256: string;
+    lineEnding: "\n" | "\r\n" | "\r";
+    operation: "create-file" | "append-block" | "replace-block";
+    anchor: "end-of-file" | "existing-managed-block";
+  } | null;
+  manualWorkflow: {
+    summaryPath: string;
+    diffPath: string;
+    applyPrepPath: string;
+    nextRecommendedActions: string[];
+  };
+  guidanceBlock: string;
+  patchPreview: string;
+  artifactPath: string;
+  sourceContext: {
+    candidateId: string;
+    rolloutPath: string;
+    sourceSection: DreamPromotionCandidate["sourceSection"];
+    continuityScopeHint: SessionContinuityScope | "unknown";
+  };
 }
 
 export interface RolloutToolCall {
@@ -791,6 +907,262 @@ export interface CompiledSessionContinuity {
   };
 }
 
+export interface DreamContinuityLayer {
+  goal: string;
+  confirmedWorking: string[];
+  triedAndFailed: string[];
+  notYetTried: string[];
+  incompleteNext: string[];
+  filesDecisionsEnvironment: string[];
+}
+
+export interface DreamRelevantMemoryRef {
+  ref: string;
+  reason: string;
+  approxReadCost: number;
+  matchedQuery: string;
+}
+
+export interface TeamMemorySuggestion {
+  key: string;
+  topic: string;
+  scopeHint: SessionContinuityScope;
+  summary: string;
+  path: string;
+  approxReadCost: number;
+  matchedQuery: string;
+  reason: string;
+}
+
+export interface TeamMemorySummary {
+  available: boolean;
+  status: "missing" | "available" | "invalid" | "stale";
+  sourceRoot: string | null;
+  indexPath: string | null;
+  generatedAt: string | null;
+  topicCount: number;
+  entryCount: number;
+  warningCount: number;
+}
+
+export interface DreamPromotionCandidate {
+  summary: string;
+  details: string[];
+  reason: string;
+  continuityScopeHint: SessionContinuityScope;
+  sourceSection:
+    | "goal"
+    | "confirmedWorking"
+    | "triedAndFailed"
+    | "notYetTried"
+    | "incompleteNext"
+    | "filesDecisionsEnvironment";
+}
+
+export interface DreamPromotionCandidates {
+  instructionLikeCandidates: DreamPromotionCandidate[];
+  durableMemoryCandidates: DreamPromotionCandidate[];
+}
+
+export type DreamCandidateTargetSurface = "durable-memory" | "instruction-memory";
+
+export type DreamCandidateOriginKind = RolloutProvenanceKind;
+
+export type DreamCandidateStatus =
+  | "pending"
+  | "approved"
+  | "manual-apply-pending"
+  | "manual-applied"
+  | "rejected"
+  | "promoted"
+  | "stale"
+  | "blocked";
+
+export interface DreamCandidateReviewState {
+  decisionAt: string;
+  note?: string;
+  decision: "approved" | "rejected" | "pending";
+  reviewerSessionId?: string;
+}
+
+export interface DreamCandidateAdoptionState {
+  adoptedAt: string;
+  adoptionKind: "manual";
+  adoptedFromBlockedSubagent: true;
+  note?: string;
+  adoptedBySessionId?: string;
+}
+
+export interface DreamCandidatePromotionState {
+  eligible: boolean;
+  eligibleReason?: string;
+  promotedAt?: string;
+  promotionOutcome?: "applied" | "noop" | "proposal-only" | "blocked";
+  preparedAt?: string;
+  preparedPreviewDigest?: string;
+  preparedArtifactPath?: string;
+  applyPreparedAt?: string;
+  verifiedAppliedAt?: string;
+  applyReadinessStatus?: "safe" | "blocked" | "stale";
+  resultRef?: string;
+  resultAuditPath?: string;
+  proposalArtifactPath?: string;
+  selectedTargetFile?: string;
+  selectedTargetKind?: InstructionMemoryFile["kind"];
+  targetHost?: InstructionTargetHost;
+  guidanceDigest?: string;
+  patchDigest?: string;
+}
+
+export interface DreamCandidateRecord {
+  candidateId: string;
+  observationFingerprint: string;
+  targetSurface: DreamCandidateTargetSurface;
+  originKind: DreamCandidateOriginKind;
+  targetScopeHint: SessionContinuityScope | "unknown";
+  topicHint: string;
+  idHint: string;
+  status: DreamCandidateStatus;
+  summary: string;
+  details: string[];
+  reason: string;
+  sourceSection: DreamPromotionCandidate["sourceSection"];
+  firstSeenAt: string;
+  lastSeenAt: string;
+  lastSeenRolloutPath: string;
+  lastSeenSnapshotPath: string | null;
+  review?: DreamCandidateReviewState;
+  adoption?: DreamCandidateAdoptionState;
+  promotion: DreamCandidatePromotionState;
+  blockedReason?: string;
+}
+
+export interface DreamCandidateRegistry {
+  version: 1;
+  updatedAt: string;
+  entries: DreamCandidateRecord[];
+}
+
+export interface DreamQueueSummary {
+  totalCount: number;
+  statusCounts: Partial<Record<DreamCandidateStatus, number>>;
+  surfaceCounts: Partial<Record<DreamCandidateTargetSurface, number>>;
+  originCounts: Partial<Record<DreamCandidateOriginKind, number>>;
+}
+
+export interface DreamSidecarSnapshot {
+  version: 1;
+  generatedAt: string;
+  projectId: string;
+  worktreeId: string;
+  rolloutPath: string;
+  sourceProvenanceKind?: RolloutProvenanceKind;
+  continuityCompaction: {
+    project: DreamContinuityLayer;
+    projectLocal: DreamContinuityLayer;
+  };
+  relevantMemoryRefs: DreamRelevantMemoryRef[];
+  promotionCandidates: DreamPromotionCandidates;
+  teamMemory: TeamMemorySummary;
+}
+
+export interface DreamSidecarAuditEntry {
+  generatedAt: string;
+  projectId: string;
+  worktreeId: string;
+  rolloutPath: string;
+  sourceProvenanceKind?: RolloutProvenanceKind;
+  snapshotPaths: string[];
+  relevantMemoryRefCount: number;
+  pendingPromotionCount: number;
+}
+
+export type DreamSidecarRecoveryStage = "snapshot-write" | "audit-write";
+
+export interface DreamSidecarRecoveryRecord {
+  recordedAt: string;
+  projectId: string;
+  worktreeId: string;
+  rolloutPath: string;
+  failedStage: DreamSidecarRecoveryStage;
+  failureMessage: string;
+  snapshotPaths: string[];
+}
+
+export type DreamCandidateAuditAction =
+  | "observed"
+  | "adopted"
+  | "review-approved"
+  | "review-rejected"
+  | "review-deferred"
+  | "promotion-prepared"
+  | "apply-prepared"
+  | "manual-apply-verified"
+  | "promotion-applied"
+  | "promotion-noop"
+  | "promotion-proposal-only"
+  | "promotion-blocked"
+  | "marked-stale";
+
+export interface DreamCandidateAuditEntry {
+  recordedAt: string;
+  candidateId: string;
+  action: DreamCandidateAuditAction;
+  status: DreamCandidateStatus;
+  targetSurface: DreamCandidateTargetSurface;
+  originKind: DreamCandidateOriginKind;
+  rolloutPath: string;
+  note?: string;
+  resultRef?: string;
+  resultAuditPath?: string;
+}
+
+export type DreamCandidateRecoveryStage =
+  | "registry-write"
+  | "adoption-write"
+  | "candidate-audit-write"
+  | "proposal-artifact-write"
+  | "promotion-bridge";
+
+export interface DreamCandidateRecoveryRecord {
+  recordedAt: string;
+  candidateId?: string;
+  failedStage: DreamCandidateRecoveryStage;
+  failureMessage: string;
+  registryPath: string;
+}
+
+export interface DreamSidecarSummary {
+  enabled: boolean;
+  autoBuild: boolean;
+  status: "disabled" | "missing" | "available" | "invalid" | "stale";
+  latestPath: string | null;
+  generatedAt: string | null;
+  rolloutPath: string | null;
+  relevantMemoryRefCount: number;
+  pendingPromotionCount: number;
+  suggestedRefCount: number;
+  teamMemory?: TeamMemorySummary;
+  queueSummary?: DreamQueueSummary;
+  candidateRegistryPath?: string;
+  candidateAuditPath?: string;
+}
+
+export interface DreamSidecarInspection {
+  enabled: boolean;
+  autoBuild: boolean;
+  snapshots: {
+    project: DreamSidecarSummary;
+    projectLocal: DreamSidecarSummary;
+  };
+  auditPath: string;
+  recoveryPath: string;
+  queueSummary: DreamQueueSummary;
+  candidateRegistryPath: string;
+  candidateAuditPath: string;
+  candidateRecoveryPath: string;
+}
+
 export type MemorySyncAuditStatus = "applied" | "no-op" | "skipped";
 
 export type MemorySyncAuditSkipReason =
@@ -939,6 +1311,39 @@ export interface MemoryCommandOutput {
   syncAuditPath: string;
   pendingSyncRecovery: SyncRecoveryRecord | null;
   syncRecoveryPath: string;
+  instructionLayer: InstructionMemoryLayer;
+  loadReasons: {
+    startup: string[];
+    dreamSidecar: string[];
+  };
+  startupBudgetLedger: {
+    usedLines: number;
+    maxLines: number;
+    sectionFlags: CompiledStartupMemory["sectionsRendered"];
+    omissionCounts: CompiledStartupMemory["omissionCounts"];
+  };
+  instructionReviewLane?: InstructionReviewLane;
+  dreamSidecar: DreamSidecarSummary;
+}
+
+export interface InstructionReviewLane {
+  queueSummary: DreamQueueSummary;
+  pendingInstructionCandidateCount: number;
+  approvedInstructionCandidateCount: number;
+  manualApplyPendingInstructionCandidateCount: number;
+  blockedSubagentInstructionCandidateCount: number;
+  latestCandidateId: string | null;
+  latestProposalArtifactPath: string | null;
+  selectedTargetFile: string | null;
+  selectedTargetKind: InstructionMemoryFile["kind"] | null;
+  targetHost: InstructionTargetHost | null;
+  applyReadinessStatus: DreamCandidatePromotionState["applyReadinessStatus"] | null;
+  candidateRecoveryPath: string;
+  detectedInstructionTargets: string[];
+  recommendedReviewCommand: string;
+  recommendedInspectCommand: string;
+  recommendedApplyPrepCommand: string;
+  recommendedVerifyApplyCommand: string;
 }
 
 export interface MemoryReindexCheck {
@@ -1021,4 +1426,14 @@ export interface AuditReport {
     bySeverity: Record<AuditSeverity, number>;
     byClassification: Record<AuditClassification, number>;
   };
+}
+
+export interface SessionResumeContext {
+  goal: string;
+  nextSteps: string[];
+  instructionFiles: string[];
+  suggestedDurableRefs: DreamRelevantMemoryRef[];
+  topDurableRefs?: DreamRelevantMemoryRef[];
+  suggestedTeamEntries?: TeamMemorySuggestion[];
+  continuitySourceFiles?: string[];
 }

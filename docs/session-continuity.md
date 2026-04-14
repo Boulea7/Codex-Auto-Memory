@@ -140,6 +140,36 @@ Current implementation rules:
 
 This keeps Codex-backed continuity as the primary quality path while preserving a deterministic local fallback for degraded sessions or brittle model output.
 
+## Dream sidecar seam
+
+The current implementation now exposes a minimal `dream sidecar` seam:
+
+- `cam dream build`
+- `cam dream inspect`
+
+This sidecar is intentionally:
+
+- additive
+- JSON-only
+- auditable
+- fail-closed
+- non-canonical
+
+It can summarize continuity into a sidecar snapshot, surface query-time relevant durable refs, and stage pending promotion candidates, but it does **not** directly rewrite `MEMORY.md`, topic files, or the continuity Markdown files.
+
+The reviewer-facing expansion around this seam is now split into three additive surfaces:
+
+- `resumeContext` from `cam session status --json` / `cam session load --json`
+- `querySurfacing` from `cam recall search --json`
+- dream-sidecar review lanes such as `cam dream candidates` / `cam dream review` / `cam dream adopt` / `cam dream promote-prep` / `cam dream promote` / `cam dream apply-prep`
+
+These surfaces are intentionally reviewer aids first. Subagent candidates start blocked and must be explicitly adopted before they enter the primary review lane. Durable-memory dream promote still requires explicit review and then flows through the existing reviewer/audit write path before canonical durable memory changes. Instruction-like `promote`, `promote-prep`, and `apply-prep` all remain `proposal-only`: they can stage or describe a proposed instruction update, emit a proposal artifact, and prepare manual-apply hints, but they never directly mutate instruction files. After a proposal-only promote, the candidate moves into a `manual-apply-pending` reviewer state instead of pretending it is still a plain approved candidate.
+
+Read-only continuity / retrieval surfaces also stay fail-closed:
+
+- wrapper startup may rebuild the latest primary dream snapshot when `dreamSidecarAutoBuild=true`
+- `cam session status/load`, `cam memory`, `cam dream inspect`, `cam recall`, and retrieval MCP stay read-only and only surface diagnostics when sidecars or team indexes are missing/stale
+
 ## Why the project-local layer is not the shared layer
 
 Even when users prefer project-folder-local files, git worktrees do not provide a single shared filesystem path for all worktrees.
@@ -183,6 +213,8 @@ Command contract:
 
 `cam session status` now renders the latest generation path, the latest rollout path, the audit-log location, the same latest-generation drill-down, and the same compact prior-generation audit preview without printing the full shared/local continuity bodies.
 
+`cam session status --json` and `cam session load --json` now also expose additive `resumeContext`, which includes the current goal, next steps, discovered instruction files, `suggestedDurableRefs`, and read-only `suggestedTeamEntries`. Those refs are resume hints only; they do not auto-promote sidecar candidates into durable memory.
+
 `cam session refresh` renders a compact reviewer surface only:
 
 - it does not print the full continuity body
@@ -193,6 +225,14 @@ Command contract:
 Automatic injection and automatic saving are disabled by default.
 
 This keeps the main Claude-style auto memory contract stable and prevents temporary state from silently entering every session unless the user explicitly opts in.
+
+When wrapper auto-load is enabled, the public startup-layering order is kept explicit and stable:
+
+- continuity
+- instruction files
+- dream refs
+- top durable refs
+- team/shared refs
 
 ## Continuity diagnostics audit
 

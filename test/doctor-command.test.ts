@@ -2,6 +2,7 @@ import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
+import { runDream } from "../src/lib/commands/dream.js";
 import { MemoryStore } from "../src/lib/domain/memory-store.js";
 import { detectProjectContext } from "../src/lib/domain/project-context.js";
 import { makeAppConfig, writeCamConfig } from "./helpers/cam-test-fixtures.js";
@@ -280,5 +281,322 @@ describe("doctor command", () => {
     expect(result.exitCode, result.stderr).toBe(0);
     expect(result.stdout).toContain("Native memory/hooks readiness:");
     expect(result.stdout).toContain("Host/UI signals:");
+  });
+
+  it("surfaces instruction proposal lane diagnostics when proposal artifacts exist", async () => {
+    const homeDir = await tempDir("cam-doctor-instruction-home-");
+    const projectDir = await tempDir("cam-doctor-instruction-project-");
+    const memoryRoot = await tempDir("cam-doctor-instruction-memory-");
+    process.env.HOME = homeDir;
+
+    await fs.writeFile(path.join(projectDir, "AGENTS.md"), "# Repo rules\n", "utf8");
+    await writeCamConfig(
+      projectDir,
+      makeAppConfig({
+        dreamSidecarEnabled: true
+      }),
+      {
+        autoMemoryDirectory: memoryRoot,
+        dreamSidecarEnabled: true
+      }
+    );
+
+    const rolloutPath = path.join(projectDir, "instruction-rollout.jsonl");
+    await fs.writeFile(
+      rolloutPath,
+      [
+        JSON.stringify({
+          type: "session_meta",
+          payload: {
+            id: "session-doctor-instruction",
+            timestamp: "2026-03-15T00:00:00.000Z",
+            cwd: projectDir
+          }
+        }),
+        JSON.stringify({
+          type: "event_msg",
+          payload: {
+            type: "user_message",
+            message: "Always run pnpm lint before pnpm build."
+          }
+        })
+      ].join("\n"),
+      "utf8"
+    );
+
+    await runDream("build", {
+      cwd: projectDir,
+      rollout: rolloutPath,
+      json: true
+    });
+    const candidatePayload = JSON.parse(
+      await runDream("candidates", {
+        cwd: projectDir,
+        json: true
+      })
+    ) as {
+      entries: Array<{ candidateId: string; targetSurface: string }>;
+    };
+    const instructionCandidate = candidatePayload.entries.find(
+      (entry) => entry.targetSurface === "instruction-memory"
+    );
+    expect(instructionCandidate).toBeDefined();
+
+    await runDream("review", {
+      cwd: projectDir,
+      candidateId: instructionCandidate!.candidateId,
+      approve: true,
+      json: true
+    });
+    await runDream("promote-prep", {
+      cwd: projectDir,
+      candidateId: instructionCandidate!.candidateId,
+      json: true
+    });
+
+    const result = runCli(projectDir, ["doctor", "--json"], {
+      env: { HOME: homeDir }
+    });
+    expect(result.exitCode, result.stderr).toBe(0);
+
+    const payload = JSON.parse(result.stdout) as {
+      instructionProposalLane?: {
+        status: string;
+        latestCandidateId: string | null;
+        latestProposalArtifactPath: string | null;
+        selectedTargetFile: string | null;
+        selectedTargetKind: string | null;
+        targetHost: string | null;
+        applyReadinessStatus: string | null;
+        detectedTargets: string[];
+        recommendedInspectCommand: string;
+        recommendedApplyPrepCommand: string;
+        recommendedVerifyApplyCommand: string;
+      };
+    };
+
+    expect(payload.instructionProposalLane).toMatchObject({
+      status: "warning",
+      latestCandidateId: instructionCandidate!.candidateId,
+      latestProposalArtifactPath: expect.stringContaining(
+        `${path.sep}dream${path.sep}review${path.sep}proposals${path.sep}`
+      ),
+      selectedTargetFile: expect.stringContaining(`${path.sep}AGENTS.md`),
+      selectedTargetKind: "agents-root",
+      targetHost: "shared",
+      applyReadinessStatus: "safe",
+      detectedTargets: [expect.stringContaining(`${path.sep}AGENTS.md`)],
+      recommendedInspectCommand: expect.stringContaining("dream proposal --candidate-id"),
+      recommendedApplyPrepCommand: expect.stringContaining("dream apply-prep --candidate-id"),
+      recommendedVerifyApplyCommand: expect.stringContaining("dream candidates --json")
+    });
+  });
+
+  it("ignores rejected instruction proposal artifacts when recommending follow-up", async () => {
+    const homeDir = await tempDir("cam-doctor-instruction-filter-home-");
+    const projectDir = await tempDir("cam-doctor-instruction-filter-project-");
+    const memoryRoot = await tempDir("cam-doctor-instruction-filter-memory-");
+    process.env.HOME = homeDir;
+
+    await fs.writeFile(path.join(projectDir, "AGENTS.md"), "# Repo rules\n", "utf8");
+    await writeCamConfig(
+      projectDir,
+      makeAppConfig({
+        dreamSidecarEnabled: true
+      }),
+      {
+        autoMemoryDirectory: memoryRoot,
+        dreamSidecarEnabled: true
+      }
+    );
+
+    const rolloutPath = path.join(projectDir, "instruction-rollout.jsonl");
+    await fs.writeFile(
+      rolloutPath,
+      [
+        JSON.stringify({
+          type: "session_meta",
+          payload: {
+            id: "session-doctor-instruction-filter",
+            timestamp: "2026-03-15T00:00:00.000Z",
+            cwd: projectDir
+          }
+        }),
+        JSON.stringify({
+          type: "event_msg",
+          payload: {
+            type: "user_message",
+            message: "Always run pnpm lint before pnpm build."
+          }
+        })
+      ].join("\n"),
+      "utf8"
+    );
+
+    await runDream("build", {
+      cwd: projectDir,
+      rollout: rolloutPath,
+      json: true
+    });
+    const candidatePayload = JSON.parse(
+      await runDream("candidates", {
+        cwd: projectDir,
+        json: true
+      })
+    ) as {
+      entries: Array<{ candidateId: string; targetSurface: string }>;
+    };
+    const instructionCandidate = candidatePayload.entries.find(
+      (entry) => entry.targetSurface === "instruction-memory"
+    );
+    expect(instructionCandidate).toBeDefined();
+
+    await runDream("review", {
+      cwd: projectDir,
+      candidateId: instructionCandidate!.candidateId,
+      approve: true,
+      json: true
+    });
+    await runDream("promote-prep", {
+      cwd: projectDir,
+      candidateId: instructionCandidate!.candidateId,
+      json: true
+    });
+    await runDream("review", {
+      cwd: projectDir,
+      candidateId: instructionCandidate!.candidateId,
+      reject: true,
+      json: true
+    });
+
+    const result = runCli(projectDir, ["doctor", "--json"], {
+      env: { HOME: homeDir }
+    });
+    expect(result.exitCode, result.stderr).toBe(0);
+
+    const payload = JSON.parse(result.stdout) as {
+      instructionProposalLane?: {
+        status: string;
+        latestProposalArtifactPath: string | null;
+        recommendedApplyPrepCommand: string;
+      };
+    };
+
+    expect(payload.instructionProposalLane).toMatchObject({
+      status: "ok",
+      latestProposalArtifactPath: null,
+      recommendedApplyPrepCommand: expect.stringContaining("dream candidates --json")
+    });
+  });
+
+  it("fails closed when the latest instruction proposal artifact is unreadable", async () => {
+    const homeDir = await tempDir("cam-doctor-instruction-broken-home-");
+    const projectDir = await tempDir("cam-doctor-instruction-broken-project-");
+    const memoryRoot = await tempDir("cam-doctor-instruction-broken-memory-");
+    process.env.HOME = homeDir;
+
+    await fs.writeFile(path.join(projectDir, "AGENTS.md"), "# Repo rules\n", "utf8");
+    await writeCamConfig(
+      projectDir,
+      makeAppConfig({
+        dreamSidecarEnabled: true
+      }),
+      {
+        autoMemoryDirectory: memoryRoot,
+        dreamSidecarEnabled: true
+      }
+    );
+
+    const rolloutPath = path.join(projectDir, "instruction-rollout.jsonl");
+    await fs.writeFile(
+      rolloutPath,
+      [
+        JSON.stringify({
+          type: "session_meta",
+          payload: {
+            id: "session-doctor-instruction-broken",
+            timestamp: "2026-03-15T00:00:00.000Z",
+            cwd: projectDir
+          }
+        }),
+        JSON.stringify({
+          type: "event_msg",
+          payload: {
+            type: "user_message",
+            message: "Always run pnpm lint before pnpm build."
+          }
+        })
+      ].join("\n"),
+      "utf8"
+    );
+
+    await runDream("build", {
+      cwd: projectDir,
+      rollout: rolloutPath,
+      json: true
+    });
+    const candidatePayload = JSON.parse(
+      await runDream("candidates", {
+        cwd: projectDir,
+        json: true
+      })
+    ) as {
+      entries: Array<{ candidateId: string; targetSurface: string }>;
+    };
+    const instructionCandidate = candidatePayload.entries.find(
+      (entry) => entry.targetSurface === "instruction-memory"
+    );
+    expect(instructionCandidate).toBeDefined();
+
+    await runDream("review", {
+      cwd: projectDir,
+      candidateId: instructionCandidate!.candidateId,
+      approve: true,
+      json: true
+    });
+
+    const promotePayload = JSON.parse(
+      await runDream("promote", {
+        cwd: projectDir,
+        candidateId: instructionCandidate!.candidateId,
+        json: true
+      })
+    ) as {
+      instructionProposal: {
+        artifactPath: string;
+      };
+    };
+    await fs.writeFile(promotePayload.instructionProposal.artifactPath, "{broken", "utf8");
+
+    const result = runCli(projectDir, ["doctor", "--json"], {
+      env: { HOME: homeDir }
+    });
+    expect(result.exitCode, result.stderr).toBe(0);
+
+    const payload = JSON.parse(result.stdout) as {
+      instructionProposalLane?: {
+        latestCandidateId: string | null;
+        latestProposalArtifactPath: string | null;
+        selectedTargetFile: string | null;
+        selectedTargetKind: string | null;
+        targetHost: string | null;
+        applyReadinessStatus: string | null;
+        recommendedInspectCommand: string;
+        recommendedApplyPrepCommand: string;
+        recommendedVerifyApplyCommand: string;
+      };
+    };
+
+    expect(payload.instructionProposalLane).toMatchObject({
+      latestCandidateId: null,
+      latestProposalArtifactPath: null,
+      selectedTargetFile: null,
+      selectedTargetKind: null,
+      targetHost: null,
+      applyReadinessStatus: null,
+      recommendedInspectCommand: expect.stringContaining("dream candidates --json"),
+      recommendedApplyPrepCommand: expect.stringContaining("dream candidates --json"),
+      recommendedVerifyApplyCommand: expect.stringContaining("dream candidates --json")
+    });
   });
 });

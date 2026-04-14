@@ -1,6 +1,7 @@
-import { Command } from "commander";
+import { Command, Option } from "commander";
 import { runAudit } from "../commands/audit.js";
 import { runDoctor } from "../commands/doctor.js";
+import { runDream } from "../commands/dream.js";
 import { runForget } from "../commands/forget.js";
 import { installHooks, removeHooks } from "../commands/hooks.js";
 import {
@@ -60,6 +61,24 @@ function addSessionRolloutOption(command: Command): Command {
   return command.option("--rollout <path>", "Specific rollout JSONL file to summarize");
 }
 
+function addDreamCandidateIdOption(command: Command): Command {
+  return command.option("--candidate-id <id>", "Dream candidate id");
+}
+
+const dreamStatusChoices = [
+  "pending",
+  "approved",
+  "manual-apply-pending",
+  "manual-applied",
+  "rejected",
+  "promoted",
+  "stale",
+  "blocked"
+];
+const dreamTargetSurfaceChoices = ["durable-memory", "instruction-memory"];
+const dreamOriginKindChoices = ["primary", "subagent"];
+const instructionTargetHostChoices = ["codex", "claude", "gemini", "shared"];
+
 function registerSessionCommands(program: Command): void {
   const sessionCommand = program
     .command("session")
@@ -113,6 +132,132 @@ function registerSessionCommands(program: Command): void {
     .command("open")
     .description("Open the local session continuity directory")
     .action(withStdout(async (options) => runSession("open", options)));
+}
+
+function registerDreamCommands(program: Command): void {
+  const dreamCommand = program
+    .command("dream")
+    .description("Build, inspect, and review the background consolidation sidecar without mutating canonical memory by default");
+
+  addSessionScopeOption(
+    addSessionRolloutOption(
+      addJsonOption(
+        dreamCommand
+          .command("build")
+          .description("Build a dream sidecar snapshot from the selected rollout")
+      )
+    )
+  ).action(withStdout(async (options) => runDream("build", options)));
+
+  addJsonOption(
+    dreamCommand
+      .command("inspect")
+      .description("Inspect the latest dream sidecar snapshots and audit paths")
+  ).action(withStdout(async (options) => runDream("inspect", options)));
+
+  addJsonOption(
+    dreamCommand
+      .command("candidates")
+      .description("List explicit dream promotion candidates from the reviewer queue")
+      .addOption(
+        new Option("--status <status>", "Filter by candidate status").choices(dreamStatusChoices)
+      )
+      .addOption(
+        new Option(
+          "--target-surface <surface>",
+          "Filter by target surface: durable-memory or instruction-memory"
+        ).choices(dreamTargetSurfaceChoices)
+      )
+      .addOption(
+        new Option(
+          "--origin-kind <kind>",
+          "Filter by origin kind: primary or subagent"
+        ).choices(dreamOriginKindChoices)
+      )
+  ).action(withStdout(async (options) => runDream("candidates", options)));
+
+  addJsonOption(
+    addDreamCandidateIdOption(
+      dreamCommand
+        .command("review")
+        .description("Review a dream candidate without mutating canonical memory")
+        .option("--approve", "Approve the candidate for explicit promotion")
+        .option("--reject", "Reject the candidate")
+        .option("--defer", "Return the candidate to the pending lane")
+        .option("--note <text>", "Reviewer note to record with the decision")
+    )
+  ).action(withStdout(async (options) => runDream("review", options)));
+
+  addJsonOption(
+    addDreamCandidateIdOption(
+      dreamCommand
+        .command("adopt")
+        .description("Adopt a blocked subagent dream candidate into the primary review lane")
+        .option("--note <text>", "Reviewer note to record with the adoption")
+    )
+  ).action(withStdout(async (options) => runDream("adopt", options)));
+
+  addJsonOption(
+    addDreamCandidateIdOption(
+      dreamCommand
+        .command("proposal")
+        .description("Read a proposal-only instruction artifact without changing reviewer state")
+    )
+  ).action(withStdout(async (options) => runDream("proposal", options)));
+
+  addJsonOption(
+    addSessionScopeOption(
+      addDreamCandidateIdOption(
+        dreamCommand
+          .command("promote-prep")
+          .description("Preview the outcome of promoting an approved dream candidate without mutating canonical memory")
+          .option("--topic <topic>", "Override the inferred durable memory topic")
+          .option("--id <id>", "Override the inferred durable memory id")
+          .addOption(
+            new Option(
+              "--target-host <host>",
+              "Prefer the default instruction target order for a specific host"
+            ).choices(instructionTargetHostChoices)
+          )
+          .option("--target-file <path>", "Override the selected instruction target for proposal-only preparation")
+      )
+    )
+  ).action(withStdout(async (options) => runDream("promote-prep", options)));
+
+  addJsonOption(
+    addSessionScopeOption(
+      addDreamCandidateIdOption(
+        dreamCommand
+          .command("promote")
+          .description("Explicitly promote an approved dream candidate")
+          .option("--topic <topic>", "Override the inferred durable memory topic")
+          .option("--id <id>", "Override the inferred durable memory id")
+          .addOption(
+            new Option(
+              "--target-host <host>",
+              "Prefer the default instruction target order for a specific host"
+            ).choices(instructionTargetHostChoices)
+          )
+          .option("--target-file <path>", "Override the selected instruction target for proposal-only promotion")
+      )
+    )
+  ).action(withStdout(async (options) => runDream("promote", options)));
+
+  addJsonOption(
+    addDreamCandidateIdOption(
+      dreamCommand
+        .command("apply-prep")
+        .description("Re-check a proposal-only instruction artifact without editing instruction files")
+    )
+  ).action(withStdout(async (options) => runDream("apply-prep", options)));
+
+  addJsonOption(
+    addDreamCandidateIdOption(
+      dreamCommand
+        .command("verify-apply")
+        .description("Verify a manual instruction apply against the proposal artifact and close the reviewer lane")
+    )
+  ).action(withStdout(async (options) => runDream("verify-apply", options)));
 }
 
 function registerHookCommands(program: Command): void {
@@ -443,6 +588,7 @@ export function registerCommands(program: Command): void {
     .action(withStdout(async (options) => runAudit(options)));
 
   registerSessionCommands(program);
+  registerDreamCommands(program);
   registerRecallCommands(program);
   registerMcpCommands(program);
   registerHookCommands(program);

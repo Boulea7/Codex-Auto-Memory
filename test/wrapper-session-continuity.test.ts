@@ -2,6 +2,8 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { runWrappedCodex } from "../src/lib/commands/wrapper.js";
+import { runDream } from "../src/lib/commands/dream.js";
+import { MemoryStore } from "../src/lib/domain/memory-store.js";
 import { detectProjectContext } from "../src/lib/domain/project-context.js";
 import { SessionContinuityStore } from "../src/lib/domain/session-continuity-store.js";
 import { SyncService } from "../src/lib/domain/sync-service.js";
@@ -13,6 +15,7 @@ import {
 import {
   cleanupTempDirs,
   createTempDir,
+  writeSessionRolloutFile,
   writeWrapperMockCodex
 } from "./helpers/session-test-support.js";
 
@@ -28,7 +31,11 @@ const configJson = makeAppConfig;
 const writeProjectConfig = writeCamConfig;
 
 afterEach(async () => {
-  process.env.CAM_CODEX_SESSIONS_DIR = originalSessionsDir;
+  if (originalSessionsDir === undefined) {
+    delete process.env.CAM_CODEX_SESSIONS_DIR;
+  } else {
+    process.env.CAM_CODEX_SESSIONS_DIR = originalSessionsDir;
+  }
   await cleanupTempDirs(tempDirs);
 });
 
@@ -151,6 +158,210 @@ describe("runWrappedCodex with session continuity", () => {
     expect(await continuityStore.readRecoveryRecord()).toBeNull();
   }, 30_000);
 
+  it("injects a resume context block with instruction files, dream refs, and top durable refs", async () => {
+    const repoDir = await tempDir("cam-wrapper-resume-context-repo-");
+    const memoryRoot = await tempDir("cam-wrapper-resume-context-memory-");
+    const sessionsDir = await tempDir("cam-wrapper-resume-context-rollouts-");
+    const todayDir = path.join(sessionsDir, "2026", "03", "15");
+    await initRepo(repoDir);
+    process.env.CAM_CODEX_SESSIONS_DIR = sessionsDir;
+    await fs.writeFile(path.join(repoDir, "AGENTS.md"), "# Project rules\n", "utf8");
+
+    const { capturedArgsPath, mockCodexPath } = await writeWrapperMockCodex(repoDir, sessionsDir, {
+      sessionId: "session-wrapper-resume-context",
+      message: "Continue with the shared pnpm workflow."
+    });
+
+    await writeProjectConfig(
+      repoDir,
+      configJson({
+        codexBinary: mockCodexPath,
+        dreamSidecarEnabled: true,
+        dreamSidecarAutoBuild: false,
+        sessionContinuityAutoLoad: true,
+        sessionContinuityAutoSave: false
+      }),
+      {
+        autoMemoryDirectory: memoryRoot,
+        dreamSidecarEnabled: true,
+        dreamSidecarAutoBuild: false,
+        sessionContinuityAutoLoad: true,
+        sessionContinuityAutoSave: false
+      }
+    );
+
+    const store = new MemoryStore(detectProjectContext(repoDir), {
+      ...configJson({
+        codexBinary: mockCodexPath,
+        dreamSidecarEnabled: true,
+        dreamSidecarAutoBuild: false,
+        sessionContinuityAutoLoad: true,
+        sessionContinuityAutoSave: false
+      }),
+      autoMemoryDirectory: memoryRoot
+    });
+    await store.ensureLayout();
+    await store.remember(
+      "project",
+      "workflow",
+      "prefer-pnpm",
+      "Prefer pnpm in this repository.",
+      ["Use pnpm instead of npm in this repository."],
+      "Manual note."
+    );
+    await fs.writeFile(path.join(repoDir, "TEAM_MEMORY.md"), "# Team Memory\n", "utf8");
+    await fs.mkdir(path.join(repoDir, "team-memory"), { recursive: true });
+    await fs.writeFile(
+      path.join(repoDir, "team-memory", "workflow.md"),
+      [
+        "# Workflow",
+        "",
+        "<!-- cam:team-topic workflow -->",
+        "",
+        "## prefer-pnpm-shared",
+        '<!-- cam:team-entry {"id":"prefer-pnpm-shared","scopeHint":"project","updatedAt":"2026-03-15T00:00:00.000Z"} -->',
+        "Summary: Prefer pnpm from the shared workflow memory.",
+        "Details:",
+        "- Use pnpm across the shared project workflow.",
+        ""
+      ].join("\n"),
+      "utf8"
+    );
+
+    await writeSessionRolloutFile(
+      path.join(todayDir, "rollout-2026-03-15T00-00-00-000Z-existing.jsonl"),
+      [
+        JSON.stringify({
+          type: "session_meta",
+          payload: {
+            id: "session-wrapper-existing",
+            timestamp: "2026-03-15T00:00:00.000Z",
+            cwd: repoDir
+          }
+        }),
+        JSON.stringify({
+          type: "event_msg",
+          payload: {
+            type: "user_message",
+            message: "Continue the pnpm workflow migration."
+          }
+        })
+      ].join("\n")
+    );
+    await runDream("build", {
+      cwd: repoDir,
+      rollout: path.join(todayDir, "rollout-2026-03-15T00-00-00-000Z-existing.jsonl"),
+      scope: "both",
+      json: true
+    });
+
+    const exitCode = await runWrappedCodex(repoDir, "exec", ["continue"]);
+    expect(exitCode).toBe(0);
+
+    const capturedArgs = JSON.parse(await fs.readFile(capturedArgsPath, "utf8")) as string[];
+    const baseInstructionsArg = capturedArgs.find((arg) => arg.startsWith("base_instructions="));
+    expect(baseInstructionsArg).toContain("# Resume Context");
+    expect(baseInstructionsArg).toContain("Instruction files:");
+    expect(baseInstructionsArg).toContain("AGENTS.md");
+    expect(baseInstructionsArg).toContain("Dream refs:");
+    expect(baseInstructionsArg).toContain("project:active:workflow:prefer-pnpm");
+    expect(baseInstructionsArg).toContain("Top durable refs:");
+    expect(baseInstructionsArg).toContain("Read-only team memory hints (non-canonical):");
+    expect(baseInstructionsArg).toContain("Prefer pnpm from the shared workflow memory.");
+    expect(baseInstructionsArg!.indexOf("Instruction files:")).toBeLessThan(
+      baseInstructionsArg!.indexOf("Dream refs:")
+    );
+    expect(baseInstructionsArg!.indexOf("Dream refs:")).toBeLessThan(
+      baseInstructionsArg!.indexOf("Top durable refs:")
+    );
+    expect(baseInstructionsArg!.indexOf("Top durable refs:")).toBeLessThan(
+      baseInstructionsArg!.indexOf("Read-only team memory hints (non-canonical):")
+    );
+  }, 30_000);
+
+  it("auto-builds dream sidecar for wrapper startup when enabled", async () => {
+    const repoDir = await tempDir("cam-wrapper-autobuild-repo-");
+    const memoryRoot = await tempDir("cam-wrapper-autobuild-memory-");
+    const sessionsDir = await tempDir("cam-wrapper-autobuild-rollouts-");
+    const todayDir = path.join(sessionsDir, "2026", "03", "15");
+    await initRepo(repoDir);
+    process.env.CAM_CODEX_SESSIONS_DIR = sessionsDir;
+
+    const { capturedArgsPath, mockCodexPath } = await writeWrapperMockCodex(repoDir, sessionsDir, {
+      sessionId: "session-wrapper-autobuild",
+      message: "Continue with the shared pnpm workflow."
+    });
+
+    await writeProjectConfig(
+      repoDir,
+      configJson({
+        codexBinary: mockCodexPath,
+        dreamSidecarEnabled: true,
+        dreamSidecarAutoBuild: true,
+        sessionContinuityAutoLoad: true,
+        sessionContinuityAutoSave: false
+      }),
+      {
+        autoMemoryDirectory: memoryRoot,
+        dreamSidecarEnabled: true,
+        dreamSidecarAutoBuild: true,
+        sessionContinuityAutoLoad: true,
+        sessionContinuityAutoSave: false
+      }
+    );
+
+    const store = new MemoryStore(detectProjectContext(repoDir), {
+      ...configJson({
+        codexBinary: mockCodexPath,
+        dreamSidecarEnabled: true,
+        dreamSidecarAutoBuild: true,
+        sessionContinuityAutoLoad: true,
+        sessionContinuityAutoSave: false
+      }),
+      autoMemoryDirectory: memoryRoot
+    });
+    await store.ensureLayout();
+    await store.remember(
+      "project",
+      "workflow",
+      "prefer-pnpm",
+      "Prefer pnpm in this repository.",
+      ["Use pnpm instead of npm in this repository."],
+      "Manual note."
+    );
+
+    const latestRolloutPath = path.join(todayDir, "rollout-2026-03-15T00-00-00-000Z-primary.jsonl");
+    await writeSessionRolloutFile(
+      latestRolloutPath,
+      [
+        JSON.stringify({
+          type: "session_meta",
+          payload: {
+            id: "session-wrapper-autobuild-latest",
+            timestamp: "2026-03-15T00:00:00.000Z",
+            cwd: repoDir
+          }
+        }),
+        JSON.stringify({
+          type: "event_msg",
+          payload: {
+            type: "user_message",
+            message: "Continue the pnpm workflow migration."
+          }
+        })
+      ].join("\n")
+    );
+
+    const exitCode = await runWrappedCodex(repoDir, "exec", ["continue"]);
+    expect(exitCode).toBe(0);
+
+    const capturedArgs = JSON.parse(await fs.readFile(capturedArgsPath, "utf8")) as string[];
+    const baseInstructionsArg = capturedArgs.find((arg) => arg.startsWith("base_instructions="));
+    expect(baseInstructionsArg).toContain("# Resume Context");
+    expect(baseInstructionsArg).toContain("Dream refs:");
+    expect(baseInstructionsArg).toContain("project:active:workflow:prefer-pnpm");
+  }, 30_000);
+
   it("injects only continuity source files that actually exist", async () => {
     const repoDir = await tempDir("cam-wrapper-existing-sources-repo-");
     const memoryRoot = await tempDir("cam-wrapper-existing-sources-memory-");
@@ -263,6 +474,116 @@ describe("runWrappedCodex with session continuity", () => {
     expect(latestAudit?.rolloutPath).toContain("rollout-2026-03-15T00-00-00-000Z-session.jsonl");
     const merged = await continuityStore.readMergedState();
     expect(merged?.goal).toContain("Continue with save-only continuity handling");
+  }, 30_000);
+
+  it("still injects resume context layers when continuity auto-load is disabled", async () => {
+    const repoDir = await tempDir("cam-wrapper-resume-only-repo-");
+    const memoryRoot = await tempDir("cam-wrapper-resume-only-memory-");
+    const sessionsDir = await tempDir("cam-wrapper-resume-only-rollouts-");
+    const todayDir = path.join(sessionsDir, "2026", "03", "15");
+    await initRepo(repoDir);
+    process.env.CAM_CODEX_SESSIONS_DIR = sessionsDir;
+    await fs.writeFile(path.join(repoDir, "AGENTS.md"), "# Project rules\n", "utf8");
+
+    const { capturedArgsPath, mockCodexPath } = await writeWrapperMockCodex(repoDir, sessionsDir, {
+      sessionId: "session-wrapper-resume-only",
+      message: "Continue with startup layering but skip continuity injection."
+    });
+
+    await writeProjectConfig(
+      repoDir,
+      configJson({
+        codexBinary: mockCodexPath,
+        dreamSidecarEnabled: true,
+        dreamSidecarAutoBuild: false,
+        sessionContinuityAutoLoad: false,
+        sessionContinuityAutoSave: false
+      }),
+      {
+        autoMemoryDirectory: memoryRoot,
+        dreamSidecarEnabled: true,
+        dreamSidecarAutoBuild: false,
+        sessionContinuityAutoLoad: false,
+        sessionContinuityAutoSave: false
+      }
+    );
+
+    const store = new MemoryStore(detectProjectContext(repoDir), {
+      ...configJson({
+        codexBinary: mockCodexPath,
+        dreamSidecarEnabled: true,
+        dreamSidecarAutoBuild: false,
+        sessionContinuityAutoLoad: false,
+        sessionContinuityAutoSave: false
+      }),
+      autoMemoryDirectory: memoryRoot
+    });
+    await store.ensureLayout();
+    await store.remember(
+      "project",
+      "workflow",
+      "prefer-pnpm",
+      "Prefer pnpm in this repository.",
+      ["Use pnpm instead of npm in this repository."],
+      "Manual note."
+    );
+    await fs.writeFile(path.join(repoDir, "TEAM_MEMORY.md"), "# Team Memory\n", "utf8");
+    await fs.mkdir(path.join(repoDir, "team-memory"), { recursive: true });
+    await fs.writeFile(
+      path.join(repoDir, "team-memory", "workflow.md"),
+      [
+        "# Workflow",
+        "",
+        "<!-- cam:team-topic workflow -->",
+        "",
+        "## prefer-pnpm-shared",
+        '<!-- cam:team-entry {"id":"prefer-pnpm-shared","scopeHint":"project","updatedAt":"2026-03-15T00:00:00.000Z"} -->',
+        "Summary: Prefer pnpm from the shared workflow memory.",
+        "Details:",
+        "- Use pnpm across the shared project workflow.",
+        ""
+      ].join("\n"),
+      "utf8"
+    );
+    await writeSessionRolloutFile(
+      path.join(todayDir, "rollout-2026-03-15T00-00-00-000Z-existing.jsonl"),
+      [
+        JSON.stringify({
+          type: "session_meta",
+          payload: {
+            id: "session-wrapper-resume-only-existing",
+            timestamp: "2026-03-15T00:00:00.000Z",
+            cwd: repoDir
+          }
+        }),
+        JSON.stringify({
+          type: "event_msg",
+          payload: {
+            type: "user_message",
+            message: "Continue the pnpm workflow migration."
+          }
+        })
+      ].join("\n")
+    );
+    await runDream("build", {
+      cwd: repoDir,
+      rollout: path.join(todayDir, "rollout-2026-03-15T00-00-00-000Z-existing.jsonl"),
+      scope: "both",
+      json: true
+    });
+
+    const exitCode = await runWrappedCodex(repoDir, "exec", ["continue"]);
+    expect(exitCode).toBe(0);
+
+    const capturedArgs = JSON.parse(await fs.readFile(capturedArgsPath, "utf8")) as string[];
+    const baseInstructionsArg = capturedArgs.find((arg) => arg.startsWith("base_instructions="));
+    expect(baseInstructionsArg).toContain("# Codex Auto Memory");
+    expect(baseInstructionsArg).not.toContain("# Session Continuity");
+    expect(baseInstructionsArg).toContain("# Resume Context");
+    expect(baseInstructionsArg).toContain("Instruction files:");
+    expect(baseInstructionsArg).toContain("Dream refs:");
+    expect(baseInstructionsArg).toContain("Top durable refs:");
+    expect(baseInstructionsArg).toContain("Read-only team memory hints (non-canonical):");
   }, 30_000);
 
   it("prefers the primary rollout over a newer subagent rollout during wrapper auto-save", async () => {

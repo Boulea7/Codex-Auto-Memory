@@ -3,6 +3,7 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { runMemory, runMemoryReindex } from "../src/lib/commands/memory.js";
+import { runDream } from "../src/lib/commands/dream.js";
 import { toManualMutationForgetPayload } from "../src/lib/commands/manual-mutation-review.js";
 import { configPaths } from "../src/lib/config/load-config.js";
 import { detectProjectContext } from "../src/lib/domain/project-context.js";
@@ -384,6 +385,379 @@ describe("runMemory", () => {
       recent: "3"
     });
     expect(textOutput).toContain("Recent sync events (1 grouped):");
+  });
+
+  it("surfaces instruction memory and dream sidecar health in json output", async () => {
+    const homeDir = await tempDir("cam-memory-instruction-home-");
+    const projectDir = await tempDir("cam-memory-instruction-project-");
+    const memoryRoot = await tempDir("cam-memory-instruction-root-");
+    process.env.HOME = homeDir;
+    await fs.writeFile(path.join(projectDir, "CLAUDE.md"), "# Project rules\n", "utf8");
+
+    const projectConfig = buildProjectConfig({
+      dreamSidecarEnabled: true
+    });
+    await writeProjectConfig(projectDir, projectConfig, {
+      autoMemoryDirectory: memoryRoot,
+      dreamSidecarEnabled: true
+    });
+
+    const rolloutPath = path.join(projectDir, "rollout.jsonl");
+    await fs.writeFile(
+      rolloutPath,
+      JSON.stringify({
+        type: "session_meta",
+        payload: {
+          id: "session-1",
+          timestamp: "2026-03-15T00:00:00.000Z",
+          cwd: projectDir
+        }
+      }) +
+        "\n" +
+        JSON.stringify({
+          type: "event_msg",
+          payload: { type: "user_message", message: "Continue the middleware work." }
+        }) +
+        "\n",
+      "utf8"
+    );
+    await runDream("build", {
+      cwd: projectDir,
+      rollout: rolloutPath,
+      json: true
+    });
+
+    const output = JSON.parse(
+      await runMemory({
+        cwd: projectDir,
+        json: true
+      })
+    ) as MemoryCommandOutput & {
+      instructionLayer: {
+        detectedFiles: Array<{ kind: string; path: string }>;
+      };
+      dreamSidecar: {
+        enabled: boolean;
+        status: string;
+      };
+    };
+
+    expect(output.instructionLayer.detectedFiles).toEqual(
+      expect.arrayContaining([expect.objectContaining({ kind: "claude-project" })])
+    );
+    expect(output.instructionLayer.detectedFiles.some((entry) => entry.path.endsWith(`${path.sep}CLAUDE.md`))).toBe(
+      true
+    );
+    expect(output.dreamSidecar).toMatchObject({
+      enabled: true,
+      status: "available"
+    });
+  });
+
+  it("surfaces shared team memory summary in memory json output", async () => {
+    const homeDir = await tempDir("cam-memory-team-home-");
+    const projectDir = await tempDir("cam-memory-team-project-");
+    const memoryRoot = await tempDir("cam-memory-team-root-");
+    process.env.HOME = homeDir;
+
+    const projectConfig = buildProjectConfig({
+      dreamSidecarEnabled: true
+    });
+    await writeProjectConfig(projectDir, projectConfig, {
+      autoMemoryDirectory: memoryRoot,
+      dreamSidecarEnabled: true
+    });
+    await fs.writeFile(path.join(projectDir, "TEAM_MEMORY.md"), "# Team Memory\n", "utf8");
+    await fs.mkdir(path.join(projectDir, "team-memory"), { recursive: true });
+    await fs.writeFile(
+      path.join(projectDir, "team-memory", "workflow.md"),
+      [
+        "# Workflow",
+        "",
+        "<!-- cam:team-topic workflow -->",
+        "",
+        "## prefer-pnpm-shared",
+        '<!-- cam:team-entry {"id":"prefer-pnpm-shared","scopeHint":"project","updatedAt":"2026-03-15T00:00:00.000Z"} -->',
+        "Summary: Prefer pnpm from the shared workflow memory.",
+        "Details:",
+        "- Use pnpm across the shared project workflow.",
+        ""
+      ].join("\n"),
+      "utf8"
+    );
+
+    const rolloutPath = path.join(projectDir, "team-rollout.jsonl");
+    await fs.writeFile(
+      rolloutPath,
+      JSON.stringify({
+        type: "session_meta",
+        payload: {
+          id: "session-team-1",
+          timestamp: "2026-03-15T00:00:00.000Z",
+          cwd: projectDir
+        }
+      }) +
+        "\n" +
+        JSON.stringify({
+          type: "event_msg",
+          payload: { type: "user_message", message: "Continue the shared pnpm workflow." }
+        }) +
+        "\n",
+      "utf8"
+    );
+    await runDream("build", {
+      cwd: projectDir,
+      rollout: rolloutPath,
+      json: true
+    });
+
+    const output = JSON.parse(
+      await runMemory({
+        cwd: projectDir,
+        json: true
+      })
+    ) as MemoryCommandOutput & {
+      dreamSidecar: {
+        enabled: boolean;
+        status: string;
+        teamMemory?: {
+          available: boolean;
+          status: string;
+          topicCount: number;
+          entryCount: number;
+        };
+      };
+    };
+
+    expect(output.dreamSidecar).toMatchObject({
+      enabled: true,
+      status: "available",
+      teamMemory: {
+        available: true,
+        status: "available",
+        topicCount: 1,
+        entryCount: 1
+      }
+    });
+  });
+
+  it("surfaces instruction review lane summaries when proposal artifacts exist", async () => {
+    const homeDir = await tempDir("cam-memory-instruction-lane-home-");
+    const projectDir = await tempDir("cam-memory-instruction-lane-project-");
+    const memoryRoot = await tempDir("cam-memory-instruction-lane-memory-");
+    process.env.HOME = homeDir;
+
+    await fs.writeFile(path.join(projectDir, "AGENTS.md"), "# Repo rules\n", "utf8");
+    await writeCamConfig(
+      projectDir,
+      makeAppConfig({
+        dreamSidecarEnabled: true
+      }),
+      {
+        autoMemoryDirectory: memoryRoot,
+        dreamSidecarEnabled: true
+      }
+    );
+
+    const rolloutPath = path.join(projectDir, "instruction-rollout.jsonl");
+    await fs.writeFile(
+      rolloutPath,
+      [
+        JSON.stringify({
+          type: "session_meta",
+          payload: {
+            id: "session-memory-instruction-lane",
+            timestamp: "2026-03-15T00:00:00.000Z",
+            cwd: projectDir
+          }
+        }),
+        JSON.stringify({
+          type: "event_msg",
+          payload: {
+            type: "user_message",
+            message: "Always run pnpm lint before pnpm build."
+          }
+        })
+      ].join("\n"),
+      "utf8"
+    );
+
+    await runDream("build", {
+      cwd: projectDir,
+      rollout: rolloutPath,
+      json: true
+    });
+    const candidatePayload = JSON.parse(
+      await runDream("candidates", {
+        cwd: projectDir,
+        json: true
+      })
+    ) as {
+      entries: Array<{ candidateId: string; targetSurface: string }>;
+    };
+    const instructionCandidate = candidatePayload.entries.find(
+      (entry) => entry.targetSurface === "instruction-memory"
+    );
+    expect(instructionCandidate).toBeDefined();
+    await runDream("review", {
+      cwd: projectDir,
+      candidateId: instructionCandidate!.candidateId,
+      approve: true,
+      json: true
+    });
+    await runDream("promote", {
+      cwd: projectDir,
+      candidateId: instructionCandidate!.candidateId,
+      json: true
+    });
+
+    const output = JSON.parse(
+      await runMemory({
+        cwd: projectDir,
+        json: true
+      })
+    ) as MemoryCommandOutput & {
+      instructionReviewLane?: {
+        queueSummary: {
+          totalCount: number;
+        };
+        approvedInstructionCandidateCount: number;
+        manualApplyPendingInstructionCandidateCount: number;
+        latestCandidateId: string | null;
+        latestProposalArtifactPath: string | null;
+        selectedTargetFile: string | null;
+        selectedTargetKind: string | null;
+        targetHost: string | null;
+        applyReadinessStatus: string | null;
+        detectedInstructionTargets: string[];
+        recommendedInspectCommand: string;
+        recommendedApplyPrepCommand: string;
+        recommendedVerifyApplyCommand: string;
+      };
+    };
+
+    expect(output.instructionReviewLane).toMatchObject({
+      queueSummary: {
+        totalCount: expect.any(Number)
+      },
+      approvedInstructionCandidateCount: 0,
+      manualApplyPendingInstructionCandidateCount: 1,
+      latestCandidateId: instructionCandidate!.candidateId,
+      latestProposalArtifactPath: expect.stringContaining(
+        `${path.sep}dream${path.sep}review${path.sep}proposals${path.sep}`
+      ),
+      selectedTargetFile: expect.stringContaining(`${path.sep}AGENTS.md`),
+      selectedTargetKind: "agents-root",
+      targetHost: "shared",
+      applyReadinessStatus: "safe",
+      detectedInstructionTargets: [expect.stringContaining(`${path.sep}AGENTS.md`)],
+      recommendedInspectCommand: expect.stringContaining(
+        `dream proposal --candidate-id ${instructionCandidate!.candidateId} --json`
+      ),
+      recommendedApplyPrepCommand: expect.stringContaining(
+        `dream apply-prep --candidate-id ${instructionCandidate!.candidateId} --json`
+      ),
+      recommendedVerifyApplyCommand: expect.stringContaining(
+        `dream verify-apply --candidate-id ${instructionCandidate!.candidateId} --json`
+      )
+    });
+  });
+
+  it("does not keep rejected proposal artifacts as the latest actionable instruction follow-up", async () => {
+    const homeDir = await tempDir("cam-memory-instruction-filter-home-");
+    const projectDir = await tempDir("cam-memory-instruction-filter-project-");
+    const memoryRoot = await tempDir("cam-memory-instruction-filter-memory-");
+    process.env.HOME = homeDir;
+
+    await fs.writeFile(path.join(projectDir, "AGENTS.md"), "# Repo rules\n", "utf8");
+    await writeCamConfig(
+      projectDir,
+      makeAppConfig({
+        dreamSidecarEnabled: true
+      }),
+      {
+        autoMemoryDirectory: memoryRoot,
+        dreamSidecarEnabled: true
+      }
+    );
+
+    const rolloutPath = path.join(projectDir, "instruction-rollout.jsonl");
+    await fs.writeFile(
+      rolloutPath,
+      [
+        JSON.stringify({
+          type: "session_meta",
+          payload: {
+            id: "session-memory-instruction-filter",
+            timestamp: "2026-03-15T00:00:00.000Z",
+            cwd: projectDir
+          }
+        }),
+        JSON.stringify({
+          type: "event_msg",
+          payload: {
+            type: "user_message",
+            message: "Always run pnpm lint before pnpm build."
+          }
+        })
+      ].join("\n"),
+      "utf8"
+    );
+
+    await runDream("build", {
+      cwd: projectDir,
+      rollout: rolloutPath,
+      json: true
+    });
+    const candidatePayload = JSON.parse(
+      await runDream("candidates", {
+        cwd: projectDir,
+        json: true
+      })
+    ) as {
+      entries: Array<{ candidateId: string; targetSurface: string }>;
+    };
+    const instructionCandidate = candidatePayload.entries.find(
+      (entry) => entry.targetSurface === "instruction-memory"
+    );
+    expect(instructionCandidate).toBeDefined();
+
+    await runDream("review", {
+      cwd: projectDir,
+      candidateId: instructionCandidate!.candidateId,
+      approve: true,
+      json: true
+    });
+    await runDream("promote-prep", {
+      cwd: projectDir,
+      candidateId: instructionCandidate!.candidateId,
+      json: true
+    });
+    await runDream("review", {
+      cwd: projectDir,
+      candidateId: instructionCandidate!.candidateId,
+      reject: true,
+      json: true
+    });
+
+    const output = JSON.parse(
+      await runMemory({
+        cwd: projectDir,
+        json: true
+      })
+    ) as MemoryCommandOutput & {
+      instructionReviewLane?: {
+        approvedInstructionCandidateCount: number;
+        manualApplyPendingInstructionCandidateCount: number;
+        latestProposalArtifactPath: string | null;
+      };
+    };
+
+    expect(output.instructionReviewLane).toMatchObject({
+      approvedInstructionCandidateCount: 0,
+      manualApplyPendingInstructionCandidateCount: 0,
+      latestProposalArtifactPath: null
+    });
   });
 
   it("keeps json recent sync audit raw while compacting repeated sync events in text output", async () => {

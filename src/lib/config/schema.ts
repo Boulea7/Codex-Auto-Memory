@@ -16,6 +16,8 @@ export const appConfigSchema = z.object({
     .positive()
     .max(200)
     .default(DEFAULT_SESSION_CONTINUITY_LINE_LIMIT),
+  dreamSidecarEnabled: z.boolean().default(false),
+  dreamSidecarAutoBuild: z.boolean().default(false),
   codexBinary: z.string().min(1).default("codex")
 });
 
@@ -28,6 +30,8 @@ export const rawProjectConfigSchema = z.object({
   sessionContinuityAutoSave: z.boolean().optional(),
   sessionContinuityLocalPathStyle: z.enum(["codex", "claude"]).optional(),
   maxSessionContinuityLines: z.number().int().positive().max(200).optional(),
+  dreamSidecarEnabled: z.boolean().optional(),
+  dreamSidecarAutoBuild: z.boolean().optional(),
   codexBinary: z.string().min(1).optional(),
   autoMemoryDirectory: z.string().optional()
 });
