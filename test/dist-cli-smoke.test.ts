@@ -14,6 +14,7 @@ import {
 } from "./helpers/cam-test-fixtures.js";
 import { connectCliMcpClient } from "./helpers/mcp-client.js";
 import { runCli } from "./helpers/cli-runner.js";
+import { pathExists } from "./helpers/filesystem.js";
 
 const tempDirs: string[] = [];
 const originalCodexHome = process.env.CODEX_HOME;
@@ -52,15 +53,6 @@ async function waitForFile(pathname: string, timeoutMs = 2_000): Promise<string>
       }
       throw error;
     }
-  }
-}
-
-async function pathExists(targetPath: string): Promise<boolean> {
-  try {
-    await fs.access(targetPath);
-    return true;
-  } catch {
-    return false;
   }
 }
 
@@ -633,7 +625,7 @@ describe("dist cli smoke", () => {
     );
     const instructionDreamBuildResult = runCli(
       projectDir,
-      ["dream", "build", "--rollout", instructionDreamRolloutPath, "--json"],
+      ["dream", "build", "--rollout", instructionDreamRolloutPath, "--scope", "project", "--json"],
       {
         entrypoint: "dist",
         env: cliEnv
@@ -932,6 +924,123 @@ describe("dist cli smoke", () => {
         targetHost: "shared"
       }
     });
+
+    const rejectedInstructionRolloutPath = path.join(projectDir, "dream-instruction-rejected-rollout.jsonl");
+    await fs.writeFile(
+      rejectedInstructionRolloutPath,
+      JSON.stringify({
+        type: "session_meta",
+        payload: {
+          id: "session-dist-dream-instruction-rejected",
+          timestamp: "2026-03-15T00:08:00.000Z",
+          cwd: projectDir
+        }
+        }) +
+        "\n" +
+        JSON.stringify({
+          type: "event_msg",
+          payload: {
+            type: "user_message",
+            message: "Always run pnpm test before build in this repository."
+          }
+        }) +
+        "\n" +
+        JSON.stringify({
+          type: "event_msg",
+          payload: {
+            type: "user_message",
+            message: "Always run pnpm format before pnpm build in this repository."
+          }
+        }) +
+        "\n",
+      "utf8"
+    );
+    const rejectedInstructionBuildResult = runCli(
+      projectDir,
+      ["dream", "build", "--rollout", rejectedInstructionRolloutPath, "--scope", "project-local", "--json"],
+      {
+        entrypoint: "dist",
+        env: cliEnv
+      }
+    );
+    expect(rejectedInstructionBuildResult.exitCode, rejectedInstructionBuildResult.stderr).toBe(0);
+
+    const refreshedInstructionCandidatesResult = runCli(
+      projectDir,
+      ["dream", "candidates", "--json"],
+      {
+        entrypoint: "dist",
+        env: cliEnv
+      }
+    );
+    expect(refreshedInstructionCandidatesResult.exitCode, refreshedInstructionCandidatesResult.stderr).toBe(0);
+    const refreshedInstructionCandidatesPayload = JSON.parse(
+      refreshedInstructionCandidatesResult.stdout
+    ) as {
+      entries: Array<{
+        candidateId: string;
+        targetSurface: string;
+        summary: string;
+      }>;
+    };
+    const rejectedInstructionCandidate = refreshedInstructionCandidatesPayload.entries.find(
+      (entry) =>
+        entry.targetSurface === "instruction-memory" &&
+        entry.summary.includes("Always run pnpm format before pnpm build")
+    );
+    expect(rejectedInstructionCandidate).toBeDefined();
+
+    expect(
+      runCli(
+        projectDir,
+        ["dream", "review", "--candidate-id", rejectedInstructionCandidate!.candidateId, "--approve", "--json"],
+        {
+          entrypoint: "dist",
+          env: cliEnv
+        }
+      ).exitCode
+    ).toBe(0);
+    expect(
+      runCli(
+        projectDir,
+        ["dream", "promote-prep", "--candidate-id", rejectedInstructionCandidate!.candidateId, "--json"],
+        {
+          entrypoint: "dist",
+          env: cliEnv
+        }
+      ).exitCode
+    ).toBe(0);
+    expect(
+      runCli(
+        projectDir,
+        ["dream", "review", "--candidate-id", rejectedInstructionCandidate!.candidateId, "--reject", "--json"],
+        {
+          entrypoint: "dist",
+          env: cliEnv
+        }
+      ).exitCode
+    ).toBe(0);
+
+    const rejectedInstructionInspectResult = runCli(projectDir, ["dream", "inspect", "--json"], {
+      entrypoint: "dist",
+      env: cliEnv
+    });
+    expect(rejectedInstructionInspectResult.exitCode, rejectedInstructionInspectResult.stderr).toBe(0);
+    const rejectedInstructionInspectPayload = JSON.parse(rejectedInstructionInspectResult.stdout) as {
+      nextRecommendedActions: string[];
+    };
+    expect(rejectedInstructionInspectPayload.nextRecommendedActions).toEqual(
+      expect.arrayContaining([
+        expect.stringContaining(`dream proposal --candidate-id ${instructionCandidate!.candidateId} --json`),
+        expect.stringContaining(`dream apply-prep --candidate-id ${instructionCandidate!.candidateId} --json`),
+        expect.stringContaining(`dream verify-apply --candidate-id ${instructionCandidate!.candidateId} --json`)
+      ])
+    );
+    expect(rejectedInstructionInspectPayload.nextRecommendedActions).not.toEqual(
+      expect.arrayContaining([
+        expect.stringContaining(rejectedInstructionCandidate!.candidateId)
+      ])
+    );
 
     await fs.writeFile(
       path.join(projectDir, "CLAUDE.md"),

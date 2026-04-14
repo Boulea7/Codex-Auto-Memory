@@ -21,6 +21,8 @@ import {
   makeEvidenceCounts,
   writeSessionRolloutFile
 } from "./helpers/session-test-support.js";
+import { restoreOptionalEnv } from "./helpers/env.js";
+import { pathExists } from "./helpers/filesystem.js";
 
 const tempDirs: string[] = [];
 const originalSessionsDir = process.env.CAM_CODEX_SESSIONS_DIR;
@@ -36,7 +38,7 @@ const writeProjectConfig = writeCamConfig;
 const rolloutFixture = makeRolloutFixture;
 
 afterEach(async () => {
-  process.env.CAM_CODEX_SESSIONS_DIR = originalSessionsDir;
+  restoreOptionalEnv("CAM_CODEX_SESSIONS_DIR", originalSessionsDir);
   await cleanupTempDirs(tempDirs);
 });
 
@@ -57,15 +59,6 @@ process.exit(0);
   );
   await fs.chmod(mockCodexPath, 0o755);
   return mockCodexPath;
-}
-
-async function pathExists(targetPath: string): Promise<boolean> {
-  try {
-    await fs.access(targetPath);
-    return true;
-  } catch {
-    return false;
-  }
 }
 
 describe("runSession", () => {
