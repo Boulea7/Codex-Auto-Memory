@@ -162,8 +162,12 @@ function buildInstructionReviewerActions(
   const actions: string[] = [];
   const artifactPath = getDreamCandidateProposalArtifactPath(entry);
   const applyReadinessStatus = options.applyReadinessStatus ?? entry.promotion.applyReadinessStatus;
+  const needsProposalRefresh =
+    entry.status === "approved" ||
+    (entry.status === "manual-apply-pending" &&
+      (applyReadinessStatus === "blocked" || applyReadinessStatus === "stale"));
 
-  if (entry.status === "approved") {
+  if (needsProposalRefresh) {
     actions.push(
       buildResolvedCliCommand(`dream promote-prep --candidate-id ${entry.candidateId} --json`, {
         cwd: runtime.project.projectRoot
@@ -184,7 +188,7 @@ function buildInstructionReviewerActions(
     })
   );
 
-  if (applyReadinessStatus !== "stale") {
+  if (applyReadinessStatus !== "blocked" && applyReadinessStatus !== "stale") {
     actions.push(
       buildResolvedCliCommand(`dream apply-prep --candidate-id ${entry.candidateId} --json`, {
         cwd: runtime.project.projectRoot
