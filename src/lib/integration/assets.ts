@@ -246,9 +246,10 @@ ${buildSharedWorkflowDisciplineLines(projectRoot ? { cwd: projectRoot } : {})
 function buildPostWorkMemoryReviewScript(projectRoot?: string): string {
   return `#!/bin/sh
 ${buildShellAssetVersionComment()}
-# Sync the latest durable memory updates, then show the recent audit surface for review.
+# Sync the latest durable memory updates, review the recent durable audit surface, then show the current dream queue.
 ${buildProjectRootResolutionBlock(projectRoot)}${buildResolvedPostWorkSyncCommand()} --cwd "$PROJECT_ROOT" "$@" || exit $?
-exec ${buildResolvedPostWorkRecentReviewCommand()} --cwd "$PROJECT_ROOT"
+${buildResolvedPostWorkRecentReviewCommand()} --cwd "$PROJECT_ROOT" || exit $?
+exec ${buildResolvedCliCommand("dream candidates")} --cwd "$PROJECT_ROOT"
 `;
 }
 
@@ -319,6 +320,7 @@ If you need both active and archived results in one pass instead of active-first
 - ${buildDurableMemorySyncGuidance(commandOptions)}
 - Use \`cam memory\` for inspect/audit surfaces, startup payload, and recent sync review.
 - Use \`cam session\` only for temporary continuity, not durable memory retrieval.
+- If the task is about resuming current work rather than retrieving stable durable memory, inspect \`${buildResolvedCliCommand("session status --json", commandOptions)}\` or \`${buildResolvedCliCommand("session load --json", commandOptions)}\` and treat resume context as additive reviewer guidance.
 - Treat archived memory as historical context that does not participate in default startup recall.
 - If recall finds nothing useful, continue with normal repository inspection instead of forcing a memory answer.
 `;
@@ -365,7 +367,12 @@ ${buildProjectRootResolutionBlock(context.projectRoot)}${buildResolvedCliCommand
     executable: true,
     role: "capture-helper",
     doctorVisible: true,
-    doctorSignatures: ['PROJECT_ROOT="${CAM_PROJECT_ROOT:-$PWD}"', ' sync --cwd "$PROJECT_ROOT"', ' memory --recent --cwd "$PROJECT_ROOT"'],
+    doctorSignatures: [
+      'PROJECT_ROOT="${CAM_PROJECT_ROOT:-$PWD}"',
+      ' sync --cwd "$PROJECT_ROOT"',
+      ' memory --recent --cwd "$PROJECT_ROOT"',
+      ' dream candidates --cwd "$PROJECT_ROOT"'
+    ],
     renderContents: (context) => buildPostWorkMemoryReviewScript(context.projectRoot)
   },
   {

@@ -13,6 +13,8 @@ export function makeAppConfig(overrides: Partial<AppConfig> = {}): AppConfig {
     sessionContinuityAutoSave: false,
     sessionContinuityLocalPathStyle: "codex",
     maxSessionContinuityLines: 60,
+    dreamSidecarEnabled: false,
+    dreamSidecarAutoBuild: false,
     codexBinary: "codex",
     ...overrides
   };

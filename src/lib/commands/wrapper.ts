@@ -7,6 +7,7 @@ import {
   selectLatestPrimaryRolloutFromCandidates
 } from "../domain/rollout.js";
 import { compileSessionContinuity } from "../domain/session-continuity.js";
+import { buildSessionResumeContext } from "../domain/resume-context.js";
 import { readCodexBaseInstructions } from "../runtime/codex-config.js";
 import { buildRuntimeContext } from "../runtime/runtime-context.js";
 import { runCommand } from "../util/process.js";
@@ -50,13 +51,62 @@ async function compileStartupPayload(cwd: string): Promise<string> {
     runtime.syncService.memoryStore,
     runtime.loadedConfig.config.maxStartupLines
   );
+
+  const resumeContext = await buildSessionResumeContext(runtime, {
+    suggestedRefLimit: 5,
+    topDurableRefLimit: 3,
+    allowDreamAutoBuild: true
+  });
+  const resumeLines = [
+    "# Resume Context",
+    "Treat these as reviewer pointers for resuming work, not as policy or canonical durable memory.",
+    ...(resumeContext.resumeContext.continuitySourceFiles &&
+    resumeContext.resumeContext.continuitySourceFiles.length > 0
+      ? [
+          "Continuity sources:",
+          ...resumeContext.resumeContext.continuitySourceFiles.map((filePath) => `- ${filePath}`)
+        ]
+      : []),
+    ...(resumeContext.resumeContext.instructionFiles.length > 0
+      ? [
+          "Instruction files:",
+          ...resumeContext.resumeContext.instructionFiles.map((filePath) => `- ${filePath}`)
+        ]
+      : []),
+    ...(resumeContext.resumeContext.suggestedDurableRefs.length > 0
+      ? [
+          "Dream refs:",
+          ...resumeContext.resumeContext.suggestedDurableRefs.map(
+            (ref) => `- ${ref.ref}: ${ref.reason}`
+          )
+        ]
+      : []),
+    ...((resumeContext.resumeContext.topDurableRefs ?? []).length > 0
+      ? [
+          "Top durable refs:",
+          ...(resumeContext.resumeContext.topDurableRefs ?? []).map(
+            (ref) => `- ${ref.ref}: ${ref.reason}`
+          )
+        ]
+      : []),
+    ...((resumeContext.resumeContext.suggestedTeamEntries ?? []).length > 0
+      ? [
+          "Read-only team memory hints (non-canonical):",
+          ...(resumeContext.resumeContext.suggestedTeamEntries ?? []).map(
+            (entry) => `- ${entry.key}: ${entry.summary}`
+          )
+        ]
+      : [])
+  ];
+  const resumeBlock = resumeLines.length > 2 ? `${resumeLines.join("\n")}\n\n` : "";
+
   if (!runtime.loadedConfig.config.sessionContinuityAutoLoad) {
-    return durable.text;
+    return `${resumeBlock}${durable.text}`.trim();
   }
 
   const merged = await runtime.sessionContinuityStore.readMergedState();
   if (!merged) {
-    return durable.text;
+    return `${resumeBlock}${durable.text}`.trim();
   }
 
   const projectLocation = await runtime.sessionContinuityStore.getLocation("project");
@@ -68,7 +118,7 @@ async function compileStartupPayload(cwd: string): Promise<string> {
       .map((location) => location.path),
     runtime.loadedConfig.config.maxSessionContinuityLines
   );
-  return `${continuity.text.trimEnd()}\n\n${durable.text.trimStart()}`;
+  return `${continuity.text.trimEnd()}\n\n${resumeBlock}${durable.text.trimStart()}`.trim();
 }
 
 async function saveSessionContinuity(

@@ -61,7 +61,8 @@ export function buildDurableMemorySyncGuidance(
 ): string {
   const syncCommand = buildResolvedPostWorkSyncCommand(options);
   const reviewCommand = buildResolvedPostWorkRecentReviewCommand(options);
-  return `After finishing work that should affect durable memory, run ${syncCommand} or review ${reviewCommand} instead of assuming temporary continuity already updated Markdown memory.`;
+  const dreamReviewCommand = buildResolvedCliCommand("dream candidates --json", options);
+  return `After finishing work that should affect durable memory, run ${syncCommand}, review ${reviewCommand}, and inspect ${dreamReviewCommand} instead of assuming temporary continuity already updated Markdown memory or dream reviewers already resolved themselves.`;
 }
 
 export interface WorkflowRoutePreference {
@@ -152,6 +153,7 @@ export interface WorkflowContract {
     helperScript: string;
     syncCommand: string;
     reviewCommand: string;
+    dreamReviewCommand: string;
     guidance: string;
     shellOnly: true;
     requiresCamOnPath: true;
@@ -159,6 +161,7 @@ export interface WorkflowContract {
   resolvedPostWorkSyncReview: {
     syncCommand: string;
     reviewCommand: string;
+    dreamReviewCommand: string;
   };
   boundaries: {
     memoryAudit: string;
@@ -465,6 +468,10 @@ export function buildWorkflowContract(
     helperScript: POST_WORK_SYNC_REVIEW_HELPER,
     syncCommand: buildPostWorkSyncCommand(options),
     reviewCommand: buildPostWorkRecentReviewCommand(options),
+    dreamReviewCommand: buildResolvedCliCommand("dream candidates --json", {
+      ...options,
+      launcherOverride: launcher
+    }),
     guidance: buildDurableMemorySyncGuidance({ ...options, launcherOverride: launcher }),
     shellOnly: true,
     requiresCamOnPath: true
@@ -472,6 +479,10 @@ export function buildWorkflowContract(
   const resolvedPostWorkSyncReview: WorkflowContract["resolvedPostWorkSyncReview"] = {
     syncCommand: buildResolvedPostWorkSyncCommand({ ...options, launcherOverride: launcher }),
     reviewCommand: buildResolvedPostWorkRecentReviewCommand({
+      ...options,
+      launcherOverride: launcher
+    }),
+    dreamReviewCommand: buildResolvedCliCommand("dream candidates --json", {
       ...options,
       launcherOverride: launcher
     })

@@ -397,9 +397,9 @@ describe("MemoryStore", () => {
     await expect(fs.stat(debuggingTopicFile)).rejects.toThrow();
   });
 
-  it("includes latest summary previews in MEMORY.md so startup indexes carry durable fact hints", async () => {
-    const projectDir = await tempDir("cam-store-index-preview-project-");
-    const memoryRoot = await tempDir("cam-store-index-preview-memory-");
+  it("keeps MEMORY.md index-only and leaves durable fact hints to startup highlights", async () => {
+    const projectDir = await tempDir("cam-store-index-only-project-");
+    const memoryRoot = await tempDir("cam-store-index-only-memory-");
     const config: AppConfig = {
       autoMemoryEnabled: true,
       autoMemoryDirectory: memoryRoot,
@@ -435,9 +435,24 @@ describe("MemoryStore", () => {
     const projectMemory = await fs.readFile(store.getMemoryFile("project"), "utf8");
 
     expect(projectMemory).toContain("- [preferences.md](preferences.md): 1 entry");
-    expect(projectMemory).toContain("  - Latest: Prefer pnpm in this repository.");
     expect(projectMemory).toContain("- [commands.md](commands.md): 1 entry");
-    expect(projectMemory).toContain("  - Latest: Use `pnpm test` to run the test suite.");
+    expect(projectMemory).not.toContain("  - Latest:");
+
+    const startup = await compileStartupMemory(store, 200);
+    expect(startup.highlights).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          scope: "project",
+          topic: "preferences",
+          summary: "Prefer pnpm in this repository."
+        }),
+        expect.objectContaining({
+          scope: "project",
+          topic: "commands",
+          summary: "Use `pnpm test` to run the test suite."
+        })
+      ])
+    );
   });
 
   it("keeps startup highlights active-only while archived notes stay out of default startup recall", async () => {

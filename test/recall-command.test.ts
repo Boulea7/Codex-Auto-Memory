@@ -4,7 +4,10 @@ import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { detectProjectContext } from "../src/lib/domain/project-context.js";
 import { MemoryStore } from "../src/lib/domain/memory-store.js";
+import { rebuildTeamMemoryIndex } from "../src/lib/domain/team-memory.js";
 import { SyncService } from "../src/lib/domain/sync-service.js";
+import { runDream } from "../src/lib/commands/dream.js";
+import type { MemorySearchResponse } from "../src/lib/types.js";
 import {
   makeRolloutFixture,
   makeAppConfig,
@@ -14,6 +17,7 @@ import { runCli } from "./helpers/cli-runner.js";
 
 const tempDirs: string[] = [];
 const originalHome = process.env.HOME;
+const originalSessionsDir = process.env.CAM_CODEX_SESSIONS_DIR;
 
 async function tempDir(prefix: string): Promise<string> {
   const dir = await fs.mkdtemp(path.join(os.tmpdir(), prefix));
@@ -69,6 +73,7 @@ function buildParseableUnsafeWorkflowTopicContents(
 
 afterEach(async () => {
   process.env.HOME = originalHome;
+  process.env.CAM_CODEX_SESSIONS_DIR = originalSessionsDir;
   await Promise.all(tempDirs.splice(0).map((dir) => fs.rm(dir, { recursive: true, force: true })));
 });
 
@@ -1859,5 +1864,630 @@ describe("runRecall", () => {
       },
       results: [expect.objectContaining({ ref: "project:archived:workflow:historical-pnpm" })]
     });
+  });
+
+  it("adds query-time surfacing hints from the dream sidecar without changing search results", async () => {
+    const homeDir = await tempDir("cam-recall-dream-home-");
+    const projectDir = await tempDir("cam-recall-dream-project-");
+    const memoryRoot = await tempDir("cam-recall-dream-memory-");
+    process.env.HOME = homeDir;
+
+    const projectConfig = makeAppConfig({
+      dreamSidecarEnabled: true
+    });
+    await writeCamConfig(projectDir, projectConfig, {
+      autoMemoryDirectory: memoryRoot,
+      dreamSidecarEnabled: true
+    });
+
+    const store = new MemoryStore(detectProjectContext(projectDir), {
+      ...projectConfig,
+      autoMemoryDirectory: memoryRoot,
+      dreamSidecarEnabled: true
+    });
+    await store.ensureLayout();
+    await store.remember(
+      "project",
+      "workflow",
+      "prefer-pnpm",
+      "Prefer pnpm in this repository.",
+      ["Use pnpm instead of npm in this repository."],
+      "Manual note."
+    );
+
+    const rolloutPath = path.join(projectDir, "rollout.jsonl");
+    await fs.writeFile(
+      rolloutPath,
+      makeRolloutFixture(
+        projectDir,
+        "Continue the middleware work and keep using pnpm in this repository."
+      ),
+      "utf8"
+    );
+    await runDream("build", {
+      cwd: projectDir,
+      rollout: rolloutPath,
+      json: true
+    });
+
+    const result = runCli(projectDir, ["recall", "search", "pnpm", "--json"]);
+    expect(result.exitCode).toBe(0);
+
+    const response = JSON.parse(result.stdout) as MemorySearchResponse & {
+      querySurfacing: {
+        suggestedDreamRefs: Array<{ ref: string; reason: string }>;
+      };
+    };
+
+    expect(response.results).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          ref: "project:active:workflow:prefer-pnpm"
+        })
+      ])
+    );
+    expect(response.querySurfacing.suggestedDreamRefs).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          ref: "project:active:workflow:prefer-pnpm"
+        })
+      ])
+    );
+  });
+
+  it("merges shared and local dream snapshots when building query surfacing hints", async () => {
+    const homeDir = await tempDir("cam-recall-dream-merge-home-");
+    const projectDir = await tempDir("cam-recall-dream-merge-project-");
+    const memoryRoot = await tempDir("cam-recall-dream-merge-memory-");
+    process.env.HOME = homeDir;
+
+    const projectConfig = makeAppConfig({
+      dreamSidecarEnabled: true
+    });
+    await writeCamConfig(projectDir, projectConfig, {
+      autoMemoryDirectory: memoryRoot,
+      dreamSidecarEnabled: true
+    });
+
+    const store = new MemoryStore(detectProjectContext(projectDir), {
+      ...projectConfig,
+      autoMemoryDirectory: memoryRoot,
+      dreamSidecarEnabled: true
+    });
+    await store.ensureLayout();
+    await store.remember(
+      "project",
+      "workflow",
+      "prefer-pnpm-shared",
+      "Prefer pnpm from the shared workflow memory.",
+      ["Use pnpm across the shared project workflow."],
+      "Manual note."
+    );
+
+    const sharedRolloutPath = path.join(projectDir, "shared-rollout.jsonl");
+    await fs.writeFile(
+      sharedRolloutPath,
+      makeRolloutFixture(projectDir, "Keep using pnpm for the shared middleware workflow."),
+      "utf8"
+    );
+    await runDream("build", {
+      cwd: projectDir,
+      rollout: sharedRolloutPath,
+      scope: "project",
+      json: true
+    });
+
+    await store.remember(
+      "project-local",
+      "workflow",
+      "prefer-pnpm-local",
+      "Prefer pnpm for this local worktree retry loop.",
+      ["Use pnpm for the local worktree retry workflow."],
+      "Manual note."
+    );
+
+    const localRolloutPath = path.join(projectDir, "local-rollout.jsonl");
+    await fs.writeFile(
+      localRolloutPath,
+      makeRolloutFixture(projectDir, "Keep using pnpm for the local retry workflow."),
+      "utf8"
+    );
+    await runDream("build", {
+      cwd: projectDir,
+      rollout: localRolloutPath,
+      scope: "project-local",
+      json: true
+    });
+
+    const result = runCli(projectDir, ["recall", "search", "pnpm", "--json"]);
+    expect(result.exitCode).toBe(0);
+
+    const response = JSON.parse(result.stdout) as MemorySearchResponse & {
+      querySurfacing: {
+        suggestedDreamRefs: Array<{ ref: string; reason: string }>;
+        topDurableRefs?: Array<{ ref: string }>;
+      };
+    };
+
+    expect(response.querySurfacing.suggestedDreamRefs).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          ref: "project:active:workflow:prefer-pnpm-shared"
+        }),
+        expect.objectContaining({
+          ref: "project-local:active:workflow:prefer-pnpm-local"
+        })
+      ])
+    );
+    expect(response.querySurfacing.topDurableRefs).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          ref: "project:active:workflow:prefer-pnpm-shared"
+        })
+      ])
+    );
+  });
+
+  it("surfaces dream hints and team memory suggestions when the sidecar was built explicitly", async () => {
+    const homeDir = await tempDir("cam-recall-autobuild-home-");
+    const projectDir = await tempDir("cam-recall-autobuild-project-");
+    const memoryRoot = await tempDir("cam-recall-autobuild-memory-");
+    const sessionsDir = await tempDir("cam-recall-autobuild-sessions-");
+    process.env.HOME = homeDir;
+    process.env.CAM_CODEX_SESSIONS_DIR = sessionsDir;
+
+    const projectConfig = makeAppConfig({
+      dreamSidecarEnabled: true,
+      dreamSidecarAutoBuild: true
+    });
+    await writeCamConfig(projectDir, projectConfig, {
+      autoMemoryDirectory: memoryRoot,
+      dreamSidecarEnabled: true,
+      dreamSidecarAutoBuild: true
+    });
+
+    const store = new MemoryStore(detectProjectContext(projectDir), {
+      ...projectConfig,
+      autoMemoryDirectory: memoryRoot
+    });
+    await store.ensureLayout();
+    await store.remember(
+      "project",
+      "workflow",
+      "prefer-pnpm",
+      "Prefer pnpm in this repository.",
+      ["Use pnpm instead of npm in this repository."],
+      "Manual note."
+    );
+
+    await fs.writeFile(path.join(projectDir, "TEAM_MEMORY.md"), "# Team Memory\n", "utf8");
+    await fs.mkdir(path.join(projectDir, "team-memory"), { recursive: true });
+    await fs.writeFile(
+      path.join(projectDir, "team-memory", "workflow.md"),
+      [
+        "# Workflow",
+        "",
+        "<!-- cam:team-topic workflow -->",
+        "",
+        "## prefer-pnpm-shared",
+        '<!-- cam:team-entry {"id":"prefer-pnpm-shared","scopeHint":"project","updatedAt":"2026-03-15T00:00:00.000Z"} -->',
+        "Summary: Prefer pnpm from the shared workflow memory.",
+        "Details:",
+        "- Use pnpm across the shared project workflow.",
+        ""
+      ].join("\n"),
+      "utf8"
+    );
+
+    const rolloutDir = path.join(sessionsDir, "2026", "03", "15");
+    await fs.mkdir(rolloutDir, { recursive: true });
+    const rolloutPath = path.join(rolloutDir, "rollout-2026-03-15T00-00-00-000Z-primary.jsonl");
+    await fs.writeFile(
+      rolloutPath,
+      makeRolloutFixture(projectDir, "Continue the middleware work and keep using pnpm in this repository."),
+      "utf8"
+    );
+    await runDream("build", {
+      cwd: projectDir,
+      rollout: rolloutPath,
+      json: true
+    });
+
+    const result = runCli(projectDir, ["recall", "search", "pnpm", "--json"]);
+    expect(result.exitCode).toBe(0);
+
+    const response = JSON.parse(result.stdout) as MemorySearchResponse & {
+      querySurfacing: {
+        suggestedDreamRefs: Array<{ ref: string; reason: string }>;
+        suggestedTeamEntries: Array<{ key: string; summary: string; path: string }>;
+      };
+    };
+
+    expect(response.querySurfacing.suggestedDreamRefs).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          ref: "project:active:workflow:prefer-pnpm"
+        })
+      ])
+    );
+    expect(response.querySurfacing.suggestedTeamEntries).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          key: "team:workflow:prefer-pnpm-shared",
+          summary: "Prefer pnpm from the shared workflow memory.",
+          path: expect.stringContaining(`${path.sep}team-memory${path.sep}workflow.md`)
+        })
+      ])
+    );
+    expect(response.querySurfacing.instructionReviewLane).toMatchObject({
+      latestCandidateId: null,
+      latestProposalArtifactPath: null,
+      selectedTargetFile: null,
+      targetHost: null
+    });
+  });
+
+  it("surfaces instruction review lane hints during recall search when a proposal artifact is pending", async () => {
+    const homeDir = await tempDir("cam-recall-instruction-lane-home-");
+    const projectDir = await tempDir("cam-recall-instruction-lane-project-");
+    const memoryRoot = await tempDir("cam-recall-instruction-lane-memory-");
+    process.env.HOME = homeDir;
+
+    const projectConfig = makeAppConfig({
+      dreamSidecarEnabled: true
+    });
+    await writeCamConfig(projectDir, projectConfig, {
+      autoMemoryDirectory: memoryRoot,
+      dreamSidecarEnabled: true
+    });
+    await fs.writeFile(path.join(projectDir, "AGENTS.md"), "# Repo rules\n", "utf8");
+
+    const rolloutPath = path.join(projectDir, "instruction-rollout.jsonl");
+    await fs.writeFile(
+      rolloutPath,
+      makeRolloutFixture(projectDir, "Always run pnpm lint before pnpm build."),
+      "utf8"
+    );
+
+    await runDream("build", {
+      cwd: projectDir,
+      rollout: rolloutPath,
+      json: true
+    });
+    const candidatePayload = JSON.parse(
+      await runDream("candidates", {
+        cwd: projectDir,
+        json: true
+      })
+    ) as {
+      entries: Array<{ candidateId: string; targetSurface: string }>;
+    };
+    const instructionCandidate = candidatePayload.entries.find(
+      (entry) => entry.targetSurface === "instruction-memory"
+    );
+    expect(instructionCandidate).toBeDefined();
+
+    await runDream("review", {
+      cwd: projectDir,
+      candidateId: instructionCandidate!.candidateId,
+      approve: true,
+      json: true
+    });
+    await runDream("promote-prep", {
+      cwd: projectDir,
+      candidateId: instructionCandidate!.candidateId,
+      json: true
+    });
+
+    const result = runCli(projectDir, ["recall", "search", "pnpm", "--json"]);
+    expect(result.exitCode).toBe(0);
+
+    const response = JSON.parse(result.stdout) as MemorySearchResponse & {
+      querySurfacing: {
+        instructionReviewLane: {
+          latestCandidateId: string | null;
+          latestProposalArtifactPath: string | null;
+          selectedTargetFile: string | null;
+          selectedTargetKind: string | null;
+          targetHost: string | null;
+          applyReadinessStatus: string | null;
+          recommendedInspectCommand: string;
+          recommendedApplyPrepCommand: string;
+        };
+      };
+    };
+
+    expect(response.querySurfacing.instructionReviewLane).toMatchObject({
+      latestCandidateId: instructionCandidate!.candidateId,
+      latestProposalArtifactPath: expect.stringContaining(
+        `${path.sep}dream${path.sep}review${path.sep}proposals${path.sep}`
+      ),
+      selectedTargetFile: expect.stringContaining(`${path.sep}AGENTS.md`),
+      selectedTargetKind: "agents-root",
+      targetHost: "shared",
+      applyReadinessStatus: "safe",
+      recommendedInspectCommand: expect.stringContaining("dream proposal --candidate-id"),
+      recommendedApplyPrepCommand: expect.stringContaining("dream apply-prep --candidate-id")
+    });
+  });
+
+  it("keeps recall search read-only even when dream auto-build is enabled", async () => {
+    const homeDir = await tempDir("cam-recall-readonly-home-");
+    const projectDir = await tempDir("cam-recall-readonly-project-");
+    const memoryRoot = await tempDir("cam-recall-readonly-memory-");
+    const sessionsDir = await tempDir("cam-recall-readonly-sessions-");
+    process.env.HOME = homeDir;
+    process.env.CAM_CODEX_SESSIONS_DIR = sessionsDir;
+
+    const projectConfig = makeAppConfig({
+      dreamSidecarEnabled: true,
+      dreamSidecarAutoBuild: true
+    });
+    await writeCamConfig(projectDir, projectConfig, {
+      autoMemoryDirectory: memoryRoot,
+      dreamSidecarEnabled: true,
+      dreamSidecarAutoBuild: true
+    });
+
+    const project = detectProjectContext(projectDir);
+    const store = new MemoryStore(project, {
+      ...projectConfig,
+      autoMemoryDirectory: memoryRoot
+    });
+    await store.ensureLayout();
+    await store.remember(
+      "project",
+      "workflow",
+      "prefer-pnpm",
+      "Prefer pnpm in this repository.",
+      ["Use pnpm instead of npm in this repository."],
+      "Manual note."
+    );
+
+    await fs.writeFile(path.join(projectDir, "TEAM_MEMORY.md"), "# Team Memory\n", "utf8");
+    await fs.mkdir(path.join(projectDir, "team-memory"), { recursive: true });
+    await fs.writeFile(
+      path.join(projectDir, "team-memory", "workflow.md"),
+      [
+        "# Workflow",
+        "",
+        "<!-- cam:team-topic workflow -->",
+        "",
+        "## prefer-pnpm-shared",
+        '<!-- cam:team-entry {"id":"prefer-pnpm-shared","scopeHint":"project","updatedAt":"2026-03-15T00:00:00.000Z"} -->',
+        "Summary: Prefer pnpm from the shared workflow memory.",
+        "Details:",
+        "- Use pnpm across the shared project workflow.",
+        ""
+      ].join("\n"),
+      "utf8"
+    );
+
+    const rolloutDir = path.join(sessionsDir, "2026", "03", "15");
+    await fs.mkdir(rolloutDir, { recursive: true });
+    await fs.writeFile(
+      path.join(rolloutDir, "rollout-2026-03-15T00-00-00-000Z-primary.jsonl"),
+      makeRolloutFixture(projectDir, "Continue the middleware work and keep using pnpm in this repository."),
+      "utf8"
+    );
+
+    const dreamSharedPath = path.join(memoryRoot, "projects", project.projectId, "dream", "shared", "latest.json");
+    const dreamLocalPath = path.join(
+      memoryRoot,
+      "projects",
+      project.projectId,
+      "dream",
+      "locals",
+      project.worktreeId,
+      "latest.json"
+    );
+    const teamIndexPath = path.join(memoryRoot, "projects", project.projectId, "team", "retrieval-index.json");
+
+    const result = runCli(projectDir, ["recall", "search", "pnpm", "--json"]);
+    expect(result.exitCode).toBe(0);
+
+    const response = JSON.parse(result.stdout) as MemorySearchResponse & {
+      querySurfacing: {
+        suggestedDreamRefs: Array<{ ref: string; reason: string }>;
+        suggestedTeamEntries: Array<{ key: string; summary: string; path: string }>;
+      };
+    };
+
+    expect(response.results).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          ref: "project:active:workflow:prefer-pnpm"
+        })
+      ])
+    );
+    expect(response.querySurfacing.suggestedDreamRefs).toEqual([]);
+    expect(response.querySurfacing.suggestedTeamEntries).toEqual([]);
+    await expect(fs.access(dreamSharedPath)).rejects.toMatchObject({ code: "ENOENT" });
+    await expect(fs.access(dreamLocalPath)).rejects.toMatchObject({ code: "ENOENT" });
+    await expect(fs.access(teamIndexPath)).rejects.toMatchObject({ code: "ENOENT" });
+  });
+
+  it("fails closed on stale team memory suggestions when auto-build is disabled", async () => {
+    const homeDir = await tempDir("cam-recall-stale-team-home-");
+    const projectDir = await tempDir("cam-recall-stale-team-project-");
+    const memoryRoot = await tempDir("cam-recall-stale-team-memory-");
+    process.env.HOME = homeDir;
+
+    const projectConfig = makeAppConfig({
+      dreamSidecarEnabled: true,
+      dreamSidecarAutoBuild: false
+    });
+    await writeCamConfig(projectDir, projectConfig, {
+      autoMemoryDirectory: memoryRoot,
+      dreamSidecarEnabled: true,
+      dreamSidecarAutoBuild: false
+    });
+
+    const store = new MemoryStore(detectProjectContext(projectDir), {
+      ...projectConfig,
+      autoMemoryDirectory: memoryRoot
+    });
+    await store.ensureLayout();
+    await store.remember(
+      "project",
+      "workflow",
+      "prefer-pnpm",
+      "Prefer pnpm in this repository.",
+      ["Use pnpm instead of npm in this repository."],
+      "Manual note."
+    );
+
+    await fs.writeFile(path.join(projectDir, "TEAM_MEMORY.md"), "# Team Memory\n", "utf8");
+    await fs.mkdir(path.join(projectDir, "team-memory"), { recursive: true });
+    const workflowPath = path.join(projectDir, "team-memory", "workflow.md");
+    await fs.writeFile(
+      workflowPath,
+      [
+        "# Workflow",
+        "",
+        "<!-- cam:team-topic workflow -->",
+        "",
+        "## prefer-pnpm-shared",
+        '<!-- cam:team-entry {"id":"prefer-pnpm-shared","scopeHint":"project","updatedAt":"2026-03-15T00:00:00.000Z"} -->',
+        "Summary: Prefer pnpm from the shared workflow memory.",
+        "Details:",
+        "- Use pnpm across the shared project workflow.",
+        ""
+      ].join("\n"),
+      "utf8"
+    );
+
+    const rolloutPath = path.join(projectDir, "rollout.jsonl");
+    await fs.writeFile(
+      rolloutPath,
+      makeRolloutFixture(projectDir, "Continue the middleware work and keep using pnpm in this repository."),
+      "utf8"
+    );
+    await runDream("build", {
+      cwd: projectDir,
+      rollout: rolloutPath,
+      json: true
+    });
+
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    await fs.writeFile(
+      workflowPath,
+      [
+        "# Workflow",
+        "",
+        "<!-- cam:team-topic workflow -->",
+        "",
+        "## prefer-pnpm-shared",
+        '<!-- cam:team-entry {"id":"prefer-pnpm-shared","scopeHint":"project","updatedAt":"2026-03-16T00:00:00.000Z"} -->',
+        "Summary: Prefer pnpm from the updated shared workflow memory.",
+        "Details:",
+        "- Use pnpm across the updated shared project workflow.",
+        ""
+      ].join("\n"),
+      "utf8"
+    );
+
+    const result = runCli(projectDir, ["recall", "search", "pnpm", "--json"], {
+      env: { HOME: homeDir }
+    });
+    expect(result.exitCode).toBe(0);
+
+    const response = JSON.parse(result.stdout) as MemorySearchResponse & {
+      querySurfacing: {
+        suggestedTeamEntries: Array<{ key: string; summary: string }>;
+      };
+    };
+
+    expect(response.querySurfacing.suggestedTeamEntries).toEqual([]);
+  });
+
+  it("fails closed when a new team-memory topic appears after the index is built", async () => {
+    const homeDir = await tempDir("cam-recall-new-team-topic-home-");
+    const projectDir = await tempDir("cam-recall-new-team-topic-project-");
+    const memoryRoot = await tempDir("cam-recall-new-team-topic-memory-");
+    process.env.HOME = homeDir;
+
+    const projectConfig = makeAppConfig({
+      dreamSidecarEnabled: true,
+      dreamSidecarAutoBuild: false
+    });
+    await writeCamConfig(projectDir, projectConfig, {
+      autoMemoryDirectory: memoryRoot,
+      dreamSidecarEnabled: true,
+      dreamSidecarAutoBuild: false
+    });
+
+    const store = new MemoryStore(detectProjectContext(projectDir), {
+      ...projectConfig,
+      autoMemoryDirectory: memoryRoot
+    });
+    await store.ensureLayout();
+    await store.remember(
+      "project",
+      "workflow",
+      "prefer-pnpm",
+      "Prefer pnpm in this repository.",
+      ["Use pnpm instead of npm in this repository."],
+      "Manual note."
+    );
+
+    await fs.writeFile(path.join(projectDir, "TEAM_MEMORY.md"), "# Team Memory\n", "utf8");
+    await fs.mkdir(path.join(projectDir, "team-memory"), { recursive: true });
+    await fs.writeFile(
+      path.join(projectDir, "team-memory", "workflow.md"),
+      [
+        "# Workflow",
+        "",
+        "<!-- cam:team-topic workflow -->",
+        "",
+        "## prefer-pnpm-shared",
+        '<!-- cam:team-entry {"id":"prefer-pnpm-shared","scopeHint":"project","updatedAt":"2026-03-15T00:00:00.000Z"} -->',
+        "Summary: Prefer pnpm from the shared workflow memory.",
+        "Details:",
+        "- Use pnpm across the shared project workflow.",
+        ""
+      ].join("\n"),
+      "utf8"
+    );
+
+    const initialTeamIndex = await rebuildTeamMemoryIndex(detectProjectContext(projectDir), {
+      ...projectConfig,
+      autoMemoryDirectory: memoryRoot
+    });
+    expect(initialTeamIndex.summary).toMatchObject({
+      status: "available",
+      entryCount: 1
+    });
+
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    await fs.writeFile(
+      path.join(projectDir, "team-memory", "release.md"),
+      [
+        "# Release",
+        "",
+        "<!-- cam:team-topic release -->",
+        "",
+        "## release-pnpm-check",
+        '<!-- cam:team-entry {"id":"release-pnpm-check","scopeHint":"project","updatedAt":"2026-03-16T00:00:00.000Z"} -->',
+        "Summary: Keep pnpm checks in the release checklist.",
+        "Details:",
+        "- Verify pnpm commands before shipping release artifacts.",
+        ""
+      ].join("\n"),
+      "utf8"
+    );
+
+    const result = runCli(projectDir, ["recall", "search", "pnpm", "--json"], {
+      env: { HOME: homeDir }
+    });
+    expect(result.exitCode).toBe(0);
+
+    const response = JSON.parse(result.stdout) as MemorySearchResponse & {
+      querySurfacing: {
+        suggestedTeamEntries: Array<{ key: string; summary: string }>;
+      };
+    };
+
+    expect(response.querySurfacing.suggestedTeamEntries).toEqual([]);
   });
 });

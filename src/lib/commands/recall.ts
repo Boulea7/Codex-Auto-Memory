@@ -1,4 +1,7 @@
-import { buildReadOnlyMemoryRetrievalService } from "../runtime/runtime-context.js";
+import { buildRuntimeContext } from "../runtime/runtime-context.js";
+import { MemoryRetrievalService } from "../domain/memory-retrieval.js";
+import { buildInstructionReviewLane } from "../domain/dream-candidates.js";
+import { buildMemoryQuerySurfacing } from "../domain/resume-context.js";
 import type {
   MemoryDetailsResult,
   MemoryRetrievalScope,
@@ -273,7 +276,10 @@ export async function runRecall(
   target: string,
   options: RecallOptions = {}
 ): Promise<string> {
-  const retrieval = await buildReadOnlyMemoryRetrievalService(options.cwd);
+  const runtime = await buildRuntimeContext(options.cwd ?? process.cwd(), {}, {
+    ensureMemoryLayout: false
+  });
+  const retrieval = new MemoryRetrievalService(runtime.syncService.memoryStore);
   const scope = normalizeMemoryRetrievalScope(options.scope);
   const state = normalizeMemoryRetrievalState(options.state);
 
@@ -285,7 +291,17 @@ export async function runRecall(
         limit: parseMemoryRetrievalLimit(options.limit)
       });
       if (options.json) {
-        return JSON.stringify(response, null, 2);
+        return JSON.stringify(
+          {
+            ...response,
+            querySurfacing: {
+              ...(await buildMemoryQuerySurfacing(runtime, target)),
+              instructionReviewLane: await buildInstructionReviewLane(runtime)
+            }
+          },
+          null,
+          2
+        );
       }
       return formatSearchResults(response);
     }

@@ -78,6 +78,28 @@ interface SearchMemoriesResponse {
       generatedAt: string | null;
     }>;
   };
+  querySurfacing?: {
+    suggestedDreamRefs: Array<{
+      ref: string;
+      reason: string;
+    }>;
+    suggestedInstructionFiles: string[];
+    topDurableRefs?: Array<{
+      ref: string;
+      reason: string;
+    }>;
+    instructionReviewLane?: {
+      latestCandidateId: string | null;
+      latestProposalArtifactPath: string | null;
+      selectedTargetFile: string | null;
+      selectedTargetKind: string | null;
+      targetHost: string | null;
+      applyReadinessStatus: string | null;
+      recommendedInspectCommand: string;
+      recommendedApplyPrepCommand: string;
+      recommendedVerifyApplyCommand: string;
+    };
+  };
   results: Array<{
     ref: string;
     state: string;
@@ -3950,6 +3972,209 @@ describe("mcp command", () => {
       expect(mcpPayload.results.map((result) => result.ref)).toEqual(
         cliPayload.results.map((result) => result.ref)
       );
+    } finally {
+      await client.close();
+    }
+  }, 30_000);
+
+  it("adds querySurfacing parity to search_memories using merged shared and local dream refs", async () => {
+    const homeDir = await tempDir("cam-mcp-dream-merge-home-");
+    const projectDir = await tempDir("cam-mcp-dream-merge-project-");
+    const memoryRoot = await tempDir("cam-mcp-dream-merge-memory-");
+    process.env.HOME = homeDir;
+
+    const projectConfig = makeAppConfig({
+      dreamSidecarEnabled: true
+    });
+    await writeCamConfig(projectDir, projectConfig, {
+      autoMemoryDirectory: memoryRoot,
+      dreamSidecarEnabled: true
+    });
+
+    const store = new MemoryStore(detectProjectContext(projectDir), {
+      ...projectConfig,
+      autoMemoryDirectory: memoryRoot,
+      dreamSidecarEnabled: true
+    });
+    await store.ensureLayout();
+    await store.remember(
+      "project",
+      "workflow",
+      "prefer-pnpm-shared",
+      "Prefer pnpm from the shared workflow memory.",
+      ["Use pnpm across the shared project workflow."],
+      "Manual note."
+    );
+
+    const sharedRolloutPath = path.join(projectDir, "shared-rollout.jsonl");
+    await fs.writeFile(
+      sharedRolloutPath,
+      makeRolloutFixture(projectDir, "Keep using pnpm for the shared middleware workflow."),
+      "utf8"
+    );
+    const sharedDreamBuild = runCli(
+      projectDir,
+      ["dream", "build", "--rollout", sharedRolloutPath, "--scope", "project", "--json"],
+      {
+        env: { HOME: homeDir }
+      }
+    );
+    expect(sharedDreamBuild.exitCode, sharedDreamBuild.stderr).toBe(0);
+
+    await store.remember(
+      "project-local",
+      "workflow",
+      "prefer-pnpm-local",
+      "Prefer pnpm for this local retry loop.",
+      ["Use pnpm for the local worktree retry workflow."],
+      "Manual note."
+    );
+
+    const localRolloutPath = path.join(projectDir, "local-rollout.jsonl");
+    await fs.writeFile(
+      localRolloutPath,
+      makeRolloutFixture(projectDir, "Keep using pnpm for the local retry workflow."),
+      "utf8"
+    );
+    const localDreamBuild = runCli(
+      projectDir,
+      ["dream", "build", "--rollout", localRolloutPath, "--scope", "project-local", "--json"],
+      {
+        env: { HOME: homeDir }
+      }
+    );
+    expect(localDreamBuild.exitCode, localDreamBuild.stderr).toBe(0);
+
+    const cliResult = runCli(projectDir, ["recall", "search", "pnpm", "--json"], {
+      env: { HOME: homeDir }
+    });
+    expect(cliResult.exitCode, cliResult.stderr).toBe(0);
+    const cliPayload = JSON.parse(cliResult.stdout) as SearchMemoriesResponse;
+
+    const client = await connectCliMcpClient(projectDir, {
+      env: { HOME: homeDir }
+    });
+
+    try {
+      const mcpResult = await client.callTool({
+        name: "search_memories",
+        arguments: {
+          query: "pnpm",
+          state: "auto",
+          limit: 8
+        }
+      });
+      const mcpPayload = readStructuredContent<SearchMemoriesResponse>(
+        mcpResult as ToolCallResultLike
+      );
+
+      expect(mcpPayload.querySurfacing?.suggestedDreamRefs).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            ref: "project:active:workflow:prefer-pnpm-shared"
+          }),
+          expect.objectContaining({
+            ref: "project-local:active:workflow:prefer-pnpm-local"
+          })
+        ])
+      );
+      expect(mcpPayload.querySurfacing?.topDurableRefs).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            ref: "project:active:workflow:prefer-pnpm-shared"
+          })
+        ])
+      );
+      expect(mcpPayload.querySurfacing).toEqual(cliPayload.querySurfacing);
+    } finally {
+      await client.close();
+    }
+  }, 30_000);
+
+  it("surfaces instruction review lane parity through search_memories when a proposal artifact is pending", async () => {
+    const homeDir = await tempDir("cam-mcp-instruction-lane-home-");
+    const projectDir = await tempDir("cam-mcp-instruction-lane-project-");
+    const memoryRoot = await tempDir("cam-mcp-instruction-lane-memory-");
+    process.env.HOME = homeDir;
+
+    const projectConfig = makeAppConfig({
+      dreamSidecarEnabled: true
+    });
+    await writeCamConfig(projectDir, projectConfig, {
+      autoMemoryDirectory: memoryRoot,
+      dreamSidecarEnabled: true
+    });
+    await fs.writeFile(path.join(projectDir, "AGENTS.md"), "# Repo rules\n", "utf8");
+
+    const rolloutPath = path.join(projectDir, "instruction-rollout.jsonl");
+    await fs.writeFile(
+      rolloutPath,
+      makeRolloutFixture(projectDir, "Always run pnpm lint before pnpm build."),
+      "utf8"
+    );
+    expect(
+      runCli(projectDir, ["dream", "build", "--rollout", rolloutPath, "--json"], {
+        env: { HOME: homeDir }
+      }).exitCode
+    ).toBe(0);
+
+    const candidatePayload = JSON.parse(
+      runCli(projectDir, ["dream", "candidates", "--json"], {
+        env: { HOME: homeDir }
+      }).stdout
+    ) as {
+      entries: Array<{ candidateId: string; targetSurface: string }>;
+    };
+    const instructionCandidate = candidatePayload.entries.find(
+      (entry) => entry.targetSurface === "instruction-memory"
+    );
+    expect(instructionCandidate).toBeDefined();
+
+    expect(
+      runCli(
+        projectDir,
+        ["dream", "review", "--candidate-id", instructionCandidate!.candidateId, "--approve", "--json"],
+        { env: { HOME: homeDir } }
+      ).exitCode
+    ).toBe(0);
+    expect(
+      runCli(
+        projectDir,
+        ["dream", "promote-prep", "--candidate-id", instructionCandidate!.candidateId, "--json"],
+        { env: { HOME: homeDir } }
+      ).exitCode
+    ).toBe(0);
+
+    const cliResult = runCli(projectDir, ["recall", "search", "pnpm", "--json"], {
+      env: { HOME: homeDir }
+    });
+    expect(cliResult.exitCode, cliResult.stderr).toBe(0);
+    const cliPayload = JSON.parse(cliResult.stdout) as SearchMemoriesResponse;
+
+    const client = await connectCliMcpClient(projectDir, {
+      env: { HOME: homeDir }
+    });
+
+    try {
+      const mcpResult = await client.callTool({
+        name: "search_memories",
+        arguments: {
+          query: "pnpm",
+          state: "auto",
+          limit: 8
+        }
+      });
+      const mcpPayload = readStructuredContent<SearchMemoriesResponse>(
+        mcpResult as ToolCallResultLike
+      );
+
+      expect(mcpPayload.querySurfacing?.instructionReviewLane).toMatchObject({
+        latestCandidateId: instructionCandidate!.candidateId,
+        selectedTargetKind: "agents-root",
+        targetHost: "shared",
+        applyReadinessStatus: "safe"
+      });
+      expect(mcpPayload.querySurfacing).toEqual(cliPayload.querySurfacing);
     } finally {
       await client.close();
     }
