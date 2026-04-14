@@ -41,7 +41,20 @@ interface SessionPersistenceRequest {
 }
 
 function shouldUseReadOnlySessionRuntime(action: SessionAction): boolean {
-  return action === "status" || action === "load";
+  switch (action) {
+    case "status":
+    case "load":
+      return true;
+    case "save":
+    case "refresh":
+    case "clear":
+    case "open":
+      return false;
+    default: {
+      const unreachableAction: never = action;
+      throw new Error(`Unsupported session action "${unreachableAction}"`);
+    }
+  }
 }
 
 async function buildSessionRuntime(
