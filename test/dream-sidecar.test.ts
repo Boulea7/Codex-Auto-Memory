@@ -929,6 +929,27 @@ describe("dream sidecar", () => {
         expect.stringContaining(`dream apply-prep --candidate-id ${instructionCandidate!.candidateId} --json`)
       ])
     );
+
+    const proposalPayload = JSON.parse(
+      await runDream("proposal" as never, {
+        cwd: repoDir,
+        candidateId: instructionCandidate!.candidateId,
+        json: true
+      })
+    ) as {
+      nextRecommendedActions: string[];
+    };
+    expect(proposalPayload.nextRecommendedActions).toEqual(
+      expect.arrayContaining([
+        expect.stringContaining(`dream promote-prep --candidate-id ${instructionCandidate!.candidateId} --json`),
+        expect.stringContaining(`dream promote --candidate-id ${instructionCandidate!.candidateId} --json`)
+      ])
+    );
+    expect(proposalPayload.nextRecommendedActions).not.toEqual(
+      expect.arrayContaining([
+        expect.stringContaining(`dream apply-prep --candidate-id ${instructionCandidate!.candidateId} --json`)
+      ])
+    );
   });
 
   it("surfaces a read-only proposal artifact and closes manual apply with verify-apply", async () => {
