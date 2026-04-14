@@ -89,6 +89,38 @@ function subagentRolloutFixture(
   ].join("\n");
 }
 
+async function writeInstructionDreamRollout(
+  rolloutPath: string,
+  projectDir: string,
+  sessionId: string,
+  timestamp: string,
+  messages: string[]
+): Promise<void> {
+  await fs.writeFile(
+    rolloutPath,
+    [
+      JSON.stringify({
+        type: "session_meta",
+        payload: {
+          id: sessionId,
+          timestamp,
+          cwd: projectDir
+        }
+      }),
+      ...messages.map((message) =>
+        JSON.stringify({
+          type: "event_msg",
+          payload: {
+            type: "user_message",
+            message
+          }
+        })
+      )
+    ].join("\n") + "\n",
+    "utf8"
+  );
+}
+
 afterEach(async () => {
   if (originalCodexHome === undefined) {
     delete process.env.CODEX_HOME;
@@ -602,26 +634,12 @@ describe("dist cli smoke", () => {
     });
 
     const instructionDreamRolloutPath = path.join(projectDir, "dream-instruction-rollout.jsonl");
-    await fs.writeFile(
+    await writeInstructionDreamRollout(
       instructionDreamRolloutPath,
-      JSON.stringify({
-        type: "session_meta",
-        payload: {
-          id: "session-dist-dream-instruction",
-          timestamp: "2026-03-15T00:06:00.000Z",
-          cwd: projectDir
-        }
-      }) +
-        "\n" +
-        JSON.stringify({
-          type: "event_msg",
-          payload: {
-            type: "user_message",
-            message: "Always run pnpm test before build in this repository."
-          }
-        }) +
-        "\n",
-      "utf8"
+      projectDir,
+      "session-dist-dream-instruction",
+      "2026-03-15T00:06:00.000Z",
+      ["Always run pnpm test before build in this repository."]
     );
     const instructionDreamBuildResult = runCli(
       projectDir,
@@ -926,34 +944,15 @@ describe("dist cli smoke", () => {
     });
 
     const rejectedInstructionRolloutPath = path.join(projectDir, "dream-instruction-rejected-rollout.jsonl");
-    await fs.writeFile(
+    await writeInstructionDreamRollout(
       rejectedInstructionRolloutPath,
-      JSON.stringify({
-        type: "session_meta",
-        payload: {
-          id: "session-dist-dream-instruction-rejected",
-          timestamp: "2026-03-15T00:08:00.000Z",
-          cwd: projectDir
-        }
-        }) +
-        "\n" +
-        JSON.stringify({
-          type: "event_msg",
-          payload: {
-            type: "user_message",
-            message: "Always run pnpm test before build in this repository."
-          }
-        }) +
-        "\n" +
-        JSON.stringify({
-          type: "event_msg",
-          payload: {
-            type: "user_message",
-            message: "Always run pnpm format before pnpm build in this repository."
-          }
-        }) +
-        "\n",
-      "utf8"
+      projectDir,
+      "session-dist-dream-instruction-rejected",
+      "2026-03-15T00:08:00.000Z",
+      [
+        "Always run pnpm test before build in this repository.",
+        "Always run pnpm format before pnpm build in this repository."
+      ]
     );
     const rejectedInstructionBuildResult = runCli(
       projectDir,
