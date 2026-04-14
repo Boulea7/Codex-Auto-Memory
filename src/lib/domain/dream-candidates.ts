@@ -193,21 +193,33 @@ function mergeCandidateRecord(
   observed: DreamCandidateRecord
 ): DreamCandidateRecord {
   const recoveredFromStale = current.status === "stale" && observed.status !== "stale";
+  const recoveredFromProposalLane =
+    current.promotion.promotionOutcome === "proposal-only" ||
+    current.promotion.proposalArtifactPath !== undefined ||
+    current.promotion.preparedArtifactPath !== undefined;
   const recoveredStatus =
     recoveredFromStale && current.originKind === "subagent" && current.adoption
       ? "pending"
+      : recoveredFromStale && recoveredFromProposalLane
+        ? "manual-apply-pending"
+        : recoveredFromStale && current.review?.decision === "approved"
+          ? "approved"
       : recoveredFromStale
         ? observed.status
         : current.status;
   const recoveredPromotion =
     recoveredFromStale && current.originKind === "subagent" && current.adoption
       ? {
+          ...current.promotion,
           ...observed.promotion,
           eligible: true,
           eligibleReason: "Previously adopted subagent candidate reappeared in the latest dream snapshot."
         }
       : recoveredFromStale
-        ? observed.promotion
+        ? {
+            ...current.promotion,
+            ...observed.promotion
+          }
         : current.promotion;
 
   return {
@@ -310,6 +322,28 @@ async function writeCandidateRecoveryRecord(
   record: DreamCandidateRecoveryRecord
 ): Promise<void> {
   await writeJsonFileAtomic(paths.candidateRecoveryFile, record);
+}
+
+async function writeCandidateRegistryOrRecovery(
+  paths: DreamCandidatePaths,
+  nextRegistry: DreamCandidateRegistry,
+  record: {
+    recordedAt: string;
+    candidateId?: string;
+  }
+): Promise<void> {
+  try {
+    await writeJsonFileAtomic(paths.registryFile, nextRegistry);
+  } catch (error) {
+    await writeCandidateRecoveryRecord(paths, {
+      recordedAt: record.recordedAt,
+      candidateId: record.candidateId,
+      failedStage: "registry-write",
+      failureMessage: error instanceof Error ? error.message : String(error),
+      registryPath: paths.registryFile
+    });
+    throw error;
+  }
 }
 
 export async function recordDreamCandidateRecovery(
@@ -527,7 +561,8 @@ export async function reviewDreamCandidate(
   if (
     currentEntry.status === "rejected" ||
     currentEntry.status === "stale" ||
-    currentEntry.status === "promoted"
+    currentEntry.status === "promoted" ||
+    currentEntry.status === "manual-applied"
   ) {
     throw new Error(
       `Dream candidate "${options.candidateId}" is already in terminal reviewer state "${currentEntry.status}" and cannot be reviewed again.`
@@ -574,7 +609,10 @@ export async function reviewDreamCandidate(
     )
   };
 
-  await writeJsonFileAtomic(paths.registryFile, nextRegistry);
+  await writeCandidateRegistryOrRecovery(paths, nextRegistry, {
+    recordedAt: decisionAt,
+    candidateId: nextEntry.candidateId
+  });
   try {
     await appendCandidateAuditEntry(
       paths,
@@ -646,7 +684,10 @@ export async function adoptDreamCandidate(
     )
   };
 
-  await writeJsonFileAtomic(paths.registryFile, nextRegistry);
+  await writeCandidateRegistryOrRecovery(paths, nextRegistry, {
+    recordedAt: adoptedAt,
+    candidateId: nextEntry.candidateId
+  });
   try {
     await appendCandidateAuditEntry(paths, buildAuditEntry("adopted", nextEntry, note));
   } catch (error) {
@@ -716,7 +757,10 @@ export async function markDreamCandidatePromoted(
       entry.candidateId === nextEntry.candidateId ? nextEntry : entry
     )
   };
-  await writeJsonFileAtomic(paths.registryFile, nextRegistry);
+  await writeCandidateRegistryOrRecovery(paths, nextRegistry, {
+    recordedAt: promotedAt,
+    candidateId: nextEntry.candidateId
+  });
   try {
     await appendCandidateAuditEntry(
       paths,
@@ -779,7 +823,10 @@ export async function markDreamCandidatePrepared(
       entry.candidateId === nextEntry.candidateId ? nextEntry : entry
     )
   };
-  await writeJsonFileAtomic(paths.registryFile, nextRegistry);
+  await writeCandidateRegistryOrRecovery(paths, nextRegistry, {
+    recordedAt: preparedAt,
+    candidateId: nextEntry.candidateId
+  });
   try {
     await appendCandidateAuditEntry(paths, buildAuditEntry("promotion-prepared", nextEntry));
   } catch (error) {
@@ -825,7 +872,10 @@ export async function markDreamCandidateApplyPrepared(
       entry.candidateId === nextEntry.candidateId ? nextEntry : entry
     )
   };
-  await writeJsonFileAtomic(paths.registryFile, nextRegistry);
+  await writeCandidateRegistryOrRecovery(paths, nextRegistry, {
+    recordedAt: applyPreparedAt,
+    candidateId: nextEntry.candidateId
+  });
   try {
     await appendCandidateAuditEntry(paths, buildAuditEntry("apply-prepared", nextEntry));
   } catch (error) {
@@ -873,7 +923,10 @@ export async function markDreamCandidateManualApplied(
       entry.candidateId === nextEntry.candidateId ? nextEntry : entry
     )
   };
-  await writeJsonFileAtomic(paths.registryFile, nextRegistry);
+  await writeCandidateRegistryOrRecovery(paths, nextRegistry, {
+    recordedAt: verifiedAppliedAt,
+    candidateId: nextEntry.candidateId
+  });
   try {
     await appendCandidateAuditEntry(paths, buildAuditEntry("manual-apply-verified", nextEntry));
   } catch (error) {
@@ -995,6 +1048,45 @@ export async function readInstructionProposalArtifact(
   return artifact;
 }
 
+async function readLatestInstructionProposalCandidate(
+  runtime: RuntimeContext,
+  entries: DreamCandidateRecord[]
+): Promise<{
+  candidate: DreamCandidateRecord;
+  artifact: InstructionProposalArtifact;
+} | null> {
+  const candidates = entries
+    .filter(
+      (entry) =>
+        entry.targetSurface === "instruction-memory" &&
+        actionableInstructionProposalStatuses.includes(entry.status) &&
+        actionableInstructionProposalReadinessStatuses.has(entry.promotion.applyReadinessStatus) &&
+        getDreamCandidateProposalArtifactPath(entry)
+    )
+    .sort((left, right) => {
+      const leftTimestamp =
+        left.promotion.applyPreparedAt ??
+        left.promotion.promotedAt ??
+        left.promotion.preparedAt ??
+        left.lastSeenAt;
+      const rightTimestamp =
+        right.promotion.applyPreparedAt ??
+        right.promotion.promotedAt ??
+        right.promotion.preparedAt ??
+        right.lastSeenAt;
+      return rightTimestamp.localeCompare(leftTimestamp);
+    });
+
+  for (const candidate of candidates) {
+    const artifact = await readInstructionProposalArtifact(runtime, candidate.candidateId).catch(() => null);
+    if (artifact !== null) {
+      return { candidate, artifact };
+    }
+  }
+
+  return null;
+}
+
 export async function buildInstructionReviewLane(
   runtime: RuntimeContext,
   options: {
@@ -1006,14 +1098,13 @@ export async function buildInstructionReviewLane(
   const instructionCandidates = dreamCandidates.entries.filter(
     (entry) => entry.targetSurface === "instruction-memory"
   );
-  const latestInstructionProposalCandidate = getLatestDreamProposalCandidate(dreamCandidates.entries);
+  const latestInstructionProposal = await readLatestInstructionProposalCandidate(
+    runtime,
+    instructionCandidates
+  );
+  const latestInstructionProposalCandidate = latestInstructionProposal?.candidate ?? null;
   const commandCwd = options.cwd ?? runtime.project.projectRoot;
-  const latestProposalArtifact =
-    latestInstructionProposalCandidate !== null
-      ? await readInstructionProposalArtifact(runtime, latestInstructionProposalCandidate.candidateId).catch(
-          () => null
-        )
-      : null;
+  const latestProposalArtifact = latestInstructionProposal?.artifact ?? null;
   const resolvedApplyReadinessStatus =
     latestInstructionProposalCandidate?.promotion.applyReadinessStatus ??
     latestProposalArtifact?.applyReadiness.status ??

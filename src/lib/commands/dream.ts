@@ -12,6 +12,7 @@ import {
   getDreamCandidate,
   getDreamCandidateProposalArtifactPath,
   getLatestDreamProposalCandidate,
+  buildInstructionReviewLane,
   listDreamCandidates,
   markDreamCandidateManualApplied,
   markDreamCandidateApplyPrepared,
@@ -221,12 +222,17 @@ async function buildDreamReviewerPayload(
   helperCommands: string[];
 }> {
   const queue = await listDreamCandidates(runtime);
-  const latestProposalCandidate = getLatestDreamProposalCandidate(queue.entries);
+  const instructionReviewLane = await buildInstructionReviewLane(runtime);
+  const latestProposalCandidate =
+    instructionReviewLane.latestCandidateId !== null
+      ? queue.entries.find((entry) => entry.candidateId === instructionReviewLane.latestCandidateId) ?? null
+      : null;
   const latestProposalArtifact =
     latestProposalCandidate !== null
       ? await readInstructionProposalArtifact(runtime, latestProposalCandidate.candidateId).catch(() => null)
       : null;
   const latestProposalReadinessStatus =
+    instructionReviewLane.applyReadinessStatus ??
     latestProposalCandidate?.promotion.applyReadinessStatus ??
     latestProposalArtifact?.applyReadiness.status;
   const reviewerSummary = {

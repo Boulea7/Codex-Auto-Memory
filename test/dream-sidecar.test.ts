@@ -950,6 +950,55 @@ describe("dream sidecar", () => {
         expect.stringContaining(`dream apply-prep --candidate-id ${instructionCandidate!.candidateId} --json`)
       ])
     );
+
+    await runDream("build", {
+      cwd: repoDir,
+      rollout: rolloutPath,
+      json: true
+    });
+
+    const recoveredCandidates = JSON.parse(
+      await runDream("candidates", {
+        cwd: repoDir,
+        json: true
+      })
+    ) as {
+      entries: Array<{
+        candidateId: string;
+        status: string;
+      }>;
+    };
+    expect(
+      recoveredCandidates.entries.find((entry) => entry.candidateId === instructionCandidate!.candidateId)
+    ).toMatchObject({
+      candidateId: instructionCandidate!.candidateId,
+      status: "manual-apply-pending"
+    });
+
+    const recoveredProposalPayload = JSON.parse(
+      await runDream("proposal" as never, {
+        cwd: repoDir,
+        candidateId: instructionCandidate!.candidateId,
+        json: true
+      })
+    ) as {
+      entry: {
+        status: string;
+      };
+      instructionProposal: {
+        artifactPath: string;
+      };
+    };
+    expect(recoveredProposalPayload).toMatchObject({
+      entry: {
+        status: "manual-apply-pending"
+      },
+      instructionProposal: {
+        artifactPath: expect.stringContaining(
+          `${path.sep}dream${path.sep}review${path.sep}proposals${path.sep}`
+        )
+      }
+    });
   });
 
   it("surfaces a read-only proposal artifact and closes manual apply with verify-apply", async () => {
