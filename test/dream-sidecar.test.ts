@@ -1001,6 +1001,135 @@ describe("dream sidecar", () => {
     });
   });
 
+  it("restores stale prepared instruction candidates to approved instead of manual-apply-pending", async () => {
+    const homeDir = await tempDir("cam-dream-stale-prepared-home-");
+    const repoDir = await tempDir("cam-dream-stale-prepared-repo-");
+    const memoryRoot = await tempDir("cam-dream-stale-prepared-memory-");
+    process.env.HOME = homeDir;
+    await initGitRepo(repoDir);
+    await fs.writeFile(path.join(repoDir, "AGENTS.md"), "# Repo rules\n", "utf8");
+    await writeCamConfig(
+      repoDir,
+      makeAppConfig({
+        dreamSidecarEnabled: true
+      }),
+      {
+        autoMemoryDirectory: memoryRoot,
+        dreamSidecarEnabled: true
+      }
+    );
+
+    const rolloutPath = path.join(repoDir, "instruction-rollout.jsonl");
+    await fs.writeFile(
+      rolloutPath,
+      makeRolloutFixture(repoDir, "Always run pnpm lint before pnpm build."),
+      "utf8"
+    );
+
+    await runDream("build", {
+      cwd: repoDir,
+      rollout: rolloutPath,
+      json: true
+    });
+    const candidatesPayload = JSON.parse(
+      await runDream("candidates", {
+        cwd: repoDir,
+        json: true
+      })
+    ) as {
+      entries: Array<{
+        candidateId: string;
+        targetSurface: string;
+      }>;
+    };
+    const instructionCandidate = candidatesPayload.entries.find(
+      (entry) => entry.targetSurface === "instruction-memory"
+    );
+    expect(instructionCandidate).toBeDefined();
+
+    await runDream("review", {
+      cwd: repoDir,
+      candidateId: instructionCandidate!.candidateId,
+      approve: true,
+      json: true
+    });
+    await runDream("promote-prep", {
+      cwd: repoDir,
+      candidateId: instructionCandidate!.candidateId,
+      json: true
+    });
+
+    const emptyRolloutPath = path.join(repoDir, "empty-rollout.jsonl");
+    await fs.writeFile(
+      emptyRolloutPath,
+      [
+        JSON.stringify({
+          type: "session_meta",
+          payload: {
+            id: "session-empty-dream-rollout",
+            timestamp: "2026-03-15T00:10:00.000Z",
+            cwd: repoDir
+          }
+        }),
+        JSON.stringify({
+          type: "event_msg",
+          payload: {
+            type: "user_message",
+            message: "No durable or instruction-like candidate should be emitted here."
+          }
+        })
+      ].join("\n"),
+      "utf8"
+    );
+    await runDream("build", {
+      cwd: repoDir,
+      rollout: emptyRolloutPath,
+      json: true
+    });
+
+    const staleCandidates = JSON.parse(
+      await runDream("candidates", {
+        cwd: repoDir,
+        json: true
+      })
+    ) as {
+      entries: Array<{
+        candidateId: string;
+        status: string;
+      }>;
+    };
+    expect(
+      staleCandidates.entries.find((entry) => entry.candidateId === instructionCandidate!.candidateId)
+    ).toMatchObject({
+      candidateId: instructionCandidate!.candidateId,
+      status: "stale"
+    });
+
+    await runDream("build", {
+      cwd: repoDir,
+      rollout: rolloutPath,
+      json: true
+    });
+
+    const recoveredCandidates = JSON.parse(
+      await runDream("candidates", {
+        cwd: repoDir,
+        json: true
+      })
+    ) as {
+      entries: Array<{
+        candidateId: string;
+        status: string;
+      }>;
+    };
+    expect(
+      recoveredCandidates.entries.find((entry) => entry.candidateId === instructionCandidate!.candidateId)
+    ).toMatchObject({
+      candidateId: instructionCandidate!.candidateId,
+      status: "approved"
+    });
+  });
+
   it("surfaces a read-only proposal artifact and closes manual apply with verify-apply", async () => {
     const homeDir = await tempDir("cam-dream-verify-apply-home-");
     const repoDir = await tempDir("cam-dream-verify-apply-repo-");

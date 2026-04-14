@@ -193,14 +193,13 @@ function mergeCandidateRecord(
   observed: DreamCandidateRecord
 ): DreamCandidateRecord {
   const recoveredFromStale = current.status === "stale" && observed.status !== "stale";
-  const recoveredFromProposalLane =
+  const recoveredFromManualApplyLane =
     current.promotion.promotionOutcome === "proposal-only" ||
-    current.promotion.proposalArtifactPath !== undefined ||
-    current.promotion.preparedArtifactPath !== undefined;
+    current.promotion.proposalArtifactPath !== undefined;
   const recoveredStatus =
     recoveredFromStale && current.originKind === "subagent" && current.adoption
       ? "pending"
-      : recoveredFromStale && recoveredFromProposalLane
+      : recoveredFromStale && recoveredFromManualApplyLane
         ? "manual-apply-pending"
         : recoveredFromStale && current.review?.decision === "approved"
           ? "approved"
