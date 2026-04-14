@@ -112,9 +112,13 @@ describe("docs contract", () => {
     expect(readme).toContain("suggestedInstructionFiles");
     expect(readme).toContain("promotionCandidates");
     expect(readme).toContain("proposal-only");
+    expect(readme).toContain("cam dream proposal");
+    expect(readme).toContain("cam dream verify-apply");
     expect(agentsDoc).toContain("dreamSidecarAutoBuild");
     expect(agentsDoc).toContain("suggestedTeamEntries");
     expect(agentsDoc).toContain("cam dream promote-prep");
+    expect(agentsDoc).toContain("cam dream proposal");
+    expect(agentsDoc).toContain("cam dream verify-apply");
     expect(readmeTw).toContain("README.md");
     expect(readmeTw).toContain("README.en.md");
     expect(readmeTw).toContain("memory-recall.sh");
@@ -284,6 +288,8 @@ describe("docs contract", () => {
     expect(readmeEn).toContain("suggestedInstructionFiles");
     expect(readmeEn).toContain("promotionCandidates");
     expect(readmeEn).toContain("proposal-only");
+    expect(readmeEn).toContain("cam dream proposal");
+    expect(readmeEn).toContain("cam dream verify-apply");
     expect(readmeEn).toContain("| `cam hooks install` |");
     expect(readmeEn).toContain("`cam memory`, `cam session`, and `cam recall` reviewer UX");
     expect(readmeEn).toContain("--surface runtime|official-user|official-project");
@@ -293,6 +299,10 @@ describe("docs contract", () => {
     expect(docsReadme).toContain("resumeContext");
     expect(docsReadme).toContain("querySurfacing");
     expect(docsReadme).toContain("proposal-only");
+    expect(docsReadme).toContain("closeout contract");
+    expect(docsReadme).toContain("cam dream proposal");
+    expect(docsReadme).toContain("cam dream verify-apply");
+    expect(docsReadme).toContain("`cam dream inspect` 只读取最新 snapshot / audit / queue 元数据");
     expect(architecture).toContain("instruction memory");
     expect(architecture).toContain("learned durable memory");
     expect(architecture).toContain("index-only");
@@ -456,10 +466,13 @@ describe("docs contract", () => {
     expect(releaseChecklist).toContain("node dist/cli.js integrations doctor --host codex --json");
     expect(releaseChecklist).toContain("node dist/cli.js dream build --json");
     expect(releaseChecklist).toContain("node dist/cli.js dream inspect --json");
+    expect(releaseChecklist).toContain("node dist/cli.js dream proposal --help");
+    expect(releaseChecklist).toContain("node dist/cli.js dream verify-apply --help");
     expect(releaseChecklist).toContain("node dist/cli.js dream adopt --help");
     expect(releaseChecklist).toContain("node dist/cli.js dream promote-prep --help");
     expect(releaseChecklist).toContain("promotionCandidates");
     expect(releaseChecklist).toContain("proposal-only");
+    expect(releaseChecklist).toContain("avoid claiming support for `--target-file`");
     expect(releaseChecklist).toContain("teamMemory");
     expect(releaseChecklist).toContain("node dist/cli.js mcp install --help");
     expect(releaseChecklist).toContain("node dist/cli.js mcp print-config --help");

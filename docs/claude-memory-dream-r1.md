@@ -39,7 +39,7 @@
 
 ## Reviewer lane contract
 
-- 公开命令面统一为 `cam dream candidates` / `cam dream review` / `cam dream adopt` / `cam dream promote-prep` / `cam dream promote` / `cam dream apply-prep`
+- 公开命令面统一为 `cam dream candidates` / `cam dream review` / `cam dream adopt` / `cam dream proposal` / `cam dream promote-prep` / `cam dream promote` / `cam dream apply-prep` / `cam dream verify-apply`
 - `candidates` 负责列出 sidecar 中待审条目，其中 subagent candidates 默认先 blocked
 - `review` 负责 reviewer-facing inspection，不写 canonical memory
 - `adopt` 只负责把 blocked subagent candidate 提升进 primary review lane，不直接写 durable memory
@@ -49,11 +49,13 @@
 - `promote` 继续保持双边界：
   - durable-memory candidate 只能通过显式 `promote` + 既有 reviewer/audit 路径写入 canonical memory
   - instruction-like candidate 继续保持 `proposal-only`，永不直接写 instruction files
-- `apply-prep` 只负责整理 instruction-like proposal 的 manual apply 准备，不自动改 instruction files
+- `proposal` 只负责只读查看 proposal artifact，不改 reviewer 状态
+- `apply-prep` 只负责整理 instruction-like proposal 的 manual apply 准备，不自动改 instruction files，也不接受 `--target-file`
+- `verify-apply` 只负责确认人工落地后的 instruction block 已存在，并把 reviewer 状态收口
 
 ## Instruction-like proposal contract
 
-- instruction-like `promote` / `promote-prep` / `apply-prep` 全部保持 `proposal-only`
+- instruction-like `proposal` / `promote` / `promote-prep` / `apply-prep` 全部保持 `proposal-only`
 - proposal payload 现在统一写为 proposal artifact
 - 当前稳定字段包括：
   - `selectedTarget`
@@ -63,8 +65,9 @@
   - `artifactPath`
   - `manualWorkflow`
   - `applyReadiness`
-- reviewer 可以通过显式 `--target-file` override 指定本次 proposal 指向的 instruction file，而不改变默认 target ranking
+- reviewer 可以在 `promote-prep` / `promote` 阶段通过显式 `--target-file` override 指定本次 proposal 指向的 instruction file，而不改变默认 target ranking
 - instruction-like candidate 在 proposal-only `promote` 之后进入 `manual-apply-pending` reviewer 状态
+- `verify-apply` 成功后，candidate 进入 `manual-applied` 终态，不再继续改写 proposal/apply reviewer 状态
 - rejected / stale proposal artifacts 不应再被当作最新 follow-up 推荐
 
 ## Auto-build and read-only boundary

@@ -47,9 +47,11 @@ cam dream inspect
 cam dream candidates
 cam dream review
 cam dream adopt
+cam dream proposal
 cam dream promote-prep
 cam dream promote
 cam dream apply-prep
+cam dream verify-apply
 cam session save
 cam session refresh
 cam session load
@@ -94,7 +96,7 @@ cam session status
 - `cam recall details --json`: 返回 detail、`latestState`、`latestAudit`、`warnings`
 - `cam dream build --json`: 返回 dream sidecar snapshot、`snapshotPaths`、`auditPath`、`recoveryPath`，其中可包含 read-only `teamMemory` reviewer hints
 - `cam dream inspect --json`: 返回 shared / local dream sidecar 状态、`auditPath`、`recoveryPath`，以及 reviewer-facing queue / helper 元数据；inspect 保持只读，不隐式重建 sidecar 或 team index
-- `cam dream candidates/review/adopt/promote-prep/promote/apply-prep`: 继续保持 sidecar reviewer lane；其中 subagent candidate 默认以 blocked 状态起步，需先显式 `adopt` 才能进入 primary review lane；`promote-prep` 与 `apply-prep` 都只做 reviewer / manual-apply 预演，不改 canonical memory 或 instruction files；durable-memory candidate 只能通过显式 `promote` + 现有 reviewer/audit 路径写入 canonical Markdown memory，而 instruction-like candidate 的 `promote`、`promote-prep`、`apply-prep` 都继续保持 `proposal-only`，只返回带有 `patchPreview`、`artifactPath`、`manualWorkflow`、`applyReadiness` 的 proposal artifact；`promote` 之后进入 `manual-apply-pending` reviewer 状态，永不自动改 instruction files
+- `cam dream candidates/review/adopt/proposal/promote-prep/promote/apply-prep/verify-apply`: 继续保持 sidecar reviewer lane；其中 subagent candidate 默认以 blocked 状态起步，需先显式 `adopt` 才能进入 primary review lane；`proposal` 只读查看 artifact，不改 reviewer 状态；`promote-prep` 与 `apply-prep` 都只做 reviewer / manual-apply 预演，不改 canonical memory 或 instruction files；durable-memory candidate 只能通过显式 `promote` + 现有 reviewer/audit 路径写入 canonical Markdown memory，而 instruction-like candidate 的 `proposal`、`promote`、`promote-prep`、`apply-prep` 都继续保持 `proposal-only`，只返回带有 `patchPreview`、`artifactPath`、`manualWorkflow`、`applyReadiness` 的 proposal artifact；`--target-file` 只适用于 `promote-prep` / `promote`；`promote` 之后进入 `manual-apply-pending` reviewer 状态，再由 `verify-apply` 显式收口，永不自动改 instruction files
 - `cam mcp print-config --json`: 对 Codex 暴露 project-scoped MCP snippet、`workflowContract`、推荐 `AGENTS.md` guidance
 - `cam mcp doctor --json`: 暴露 retrieval MCP wiring、fallback assets、`codexStack`、`retrievalSidecar`
 - `cam integrations install/apply --json`: 暴露 staged subactions、rollback payload、`postInstallReadinessCommand` / `postApplyReadinessCommand`
