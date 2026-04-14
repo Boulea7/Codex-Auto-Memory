@@ -14,7 +14,7 @@
 3. [集成演进策略](./integration-strategy.md)
 4. [宿主能力面](./host-surfaces.md)
 5. [Session continuity 设计](./session-continuity.md)
-6. [Claude memory / dream 第一轮实施](./claude-memory-dream-r1.md)
+6. [Claude memory / dream closeout contract](./claude-memory-dream-r1.md)
 
 ### 维护者
 
@@ -70,11 +70,11 @@
 - session continuity shared/local 双写现在以原子方式提交；若 summary 写入阶段失败，会留下 `summary-write` recovery marker 供 reviewer 处理
 - 本轮已经新增 `instruction memory` / `learned durable memory` 的 reviewer 分层：前者只做发现与解释，不进入 canonical durable mutation；后者继续由 `cam sync` / `cam remember` / `cam forget` 管理
 - `MEMORY.md` 现在进一步收紧为 `index-only`：latest summary preview 不再回写进 index，startup usefulness 继续由 `highlights` block 与 topic refs 提供
-- 当前还新增了最小可用 `dream sidecar`：`cam dream build` / `cam dream inspect` 会写入可审计的 JSON sidecar，用于 continuity compaction、query-time relevant refs 和 pending promotion candidates，但不会直接改 canonical Markdown memory
+- 当前还新增了最小可用 `dream sidecar`：`cam dream build` 会写入可审计的 JSON sidecar，用于 continuity compaction、query-time relevant refs 和 pending promotion candidates；`cam dream inspect` 只读取最新 snapshot / audit / queue 元数据，不会隐式写盘，也不会直接改 canonical Markdown memory
 - `cam session status/load --json` 现在还会额外暴露 additive `resumeContext`，包括当前 goal、`suggestedDurableRefs`、instruction files 与 read-only `suggestedTeamEntries`；这是一层 resume surfacing，不是 durable mutation
 - wrapper startup 的公开顺序现在统一为 `continuity -> instruction files -> dream refs -> top durable refs -> team/shared refs`
 - `cam recall search --json` 现在还会额外暴露 additive `querySurfacing`，包括 `suggestedDreamRefs`、`suggestedInstructionFiles` 与 `suggestedTeamEntries`；它们只做 query-time reviewer hints，不会改动 `results[]`
-- dream reviewer lane 会继续收口到 `cam dream candidates` / `cam dream review` / `cam dream adopt` / `cam dream promote-prep` / `cam dream promote` / `cam dream apply-prep`；其中 subagent candidate 默认先 blocked，需显式 `adopt`；durable-memory candidate 的 `promote` 会通过现有 reviewer/audit 路径显式写入 canonical memory，而 instruction-like candidate 的 `promote` / `promote-prep` / `apply-prep` 继续保持 `proposal-only`，不会直接写 instruction files，只会返回 proposal bundle 与 manual-apply 准备信息
+- dream reviewer lane 会继续收口到 `cam dream candidates` / `cam dream review` / `cam dream adopt` / `cam dream proposal` / `cam dream promote-prep` / `cam dream promote` / `cam dream apply-prep` / `cam dream verify-apply`；其中 subagent candidate 默认先 blocked，需显式 `adopt`；durable-memory candidate 的 `promote` 会通过现有 reviewer/audit 路径显式写入 canonical memory，而 instruction-like candidate 的 `proposal` / `promote` / `promote-prep` / `apply-prep` 继续保持 `proposal-only`，不会直接写 instruction files，只会返回 proposal bundle 与 manual-apply 准备信息；`verify-apply` 只负责确认人工落地后的 reviewer closeout
 - `cam integrations apply --json` 现在也会显式暴露 `postApplyReadinessCommand`，把“apply 之后该回哪条 doctor 命令确认 route”提升成 machine-readable contract
 - startup recall 仍保持 Markdown-first 和 line-budget discipline，但现在会额外注入少量 active-only content highlights；它不是 topic body dump，也不会让 archived memory 重新参与默认 startup recall
 - `cam memory --json` 现在还会额外暴露 `highlightCount`、`omittedHighlightCount`、`highlightsByScope`、`startupSectionsRendered`、`startupOmissions`、`startupOmissionCounts` 与新的 `layoutDiagnostics`，让 reviewer 能直接看到 startup highlights 是否被 budget 裁掉、哪些 startup section 真正进入了 payload，以及 canonical Markdown layout 是否出现异常

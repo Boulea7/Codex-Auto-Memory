@@ -2716,6 +2716,7 @@ fs.writeFileSync(${JSON.stringify(capturedArgsPath)}, JSON.stringify(process.arg
     expect(dreamApplyPrepHelp.stdout).toContain(
       "Re-check a proposal-only instruction artifact without editing instruction files"
     );
+    expect(dreamApplyPrepHelp.stdout).not.toContain("--target-file");
 
     const dreamPromoteHelp = runCli(projectDir, ["dream", "promote", "--help"], {
       entrypoint: "dist",

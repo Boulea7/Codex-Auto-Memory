@@ -15,6 +15,7 @@
 4. [Host surfaces](./host-surfaces.md) (Chinese)
 5. [Native migration strategy](./native-migration.en.md)
 6. [Session continuity design](./session-continuity.md)
+7. [Claude memory / dream closeout contract](./claude-memory-dream-r1.md)
 
 ### Maintainers
 

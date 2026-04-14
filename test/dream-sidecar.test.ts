@@ -1002,6 +1002,22 @@ describe("dream sidecar", () => {
     };
     expect(promotePayload.entry.status).toBe("manual-apply-pending");
 
+    const inspectPayload = JSON.parse(
+      await runDream("inspect", {
+        cwd: repoDir,
+        json: true
+      })
+    ) as {
+      nextRecommendedActions: string[];
+    };
+    expect(inspectPayload.nextRecommendedActions).toEqual(
+      expect.arrayContaining([
+        expect.stringContaining(`dream proposal --candidate-id ${instructionCandidate!.candidateId} --json`),
+        expect.stringContaining(`dream apply-prep --candidate-id ${instructionCandidate!.candidateId} --json`),
+        expect.stringContaining(`dream verify-apply --candidate-id ${instructionCandidate!.candidateId} --json`)
+      ])
+    );
+
     const proposalPayload = JSON.parse(
       await runDream("proposal" as never, {
         cwd: repoDir,
@@ -1057,13 +1073,26 @@ describe("dream sidecar", () => {
     expect(verifyPayload).toMatchObject({
       action: "verify-apply",
       entry: {
-        status: "manual-applied"
+        status: "manual-applied",
+        promotion: {
+          promotionOutcome: "applied"
+        }
       },
       instructionProposal: {
         artifactPath: promotePayload.instructionProposal.artifactPath
       }
     });
     expect(await fs.readFile(promotePayload.instructionProposal.artifactPath, "utf8")).toBe(proposalContents);
+
+    await expect(
+      runDream("apply-prep" as never, {
+        cwd: repoDir,
+        candidateId: instructionCandidate!.candidateId,
+        json: true
+      })
+    ).rejects.toThrow(
+      `Dream candidate "${instructionCandidate!.candidateId}" must stay approved or manual-apply-pending before apply-prep.`
+    );
   });
 
   it("keeps shared and project-local candidates active when builds target different scopes", async () => {

@@ -152,6 +152,57 @@ function digest(value: string): string {
   return createHash("sha256").update(value).digest("hex");
 }
 
+function buildInstructionReviewerActions(
+  runtime: Awaited<ReturnType<typeof buildRuntimeContext>>,
+  entry: NonNullable<Awaited<ReturnType<typeof getDreamCandidate>>["entry"]>,
+  options: {
+    applyReadinessStatus?: "safe" | "blocked" | "stale";
+  } = {}
+): string[] {
+  const actions: string[] = [];
+  const artifactPath = getDreamCandidateProposalArtifactPath(entry);
+  const applyReadinessStatus = options.applyReadinessStatus ?? entry.promotion.applyReadinessStatus;
+
+  if (entry.status === "approved") {
+    actions.push(
+      buildResolvedCliCommand(`dream promote-prep --candidate-id ${entry.candidateId} --json`, {
+        cwd: runtime.project.projectRoot
+      }),
+      buildResolvedCliCommand(`dream promote --candidate-id ${entry.candidateId} --json`, {
+        cwd: runtime.project.projectRoot
+      })
+    );
+  }
+
+  if (!artifactPath) {
+    return actions;
+  }
+
+  actions.push(
+    buildResolvedCliCommand(`dream proposal --candidate-id ${entry.candidateId} --json`, {
+      cwd: runtime.project.projectRoot
+    })
+  );
+
+  if (applyReadinessStatus !== "stale") {
+    actions.push(
+      buildResolvedCliCommand(`dream apply-prep --candidate-id ${entry.candidateId} --json`, {
+        cwd: runtime.project.projectRoot
+      })
+    );
+  }
+
+  if (entry.status === "manual-apply-pending" && applyReadinessStatus === "safe") {
+    actions.push(
+      buildResolvedCliCommand(`dream verify-apply --candidate-id ${entry.candidateId} --json`, {
+        cwd: runtime.project.projectRoot
+      })
+    );
+  }
+
+  return actions;
+}
+
 async function buildDreamReviewerPayload(
   runtime: Awaited<ReturnType<typeof buildRuntimeContext>>,
   entry?: Awaited<ReturnType<typeof getDreamCandidate>>["entry"]
@@ -167,6 +218,13 @@ async function buildDreamReviewerPayload(
 }> {
   const queue = await listDreamCandidates(runtime);
   const latestProposalCandidate = getLatestDreamProposalCandidate(queue.entries);
+  const latestProposalArtifact =
+    latestProposalCandidate !== null
+      ? await readInstructionProposalArtifact(runtime, latestProposalCandidate.candidateId).catch(() => null)
+      : null;
+  const latestProposalReadinessStatus =
+    latestProposalCandidate?.promotion.applyReadinessStatus ??
+    latestProposalArtifact?.applyReadiness.status;
   const reviewerSummary = {
     queueSummary: queue.summary,
     blockedCount: queue.entries.filter((candidate) => candidate.status === "blocked").length,
@@ -189,31 +247,9 @@ async function buildDreamReviewerPayload(
     !entry
       ? latestProposalCandidate
         ? [
-            ...(latestProposalCandidate.promotion.applyReadinessStatus === "safe"
-              ? [
-                  buildResolvedCliCommand(
-                    `dream apply-prep --candidate-id ${latestProposalCandidate.candidateId} --json`,
-                    {
-                      cwd: runtime.project.projectRoot
-                    }
-                  ),
-                  buildResolvedCliCommand(
-                    `dream verify-apply --candidate-id ${latestProposalCandidate.candidateId} --json`,
-                    {
-                      cwd: runtime.project.projectRoot
-                    }
-                  )
-                ]
-              : latestProposalCandidate.promotion.applyReadinessStatus === "blocked"
-                ? [
-                    buildResolvedCliCommand(
-                      `dream promote-prep --candidate-id ${latestProposalCandidate.candidateId} --json`,
-                      {
-                        cwd: runtime.project.projectRoot
-                      }
-                    )
-                  ]
-                : []),
+            ...buildInstructionReviewerActions(runtime, latestProposalCandidate, {
+              applyReadinessStatus: latestProposalReadinessStatus
+            }),
             ...helperCommands
           ]
         : helperCommands
@@ -226,44 +262,7 @@ async function buildDreamReviewerPayload(
         ]
       : (entry.status === "approved" || entry.status === "manual-apply-pending") &&
           entry.targetSurface === "instruction-memory"
-        ? [
-            buildResolvedCliCommand(`dream promote-prep --candidate-id ${entry.candidateId} --json`, {
-              cwd: runtime.project.projectRoot
-            }),
-            ...(entry.status === "approved"
-              ? [
-                  buildResolvedCliCommand(`dream promote --candidate-id ${entry.candidateId} --json`, {
-                    cwd: runtime.project.projectRoot
-                  })
-                ]
-              : []),
-            ...(getDreamCandidateProposalArtifactPath(entry)
-              ? [
-                  buildResolvedCliCommand(
-                    `dream proposal --candidate-id ${entry.candidateId} --json`,
-                    {
-                      cwd: runtime.project.projectRoot
-                    }
-                  ),
-                  buildResolvedCliCommand(
-                    `dream apply-prep --candidate-id ${entry.candidateId} --json`,
-                    {
-                      cwd: runtime.project.projectRoot
-                    }
-                  ),
-                  ...(entry.promotion.applyReadinessStatus === "safe"
-                    ? [
-                        buildResolvedCliCommand(
-                          `dream verify-apply --candidate-id ${entry.candidateId} --json`,
-                          {
-                            cwd: runtime.project.projectRoot
-                          }
-                        )
-                      ]
-                    : [])
-                ]
-              : [])
-          ]
+        ? buildInstructionReviewerActions(runtime, entry)
       : entry.status === "approved"
           ? [
               buildResolvedCliCommand(`dream promote-prep --candidate-id ${entry.candidateId} --json`, {
@@ -616,6 +615,17 @@ export async function runDream(
     }
 
     const candidate = await getDreamCandidate(runtime, options.candidateId);
+    if (candidate.entry.targetSurface !== "instruction-memory") {
+      throw new Error(`Dream candidate "${options.candidateId}" does not target instruction memory.`);
+    }
+    if (
+      candidate.entry.status !== "approved" &&
+      candidate.entry.status !== "manual-apply-pending"
+    ) {
+      throw new Error(
+        `Dream candidate "${options.candidateId}" must stay approved or manual-apply-pending before apply-prep.`
+      );
+    }
     const instructionProposal = await readInstructionProposalArtifact(runtime, options.candidateId);
     const targetPath = instructionProposal.selectedTarget.path;
     const targetExists = await fileExists(targetPath);

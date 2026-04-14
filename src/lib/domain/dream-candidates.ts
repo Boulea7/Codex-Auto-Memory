@@ -838,6 +838,7 @@ export async function markDreamCandidateManualApplied(
     status: "manual-applied",
     promotion: {
       ...currentEntry.promotion,
+      promotionOutcome: "applied",
       verifiedAppliedAt,
       applyReadinessStatus: options.applyReadinessStatus
     }
@@ -1051,6 +1052,7 @@ export async function buildInstructionReviewLane(
           }),
     recommendedVerifyApplyCommand:
       latestInstructionProposalCandidate !== null &&
+      latestInstructionProposalCandidate.status === "manual-apply-pending" &&
       resolvedApplyReadinessStatus === "safe"
         ? buildResolvedCliCommand(
             `dream verify-apply --candidate-id ${latestInstructionProposalCandidate.candidateId} --json`,

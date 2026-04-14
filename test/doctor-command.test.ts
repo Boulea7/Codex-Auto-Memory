@@ -388,7 +388,7 @@ describe("doctor command", () => {
       detectedTargets: [expect.stringContaining(`${path.sep}AGENTS.md`)],
       recommendedInspectCommand: expect.stringContaining("dream proposal --candidate-id"),
       recommendedApplyPrepCommand: expect.stringContaining("dream apply-prep --candidate-id"),
-      recommendedVerifyApplyCommand: expect.stringContaining("dream verify-apply --candidate-id")
+      recommendedVerifyApplyCommand: expect.stringContaining("dream candidates --json")
     });
   });
 

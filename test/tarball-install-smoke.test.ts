@@ -1751,6 +1751,7 @@ describe("tarball install smoke", () => {
     expect(dreamApplyPrepHelpResult.stdout).toContain(
       "Re-check a proposal-only instruction artifact without editing instruction files"
     );
+    expect(dreamApplyPrepHelpResult.stdout).not.toContain("--target-file");
 
     const dreamPromoteHelpResult = runCommandCapture(
       camBinaryPath(installDir),
