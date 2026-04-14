@@ -13,6 +13,7 @@ import {
   makeAppConfig,
   writeCamConfig
 } from "./helpers/cam-test-fixtures.js";
+import { restoreOptionalEnv } from "./helpers/env.js";
 import { runCli } from "./helpers/cli-runner.js";
 
 const tempDirs: string[] = [];
@@ -73,7 +74,7 @@ function buildParseableUnsafeWorkflowTopicContents(
 
 afterEach(async () => {
   process.env.HOME = originalHome;
-  process.env.CAM_CODEX_SESSIONS_DIR = originalSessionsDir;
+  restoreOptionalEnv("CAM_CODEX_SESSIONS_DIR", originalSessionsDir);
   await Promise.all(tempDirs.splice(0).map((dir) => fs.rm(dir, { recursive: true, force: true })));
 });
 

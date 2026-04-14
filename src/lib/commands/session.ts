@@ -40,6 +40,23 @@ interface SessionPersistenceRequest {
   writeMode: "merge" | "replace";
 }
 
+function shouldUseReadOnlySessionRuntime(action: SessionAction): boolean {
+  return action === "status" || action === "load";
+}
+
+async function buildSessionRuntime(
+  cwd: string,
+  action: SessionAction
+): Promise<RuntimeContext> {
+  if (shouldUseReadOnlySessionRuntime(action)) {
+    return buildRuntimeContext(cwd, {}, {
+      ensureMemoryLayout: false
+    });
+  }
+
+  return buildRuntimeContext(cwd);
+}
+
 function matchesContinuitySelectionScope(
   candidateScope: SessionContinuityScope | "both" | undefined,
   requestedScope: SessionContinuityScope | "both"
@@ -173,7 +190,7 @@ export async function runSession(
   const scope = selectedScope(options.scope);
 
   if (action === "save" || action === "refresh") {
-    const runtime = await buildRuntimeContext(cwd);
+    const runtime = await buildSessionRuntime(cwd, action);
     const persistenceRequest = await prepareSessionPersistenceRequest(
       runtime,
       action,
@@ -197,7 +214,7 @@ export async function runSession(
   }
 
   if (action === "clear") {
-    const runtime = await buildRuntimeContext(cwd);
+    const runtime = await buildSessionRuntime(cwd, action);
     const cleared = await runtime.sessionContinuityStore.clear(scope);
     if (options.json) {
       return JSON.stringify({ cleared }, null, 2);
@@ -211,7 +228,7 @@ export async function runSession(
   }
 
   if (action === "open") {
-    const runtime = await buildRuntimeContext(cwd);
+    const runtime = await buildSessionRuntime(cwd, action);
     await runtime.sessionContinuityStore.ensureLocalLayout();
     openPath(runtime.sessionContinuityStore.paths.localDir);
     return [
@@ -220,9 +237,7 @@ export async function runSession(
     ].join("\n");
   }
 
-  const runtime = await buildRuntimeContext(cwd, {}, {
-    ensureMemoryLayout: false
-  });
+  const runtime = await buildSessionRuntime(cwd, action);
   const view = await loadSessionInspectionView(runtime);
 
   if (action === "load") {
