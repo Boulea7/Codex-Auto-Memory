@@ -187,6 +187,21 @@ function isTeamMemoryIndexPayload(value: unknown): value is TeamMemoryIndexPaylo
 
 async function isIndexStale(indexPath: string, payload: TeamMemoryIndexPayload): Promise<boolean> {
   const indexStats = await fs.stat(indexPath);
+  const currentMarkdownFiles = await listTeamMarkdownFiles(payload.sourceRoot);
+  const indexedMarkdownFiles = payload.sourceFiles
+    .filter((sourceFile) => path.dirname(sourceFile) === payload.sourceRoot)
+    .sort((left, right) => left.localeCompare(right));
+
+  if (currentMarkdownFiles.length !== indexedMarkdownFiles.length) {
+    return true;
+  }
+
+  for (const [index, sourceFile] of currentMarkdownFiles.entries()) {
+    if (indexedMarkdownFiles[index] !== sourceFile) {
+      return true;
+    }
+  }
+
   for (const sourceFile of payload.sourceFiles) {
     if (!(await fileExists(sourceFile))) {
       return true;
