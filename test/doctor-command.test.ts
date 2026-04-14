@@ -376,7 +376,7 @@ describe("doctor command", () => {
     };
 
     expect(payload.instructionProposalLane).toMatchObject({
-      status: expect.stringMatching(/ok|warning/),
+      status: "warning",
       latestCandidateId: instructionCandidate!.candidateId,
       latestProposalArtifactPath: expect.stringContaining(
         `${path.sep}dream${path.sep}review${path.sep}proposals${path.sep}`

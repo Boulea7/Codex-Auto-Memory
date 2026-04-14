@@ -1698,6 +1698,31 @@ describe("dream sidecar", () => {
       candidateId: durableCandidate?.candidateId,
       status: "stale"
     });
+
+    await runDream("build", {
+      cwd: repoDir,
+      rollout: firstRolloutPath,
+      json: true
+    });
+
+    const recoveredCandidates = JSON.parse(
+      await runDream("candidates", {
+        cwd: repoDir,
+        json: true
+      })
+    ) as {
+      entries: Array<{
+        candidateId: string;
+        status: string;
+        summary: string;
+      }>;
+    };
+    expect(
+      recoveredCandidates.entries.find((entry) => entry.candidateId === durableCandidate?.candidateId)
+    ).toMatchObject({
+      candidateId: durableCandidate?.candidateId,
+      status: "pending"
+    });
   });
 
   it("writes candidate recovery markers when review or promote audit append fails", async () => {
