@@ -192,8 +192,30 @@ function mergeCandidateRecord(
   current: DreamCandidateRecord,
   observed: DreamCandidateRecord
 ): DreamCandidateRecord {
+  const recoveredFromStale = current.status === "stale" && observed.status !== "stale";
+  const recoveredStatus =
+    recoveredFromStale && current.originKind === "subagent" && current.adoption
+      ? "pending"
+      : recoveredFromStale
+        ? observed.status
+        : current.status;
+  const recoveredPromotion =
+    recoveredFromStale && current.originKind === "subagent" && current.adoption
+      ? {
+          ...observed.promotion,
+          eligible: true,
+          eligibleReason: "Previously adopted subagent candidate reappeared in the latest dream snapshot."
+        }
+      : recoveredFromStale
+        ? observed.promotion
+        : current.promotion;
+
   return {
     ...current,
+    ...(recoveredFromStale && current.originKind === "subagent" && current.adoption
+      ? { blockedReason: undefined }
+      : {}),
+    status: recoveredStatus,
     observationFingerprint: observed.observationFingerprint,
     targetScopeHint:
       current.targetScopeHint === "unknown" ? observed.targetScopeHint : current.targetScopeHint,
@@ -205,7 +227,8 @@ function mergeCandidateRecord(
     sourceSection: observed.sourceSection,
     lastSeenAt: observed.lastSeenAt,
     lastSeenRolloutPath: observed.lastSeenRolloutPath,
-    lastSeenSnapshotPath: observed.lastSeenSnapshotPath
+    lastSeenSnapshotPath: observed.lastSeenSnapshotPath,
+    promotion: recoveredPromotion
   };
 }
 

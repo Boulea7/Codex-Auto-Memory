@@ -541,6 +541,9 @@ describe("docs contract", () => {
     expect(packageJson.scripts.prepack).toBe("pnpm build");
     expect(packageJson.scripts["verify:release"]).toContain("pnpm test:dist-cli-smoke");
     expect(packageJson.scripts["verify:release"]).toContain("pnpm test:tarball-install-smoke");
+    expect(packageJson.scripts["verify:release"]).toContain(
+      "pnpm test:dist-cli-smoke && pnpm pack:check && pnpm test:tarball-install-smoke"
+    );
     expect(ciWorkflow).toContain("Dist CLI Smoke");
     expect(ciWorkflow).toContain("Tarball Install Smoke");
     expect(releaseWorkflow).toContain("tags:");

@@ -51,9 +51,6 @@ async function compileStartupPayload(cwd: string): Promise<string> {
     runtime.syncService.memoryStore,
     runtime.loadedConfig.config.maxStartupLines
   );
-  if (!runtime.loadedConfig.config.sessionContinuityAutoLoad) {
-    return durable.text;
-  }
 
   const resumeContext = await buildSessionResumeContext(runtime, {
     suggestedRefLimit: 5,
@@ -102,6 +99,10 @@ async function compileStartupPayload(cwd: string): Promise<string> {
       : [])
   ];
   const resumeBlock = resumeLines.length > 2 ? `${resumeLines.join("\n")}\n\n` : "";
+
+  if (!runtime.loadedConfig.config.sessionContinuityAutoLoad) {
+    return `${resumeBlock}${durable.text}`.trim();
+  }
 
   const merged = await runtime.sessionContinuityStore.readMergedState();
   if (!merged) {
