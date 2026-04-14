@@ -4,6 +4,7 @@ import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { detectProjectContext } from "../src/lib/domain/project-context.js";
 import { MemoryStore } from "../src/lib/domain/memory-store.js";
+import { rebuildTeamMemoryIndex } from "../src/lib/domain/team-memory.js";
 import { SyncService } from "../src/lib/domain/sync-service.js";
 import { runDream } from "../src/lib/commands/dream.js";
 import type { MemorySearchResponse } from "../src/lib/types.js";
@@ -2381,6 +2382,96 @@ describe("runRecall", () => {
         "Summary: Prefer pnpm from the updated shared workflow memory.",
         "Details:",
         "- Use pnpm across the updated shared project workflow.",
+        ""
+      ].join("\n"),
+      "utf8"
+    );
+
+    const result = runCli(projectDir, ["recall", "search", "pnpm", "--json"], {
+      env: { HOME: homeDir }
+    });
+    expect(result.exitCode).toBe(0);
+
+    const response = JSON.parse(result.stdout) as MemorySearchResponse & {
+      querySurfacing: {
+        suggestedTeamEntries: Array<{ key: string; summary: string }>;
+      };
+    };
+
+    expect(response.querySurfacing.suggestedTeamEntries).toEqual([]);
+  });
+
+  it("fails closed when a new team-memory topic appears after the index is built", async () => {
+    const homeDir = await tempDir("cam-recall-new-team-topic-home-");
+    const projectDir = await tempDir("cam-recall-new-team-topic-project-");
+    const memoryRoot = await tempDir("cam-recall-new-team-topic-memory-");
+    process.env.HOME = homeDir;
+
+    const projectConfig = makeAppConfig({
+      dreamSidecarEnabled: true,
+      dreamSidecarAutoBuild: false
+    });
+    await writeCamConfig(projectDir, projectConfig, {
+      autoMemoryDirectory: memoryRoot,
+      dreamSidecarEnabled: true,
+      dreamSidecarAutoBuild: false
+    });
+
+    const store = new MemoryStore(detectProjectContext(projectDir), {
+      ...projectConfig,
+      autoMemoryDirectory: memoryRoot
+    });
+    await store.ensureLayout();
+    await store.remember(
+      "project",
+      "workflow",
+      "prefer-pnpm",
+      "Prefer pnpm in this repository.",
+      ["Use pnpm instead of npm in this repository."],
+      "Manual note."
+    );
+
+    await fs.writeFile(path.join(projectDir, "TEAM_MEMORY.md"), "# Team Memory\n", "utf8");
+    await fs.mkdir(path.join(projectDir, "team-memory"), { recursive: true });
+    await fs.writeFile(
+      path.join(projectDir, "team-memory", "workflow.md"),
+      [
+        "# Workflow",
+        "",
+        "<!-- cam:team-topic workflow -->",
+        "",
+        "## prefer-pnpm-shared",
+        '<!-- cam:team-entry {"id":"prefer-pnpm-shared","scopeHint":"project","updatedAt":"2026-03-15T00:00:00.000Z"} -->',
+        "Summary: Prefer pnpm from the shared workflow memory.",
+        "Details:",
+        "- Use pnpm across the shared project workflow.",
+        ""
+      ].join("\n"),
+      "utf8"
+    );
+
+    const initialTeamIndex = await rebuildTeamMemoryIndex(detectProjectContext(projectDir), {
+      ...projectConfig,
+      autoMemoryDirectory: memoryRoot
+    });
+    expect(initialTeamIndex.summary).toMatchObject({
+      status: "available",
+      entryCount: 1
+    });
+
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    await fs.writeFile(
+      path.join(projectDir, "team-memory", "release.md"),
+      [
+        "# Release",
+        "",
+        "<!-- cam:team-topic release -->",
+        "",
+        "## release-pnpm-check",
+        '<!-- cam:team-entry {"id":"release-pnpm-check","scopeHint":"project","updatedAt":"2026-03-16T00:00:00.000Z"} -->',
+        "Summary: Keep pnpm checks in the release checklist.",
+        "Details:",
+        "- Verify pnpm commands before shipping release artifacts.",
         ""
       ].join("\n"),
       "utf8"
