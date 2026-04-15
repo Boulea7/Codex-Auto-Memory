@@ -1,0 +1,9 @@
+# Default ownership
+* @Boulea7
+
+# Release and repository automation
+/.github/ @Boulea7
+/CODEOWNERS @Boulea7
+/package.json @Boulea7
+/pnpm-lock.yaml @Boulea7
+/vitest.config.ts @Boulea7

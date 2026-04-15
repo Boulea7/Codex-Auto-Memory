@@ -5,18 +5,23 @@ Use this checklist before cutting any alpha or beta release of `codex-auto-memor
 ## Product contract checks
 
 - Confirm the README still matches current CLI behavior.
-- Confirm the paired Chinese and English public docs still describe the same product boundary and command surface:
-  - `README.md` and `README.en.md`
-  - `README.zh-TW.md` and `README.ja.md`
-  - `docs/README.md` and `docs/README.en.md`
+- Confirm all four landing pages and all four docs hubs still describe the same product boundary, release posture, and command surface:
+  - `README.md`, `README.zh-TW.md`, `README.en.md`, `README.ja.md`
+  - `docs/README.md`, `docs/README.zh-TW.md`, `docs/README.en.md`, `docs/README.ja.md`
   - `docs/architecture.md` and `docs/architecture.en.md`
   - `docs/native-migration.md` and `docs/native-migration.en.md`
+- Confirm the landing pages still present install routes truthfully:
+  - source install remains the default path
+  - GitHub Release tarball install is shown explicitly
+  - `npm install --global codex-auto-memory` is labeled as the post-publish route, not as a currently guaranteed path while the package is absent from npm
+- Confirm non-Chinese entry pages do not send first-time readers into Chinese-only documents without labeling those links as Chinese.
 - Confirm `docs/native-migration.md` still matches the current compatibility seams in code.
 - Confirm public wording still keeps `cam memory` as an inspect/audit surface, `cam recall` as the progressive-disclosure retrieval surface, `cam session` as a compact continuity surface, and the repository as a `Codex-first Hybrid` system rather than a native-ready replacement.
 - Confirm the newer direction docs still match the README and architecture posture:
   - `docs/integration-strategy.md`
   - `docs/host-surfaces.md`
 - Confirm `docs/session-continuity.md` matches the current `cam session` command surface and reviewer semantics, especially the wording split between `save`, `refresh`, and recovery markers.
+- Confirm `SUPPORT.md`, `SECURITY.md`, and `CODE_OF_CONDUCT.md` still point to real repository routes and do not imply a private email or security alias that the repository does not actually publish.
 
 ## Code and runtime checks
 
@@ -32,7 +37,8 @@ Use this checklist before cutting any alpha or beta release of `codex-auto-memor
 - Run `pnpm test:dist-cli-smoke`
 - Run `pnpm test:tarball-install-smoke`
 - Run `pnpm pack:check`
-- Confirm `package.json.files` still whitelists the release-facing surfaces you intend to ship: `dist`, `docs`, `schemas`, the multilingual READMEs, and `LICENSE`.
+- Run `pnpm pack:release` when you want the exact `.tgz` that release automation will attach and publish.
+- Confirm `package.json.files` still whitelists the release-facing surfaces you intend to ship: `dist`, `docs`, `schemas`, the multilingual READMEs, `SUPPORT.md`, `SECURITY.md`, `CODE_OF_CONDUCT.md`, and `LICENSE`.
 - Confirm `pnpm build` still starts from a clean `dist/` directory so `npm pack` cannot accidentally pick up stale compiled artifacts from an older tree shape.
 - If you add new generated outputs beyond `dist/`, keep their cleanup path aligned with the build and pack workflow instead of letting release tarballs accumulate leftovers.
 - After `pnpm build`, prefer validating release-facing CLI behavior through `node dist/cli.js ...` rather than `tsx src/cli.ts`.
@@ -219,7 +225,7 @@ Use this checklist before cutting any alpha or beta release of `codex-auto-memor
 
 ## Documentation checks
 
-- Update the bilingual docs entry pages (`docs/README.md` and `docs/README.en.md`) if the public reading path changed.
+- Update the docs entry pages (`docs/README*.md`) if the public reading path changed.
 - Update `docs/integration-strategy.md` and `docs/host-surfaces.md` when the repository adds or defers a new integration surface.
 - Re-check the current official Codex and Claude public docs before changing migration wording; if the public posture is unchanged, say so explicitly in the handoff.
 - Ensure the latest milestone commit is focused enough to review independently.
@@ -245,6 +251,7 @@ Do not tag a release unless:
 ## Release automation notes
 
 - A pushed `v*` tag is intended to run the GitHub Release workflow.
-- The workflow verifies `GITHUB_REF_NAME === v${package.json.version}`, runs `pnpm verify:release`, and uploads the `npm pack` tarball to the GitHub Release.
+- The workflow verifies `GITHUB_REF_NAME === v${package.json.version}`, runs `pnpm verify:release`, calls `pnpm pack:release`, and uses that same tarball for both the GitHub Release attachment and `npm publish`.
 - Before the first real tag validation, confirm that the remote default branch exposes `release.yml` in Actions and that the workflow is active.
-- npm publish remains manual until registry credentials and approval posture are intentionally wired.
+- If `NPM_TOKEN` is absent, the workflow should still complete the GitHub Release path and skip npm publish cleanly.
+- Until `codex-auto-memory` is publicly available on npm, keep README install guidance centered on source install and the GitHub Release tarball.

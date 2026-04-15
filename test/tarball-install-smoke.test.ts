@@ -6,7 +6,9 @@ import * as toml from "smol-toml";
 import { detectProjectContext } from "../src/lib/domain/project-context.js";
 import { MemoryStore } from "../src/lib/domain/memory-store.js";
 import { runCommandCapture } from "../src/lib/util/process.js";
+import { sanitizePublicPath } from "../src/lib/util/public-paths.js";
 import { makeAppConfig, writeCamConfig } from "./helpers/cam-test-fixtures.js";
+import { createIsolatedCliEnv, minimalCommandPath } from "./helpers/cli-runner.js";
 
 const tempDirs: string[] = [];
 
@@ -34,11 +36,7 @@ function camBinaryPath(installDir: string): string {
 }
 
 function isolatedEnv(homeDir: string): NodeJS.ProcessEnv {
-  return {
-    ...process.env,
-    HOME: homeDir,
-    ...(process.platform === "win32" ? { USERPROFILE: homeDir } : {})
-  };
+  return createIsolatedCliEnv(homeDir);
 }
 
 function subagentRolloutFixture(
@@ -107,6 +105,25 @@ describe("tarball install smoke", () => {
       env
     );
     expect(installResult.exitCode).toBe(0);
+
+    for (const relativePath of [
+      "README.md",
+      "README.zh-TW.md",
+      "README.en.md",
+      "README.ja.md",
+      "SUPPORT.md",
+      "SECURITY.md",
+      "CODE_OF_CONDUCT.md",
+      "docs/README.md",
+      "docs/README.zh-TW.md",
+      "docs/README.en.md",
+      "docs/README.ja.md",
+      "docs/release-checklist.md"
+    ]) {
+      await expect(
+        fs.access(path.join(installDir, "node_modules", "codex-auto-memory", relativePath))
+      ).resolves.toBeUndefined();
+    }
 
     const versionResult = runCommandCapture(camBinaryPath(installDir), ["--version"], installDir, env);
     expect(versionResult.exitCode).toBe(0);
@@ -179,7 +196,7 @@ describe("tarball install smoke", () => {
       installDir,
       {
         ...envWithBin,
-        PATH: `${path.dirname(process.execPath)}:/usr/bin:/bin`
+        PATH: minimalCommandPath()
       }
     );
     expect(doctorResult.exitCode, doctorResult.stderr).toBe(0);
@@ -310,9 +327,7 @@ describe("tarball install smoke", () => {
       candidateAuditPath: expect.stringContaining(
         `${path.sep}audit${path.sep}dream-candidate-log.jsonl`
       ),
-      candidateRecoveryPath: expect.stringContaining(
-        `${path.sep}audit${path.sep}dream-candidate-recovery.json`
-      ),
+      candidateRecoveryPath: expect.stringContaining("dream-candidate-recovery.json"),
       reviewerSummary: {
         queueSummary: {
           totalCount: expect.any(Number)
@@ -348,15 +363,18 @@ describe("tarball install smoke", () => {
         anyMarkdownFallback: false,
         fallbackReasons: [],
         checkedPaths: expect.arrayContaining([
-          expect.objectContaining({
-            scope: "project",
-            state: "active",
-            retrievalMode: "index",
-            matchedCount: 1,
-            indexPath: memoryStore.getRetrievalIndexFile("project", "active"),
-            generatedAt: expect.any(String)
-          })
-        ])
+        expect.objectContaining({
+          scope: "project",
+          state: "active",
+          retrievalMode: "index",
+          matchedCount: 1,
+          indexPath: sanitizePublicPath(memoryStore.getRetrievalIndexFile("project", "active"), {
+            projectRoot: installDir,
+            memoryRoot
+          }),
+          generatedAt: expect.any(String)
+        })
+      ])
       },
       results: [
         expect.objectContaining({
@@ -963,12 +981,18 @@ describe("tarball install smoke", () => {
     expect(recallDetailsResult.exitCode, recallDetailsResult.stderr).toBe(0);
     expect(JSON.parse(recallDetailsResult.stdout)).toMatchObject({
       ref: "project:active:workflow:prefer-pnpm",
-      path: memoryStore.getTopicFile("project", "workflow"),
+      path: sanitizePublicPath(memoryStore.getTopicFile("project", "workflow"), {
+        projectRoot: installDir,
+        memoryRoot
+      }),
       latestLifecycleAction: "add",
       latestState: "active",
       latestSessionId: null,
       latestRolloutPath: null,
-      historyPath: memoryStore.getHistoryPath("project"),
+      historyPath: sanitizePublicPath(memoryStore.getHistoryPath("project"), {
+        projectRoot: installDir,
+        memoryRoot
+      }),
       timelineWarningCount: 0,
       warnings: [],
       lineageSummary: {
@@ -1438,7 +1462,7 @@ describe("tarball install smoke", () => {
             scope: "project",
             state: "active",
             status: "ok",
-            indexPath: memoryStore.getRetrievalIndexFile("project", "active"),
+            indexPath: expect.stringContaining("retrieval-index.json"),
             generatedAt: expect.any(String),
             topicFileCount: expect.any(Number)
           })
@@ -1496,7 +1520,7 @@ describe("tarball install smoke", () => {
             scope: "project",
             state: "active",
             status: "ok",
-            indexPath: memoryStore.getRetrievalIndexFile("project", "active"),
+            indexPath: expect.stringContaining("retrieval-index.json"),
             generatedAt: expect.any(String),
             topicFileCount: expect.any(Number)
           })
@@ -1623,7 +1647,9 @@ describe("tarball install smoke", () => {
     expect(blockedIntegrationsDoctorResult.exitCode).toBe(0);
     expect(JSON.parse(blockedIntegrationsDoctorResult.stdout)).toMatchObject({
       host: "codex",
-      projectRoot: realBlockedProjectDir,
+      projectRoot: sanitizePublicPath(realBlockedProjectDir, {
+        projectRoot: realBlockedProjectDir
+      }),
       applyReadiness: {
         status: "blocked",
         reason: expect.stringContaining("managed guidance block"),

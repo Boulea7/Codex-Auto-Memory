@@ -1,5 +1,14 @@
-blank_issues_enabled: true
+blank_issues_enabled: false
 contact_links:
-  - name: Documentation index
-    url: https://github.com/Boulea7/Codex-Auto-Memory/blob/main/docs/README.md
-    about: External documentation index for broader ecosystem reference.
+  - name: Documentation Hub / 文档中心
+    url: https://github.com/Boulea7/Codex-Auto-Memory/blob/main/docs/README.en.md
+    about: Start here for setup, architecture, release notes, and links to the other language entry pages.
+  - name: Support
+    url: https://github.com/Boulea7/Codex-Auto-Memory/blob/main/SUPPORT.md
+    about: See where to ask questions, file bugs, and request features.
+  - name: Security Policy
+    url: https://github.com/Boulea7/Codex-Auto-Memory/blob/main/SECURITY.md
+    about: Follow this route for vulnerability reporting instead of opening a public issue.
+  - name: Code of Conduct
+    url: https://github.com/Boulea7/Codex-Auto-Memory/blob/main/CODE_OF_CONDUCT.md
+    about: Read the expected community behavior and conduct follow-up guidance before escalating a thread.

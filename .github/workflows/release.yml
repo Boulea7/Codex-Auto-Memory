@@ -5,11 +5,20 @@ on:
     tags:
       - "v*"
 
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
 jobs:
   release:
+    name: Release (Ubuntu, Node 20)
     runs-on: ubuntu-latest
     permissions:
       contents: write
+      id-token: write
+    timeout-minutes: 60
+    env:
+      NODE_OPTIONS: --max-old-space-size=6144
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -22,6 +31,7 @@ jobs:
         with:
           node-version: 20
           cache: pnpm
+          registry-url: https://registry.npmjs.org
 
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
@@ -40,10 +50,17 @@ jobs:
       - name: Pack release tarball
         id: pack
         run: |
-          TARBALL=$(npm pack | tail -n 1)
+          TARBALL=$(pnpm pack:release | tail -n 1)
           echo "tarball=${TARBALL}" >> "$GITHUB_OUTPUT"
+          echo "tarball_path=.release-artifacts/${TARBALL}" >> "$GITHUB_OUTPUT"
+
+      - name: Publish to npm
+        if: ${{ secrets.NPM_TOKEN != '' }}
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: npm publish --provenance --access public "${{ steps.pack.outputs.tarball_path }}"
 
       - name: Create GitHub Release
         env:
           GH_TOKEN: ${{ github.token }}
-        run: gh release create "${GITHUB_REF_NAME}" "${{ steps.pack.outputs.tarball }}" --generate-notes --verify-tag
+        run: gh release create "${GITHUB_REF_NAME}" "${{ steps.pack.outputs.tarball_path }}" --generate-notes --verify-tag

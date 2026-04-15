@@ -14,6 +14,9 @@
     "README.zh-TW.md",
     "README.en.md",
     "README.ja.md",
+    "SUPPORT.md",
+    "SECURITY.md",
+    "CODE_OF_CONDUCT.md",
     "LICENSE"
   ],
   "engines": {
@@ -26,15 +29,20 @@
     "dev": "tsx src/cli.ts",
     "lint": "tsc --noEmit -p tsconfig.json",
     "pack:check": "npm pack --dry-run",
+    "pack:release": "rimraf .release-artifacts && node -e \"require('node:fs').mkdirSync('.release-artifacts', { recursive: true })\" && npm pack --pack-destination .release-artifacts",
     "prepack": "pnpm build",
-    "test": "vitest run --exclude test/dist-cli-smoke.test.ts --exclude test/tarball-install-smoke.test.ts",
-    "test:cli-smoke": "vitest run test/audit.test.ts test/doctor-command.test.ts test/hooks-command.test.ts test/integrations-command.test.ts test/mcp-command.test.ts test/skills-command.test.ts test/memory-command.test.ts test/recall-command.test.ts test/session-command.test.ts test/wrapper-session-continuity.test.ts",
-    "test:dist-cli-smoke": "pnpm build && vitest run test/dist-cli-smoke.test.ts",
-    "test:docs-contract": "vitest run test/docs-contract.test.ts",
-    "test:reviewer-smoke": "vitest run test/docs-contract.test.ts test/doctor-command.test.ts test/hooks-command.test.ts test/integrations-command.test.ts test/mcp-command.test.ts test/skills-command.test.ts test/memory-command.test.ts test/recall-command.test.ts test/session-command.test.ts test/wrapper-session-continuity.test.ts test/session-continuity.test.ts",
-    "test:tarball-install-smoke": "vitest run test/tarball-install-smoke.test.ts",
-    "test:watch": "vitest",
-    "verify:release": "pnpm lint && pnpm test:docs-contract && pnpm test:reviewer-smoke && pnpm test:cli-smoke && pnpm test && pnpm build && pnpm test:dist-cli-smoke && pnpm pack:check && pnpm test:tarball-install-smoke"
+    "test": "node --max-old-space-size=6144 ./node_modules/vitest/vitest.mjs run --exclude test/dist-cli-smoke.test.ts --exclude test/tarball-install-smoke.test.ts",
+    "test:coverage": "node --max-old-space-size=6144 ./node_modules/vitest/vitest.mjs run --coverage --exclude test/dist-cli-smoke.test.ts --exclude test/tarball-install-smoke.test.ts",
+    "test:cli-smoke": "node --max-old-space-size=6144 ./node_modules/vitest/vitest.mjs run test/audit.test.ts test/doctor-command.test.ts test/hooks-command.test.ts test/integrations-command.test.ts test/mcp-command.test.ts test/skills-command.test.ts test/memory-command.test.ts test/recall-command.test.ts test/session-command.test.ts test/wrapper-session-continuity.test.ts",
+    "test:dist-cli-smoke:only": "node --max-old-space-size=6144 ./node_modules/vitest/vitest.mjs run test/dist-cli-smoke.test.ts",
+    "test:dist-cli-smoke": "pnpm build && node --max-old-space-size=6144 ./node_modules/vitest/vitest.mjs run test/dist-cli-smoke.test.ts",
+    "test:docs-contract": "node --max-old-space-size=6144 ./node_modules/vitest/vitest.mjs run test/docs-contract.test.ts",
+    "test:reviewer-smoke": "node --max-old-space-size=6144 ./node_modules/vitest/vitest.mjs run test/docs-contract.test.ts test/doctor-command.test.ts test/hooks-command.test.ts test/integrations-command.test.ts test/mcp-command.test.ts test/skills-command.test.ts test/memory-command.test.ts test/recall-command.test.ts test/session-command.test.ts test/wrapper-session-continuity.test.ts test/session-continuity.test.ts",
+    "test:tarball-install-smoke": "node --max-old-space-size=6144 ./node_modules/vitest/vitest.mjs run test/tarball-install-smoke.test.ts",
+    "test:watch": "node --max-old-space-size=6144 ./node_modules/vitest/vitest.mjs",
+    "verify:smoke-release": "pnpm build && pnpm test:dist-cli-smoke:only && pnpm pack:check && pnpm test:tarball-install-smoke",
+    "verify:ci": "pnpm lint && pnpm test:docs-contract && pnpm test:reviewer-smoke && pnpm test:cli-smoke && pnpm test && pnpm test:coverage && pnpm verify:smoke-release",
+    "verify:release": "pnpm verify:ci"
   },
   "keywords": [
     "codex",
@@ -53,6 +61,9 @@
     "url": "https://github.com/Boulea7/Codex-Auto-Memory/issues"
   },
   "homepage": "https://github.com/Boulea7/Codex-Auto-Memory#readme",
+  "publishConfig": {
+    "access": "public"
+  },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.27.1",
     "commander": "^14.0.1",
@@ -60,6 +71,7 @@
     "zod": "^3.25.76"
   },
   "devDependencies": {
+    "@vitest/coverage-v8": "^3.2.4",
     "@types/node": "^24.0.0",
     "rimraf": "^6.0.1",
     "tsx": "^4.20.3",

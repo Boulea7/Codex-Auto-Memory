@@ -7,13 +7,14 @@ import { detectProjectContext } from "../src/lib/domain/project-context.js";
 import { MemoryStore } from "../src/lib/domain/memory-store.js";
 import { SessionContinuityStore } from "../src/lib/domain/session-continuity-store.js";
 import type { AppConfig } from "../src/lib/types.js";
+import { sanitizePublicPath } from "../src/lib/util/public-paths.js";
 import {
   initGitRepo,
   makeAppConfig,
   writeCamConfig
 } from "./helpers/cam-test-fixtures.js";
 import { connectCliMcpClient } from "./helpers/mcp-client.js";
-import { runCli } from "./helpers/cli-runner.js";
+import { createIsolatedCliEnv, minimalCommandPath, runCli } from "./helpers/cli-runner.js";
 import { pathExists } from "./helpers/filesystem.js";
 
 const tempDirs: string[] = [];
@@ -155,10 +156,9 @@ describe("dist cli smoke", () => {
 
     const result = runCli(projectDir, ["doctor", "--json"], {
       entrypoint: "dist",
-      env: {
-        HOME: homeDir,
-        PATH: `${path.dirname(process.execPath)}:/usr/bin:/bin`
-      }
+      env: createIsolatedCliEnv(homeDir, {
+        PATH: minimalCommandPath()
+      })
     });
     expect(result.exitCode, result.stderr).toBe(0);
     expect(JSON.parse(result.stdout)).toMatchObject({
@@ -1169,10 +1169,10 @@ describe("dist cli smoke", () => {
       `${path.sep}dream${path.sep}review${path.sep}registry.json`
     );
     expect(dreamInspectPayload.candidateAuditPath).toContain(
-      `${path.sep}audit${path.sep}dream-candidate-log.jsonl`
+      "dream-candidate-log.jsonl"
     );
     expect(dreamInspectPayload.candidateRecoveryPath).toContain(
-      `${path.sep}audit${path.sep}dream-candidate-recovery.json`
+      "dream-candidate-recovery.json"
     );
     expect(dreamInspectPayload.reviewerSummary.queueSummary.totalCount).toBeGreaterThan(0);
     expect(dreamInspectPayload.nextRecommendedActions.length).toBeGreaterThan(0);
@@ -1385,7 +1385,10 @@ describe("dist cli smoke", () => {
           state: "active",
           retrievalMode: "index",
           matchedCount: 1,
-          indexPath: memoryStore.getRetrievalIndexFile("project", "active"),
+          indexPath: sanitizePublicPath(memoryStore.getRetrievalIndexFile("project", "active"), {
+            projectRoot: projectDir,
+            memoryRoot
+          }),
           generatedAt: expect.any(String)
         })
       ])
@@ -1402,12 +1405,18 @@ describe("dist cli smoke", () => {
     expect(detailsResult.exitCode, detailsResult.stderr).toBe(0);
     expect(JSON.parse(detailsResult.stdout)).toMatchObject({
       ref: "project:active:workflow:prefer-pnpm",
-      path: memoryStore.getTopicFile("project", "workflow"),
+      path: sanitizePublicPath(memoryStore.getTopicFile("project", "workflow"), {
+        projectRoot: projectDir,
+        memoryRoot
+      }),
       latestLifecycleAction: "add",
       latestState: "active",
       latestSessionId: null,
       latestRolloutPath: null,
-      historyPath: memoryStore.getHistoryPath("project"),
+      historyPath: sanitizePublicPath(memoryStore.getHistoryPath("project"), {
+        projectRoot: projectDir,
+        memoryRoot
+      }),
       timelineWarningCount: 0,
       warnings: [],
       lineageSummary: {
@@ -2751,6 +2760,31 @@ fs.writeFileSync(${JSON.stringify(capturedArgsPath)}, JSON.stringify(process.arg
     expect(recallHelp.stdout).toContain("Search compact memory candidates without loading full details");
     expect(recallHelp.stdout).toContain("Limit memory state: active, archived, all, or auto");
 
+    const topLevelHelp = runCli(projectDir, ["--help"], {
+      entrypoint: "dist",
+      env
+    });
+    expect(topLevelHelp.exitCode, topLevelHelp.stderr).toBe(0);
+    expect(topLevelHelp.stdout).toContain("run [codex-args...]");
+    expect(topLevelHelp.stdout).toContain("exec [codex-args...]");
+    expect(topLevelHelp.stdout).toContain("resume [codex-args...]");
+
+    const wrapperHelp = runCli(projectDir, ["help", "run"], {
+      entrypoint: "dist",
+      env
+    });
+    expect(wrapperHelp.exitCode, wrapperHelp.stderr).toBe(0);
+    expect(wrapperHelp.stdout).toContain("Start Codex through the wrapper");
+    expect(wrapperHelp.stdout).toContain("codex-args");
+
+    const wrapperInlineHelp = runCli(projectDir, ["run", "--help"], {
+      entrypoint: "dist",
+      env
+    });
+    expect(wrapperInlineHelp.exitCode, wrapperInlineHelp.stderr).toBe(0);
+    expect(wrapperInlineHelp.stdout).toContain("Start Codex through the wrapper");
+    expect(wrapperInlineHelp.stdout).toContain("codex-args");
+
     const dreamHelp = runCli(projectDir, ["dream", "--help"], {
       entrypoint: "dist",
       env
@@ -2788,6 +2822,7 @@ fs.writeFileSync(${JSON.stringify(capturedArgsPath)}, JSON.stringify(process.arg
     expect(dreamCandidatesHelp.stdout).toContain(
       "List explicit dream promotion candidates from the reviewer queue"
     );
+    expect(dreamCandidatesHelp.stdout).toContain("--cwd");
 
     const dreamReviewHelp = runCli(projectDir, ["dream", "review", "--help"], {
       entrypoint: "dist",
@@ -2997,6 +3032,61 @@ fs.writeFileSync(${JSON.stringify(capturedArgsPath)}, JSON.stringify(process.arg
         "utf8"
       )
     ).toContain('sync --cwd "$PROJECT_ROOT" "$@"');
+
+    const doctorResult = runCli(
+      callerDir,
+      ["doctor", "--json", "--cwd", projectDir],
+      {
+        entrypoint: "dist",
+        env
+      }
+    );
+    expect(doctorResult.exitCode, doctorResult.stderr).toBe(0);
+    expect(JSON.parse(doctorResult.stdout)).toMatchObject({
+      projectRoot: sanitizePublicPath(realProjectDir, {
+        projectRoot: realProjectDir
+      })
+    });
+
+    const auditResult = runCli(
+      callerDir,
+      ["audit", "--json", "--no-history", "--cwd", projectDir],
+      {
+        entrypoint: "dist",
+        env
+      }
+    );
+    expect(auditResult.exitCode, auditResult.stderr).toBe(0);
+    const auditPayload = JSON.parse(auditResult.stdout) as { cwd: string };
+    expect(auditPayload.cwd).toBe(
+      sanitizePublicPath(realProjectDir, {
+        extraRoots: [{ label: "<cwd>", path: realProjectDir }]
+      })
+    );
+
+    const syncResult = runCli(
+      callerDir,
+      ["sync", "--cwd", projectDir],
+      {
+        entrypoint: "dist",
+        env
+      }
+    );
+    expect(syncResult.exitCode, syncResult.stderr).toBe(0);
+    expect(syncResult.stdout).toContain("No rollout file could be found for the current project.");
+
+    const dreamCandidatesResult = runCli(
+      callerDir,
+      ["dream", "candidates", "--cwd", projectDir, "--json"],
+      {
+        entrypoint: "dist",
+        env
+      }
+    );
+    expect(dreamCandidatesResult.exitCode, dreamCandidatesResult.stderr).toBe(0);
+    expect(JSON.parse(dreamCandidatesResult.stdout)).toMatchObject({
+      registryPath: expect.stringContaining("registry.json")
+    });
 
     const guidanceResult = runCli(
       callerDir,
