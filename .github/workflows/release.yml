@@ -21,13 +21,13 @@ jobs:
       NODE_OPTIONS: --max-old-space-size=6144
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Setup pnpm
-        uses: pnpm/action-setup@v4
+        uses: pnpm/action-setup@v6
 
       - name: Setup Node
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v6
         with:
           node-version: 20
           cache: pnpm
@@ -50,7 +50,8 @@ jobs:
       - name: Pack release tarball
         id: pack
         run: |
-          TARBALL=$(pnpm pack:release | tail -n 1)
+          pnpm pack:release >/dev/null
+          TARBALL=$(node -e "const fs = require('node:fs'); const path = require('node:path'); const dir = '.release-artifacts'; const files = fs.readdirSync(dir).filter((file) => file.endsWith('.tgz')); if (files.length !== 1) { console.error(`Expected exactly one tarball in ${dir}, found ${files.length}.`); process.exit(1); } process.stdout.write(files[0]);")
           echo "tarball=${TARBALL}" >> "$GITHUB_OUTPUT"
           echo "tarball_path=.release-artifacts/${TARBALL}" >> "$GITHUB_OUTPUT"
 
@@ -65,13 +66,18 @@ jobs:
             echo "has_token=false" >> "$GITHUB_OUTPUT"
           fi
 
+      - name: Publish GitHub Release asset
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if gh release view "${GITHUB_REF_NAME}" >/dev/null 2>&1; then
+            gh release upload "${GITHUB_REF_NAME}" "${{ steps.pack.outputs.tarball_path }}" --clobber
+          else
+            gh release create "${GITHUB_REF_NAME}" "${{ steps.pack.outputs.tarball_path }}" --generate-notes --verify-tag
+          fi
+
       - name: Publish to npm
         if: ${{ steps.npm_publish.outputs.has_token == 'true' }}
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
         run: npm publish --provenance --access public "${{ steps.pack.outputs.tarball_path }}"
-
-      - name: Create GitHub Release
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: gh release create "${GITHUB_REF_NAME}" "${{ steps.pack.outputs.tarball_path }}" --generate-notes --verify-tag
