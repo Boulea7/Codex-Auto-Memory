@@ -6,6 +6,8 @@ import { LOCAL_BRIDGE_BUNDLE_NOTE } from "../integration/codex-stack.js";
 import { installIntegrationAssets } from "../integration/install-assets.js";
 import { resolveMcpProjectRoot } from "../integration/mcp-config.js";
 import { buildResolvedCliCommand } from "../integration/retrieval-contract.js";
+import { fileExists } from "../util/fs.js";
+import fs from "node:fs/promises";
 
 interface HooksCommandOptions {
   cwd?: string;
@@ -52,5 +54,10 @@ export async function installHooks(options: HooksCommandOptions = {}): Promise<s
 
 export async function removeHooks(): Promise<string> {
   const dir = hookAssetDir();
-  return `Hook bridge assets live under ${dir}. Remove the directory manually if you no longer need them.`;
+  if (!(await fileExists(dir))) {
+    return `No hook bridge assets were installed under ${dir}.`;
+  }
+
+  await fs.rm(dir, { recursive: true, force: true });
+  return `Removed hook bridge assets from ${dir}.`;
 }

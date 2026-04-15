@@ -11,6 +11,7 @@ import { installMcpProjectConfig } from "../integration/mcp-install.js";
 import { formatMcpDoctorReport, inspectMcpDoctor } from "../integration/mcp-doctor.js";
 import { startRetrievalMcpServer } from "../mcp/retrieval-server.js";
 import { ensureExistingDirectory } from "../util/paths.js";
+import { sanitizePathFieldsDeep } from "../util/public-paths.js";
 
 interface McpServeOptions {
   cwd?: string;
@@ -74,12 +75,16 @@ export async function runMcpDoctor(options: McpDoctorOptions = {}): Promise<stri
     host: options.host,
     explicitCwd: Boolean(options.cwd)
   });
+  const publicReport = sanitizePathFieldsDeep(report, {
+    projectRoot: report.projectRoot,
+    cwd: report.cwd
+  });
 
   if (options.json) {
-    return JSON.stringify(report, null, 2);
+    return JSON.stringify(publicReport, null, 2);
   }
 
-  return formatMcpDoctorReport(report);
+  return formatMcpDoctorReport(publicReport);
 }
 
 export async function runMcpInstall(options: McpInstallOptions = {}): Promise<string> {

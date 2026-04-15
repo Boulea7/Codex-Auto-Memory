@@ -4,6 +4,7 @@ import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { loadConfig } from "../src/lib/config/load-config.js";
 import { detectProjectContext } from "../src/lib/domain/project-context.js";
+import { restoreOptionalEnv } from "./helpers/env.js";
 
 const tempPaths: string[] = [];
 const originalHome = process.env.HOME;
@@ -16,8 +17,8 @@ async function createTempDir(prefix: string): Promise<string> {
 }
 
 afterEach(async () => {
-  process.env.HOME = originalHome;
-  process.env.CAM_MANAGED_CONFIG = originalManagedConfig;
+  restoreOptionalEnv("HOME", originalHome);
+  restoreOptionalEnv("CAM_MANAGED_CONFIG", originalManagedConfig);
   await Promise.all(tempPaths.splice(0).map((dir) => fs.rm(dir, { recursive: true, force: true })));
 });
 
@@ -43,6 +44,7 @@ describe("loadConfig", () => {
       JSON.stringify({
         extractorMode: "codex",
         autoMemoryDirectory: "~/should-be-ignored",
+        codexBinary: "./repo-owned-binary",
         maxStartupLines: 180,
         sessionContinuityAutoLoad: true,
         sessionContinuityLocalPathStyle: "claude",
@@ -54,6 +56,7 @@ describe("loadConfig", () => {
       JSON.stringify({
         autoMemoryEnabled: false,
         autoMemoryDirectory: "~/cam-local-memory",
+        codexBinary: "./local-codex",
         sessionContinuityAutoLoad: false,
         sessionContinuityLocalPathStyle: "claude"
       })
@@ -76,10 +79,12 @@ describe("loadConfig", () => {
     expect(loaded.config.defaultScope).toBe("project-local");
     expect(loaded.config.maxStartupLines).toBe(180);
     expect(loaded.config.autoMemoryDirectory).toBe(path.join(homeDir, "cam-local-memory"));
+    expect(loaded.config.codexBinary).toBe("./local-codex");
     expect(loaded.config.sessionContinuityAutoLoad).toBe(false);
     expect(loaded.config.sessionContinuityAutoSave).toBe(true);
     expect(loaded.config.sessionContinuityLocalPathStyle).toBe("claude");
     expect(loaded.warnings.join("\n")).toContain("Ignored autoMemoryDirectory");
+    expect(loaded.warnings.join("\n")).toContain("Ignored codexBinary");
     expect(loaded.warnings.join("\n")).toContain("Ignored session continuity local settings");
   });
 
@@ -117,5 +122,26 @@ describe("loadConfig", () => {
     expect(loaded.config.sessionContinuityAutoLoad).toBe(true);
     expect(loaded.warnings.join("\n")).toContain("Ignored invalid user config");
     expect(loaded.warnings.join("\n")).toContain("Ignored invalid managed config");
+  });
+
+  it("uses a source-agnostic warning when local codexBinary overrides are disabled", async () => {
+    const homeDir = await createTempDir("cam-local-codex-warning-home-");
+    const projectDir = await createTempDir("cam-local-codex-warning-project-");
+    process.env.HOME = homeDir;
+
+    await fs.writeFile(
+      path.join(projectDir, ".codex-auto-memory.local.json"),
+      JSON.stringify({
+        codexBinary: "./local-codex"
+      })
+    );
+
+    const loaded = await loadConfig(detectProjectContext(projectDir), {}, {
+      allowLocalCodexBinaryOverride: false
+    });
+
+    expect(loaded.config.codexBinary).toBe("codex");
+    expect(loaded.warnings.join("\n")).toContain("Ignored codexBinary");
+    expect(loaded.warnings.join("\n")).not.toContain("Shared project config");
   });
 });

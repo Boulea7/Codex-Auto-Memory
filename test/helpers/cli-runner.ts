@@ -10,6 +10,45 @@ const tsxBinaryPath = path.resolve(
   process.platform === "win32" ? "node_modules/.bin/tsx.cmd" : "node_modules/.bin/tsx"
 );
 
+export function joinPathEntries(...entries: Array<string | undefined | null>): string {
+  return entries.filter((entry): entry is string => Boolean(entry)).join(path.delimiter);
+}
+
+export function minimalCommandPath(...extraEntries: Array<string | undefined | null>): string {
+  return joinPathEntries(
+    path.dirname(process.execPath),
+    ...(process.platform === "win32" ? [] : ["/usr/bin", "/bin"]),
+    ...extraEntries
+  );
+}
+
+export function createIsolatedCliEnv(
+  homeDir: string,
+  env: NodeJS.ProcessEnv = {}
+): NodeJS.ProcessEnv {
+  return normalizeCliEnv({
+    ...env,
+    HOME: homeDir
+  });
+}
+
+function normalizeCliEnv(env: NodeJS.ProcessEnv = {}): NodeJS.ProcessEnv {
+  const nextEnv = {
+    ...process.env,
+    ...env
+  };
+
+  const resolvedHome = nextEnv.HOME ?? nextEnv.USERPROFILE;
+  if (resolvedHome) {
+    nextEnv.HOME = resolvedHome;
+    if (process.platform === "win32") {
+      nextEnv.USERPROFILE = resolvedHome;
+    }
+  }
+
+  return nextEnv;
+}
+
 export function resolveCliInvocation(
   entrypoint: CliEntrypoint = "source"
 ): { command: string; args: string[] } {
@@ -35,6 +74,6 @@ export function runCli(
   } = {}
 ): ProcessOutput {
   const invocation = resolveCliInvocation(options.entrypoint ?? "source");
-  const env = options.env ? { ...process.env, ...options.env } : process.env;
+  const env = normalizeCliEnv(options.env);
   return runCommandCapture(invocation.command, [...invocation.args, ...args], repoDir, env);
 }

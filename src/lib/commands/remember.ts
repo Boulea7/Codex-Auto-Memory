@@ -174,7 +174,11 @@ export async function runRemember(
     const reviewEntry = await buildManualMutationReviewEntry(runtime.syncService.memoryStore, record);
     return JSON.stringify(
       toManualMutationRememberPayload(text, reviewEntry, {
-        cwd: runtime.project.projectRoot
+        cwd: runtime.project.projectRoot,
+        publicPathContext: {
+          projectRoot: runtime.project.projectRoot,
+          memoryRoot: runtime.syncService.memoryStore.paths.baseDir
+        }
       }),
       null,
       2

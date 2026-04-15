@@ -12,6 +12,7 @@ import {
   RETRIEVAL_INTEGRATION_ASSET_VERSION
 } from "../src/lib/integration/retrieval-contract.js";
 import { buildCodexAgentsGuidance } from "../src/lib/integration/codex-stack.js";
+import { sanitizePublicPath } from "../src/lib/util/public-paths.js";
 import {
   makeAppConfig,
   makeRolloutFixture,
@@ -569,6 +570,28 @@ describe("mcp command", () => {
     });
   });
 
+  it("defaults mcp install and apply-guidance host to codex", async () => {
+    const homeDir = await tempDir("cam-mcp-default-host-home-");
+    const projectDir = await tempDir("cam-mcp-default-host-project-");
+    process.env.HOME = homeDir;
+
+    const installResult = runCli(projectDir, ["mcp", "install", "--json"], {
+      env: { HOME: homeDir }
+    });
+    expect(installResult.exitCode, installResult.stderr).toBe(0);
+    expect(JSON.parse(installResult.stdout)).toMatchObject({
+      host: "codex"
+    });
+
+    const applyResult = runCli(projectDir, ["mcp", "apply-guidance", "--json"], {
+      env: { HOME: homeDir }
+    });
+    expect(applyResult.exitCode, applyResult.stderr).toBe(0);
+    expect(JSON.parse(applyResult.stdout)).toMatchObject({
+      targetPath: expect.stringContaining("AGENTS.md")
+    });
+  });
+
   it("supports apply-guidance --cwd for updating another project's AGENTS guidance", async () => {
     const homeDir = await tempDir("cam-mcp-apply-guidance-cwd-home-");
     const projectDir = await tempDir("cam-mcp-apply-guidance-cwd-project-");
@@ -1037,7 +1060,9 @@ describe("mcp command", () => {
 
     expect(JSON.parse(result.stdout)).toMatchObject({
       agentsGuidance: {
-        path: path.join(realProjectDir, "AGENTS.md"),
+        path: sanitizePublicPath(path.join(realProjectDir, "AGENTS.md"), {
+          projectRoot: realProjectDir
+        }),
         exists: false,
         status: "missing"
       }
@@ -1063,7 +1088,9 @@ describe("mcp command", () => {
 
     expect(JSON.parse(result.stdout)).toMatchObject({
       agentsGuidance: {
-        path: path.join(realProjectDir, "AGENTS.md"),
+        path: sanitizePublicPath(path.join(realProjectDir, "AGENTS.md"), {
+          projectRoot: realProjectDir
+        }),
         exists: true,
         status: "warning"
       }
@@ -1098,7 +1125,9 @@ describe("mcp command", () => {
 
     expect(JSON.parse(result.stdout)).toMatchObject({
       agentsGuidance: {
-        path: path.join(realProjectDir, "AGENTS.md"),
+        path: sanitizePublicPath(path.join(realProjectDir, "AGENTS.md"), {
+          projectRoot: realProjectDir
+        }),
         exists: true,
         status: "ok"
       }
@@ -1171,7 +1200,9 @@ describe("mcp command", () => {
 
     expect(JSON.parse(result.stdout)).toMatchObject({
       agentsGuidance: {
-        path: path.join(realProjectDir, "AGENTS.md"),
+        path: sanitizePublicPath(path.join(realProjectDir, "AGENTS.md"), {
+          projectRoot: realProjectDir
+        }),
         exists: true,
         status: "warning"
       }
@@ -1208,7 +1239,9 @@ describe("mcp command", () => {
 
     expect(JSON.parse(result.stdout)).toMatchObject({
       agentsGuidance: {
-        path: path.join(realProjectDir, "AGENTS.md"),
+        path: sanitizePublicPath(path.join(realProjectDir, "AGENTS.md"), {
+          projectRoot: realProjectDir
+        }),
         exists: true,
         status: "warning",
         detectedVersion: "codex-agents-guidance-v0"
@@ -1407,10 +1440,13 @@ describe("mcp command", () => {
         recommendedSkillInstallCommand: string;
       };
     };
-    expect(payload.projectRoot).toBe(await fs.realpath(projectDir));
+    const publicProjectRoot = sanitizePublicPath(await fs.realpath(projectDir), {
+      projectRoot: await fs.realpath(projectDir)
+    });
+    expect(payload.projectRoot).toBe(publicProjectRoot);
     expect(payload.fallbackAssets.recommendedSkillInstallCommand).toBe(
       buildResolvedCliCommand("skills install --surface runtime", {
-        cwd: payload.projectRoot
+        cwd: await fs.realpath(projectDir)
       })
     );
   });
@@ -1548,7 +1584,11 @@ describe("mcp command", () => {
       }>;
     };
 
-    expect(payload.projectRoot).toBe(realProjectDir);
+    expect(payload.projectRoot).toBe(
+      sanitizePublicPath(realProjectDir, {
+        projectRoot: realProjectDir
+      })
+    );
     expect(payload.serverName).toBe("codex_auto_memory");
     expect(payload.readOnlyRetrieval).toBe(true);
     expect(payload.agentsGuidance).toMatchObject({
@@ -1716,7 +1756,9 @@ describe("mcp command", () => {
       ])
     });
     expect(payload.agentsGuidance).toMatchObject({
-      path: path.join(realProjectDir, "AGENTS.md"),
+      path: sanitizePublicPath(path.join(realProjectDir, "AGENTS.md"), {
+        projectRoot: realProjectDir
+      }),
       exists: false,
       status: "missing"
     });
@@ -1957,7 +1999,9 @@ describe("mcp command", () => {
     };
     expect(payload.applySafety).toMatchObject({
       status: "blocked",
-      targetPath: path.join(realProjectDir, "AGENTS.md"),
+      targetPath: sanitizePublicPath(path.join(realProjectDir, "AGENTS.md"), {
+        projectRoot: realProjectDir
+      }),
       recommendedAction: "blocked",
       blockedReason: expect.stringContaining("managed guidance block")
     });
@@ -2102,9 +2146,18 @@ describe("mcp command", () => {
 
     expect(JSON.parse(result.stdout)).toMatchObject({
       fallbackAssets: {
-        skillDir: path.join(codexHome, "skills", "codex-auto-memory-recall"),
-        runtimeSkillDir: path.join(codexHome, "skills", "codex-auto-memory-recall"),
-        runtimeAssetDir: path.join(codexHome, "skills", "codex-auto-memory-recall"),
+        skillDir: sanitizePublicPath(path.join(codexHome, "skills", "codex-auto-memory-recall"), {
+          projectRoot: realProjectDir,
+          homeDir
+        }),
+        runtimeSkillDir: sanitizePublicPath(path.join(codexHome, "skills", "codex-auto-memory-recall"), {
+          projectRoot: realProjectDir,
+          homeDir
+        }),
+        runtimeAssetDir: sanitizePublicPath(path.join(codexHome, "skills", "codex-auto-memory-recall"), {
+          projectRoot: realProjectDir,
+          homeDir
+        }),
         runtimeSource: "CODEX_HOME",
         preferredInstallSurface: "runtime",
         recommendedSkillInstallCommand: buildResolvedCliCommand("skills install --surface runtime"),
@@ -2112,18 +2165,24 @@ describe("mcp command", () => {
         runtimeSkillInstalled: true,
         runtimeSkillMatchesCanonical: true,
         runtimeSkillReady: true,
-        officialUserSkillDir: path.join(
+        officialUserSkillDir: sanitizePublicPath(path.join(
           homeDir,
           ".agents",
           "skills",
           "codex-auto-memory-recall"
-        ),
-        officialProjectSkillDir: path.join(
+        ), {
+          projectRoot: realProjectDir,
+          homeDir
+        }),
+        officialProjectSkillDir: sanitizePublicPath(path.join(
           realProjectDir,
           ".agents",
           "skills",
           "codex-auto-memory-recall"
-        ),
+        ), {
+          projectRoot: realProjectDir,
+          homeDir
+        }),
         officialUserSkillInstalled: false,
         officialProjectSkillInstalled: false,
         officialUserSkillMatchesCanonical: false,
@@ -2172,24 +2231,33 @@ describe("mcp command", () => {
 
     expect(JSON.parse(result.stdout)).toMatchObject({
       fallbackAssets: {
-        runtimeSkillDir: path.join(homeDir, ".codex", "skills", "codex-auto-memory-recall"),
+        runtimeSkillDir: sanitizePublicPath(path.join(homeDir, ".codex", "skills", "codex-auto-memory-recall"), {
+          projectRoot: realProjectDir,
+          homeDir
+        }),
         preferredInstallSurface: "runtime",
         recommendedSkillInstallCommand: buildResolvedCliCommand("skills install --surface runtime"),
         runtimeSkillPresent: false,
         runtimeSkillInstalled: false,
         runtimeSkillReady: false,
-        officialUserSkillDir: path.join(
+        officialUserSkillDir: sanitizePublicPath(path.join(
           homeDir,
           ".agents",
           "skills",
           "codex-auto-memory-recall"
-        ),
-        officialProjectSkillDir: path.join(
+        ), {
+          projectRoot: realProjectDir,
+          homeDir
+        }),
+        officialProjectSkillDir: sanitizePublicPath(path.join(
           realProjectDir,
           ".agents",
           "skills",
           "codex-auto-memory-recall"
-        ),
+        ), {
+          projectRoot: realProjectDir,
+          homeDir
+        }),
         officialUserSkillInstalled: true,
         officialUserSkillMatchesCanonical: true,
         officialUserSkillMatchesRuntime: false,
@@ -2248,12 +2316,15 @@ describe("mcp command", () => {
         officialUserSkillMatchesCanonical: false,
         officialUserSkillMatchesRuntime: false,
         officialUserSkillReady: false,
-        officialProjectSkillDir: path.join(
+        officialProjectSkillDir: sanitizePublicPath(path.join(
           realProjectDir,
           ".agents",
           "skills",
           "codex-auto-memory-recall"
-        ),
+        ), {
+          projectRoot: realProjectDir,
+          homeDir
+        }),
         officialProjectSkillInstalled: true,
         officialProjectSkillMatchesCanonical: true,
         officialProjectSkillMatchesRuntime: false,
@@ -2811,7 +2882,7 @@ describe("mcp command", () => {
             launcher: expect.objectContaining({
               resolution: "node-dist",
               operational: false,
-              missingPaths: ["/tmp/missing-cam-dist-cli.js"]
+              missingPaths: [sanitizePublicPath("/tmp/missing-cam-dist-cli.js", {})]
             })
           })
         ])
@@ -3521,12 +3592,18 @@ describe("mcp command", () => {
       );
       expect(detailsPayload).toMatchObject({
         ref,
-        path: store.getArchiveTopicFile("project", "workflow"),
+        path: sanitizePublicPath(store.getArchiveTopicFile("project", "workflow"), {
+          projectRoot: projectDir,
+          memoryRoot
+        }),
         latestLifecycleAction: "archive",
         latestState: "archived",
         latestSessionId: null,
         latestRolloutPath: null,
-        historyPath: store.getHistoryPath("project"),
+        historyPath: sanitizePublicPath(store.getHistoryPath("project"), {
+          projectRoot: projectDir,
+          memoryRoot
+        }),
         timelineWarningCount: 0,
         lineageSummary: {
           eventCount: 2,
@@ -4368,7 +4445,10 @@ describe("mcp command", () => {
               retrievalFallbackReason: "invalid",
               matchedCount: 1,
               returnedCount: 1,
-              indexPath: store.getRetrievalIndexFile("project", "active"),
+              indexPath: sanitizePublicPath(store.getRetrievalIndexFile("project", "active"), {
+                projectRoot: projectDir,
+                memoryRoot
+              }),
               generatedAt: null
             })
           ])
@@ -4518,7 +4598,10 @@ describe("mcp command", () => {
       expect(detailsPayload).toMatchObject({
         latestState: "active",
         latestSessionId: "session-mcp-audit",
-        latestRolloutPath: rolloutPath,
+        latestRolloutPath: sanitizePublicPath(rolloutPath, {
+          projectRoot: projectDir,
+          memoryRoot
+        }),
         timelineWarningCount: 0,
         lineageSummary: expect.objectContaining({
           eventCount: 1,
@@ -4528,8 +4611,14 @@ describe("mcp command", () => {
         }),
         warnings: [],
         latestAudit: {
-          auditPath: service.memoryStore.getSyncAuditPath(),
-          rolloutPath,
+          auditPath: sanitizePublicPath(service.memoryStore.getSyncAuditPath(), {
+            projectRoot: projectDir,
+            memoryRoot
+          }),
+          rolloutPath: sanitizePublicPath(rolloutPath, {
+            projectRoot: projectDir,
+            memoryRoot
+          }),
           sessionId: "session-mcp-audit",
           status: "applied",
           resultSummary: expect.stringContaining("operation(s) applied"),

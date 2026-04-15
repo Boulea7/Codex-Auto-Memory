@@ -1,4 +1,4 @@
-import { loadConfig } from "../config/load-config.js";
+import { loadConfig, type LoadConfigOptions } from "../config/load-config.js";
 import { patchConfigFile } from "../config/write-config.js";
 import { MemoryRetrievalService } from "../domain/memory-retrieval.js";
 import { detectProjectContext } from "../domain/project-context.js";
@@ -26,6 +26,7 @@ export interface ReloadedRuntimeContext {
 
 export interface RuntimeContextOptions {
   ensureMemoryLayout?: boolean;
+  loadConfig?: LoadConfigOptions;
 }
 
 export async function buildRuntimeContext(
@@ -34,7 +35,7 @@ export async function buildRuntimeContext(
   options: RuntimeContextOptions = {}
 ): Promise<RuntimeContext> {
   const project = detectProjectContext(await ensureExistingDirectory(cwd));
-  const loadedConfig = await loadConfig(project, overrides);
+  const loadedConfig = await loadConfig(project, overrides, options.loadConfig);
   const syncService = new SyncService(project, loadedConfig.config);
   const sessionContinuityStore = new SessionContinuityStore(project, loadedConfig.config);
   if (options.ensureMemoryLayout !== false) {

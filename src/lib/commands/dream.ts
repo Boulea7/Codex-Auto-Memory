@@ -27,6 +27,12 @@ import { findLatestProjectRollout } from "../domain/rollout.js";
 import { buildManualMutationReviewEntry } from "./manual-mutation-review.js";
 import { fileExists, readTextFile, writeJsonFileAtomic } from "../util/fs.js";
 import { buildResolvedCliCommand } from "../integration/retrieval-contract.js";
+import {
+  sanitizeKnownPathsInText,
+  sanitizePublicPath,
+  sanitizePublicPathList,
+  type PublicPathContext
+} from "../util/public-paths.js";
 import type {
   DreamCandidateOriginKind,
   DreamCandidateStatus,
@@ -81,6 +87,15 @@ const dreamCandidateTargetSurfaces = ["durable-memory", "instruction-memory"] as
 
 const dreamCandidateOriginKinds = ["primary", "subagent"] as const;
 const instructionTargetHosts = ["codex", "claude", "gemini", "shared"] as const;
+
+function buildDreamPublicPathContext(
+  runtime: Awaited<ReturnType<typeof buildRuntimeContext>>
+): PublicPathContext {
+  return {
+    projectRoot: runtime.project.projectRoot,
+    memoryRoot: runtime.syncService.memoryStore.paths.baseDir
+  };
+}
 
 function selectedScope(scope?: SessionContinuityScope | "both"): SessionContinuityScope | "both" {
   if (!scope) {
@@ -300,6 +315,128 @@ async function buildDreamReviewerPayload(
   };
 }
 
+function sanitizeDreamInspectionOutput(
+  inspection: Awaited<ReturnType<typeof inspectDreamSidecar>>,
+  context: PublicPathContext
+): Awaited<ReturnType<typeof inspectDreamSidecar>> {
+  return {
+    ...inspection,
+    snapshots: {
+      project: {
+        ...inspection.snapshots.project,
+        latestPath: sanitizePublicPath(inspection.snapshots.project.latestPath, context)
+      },
+      projectLocal: {
+        ...inspection.snapshots.projectLocal,
+        latestPath: sanitizePublicPath(inspection.snapshots.projectLocal.latestPath, context)
+      }
+    },
+    auditPath: sanitizePublicPath(inspection.auditPath, context) ?? inspection.auditPath,
+    recoveryPath: sanitizePublicPath(inspection.recoveryPath, context) ?? inspection.recoveryPath,
+    candidateRegistryPath:
+      sanitizePublicPath(inspection.candidateRegistryPath, context) ?? inspection.candidateRegistryPath,
+    candidateAuditPath:
+      sanitizePublicPath(inspection.candidateAuditPath, context) ?? inspection.candidateAuditPath,
+    candidateRecoveryPath:
+      sanitizePublicPath(inspection.candidateRecoveryPath, context) ?? inspection.candidateRecoveryPath
+  };
+}
+
+function isDreamPathLikeKey(key: string): boolean {
+  const lowerKey = key.toLowerCase();
+  return (
+    lowerKey === "path" ||
+    lowerKey === "cwd" ||
+    lowerKey.endsWith("path") ||
+    lowerKey.endsWith("file") ||
+    lowerKey.endsWith("dir") ||
+    lowerKey.endsWith("root")
+  );
+}
+
+function isDreamPathCollectionKey(key: string): boolean {
+  const lowerKey = key.toLowerCase();
+  return (
+    lowerKey.endsWith("paths") ||
+    lowerKey.endsWith("dirs") ||
+    lowerKey.endsWith("files") ||
+    lowerKey.endsWith("targets")
+  );
+}
+
+function isDreamCommandLikeKey(key: string): boolean {
+  const lowerKey = key.toLowerCase();
+  return lowerKey.endsWith("command") || lowerKey.endsWith("action");
+}
+
+function isDreamCommandCollectionKey(key: string): boolean {
+  const lowerKey = key.toLowerCase();
+  return lowerKey.endsWith("commands") || lowerKey.endsWith("actions");
+}
+
+function dreamKnownPaths(context: PublicPathContext): string[] {
+  return [
+    context.projectRoot,
+    context.memoryRoot,
+    context.cwd,
+    context.homeDir,
+    ...(context.extraRoots ?? []).map((root) => root.path)
+  ].filter((value): value is string => Boolean(value));
+}
+
+function sanitizeDreamText(value: string, context: PublicPathContext): string {
+  return sanitizeKnownPathsInText(value, dreamKnownPaths(context), context);
+}
+
+function sanitizeDreamPathValue<T>(
+  value: T,
+  context: PublicPathContext,
+  key?: string
+): T {
+  if (Array.isArray(value)) {
+    if (key && isDreamPathCollectionKey(key) && value.every((item) => typeof item === "string")) {
+      return sanitizePublicPathList(value as string[], context) as T;
+    }
+
+    if (key && isDreamCommandCollectionKey(key) && value.every((item) => typeof item === "string")) {
+      return value.map((item) => sanitizeDreamText(item as string, context)) as T;
+    }
+
+    return value.map((item) => {
+      if (typeof item === "string" && key && isDreamPathCollectionKey(key)) {
+        return sanitizePublicPath(item, context) ?? item;
+      }
+      if (typeof item === "string" && key && isDreamCommandCollectionKey(key)) {
+        return sanitizeDreamText(item, context);
+      }
+      return sanitizeDreamPathValue(item, context);
+    }) as T;
+  }
+
+  if (typeof value === "string" && key && isDreamPathLikeKey(key)) {
+    return (sanitizePublicPath(value, context) ?? value) as T;
+  }
+
+  if (typeof value === "string" && key && isDreamCommandLikeKey(key)) {
+    return sanitizeDreamText(value, context) as T;
+  }
+
+  if (!value || typeof value !== "object") {
+    return value;
+  }
+
+  return Object.fromEntries(
+    Object.entries(value as Record<string, unknown>).map(([entryKey, entryValue]) => [
+      entryKey,
+      sanitizeDreamPathValue(entryValue, context, entryKey)
+    ])
+  ) as T;
+}
+
+function sanitizeDreamReviewerPayload<T>(payload: T, context: PublicPathContext): T {
+  return sanitizeDreamPathValue(payload, context);
+}
+
 export async function runDream(
   action: DreamAction,
   options: DreamOptions = {}
@@ -307,42 +444,44 @@ export async function runDream(
   const runtime = await buildRuntimeContext(options.cwd ?? process.cwd(), {}, {
     ensureMemoryLayout: false
   });
+  const publicPathContext = buildDreamPublicPathContext(runtime);
 
   if (action === "inspect") {
     const inspection = await inspectDreamSidecar(runtime);
+    const publicInspection = sanitizeDreamInspectionOutput(inspection, publicPathContext);
     const reviewerPayload = await buildDreamReviewerPayload(runtime);
     if (options.json) {
-      return JSON.stringify(
+      const publicPayload = sanitizeDreamReviewerPayload(
         {
-          enabled: inspection.enabled,
-          autoBuild: inspection.autoBuild,
-          snapshots: inspection.snapshots,
-          auditPath: inspection.auditPath,
-          recoveryPath: inspection.recoveryPath,
-          queueSummary: inspection.queueSummary,
-          candidateRegistryPath: inspection.candidateRegistryPath,
-          candidateAuditPath: inspection.candidateAuditPath,
-          candidateRecoveryPath: inspection.candidateRecoveryPath,
+          enabled: publicInspection.enabled,
+          autoBuild: publicInspection.autoBuild,
+          snapshots: publicInspection.snapshots,
+          auditPath: publicInspection.auditPath,
+          recoveryPath: publicInspection.recoveryPath,
+          queueSummary: publicInspection.queueSummary,
+          candidateRegistryPath: publicInspection.candidateRegistryPath,
+          candidateAuditPath: publicInspection.candidateAuditPath,
+          candidateRecoveryPath: publicInspection.candidateRecoveryPath,
           reviewerSummary: reviewerPayload.reviewerSummary,
           nextRecommendedActions: reviewerPayload.nextRecommendedActions,
           helperCommands: reviewerPayload.helperCommands
         },
-        null,
-        2
+        publicPathContext
       );
+      return JSON.stringify(publicPayload, null, 2);
     }
 
     return [
       "Codex Auto Memory Dream Sidecar",
-      `Enabled: ${inspection.enabled}`,
-      `Auto-build: ${inspection.autoBuild}`,
-      `Project snapshot: ${inspection.snapshots.project.status} (${inspection.snapshots.project.latestPath ?? "none"})`,
-      `Project-local snapshot: ${inspection.snapshots.projectLocal.status} (${inspection.snapshots.projectLocal.latestPath ?? "none"})`,
-      `Candidate queue: ${inspection.queueSummary.totalCount} total`,
-      `Audit: ${inspection.auditPath}`,
-      `Recovery: ${inspection.recoveryPath}`,
-      `Candidate registry: ${inspection.candidateRegistryPath}`,
-      `Candidate audit: ${inspection.candidateAuditPath}`
+      `Enabled: ${publicInspection.enabled}`,
+      `Auto-build: ${publicInspection.autoBuild}`,
+      `Project snapshot: ${publicInspection.snapshots.project.status} (${publicInspection.snapshots.project.latestPath ?? "none"})`,
+      `Project-local snapshot: ${publicInspection.snapshots.projectLocal.status} (${publicInspection.snapshots.projectLocal.latestPath ?? "none"})`,
+      `Candidate queue: ${publicInspection.queueSummary.totalCount} total`,
+      `Audit: ${publicInspection.auditPath}`,
+      `Recovery: ${publicInspection.recoveryPath}`,
+      `Candidate registry: ${publicInspection.candidateRegistryPath}`,
+      `Candidate audit: ${publicInspection.candidateAuditPath}`
     ].join("\n");
   }
 
@@ -356,37 +495,38 @@ export async function runDream(
         ? { originKind: normalizeDreamOriginKind(options.originKind) }
         : {})
     });
+    const publicCandidates = sanitizeDreamReviewerPayload(candidates, publicPathContext);
     const reviewerPayload = await buildDreamReviewerPayload(runtime);
     if (options.json) {
-      return JSON.stringify(
+      const publicPayload = sanitizeDreamReviewerPayload(
         {
           action: "candidates",
-          entries: candidates.entries,
-          summary: candidates.summary,
-          registryPath: candidates.registryPath,
-          auditPath: candidates.auditPath,
-          recoveryPath: candidates.recoveryPath,
+          entries: publicCandidates.entries,
+          summary: publicCandidates.summary,
+          registryPath: publicCandidates.registryPath,
+          auditPath: publicCandidates.auditPath,
+          recoveryPath: publicCandidates.recoveryPath,
           reviewerSummary: reviewerPayload.reviewerSummary,
           nextRecommendedActions: reviewerPayload.nextRecommendedActions,
           helperCommands: reviewerPayload.helperCommands
         },
-        null,
-        2
+        publicPathContext
       );
+      return JSON.stringify(publicPayload, null, 2);
     }
 
-    if (candidates.entries.length === 0) {
+    if (publicCandidates.entries.length === 0) {
       return [
         "Dream candidate queue",
         "No dream candidates matched the current filters.",
-        `Registry: ${candidates.registryPath}`
+        `Registry: ${publicCandidates.registryPath}`
       ].join("\n");
     }
 
     return [
       "Dream candidate queue",
-      `Entries: ${candidates.entries.length}`,
-      ...candidates.entries.map(
+      `Entries: ${publicCandidates.entries.length}`,
+      ...publicCandidates.entries.map(
         (entry) =>
           `- ${entry.candidateId} [${entry.status}${entry.promotion.promotionOutcome ? ` | ${entry.promotion.promotionOutcome}` : ""}] ${entry.targetSurface}/${entry.originKind}: ${entry.summary}`
       )
@@ -408,29 +548,30 @@ export async function runDream(
       decision: options.approve ? "approved" : options.reject ? "rejected" : "pending",
       note: options.note
     });
+    const publicResult = sanitizeDreamReviewerPayload(result, publicPathContext);
     const reviewerPayload = await buildDreamReviewerPayload(runtime, result.entry);
     if (options.json) {
-      return JSON.stringify(
+      const publicPayload = sanitizeDreamReviewerPayload(
         {
           action: "review",
           entry: result.entry,
-          registryPath: result.registryPath,
-          auditPath: result.auditPath,
-          recoveryPath: result.recoveryPath,
+          registryPath: publicResult.registryPath,
+          auditPath: publicResult.auditPath,
+          recoveryPath: publicResult.recoveryPath,
           reviewerSummary: reviewerPayload.reviewerSummary,
           nextRecommendedActions: reviewerPayload.nextRecommendedActions,
           helperCommands: reviewerPayload.helperCommands
         },
-        null,
-        2
+        publicPathContext
       );
+      return JSON.stringify(publicPayload, null, 2);
     }
 
     return [
       `Reviewed dream candidate ${result.entry.candidateId}`,
       `Status: ${result.entry.status}`,
       ...(result.entry.review?.note ? [`Note: ${result.entry.review.note}`] : []),
-      `Registry: ${result.registryPath}`
+      `Registry: ${publicResult.registryPath}`
     ].join("\n");
   }
 
@@ -440,28 +581,29 @@ export async function runDream(
     }
 
     const result = await adoptDreamCandidate(runtime, options.candidateId, options.note);
+    const publicResult = sanitizeDreamReviewerPayload(result, publicPathContext);
     const reviewerPayload = await buildDreamReviewerPayload(runtime, result.entry);
     if (options.json) {
-      return JSON.stringify(
+      const publicPayload = sanitizeDreamReviewerPayload(
         {
           action: "adopt",
           entry: result.entry,
-          registryPath: result.registryPath,
-          auditPath: result.auditPath,
-          recoveryPath: result.recoveryPath,
+          registryPath: publicResult.registryPath,
+          auditPath: publicResult.auditPath,
+          recoveryPath: publicResult.recoveryPath,
           reviewerSummary: reviewerPayload.reviewerSummary,
           nextRecommendedActions: reviewerPayload.nextRecommendedActions,
           helperCommands: reviewerPayload.helperCommands
         },
-        null,
-        2
+        publicPathContext
       );
+      return JSON.stringify(publicPayload, null, 2);
     }
 
     return [
       `Adopted dream candidate ${result.entry.candidateId}`,
       `Status: ${result.entry.status}`,
-      `Registry: ${result.registryPath}`
+      `Registry: ${publicResult.registryPath}`
     ].join("\n");
   }
 
@@ -477,29 +619,31 @@ export async function runDream(
 
     const instructionProposal = await readInstructionProposalArtifact(runtime, options.candidateId);
     const reviewerPayload = await buildDreamReviewerPayload(runtime, candidate.entry);
+    const publicInstructionProposal = sanitizeDreamReviewerPayload(instructionProposal, publicPathContext);
+    const publicCandidate = sanitizeDreamReviewerPayload(candidate, publicPathContext);
     if (options.json) {
-      return JSON.stringify(
+      const publicPayload = sanitizeDreamReviewerPayload(
         {
           action: "proposal",
           entry: candidate.entry,
-          instructionProposal,
-          registryPath: candidate.registryPath,
-          auditPath: candidate.auditPath,
-          recoveryPath: candidate.recoveryPath,
+          instructionProposal: publicInstructionProposal,
+          registryPath: publicCandidate.registryPath,
+          auditPath: publicCandidate.auditPath,
+          recoveryPath: publicCandidate.recoveryPath,
           reviewerSummary: reviewerPayload.reviewerSummary,
           nextRecommendedActions: reviewerPayload.nextRecommendedActions,
           helperCommands: reviewerPayload.helperCommands
         },
-        null,
-        2
+        publicPathContext
       );
+      return JSON.stringify(publicPayload, null, 2);
     }
 
     return [
       `Instruction proposal for ${candidate.entry.candidateId}`,
-      `Target: ${instructionProposal.selectedTarget.path}`,
+      `Target: ${publicInstructionProposal.selectedTarget.path}`,
       `Readiness: ${instructionProposal.applyReadiness.status}`,
-      `Artifact: ${instructionProposal.artifactPath}`
+      `Artifact: ${publicInstructionProposal.artifactPath}`
     ].join("\n");
   }
 
@@ -529,7 +673,7 @@ export async function runDream(
       });
       const reviewerPayload = await buildDreamReviewerPayload(runtime, preparedEntry);
       if (options.json) {
-        return JSON.stringify(
+        const publicPayload = sanitizeDreamReviewerPayload(
           {
             action: "promote-prep",
             entry: preparedEntry,
@@ -543,15 +687,17 @@ export async function runDream(
             nextRecommendedActions: reviewerPayload.nextRecommendedActions,
             helperCommands: reviewerPayload.helperCommands
           },
-          null,
-          2
+          publicPathContext
         );
+        return JSON.stringify(publicPayload, null, 2);
       }
+
+      const publicArtifact = sanitizeDreamReviewerPayload(instructionProposal.artifact, publicPathContext);
 
       return [
         `Prepared instruction promote preview for ${candidate.entry.candidateId}`,
-        `Target: ${instructionProposal.artifact.selectedTarget.path}`,
-        instructionProposal.artifact.guidanceBlock
+        `Target: ${publicArtifact.selectedTarget.path}`,
+        publicArtifact.guidanceBlock
       ].join("\n");
     }
 
@@ -586,7 +732,7 @@ export async function runDream(
     const reviewerPayload = await buildDreamReviewerPayload(runtime, preparedEntry);
 
     if (options.json) {
-      return JSON.stringify(
+      const publicPayload = sanitizeDreamReviewerPayload(
         {
           action: "promote-prep",
           entry: preparedEntry,
@@ -606,16 +752,18 @@ export async function runDream(
           nextRecommendedActions: reviewerPayload.nextRecommendedActions,
           helperCommands: reviewerPayload.helperCommands
         },
-        null,
-        2
+        publicPathContext
       );
+      return JSON.stringify(publicPayload, null, 2);
     }
+
+    const publicTargetPath = sanitizePublicPath(preview.targetPath, publicPathContext) ?? preview.targetPath;
 
     return [
       `Prepared durable promote preview for ${candidate.entry.candidateId}`,
       `Lifecycle: ${preview.record.lifecycleAction}`,
       `Ref: ${preview.ref}`,
-      `Target path: ${preview.targetPath}`
+      `Target path: ${publicTargetPath}`
     ].join("\n");
   }
 
@@ -674,7 +822,7 @@ export async function runDream(
     await writeJsonFileAtomic(instructionProposal.artifactPath, updatedInstructionProposal);
 
     if (options.json) {
-      return JSON.stringify(
+      const publicPayload = sanitizeDreamReviewerPayload(
         {
           action: "apply-prep",
           entry: updatedEntry,
@@ -687,14 +835,16 @@ export async function runDream(
           nextRecommendedActions: reviewerPayload.nextRecommendedActions,
           helperCommands: reviewerPayload.helperCommands
         },
-        null,
-        2
+        publicPathContext
       );
+      return JSON.stringify(publicPayload, null, 2);
     }
+
+    const publicTargetPath = sanitizePublicPath(targetPath, publicPathContext) ?? targetPath;
 
     return [
       `Prepared instruction apply preview for ${candidate.entry.candidateId}`,
-      `Target: ${targetPath}`,
+      `Target: ${publicTargetPath}`,
       `Readiness: ${applyReadiness.status}`
     ].join("\n");
   }
@@ -736,7 +886,7 @@ export async function runDream(
     });
     const reviewerPayload = await buildDreamReviewerPayload(runtime, updatedEntry);
     if (options.json) {
-      return JSON.stringify(
+      const publicPayload = sanitizeDreamReviewerPayload(
         {
           action: "verify-apply",
           entry: updatedEntry,
@@ -748,14 +898,16 @@ export async function runDream(
           nextRecommendedActions: reviewerPayload.nextRecommendedActions,
           helperCommands: reviewerPayload.helperCommands
         },
-        null,
-        2
+        publicPathContext
       );
+      return JSON.stringify(publicPayload, null, 2);
     }
+
+    const publicTargetPath = sanitizePublicPath(targetPath, publicPathContext) ?? targetPath;
 
     return [
       `Verified manual apply for ${updatedEntry.candidateId}`,
-      `Target: ${targetPath}`,
+      `Target: ${publicTargetPath}`,
       `Status: ${updatedEntry.status}`
     ].join("\n");
   }
@@ -793,7 +945,7 @@ export async function runDream(
       });
       const reviewerPayload = await buildDreamReviewerPayload(runtime, nextEntry);
       if (options.json) {
-        return JSON.stringify(
+        const publicPayload = sanitizeDreamReviewerPayload(
           {
             action: "promote",
             promotionOutcome: "proposal-only",
@@ -805,15 +957,17 @@ export async function runDream(
             nextRecommendedActions: reviewerPayload.nextRecommendedActions,
             helperCommands: reviewerPayload.helperCommands
           },
-          null,
-          2
+          publicPathContext
         );
+        return JSON.stringify(publicPayload, null, 2);
       }
+
+      const publicArtifact = sanitizeDreamReviewerPayload(instructionProposal.artifact, publicPathContext);
 
       return [
         `Prepared instruction proposal for ${nextEntry.candidateId}`,
-        `Suggested target: ${instructionProposal.artifact.selectedTarget.path}`,
-        instructionProposal.artifact.guidanceBlock
+        `Suggested target: ${publicArtifact.selectedTarget.path}`,
+        publicArtifact.guidanceBlock
       ].join("\n");
     }
 
@@ -856,7 +1010,7 @@ export async function runDream(
     const reviewerPayload = await buildDreamReviewerPayload(runtime, nextEntry);
 
     if (options.json) {
-      return JSON.stringify(
+      const publicPayload = sanitizeDreamReviewerPayload(
         {
           action: "promote",
           promotionOutcome: record.lifecycleAction === "noop" ? "noop" : "applied",
@@ -873,9 +1027,9 @@ export async function runDream(
           nextRecommendedActions: reviewerPayload.nextRecommendedActions,
           helperCommands: reviewerPayload.helperCommands
         },
-        null,
-        2
+        publicPathContext
       );
+      return JSON.stringify(publicPayload, null, 2);
     }
 
     return [
@@ -940,15 +1094,19 @@ export async function runDream(
     );
   }
 
+  const publicRolloutPath = sanitizePublicPath(rolloutPath, publicPathContext) ?? rolloutPath;
+  const publicSnapshotPaths = sanitizePublicPathList(persisted.snapshotPaths, publicPathContext);
+  const publicAuditPath = sanitizePublicPath(persisted.auditPath, publicPathContext) ?? persisted.auditPath;
+
   return [
-    `Built dream sidecar snapshot from ${rolloutPath}`,
-    `Snapshot paths: ${persisted.snapshotPaths.join(", ")}`,
+    `Built dream sidecar snapshot from ${publicRolloutPath}`,
+    `Snapshot paths: ${publicSnapshotPaths.join(", ")}`,
     `Relevant refs: ${persisted.snapshot.relevantMemoryRefs.length}`,
     `Pending promotions: ${
       persisted.snapshot.promotionCandidates.instructionLikeCandidates.length +
       persisted.snapshot.promotionCandidates.durableMemoryCandidates.length
     }`,
-    `Audit: ${persisted.auditPath}`,
+    `Audit: ${publicAuditPath}`,
     `Candidate queue: ${candidates.summary.totalCount} total`
   ].join("\n");
 }
