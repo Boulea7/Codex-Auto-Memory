@@ -27,11 +27,15 @@ describe("cli runner helpers", () => {
   it("strips inherited npm config noise from isolated CLI environments", () => {
     const env = createIsolatedCliEnv("/tmp/cam-home", {
       npm_config_verify_deps_before_run: "true",
-      NPM_CONFIG__JSR_REGISTRY: "https://example.invalid"
+      NPM_CONFIG__JSR_REGISTRY: "https://example.invalid",
+      npm_execpath: "/tmp/pnpm.cjs",
+      PNPM_HOME: "/tmp/pnpm-home"
     });
 
     expect(env.npm_config_verify_deps_before_run).toBeUndefined();
     expect(env.NPM_CONFIG__JSR_REGISTRY).toBeUndefined();
+    expect(env.npm_execpath).toBeUndefined();
+    expect(env.PNPM_HOME).toBeUndefined();
   });
 
   it("builds a minimal command PATH that keeps the current platform delimiter contract", () => {
