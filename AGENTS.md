@@ -126,7 +126,7 @@ cam session status
 
 ## 变更记录
 
-- 2026-04-16: `v0.1.0` 的 GitHub Release 已成功产出 `codex-auto-memory-0.1.0.tgz` 附件；后续收口把 CI / release workflow 统一升到 `actions/checkout@v6`、`actions/setup-node@v6`、`pnpm/action-setup@v6`，并把 release 附件发布改成可重跑的“已存在则 upload --clobber，否则 create”路径，避免 npm publish 失败时把 GitHub Release 一起卡死。
+- 2026-04-16: `v0.1.0` 的 GitHub Release 已成功产出 `codex-auto-memory-0.1.0.tgz` 附件；后续收口把 CI / release workflow 统一升到 `actions/checkout@v6`、`actions/setup-node@v6`，保留 `pnpm/action-setup@v4`，并把 release 附件发布改成可重跑的“已存在则 upload --clobber，否则 create”路径。`pnpm/action-setup@v6` 在当前仓库远端 CI 上会触发 `ERR_PNPM_BROKEN_LOCKFILE`，暂不吸收，对应 dependabot 分支继续保留待后续单独处理。
 - 2026-04-16: Windows smoke 回归已在本地收口：`writeTextFileAtomic` 现在对目录 `fsync` 的 `EPERM` / `EINVAL` / `ENOTSUP` / `ENOSYS` / `EISDIR` / `EBADF` 做安全降级，保留临时文件同步与非可忽略错误的 fail-closed 行为；`test/util-fs.test.ts` 新增对应回归用例，`test/dist-cli-smoke.test.ts` 收紧为接受 idempotent skill surface 安装动作（`created` 或 `unchanged`）并补上预装 surface 的回归覆盖。
 - 2026-04-16: release 准备过程中把 `session-command` 与 `wrapper-session-continuity` 的测试辅助函数类型收紧为显式接受 `AppConfig | Record<string, unknown>`，保留测试里“显式把 mock `codexBinary` 镜像到 local config”的意图，同时让 `pnpm lint` / `pnpm verify:release` 再次通过。
 - 2026-04-15: 已把公开联系邮箱补进仓库健康文档：`SUPPORT.md` 与 `SECURITY.md` 现在统一使用 `opensource@lnzai.com` 作为私有支持 / 安全联系地址，不再继续提示“仓库内没有公开邮箱”。
