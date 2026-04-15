@@ -18,11 +18,11 @@
 
 ## Private contact fallback
 
-This repository does not currently publish a dedicated support email or security mailbox in-tree.
+For private support or security-sensitive contact, use:
 
-If GitHub private vulnerability reporting is not available in your view and you need a private route, use any public contact detail published on the repository owner profile:
+- `opensource@lnzai.com`
 
-- <https://github.com/Boulea7>
+If GitHub private vulnerability reporting is not available in your view and you need a private route, email that address directly.
 
 Do not post sensitive details in public while requesting that route.
 

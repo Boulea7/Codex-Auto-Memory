@@ -71,9 +71,9 @@ describe("docs contract", () => {
 
     expect(support).toContain("README.md");
     expect(support).toContain("SECURITY.md");
-    expect(support).toContain("does not currently publish a dedicated support email");
+    expect(support).toContain("opensource@lnzai.com");
     expect(security).toContain("private vulnerability");
-    expect(security).toContain("does not currently publish a dedicated security email address");
+    expect(security).toContain("opensource@lnzai.com");
     expect(codeOfConduct).toContain("Expected behavior");
     expect(codeOfConduct).toContain("SUPPORT.md");
     expect(issueConfig).toContain("blank_issues_enabled: false");
