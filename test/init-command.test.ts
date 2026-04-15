@@ -7,6 +7,7 @@ import {
   writeCamConfig
 } from "./helpers/cam-test-fixtures.js";
 import { runCli } from "./helpers/cli-runner.js";
+import { restoreOptionalEnv } from "./helpers/env.js";
 
 const tempDirs: string[] = [];
 const originalHome = process.env.HOME;
@@ -49,12 +50,8 @@ const expectedLocalInitConfig = {
 };
 
 afterEach(async () => {
-  process.env.HOME = originalHome;
-  if (originalManagedConfig === undefined) {
-    delete process.env.CAM_MANAGED_CONFIG;
-  } else {
-    process.env.CAM_MANAGED_CONFIG = originalManagedConfig;
-  }
+  restoreOptionalEnv("HOME", originalHome);
+  restoreOptionalEnv("CAM_MANAGED_CONFIG", originalManagedConfig);
   await Promise.all(tempDirs.splice(0).map((dir) => fs.rm(dir, { recursive: true, force: true })));
 });
 

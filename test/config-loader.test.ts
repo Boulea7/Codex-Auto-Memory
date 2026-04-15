@@ -4,6 +4,7 @@ import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { loadConfig } from "../src/lib/config/load-config.js";
 import { detectProjectContext } from "../src/lib/domain/project-context.js";
+import { restoreOptionalEnv } from "./helpers/env.js";
 
 const tempPaths: string[] = [];
 const originalHome = process.env.HOME;
@@ -16,8 +17,8 @@ async function createTempDir(prefix: string): Promise<string> {
 }
 
 afterEach(async () => {
-  process.env.HOME = originalHome;
-  process.env.CAM_MANAGED_CONFIG = originalManagedConfig;
+  restoreOptionalEnv("HOME", originalHome);
+  restoreOptionalEnv("CAM_MANAGED_CONFIG", originalManagedConfig);
   await Promise.all(tempPaths.splice(0).map((dir) => fs.rm(dir, { recursive: true, force: true })));
 });
 
@@ -121,5 +122,26 @@ describe("loadConfig", () => {
     expect(loaded.config.sessionContinuityAutoLoad).toBe(true);
     expect(loaded.warnings.join("\n")).toContain("Ignored invalid user config");
     expect(loaded.warnings.join("\n")).toContain("Ignored invalid managed config");
+  });
+
+  it("uses a source-agnostic warning when local codexBinary overrides are disabled", async () => {
+    const homeDir = await createTempDir("cam-local-codex-warning-home-");
+    const projectDir = await createTempDir("cam-local-codex-warning-project-");
+    process.env.HOME = homeDir;
+
+    await fs.writeFile(
+      path.join(projectDir, ".codex-auto-memory.local.json"),
+      JSON.stringify({
+        codexBinary: "./local-codex"
+      })
+    );
+
+    const loaded = await loadConfig(detectProjectContext(projectDir), {}, {
+      allowLocalCodexBinaryOverride: false
+    });
+
+    expect(loaded.config.codexBinary).toBe("codex");
+    expect(loaded.warnings.join("\n")).toContain("Ignored codexBinary");
+    expect(loaded.warnings.join("\n")).not.toContain("Shared project config");
   });
 });

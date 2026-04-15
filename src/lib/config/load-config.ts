@@ -79,7 +79,7 @@ function sanitizeProjectConfig(
   }
   if (!allowCodexBinaryOverride && parsed.codexBinary) {
     warnings.push(
-      `Ignored codexBinary from ${filePath}. Shared project config cannot override the executable used to launch Codex.`
+      `Ignored codexBinary from ${filePath}. This config source cannot override the executable used to launch Codex.`
     );
   }
 

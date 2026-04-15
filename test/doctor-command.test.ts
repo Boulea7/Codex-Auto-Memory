@@ -7,7 +7,7 @@ import { MemoryStore } from "../src/lib/domain/memory-store.js";
 import { detectProjectContext } from "../src/lib/domain/project-context.js";
 import { sanitizePublicPath } from "../src/lib/util/public-paths.js";
 import { makeAppConfig, writeCamConfig } from "./helpers/cam-test-fixtures.js";
-import { runCli } from "./helpers/cli-runner.js";
+import { minimalCommandPath, runCli } from "./helpers/cli-runner.js";
 
 const tempDirs: string[] = [];
 const originalHome = process.env.HOME;
@@ -25,6 +25,37 @@ async function pathExists(targetPath: string): Promise<boolean> {
   } catch {
     return false;
   }
+}
+
+function resolvePublicPathForTest(
+  publicPath: string,
+  context: {
+    projectRoot?: string;
+    memoryRoot?: string;
+    cwd?: string;
+    homeDir?: string;
+  }
+): string {
+  const roots = [
+    ["<project-root>", context.projectRoot],
+    ["<memory-root>", context.memoryRoot],
+    ["<cwd>", context.cwd],
+    ["<home>", context.homeDir]
+  ] as const;
+
+  for (const [label, root] of roots) {
+    if (!root) {
+      continue;
+    }
+    if (publicPath === label) {
+      return root;
+    }
+    if (publicPath.startsWith(`${label}${path.sep}`)) {
+      return path.join(root, publicPath.slice(label.length + 1));
+    }
+  }
+
+  return publicPath;
 }
 
 afterEach(async () => {
@@ -66,7 +97,7 @@ exit 0
     const result = runCli(projectDir, ["doctor", "--json"], {
       env: {
         HOME: homeDir,
-        PATH: `${path.dirname(process.execPath)}:/usr/bin:/bin`
+        PATH: minimalCommandPath()
       }
     });
     expect(result.exitCode, result.stderr).toBe(0);
@@ -170,7 +201,7 @@ exit 0
     const result = runCli(projectDir, ["doctor", "--json"], {
       env: {
         HOME: homeDir,
-        PATH: `${path.dirname(process.execPath)}:/usr/bin:/bin`
+        PATH: minimalCommandPath()
       }
     });
     expect(result.exitCode, result.stderr).toBe(0);
@@ -618,7 +649,15 @@ exit 0
         artifactPath: string;
       };
     };
-    await fs.writeFile(promotePayload.instructionProposal.artifactPath, "{broken", "utf8");
+    await fs.writeFile(
+      resolvePublicPathForTest(promotePayload.instructionProposal.artifactPath, {
+        projectRoot: projectDir,
+        memoryRoot,
+        homeDir
+      }),
+      "{broken",
+      "utf8"
+    );
 
     const result = runCli(projectDir, ["doctor", "--json"], {
       env: { HOME: homeDir }

@@ -35,6 +35,37 @@ function camBinaryPath(installDir: string): string {
   );
 }
 
+function resolvePublicPathForTest(
+  publicPath: string,
+  context: {
+    projectRoot?: string;
+    memoryRoot?: string;
+    cwd?: string;
+    homeDir?: string;
+  }
+): string {
+  const roots = [
+    ["<project-root>", context.projectRoot],
+    ["<memory-root>", context.memoryRoot],
+    ["<cwd>", context.cwd],
+    ["<home>", context.homeDir]
+  ] as const;
+
+  for (const [label, root] of roots) {
+    if (!root) {
+      continue;
+    }
+    if (publicPath === label) {
+      return root;
+    }
+    if (publicPath.startsWith(`${label}${path.sep}`)) {
+      return path.join(root, publicPath.slice(label.length + 1));
+    }
+  }
+
+  return publicPath;
+}
+
 function isolatedEnv(homeDir: string): NodeJS.ProcessEnv {
   return createIsolatedCliEnv(homeDir);
 }
@@ -851,7 +882,16 @@ describe("tarball install smoke", () => {
       }
     });
     await expect(
-      fs.stat(instructionApplyPrepPayload.instructionProposal.manualWorkflow.applyPrepPath)
+      fs.stat(
+        resolvePublicPathForTest(
+          instructionApplyPrepPayload.instructionProposal.manualWorkflow.applyPrepPath,
+          {
+            projectRoot: installDir,
+            memoryRoot,
+            homeDir
+          }
+        )
+      )
     ).resolves.toBeDefined();
 
     const instructionPromoteResult = runCommandCapture(
@@ -1658,6 +1698,7 @@ describe("tarball install smoke", () => {
     });
 
     for (const command of [
+      ["integrations", "install", "--host", "codex"] as const,
       ["integrations", "apply", "--host", "codex"] as const,
       ["integrations", "doctor", "--host", "codex"] as const
     ]) {

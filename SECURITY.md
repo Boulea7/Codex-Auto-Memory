@@ -18,12 +18,13 @@ Fallback route:
 
 1. Use the contact guidance in [SUPPORT.md](./SUPPORT.md) to request a private reporting path.
 2. Do not include secrets, proof-of-concept exploits, or reproduction details in public channels.
+3. Share proof-of-concept exploits or reproduction details only through GitHub's private vulnerability reporting flow or another confirmed private reporting route.
 
 ## What to include
 
 - affected version, branch, or commit if known
 - impact summary
-- reproduction steps or proof of concept
+- reproduction steps or proof of concept, but only when using a private reporting route
 - any suggested mitigation or patch direction
 
 ## Response expectations

@@ -75,13 +75,9 @@ function redactSensitiveSnippet(line: string, ruleId: string): string {
 function normalizeSnippet(
   line: string,
   ruleId: string,
-  classification: AuditClassification,
   showSensitiveSnippets: boolean
 ): string {
-  const nextLine =
-    !showSensitiveSnippets && classification === "confirmed-risk"
-      ? redactSensitiveSnippet(line, ruleId)
-      : line;
+  const nextLine = !showSensitiveSnippets ? redactSensitiveSnippet(line, ruleId) : line;
   return trimText(nextLine.trim(), 180);
 }
 
@@ -104,7 +100,7 @@ function makeFinding(
     sourceType,
     location: `${filePath}:${lineNumber}`,
     summary,
-    snippet: normalizeSnippet(line, ruleId, classification, showSensitiveSnippets),
+    snippet: normalizeSnippet(line, ruleId, showSensitiveSnippets),
     recommendation
   };
 }

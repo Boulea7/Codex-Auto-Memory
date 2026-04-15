@@ -5,7 +5,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { runAuditScan } from "../src/lib/security/audit.js";
 import { runAudit } from "../src/lib/commands/audit.js";
 import { runCommandCapture } from "../src/lib/util/process.js";
-import { sanitizePublicPath } from "../src/lib/util/public-paths.js";
+import { sanitizePathFieldsDeep, sanitizePublicPath } from "../src/lib/util/public-paths.js";
 import * as processUtils from "../src/lib/util/process.js";
 import { runCli } from "./helpers/cli-runner.js";
 
@@ -350,8 +350,17 @@ describe("audit scan", () => {
       ])
     );
     expect(report.snippetPolicy).toBe("redacted");
-    expect(report.findings[0]?.snippet).toContain("[redacted]");
-    expect(report.findings[0]?.snippet).not.toContain("sk-live-untrackedsecret1234567890");
+    const secretFinding = report.findings.find(
+      (finding) =>
+        finding.sourceType === "working-tree" &&
+        finding.classification === "confirmed-risk" &&
+        finding.severity === "high" &&
+        finding.location === ".env:1" &&
+        finding.ruleId === "secret-like-token"
+    );
+    expect(secretFinding).toBeDefined();
+    expect(secretFinding?.snippet).toContain("[redacted]");
+    expect(secretFinding?.snippet).not.toContain("sk-live-untrackedsecret1234567890");
   });
 
   it("can opt into raw snippets when explicitly requested", async () => {
@@ -371,7 +380,98 @@ describe("audit scan", () => {
     });
 
     expect(report.snippetPolicy).toBe("raw");
-    expect(report.findings[0]?.snippet).toContain("sk-live-rawsnippet1234567890");
+    const secretFinding = report.findings.find(
+      (finding) =>
+        finding.sourceType === "working-tree" &&
+        finding.classification === "confirmed-risk" &&
+        finding.severity === "high" &&
+        finding.location === ".env:1" &&
+        finding.ruleId === "secret-like-token"
+    );
+    expect(secretFinding).toBeDefined();
+    expect(secretFinding?.snippet).toContain("sk-live-rawsnippet1234567890");
+  });
+
+  it("redacts synthetic secret-like snippets unless raw output is explicitly requested", async () => {
+    const repoDir = await tempDir("cam-audit-synthetic-token-");
+    await initRepo(repoDir);
+
+    await fs.writeFile(
+      path.join(repoDir, "README.md"),
+      "Synthetic fixture token: Bearer synthetic-token-1234567890 fixture\n",
+      "utf8"
+    );
+
+    const report = await runAuditScan({
+      cwd: repoDir,
+      includeHistory: false
+    });
+
+    const secretFinding = report.findings.find(
+      (finding) =>
+        finding.ruleId === "secret-like-token" &&
+        finding.classification === "synthetic-test-fixture"
+    );
+    expect(secretFinding).toBeDefined();
+    expect(secretFinding?.snippet).toContain("[redacted]");
+    expect(secretFinding?.snippet).not.toContain("synthetic-token-1234567890");
+  });
+
+  it("redacts private key markers even for synthetic fixtures unless raw output is explicitly requested", async () => {
+    const repoDir = await tempDir("cam-audit-private-key-");
+    await initRepo(repoDir);
+
+    await fs.writeFile(
+      path.join(repoDir, "README.md"),
+      "Synthetic fixture key marker: -----BEGIN RSA PRIVATE KEY----- fixture\n",
+      "utf8"
+    );
+
+    const report = await runAuditScan({
+      cwd: repoDir,
+      includeHistory: false
+    });
+
+    const privateKeyFinding = report.findings.find(
+      (finding) =>
+        finding.ruleId === "private-key-marker" &&
+        finding.classification === "synthetic-test-fixture"
+    );
+    expect(privateKeyFinding).toBeDefined();
+    expect(privateKeyFinding?.snippet).toBe("[redacted private key marker]");
+  });
+
+  it("sanitizes nested object fields inside path collection arrays", () => {
+    const projectRoot = path.join("/tmp", "cam-public-paths-project");
+    const nestedPath = path.join(projectRoot, "docs", "AGENTS.md");
+    const nestedRoot = path.join(projectRoot, "docs");
+
+    const sanitized = sanitizePathFieldsDeep(
+      {
+        detectedTargets: [
+          {
+            path: nestedPath,
+            nestedPaths: [nestedPath],
+            metadata: {
+              docsRoot: nestedRoot
+            }
+          }
+        ]
+      },
+      { projectRoot }
+    );
+
+    expect(sanitized).toEqual({
+      detectedTargets: [
+        {
+          path: path.join("<project-root>", "docs", "AGENTS.md"),
+          nestedPaths: [path.join("<project-root>", "docs", "AGENTS.md")],
+          metadata: {
+            docsRoot: path.join("<project-root>", "docs")
+          }
+        }
+      ]
+    });
   });
 
   it("supports --cwd on the real CLI surface when scanning another repository", async () => {

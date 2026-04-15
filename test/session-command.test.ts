@@ -33,9 +33,25 @@ async function tempDir(prefix: string): Promise<string> {
 
 const initRepo = initGitRepo;
 const configJson = makeAppConfig;
-
-const writeProjectConfig = writeCamConfig;
 const rolloutFixture = makeRolloutFixture;
+
+async function writeProjectConfig(
+  repoDir: string,
+  projectConfig: Record<string, unknown>,
+  localConfig: Record<string, unknown>
+): Promise<void> {
+  const projectCodexBinary =
+    typeof projectConfig.codexBinary === "string" ? projectConfig.codexBinary : undefined;
+  const nextLocalConfig =
+    projectCodexBinary && typeof localConfig.codexBinary !== "string"
+      ? {
+          ...localConfig,
+          codexBinary: projectCodexBinary
+        }
+      : localConfig;
+
+  await writeCamConfig(repoDir, projectConfig, nextLocalConfig);
+}
 
 afterEach(async () => {
   restoreOptionalEnv("CAM_CODEX_SESSIONS_DIR", originalSessionsDir);

@@ -57,6 +57,37 @@ async function waitForFile(pathname: string, timeoutMs = 2_000): Promise<string>
   }
 }
 
+function resolvePublicPathForTest(
+  publicPath: string,
+  context: {
+    projectRoot?: string;
+    memoryRoot?: string;
+    cwd?: string;
+    homeDir?: string;
+  }
+): string {
+  const roots = [
+    ["<project-root>", context.projectRoot],
+    ["<memory-root>", context.memoryRoot],
+    ["<cwd>", context.cwd],
+    ["<home>", context.homeDir]
+  ] as const;
+
+  for (const [label, root] of roots) {
+    if (!root) {
+      continue;
+    }
+    if (publicPath === label) {
+      return root;
+    }
+    if (publicPath.startsWith(`${label}${path.sep}`)) {
+      return path.join(root, publicPath.slice(label.length + 1));
+    }
+  }
+
+  return publicPath;
+}
+
 function subagentRolloutFixture(
   projectDir: string,
   message: string,
@@ -856,7 +887,16 @@ describe("dist cli smoke", () => {
       }
     });
     expect(
-      await pathExists(instructionApplyPrepPayload.instructionProposal.manualWorkflow.applyPrepPath)
+      await pathExists(
+        resolvePublicPathForTest(
+          instructionApplyPrepPayload.instructionProposal.manualWorkflow.applyPrepPath,
+          {
+            projectRoot: projectDir,
+            memoryRoot,
+            homeDir
+          }
+        )
+      )
     ).toBe(true);
 
     const instructionPromoteResult = runCli(
@@ -1844,7 +1884,9 @@ describe("dist cli smoke", () => {
 
     expect(result.exitCode, result.stderr).toBe(0);
     expect(JSON.parse(result.stdout)).toMatchObject({
-      projectRoot: realProjectDir,
+      projectRoot: sanitizePublicPath(realProjectDir, {
+        projectRoot: realProjectDir
+      }),
       workflowContract: {
         version: expect.any(String),
         cliFallback: {
@@ -2085,7 +2127,7 @@ describe("dist cli smoke", () => {
     expect(JSON.parse(doctorResult.stdout)).toMatchObject({
       fallbackAssets: {
         runtimeSkillPresent: true,
-        runtimeSkillDir: path.join(codexHome, "skills", "codex-auto-memory-recall"),
+        runtimeSkillDir: path.join("<absolute-path>", "codex-auto-memory-recall"),
         anySkillSurfaceInstalled: true,
         anySkillSurfaceReady: true,
         officialUserSkillMatchesCanonical: false,
@@ -2492,7 +2534,9 @@ describe("dist cli smoke", () => {
     expect(doctorResult.exitCode, doctorResult.stderr).toBe(0);
     expect(JSON.parse(doctorResult.stdout)).toMatchObject({
       host: "codex",
-      projectRoot: realProjectDir,
+      projectRoot: sanitizePublicPath(realProjectDir, {
+        projectRoot: realProjectDir
+      }),
       readOnlyRetrieval: true,
       status: "ok",
       recommendedRoute: "mcp",
@@ -2566,7 +2610,9 @@ describe("dist cli smoke", () => {
     expect(result.exitCode, result.stderr).toBe(0);
     expect(JSON.parse(result.stdout)).toMatchObject({
       host: "codex",
-      projectRoot: realProjectDir,
+      projectRoot: sanitizePublicPath(realProjectDir, {
+        projectRoot: realProjectDir
+      }),
       applyReadiness: {
         status: "blocked",
         reason: expect.stringContaining("managed guidance block"),
@@ -2580,6 +2626,7 @@ describe("dist cli smoke", () => {
     const projectDir = await tempDir("cam-dist-integrations-doctor-invalid-cwd-project-");
 
     for (const command of [
+      ["integrations", "install", "--host", "codex"] as const,
       ["integrations", "apply", "--host", "codex"] as const,
       ["integrations", "doctor", "--host", "codex"] as const
     ]) {
@@ -2625,6 +2672,7 @@ fs.writeFileSync(${JSON.stringify(capturedArgsPath)}, JSON.stringify(process.arg
     await writeCamConfig(repoDir, projectConfig, {
       autoMemoryDirectory: memoryRoot,
       autoMemoryEnabled: false,
+      codexBinary: mockCodexPath,
       sessionContinuityAutoLoad: false,
       sessionContinuityAutoSave: false
     });
@@ -2639,6 +2687,50 @@ fs.writeFileSync(${JSON.stringify(capturedArgsPath)}, JSON.stringify(process.arg
     expect(capturedArgs).toContain("exec");
     expect(capturedArgs).toContain("continue");
     expect(capturedArgs.some((value) => value.startsWith("base_instructions="))).toBe(true);
+  }, 30_000);
+
+  it("does not intercept wrapper help flags that appear after -- on the compiled entrypoint", async () => {
+    const repoDir = await tempDir("cam-dist-wrapper-double-dash-repo-");
+    const homeDir = await tempDir("cam-dist-wrapper-double-dash-home-");
+    const memoryRoot = await tempDir("cam-dist-wrapper-double-dash-memory-");
+    await initGitRepo(repoDir);
+
+    const capturedArgsPath = path.join(repoDir, "captured-double-dash-args.json");
+    const mockCodexPath = path.join(repoDir, "mock-codex-double-dash");
+    await fs.writeFile(
+      mockCodexPath,
+      `#!/usr/bin/env node
+const fs = require("node:fs");
+fs.writeFileSync(${JSON.stringify(capturedArgsPath)}, JSON.stringify(process.argv.slice(2), null, 2));
+`,
+      "utf8"
+    );
+    await fs.chmod(mockCodexPath, 0o755);
+
+    const projectConfig: AppConfig = makeAppConfig({
+      autoMemoryEnabled: false,
+      codexBinary: mockCodexPath,
+      sessionContinuityAutoLoad: false,
+      sessionContinuityAutoSave: false
+    });
+    await writeCamConfig(repoDir, projectConfig, {
+      autoMemoryDirectory: memoryRoot,
+      autoMemoryEnabled: false,
+      codexBinary: mockCodexPath,
+      sessionContinuityAutoLoad: false,
+      sessionContinuityAutoSave: false
+    });
+
+    const result = runCli(repoDir, ["exec", "--", "--help"], {
+      entrypoint: "dist",
+      env: { HOME: homeDir }
+    });
+
+    expect(result.exitCode, result.stderr).toBe(0);
+    expect(result.stdout).not.toContain("Start Codex through the wrapper");
+    const capturedArgs = JSON.parse(await waitForFile(capturedArgsPath)) as string[];
+    expect(capturedArgs).toContain("exec");
+    expect(capturedArgs).toContain("--help");
   }, 30_000);
 
   it("surfaces instruction review lane parity through the compiled MCP server", async () => {

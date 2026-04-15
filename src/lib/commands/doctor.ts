@@ -186,6 +186,11 @@ export async function runDoctor(options: DoctorOptions = {}): Promise<string> {
   );
   const publicRetrievalSidecar = {
     ...retrievalSidecar,
+    repairCommand: sanitizeKnownPathsInText(
+      retrievalSidecar.repairCommand,
+      knownPaths,
+      publicPathContext
+    ),
     checks: retrievalSidecar.checks.map((check) => ({
       ...check,
       indexPath: sanitizePublicPath(check.indexPath, publicPathContext) ?? check.indexPath

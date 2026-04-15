@@ -308,7 +308,7 @@ function registerHookCommands(program: Command): void {
 
   hooksCommand
     .command("remove")
-    .description("Describe how to remove generated hook bridge assets")
+    .description("Remove generated hook bridge assets")
     .action(withStdout(async () => removeHooks()));
 }
 

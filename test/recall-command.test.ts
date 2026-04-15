@@ -1,7 +1,7 @@
 import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { detectProjectContext } from "../src/lib/domain/project-context.js";
 import { MemoryStore } from "../src/lib/domain/memory-store.js";
 import { rebuildTeamMemoryIndex } from "../src/lib/domain/team-memory.js";
@@ -608,6 +608,73 @@ describe("runRecall", () => {
     const textResult = runCli(projectDir, ["recall", "search", "pnpm", "--state", "active"]);
     expect(textResult.exitCode).toBe(0);
     expect(textResult.stdout).not.toContain("Unsafe topic diagnostics:");
+  });
+
+  it("skips query surfacing work for text-mode recall search output", async () => {
+    const homeDir = await tempDir("cam-recall-text-mode-home-");
+    const projectDir = await tempDir("cam-recall-text-mode-project-");
+    const memoryRoot = await tempDir("cam-recall-text-mode-memory-");
+    process.env.HOME = homeDir;
+
+    const projectConfig = makeAppConfig();
+    await writeCamConfig(projectDir, projectConfig, {
+      autoMemoryDirectory: memoryRoot
+    });
+
+    const store = new MemoryStore(detectProjectContext(projectDir), {
+      ...projectConfig,
+      autoMemoryDirectory: memoryRoot
+    });
+    await store.ensureLayout();
+    await store.remember(
+      "project",
+      "workflow",
+      "prefer-pnpm",
+      "Prefer pnpm in this repository.",
+      ["Use pnpm instead of npm in this repository."],
+      "Manual note."
+    );
+
+    const querySurfacingSpy = vi.fn(async () => {
+      throw new Error("query surfacing should not run for text-mode recall search");
+    });
+    const instructionLaneSpy = vi.fn(async () => {
+      throw new Error("instruction review lane should not run for text-mode recall search");
+    });
+
+    vi.resetModules();
+    vi.doMock("../src/lib/domain/resume-context.js", async () => {
+      const actual = await vi.importActual<typeof import("../src/lib/domain/resume-context.js")>(
+        "../src/lib/domain/resume-context.js"
+      );
+      return {
+        ...actual,
+        buildMemoryQuerySurfacing: querySurfacingSpy
+      };
+    });
+    vi.doMock("../src/lib/domain/dream-candidates.js", async () => {
+      const actual = await vi.importActual<typeof import("../src/lib/domain/dream-candidates.js")>(
+        "../src/lib/domain/dream-candidates.js"
+      );
+      return {
+        ...actual,
+        buildInstructionReviewLane: instructionLaneSpy
+      };
+    });
+
+    try {
+      const { runRecall } = await import("../src/lib/commands/recall.js");
+      const output = await runRecall("search", "pnpm", { cwd: projectDir });
+
+      expect(output).toContain("Codex Auto Memory Recall Search");
+      expect(output).toContain("project/active/workflow");
+      expect(querySurfacingSpy).not.toHaveBeenCalled();
+      expect(instructionLaneSpy).not.toHaveBeenCalled();
+    } finally {
+      vi.doUnmock("../src/lib/domain/resume-context.js");
+      vi.doUnmock("../src/lib/domain/dream-candidates.js");
+      vi.resetModules();
+    }
   });
 
   it("surfaces explicit-state contract for state=all searches and keeps checkedPaths ordered", async () => {

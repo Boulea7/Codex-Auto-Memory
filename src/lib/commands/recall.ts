@@ -443,19 +443,20 @@ export async function runRecall(
         state,
         limit: parseMemoryRetrievalLimit(options.limit)
       });
-      const publicResponse = sanitizeSearchResponse(
-        {
-          ...response,
-          querySurfacing: {
-            ...(await buildMemoryQuerySurfacing(runtime, target)),
-            instructionReviewLane: await buildInstructionReviewLane(runtime)
-          }
-        },
-        publicPathContext
-      );
       if (options.json) {
+        const publicResponse = sanitizeSearchResponse(
+          {
+            ...response,
+            querySurfacing: {
+              ...(await buildMemoryQuerySurfacing(runtime, target)),
+              instructionReviewLane: await buildInstructionReviewLane(runtime)
+            }
+          },
+          publicPathContext
+        );
         return JSON.stringify(publicResponse, null, 2);
       }
+      const publicResponse = sanitizeSearchResponse(response, publicPathContext);
       return formatSearchResults(publicResponse);
     }
     case "timeline": {

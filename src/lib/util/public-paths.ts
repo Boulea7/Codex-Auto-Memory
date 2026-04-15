@@ -144,7 +144,9 @@ export function sanitizePathFieldsDeep<T>(
   if (Array.isArray(value)) {
     if (parentKey && isPathCollectionKey(parentKey)) {
       return value.map((item) =>
-        typeof item === "string" ? sanitizePublicPath(item, context) ?? item : item
+        typeof item === "string"
+          ? sanitizePublicPath(item, context) ?? item
+          : sanitizePathFieldsDeep(item, context, parentKey)
       ) as T;
     }
 

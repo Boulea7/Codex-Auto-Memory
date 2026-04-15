@@ -36,7 +36,7 @@ curl -LO https://github.com/Boulea7/Codex-Auto-Memory/releases/download/v<versio
 npm install --global ./codex-auto-memory-<version>.tgz
 ```
 
-3. npm 安裝命令：
+3. npm 安裝命令（首次公開 npm 發佈之後才能使用）：
 
 ```bash
 npm install --global codex-auto-memory

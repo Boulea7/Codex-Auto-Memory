@@ -34,7 +34,7 @@ import {
   buildWorkflowContract
 } from "../integration/retrieval-contract.js";
 import { ensureDir, writeTextFileAtomic } from "../util/fs.js";
-import { sanitizePathFieldsDeep } from "../util/public-paths.js";
+import { sanitizeKnownPathsInText, sanitizePathFieldsDeep, type PublicPathContext } from "../util/public-paths.js";
 
 type IntegrationStackAction = "created" | "updated" | "unchanged" | "blocked";
 type InstallStackAction = Exclude<IntegrationStackAction, "blocked">;
@@ -367,6 +367,63 @@ interface IntegrationDoctorResult {
   };
   notes: string[];
   nextSteps: string[];
+}
+
+function collectAbsoluteStringsDeep(value: unknown, seen: Set<string> = new Set()): string[] {
+  if (typeof value === "string") {
+    if (path.isAbsolute(value)) {
+      seen.add(value);
+    }
+    return [...seen];
+  }
+
+  if (Array.isArray(value)) {
+    for (const item of value) {
+      collectAbsoluteStringsDeep(item, seen);
+    }
+    return [...seen];
+  }
+
+  if (value && typeof value === "object") {
+    for (const item of Object.values(value as Record<string, unknown>)) {
+      collectAbsoluteStringsDeep(item, seen);
+    }
+  }
+
+  return [...seen];
+}
+
+function sanitizeIntegrationDoctorTextFields(
+  result: IntegrationDoctorResult,
+  context: PublicPathContext,
+  knownPaths: string[]
+): IntegrationDoctorResult {
+  const sanitizeText = (text: string): string =>
+    sanitizeKnownPathsInText(text, knownPaths, context);
+
+  return {
+    ...result,
+    routeEvidence: result.routeEvidence.map(sanitizeText),
+    preferredRouteBlockers: result.preferredRouteBlockers.map(sanitizeText),
+    currentOperationalBlockers: result.currentOperationalBlockers.map(sanitizeText),
+    retrievalSidecar: {
+      ...result.retrievalSidecar,
+      repairCommand: sanitizeText(result.retrievalSidecar.repairCommand)
+    },
+    applyReadiness:
+      result.applyReadiness.status === "blocked"
+        ? {
+            ...result.applyReadiness,
+            reason: result.applyReadiness.reason ? sanitizeText(result.applyReadiness.reason) : undefined,
+            recommendedFix: result.applyReadiness.recommendedFix
+              ? sanitizeText(result.applyReadiness.recommendedFix)
+              : undefined
+          }
+        : result.applyReadiness,
+    recommendedSkillInstallCommand: sanitizeText(result.recommendedSkillInstallCommand),
+    notes: result.notes.map(sanitizeText),
+    nextSteps: result.nextSteps.map(sanitizeText)
+  };
 }
 
 function requireCodexDoctorSections(report: McpDoctorReport): {
@@ -1459,9 +1516,15 @@ export async function runIntegrationsDoctor(
   const result = buildIntegrationsDoctorResult(report, {
     explicitCwd: Boolean(options.cwd)
   });
-  const publicResult = sanitizePathFieldsDeep(result, {
+  const publicPathContext: PublicPathContext = {
     projectRoot: result.projectRoot
-  });
+  };
+  const knownPaths = collectAbsoluteStringsDeep(result);
+  const publicResult = sanitizeIntegrationDoctorTextFields(
+    sanitizePathFieldsDeep(result, publicPathContext),
+    publicPathContext,
+    knownPaths
+  );
 
   if (options.json) {
     return JSON.stringify(publicResult, null, 2);

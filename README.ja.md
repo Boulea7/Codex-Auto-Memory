@@ -36,7 +36,7 @@ curl -LO https://github.com/Boulea7/Codex-Auto-Memory/releases/download/v<versio
 npm install --global ./codex-auto-memory-<version>.tgz
 ```
 
-3. npm install command:
+3. npm install command（最初の公開 npm release 後に使用）:
 
 ```bash
 npm install --global codex-auto-memory
@@ -84,7 +84,7 @@ cam forget "<memory>" --archive
 
 ## 現在の位置づけ
 
-このリポジトリは引き続き Codex-first、Markdown-first、wrapper-first です。汎用ナレッジベース製品でも、多宿主統合プラットフォームの本体でもありません。詳細な能力境界、宿主差分、移行メモは landing page ではなく documentation hub にまとめています。
+このリポジトリは引き続き Codex-first、Markdown-first、wrapper-first です。Codex 以外の host は現時点では manual-only / snippet-first の案内にとどまります。汎用ナレッジベース製品でも、多宿主統合プラットフォームの本体でもありません。詳細な能力境界、宿主差分、移行メモは landing page ではなく documentation hub にまとめています。
 
 ## ライセンス
 
