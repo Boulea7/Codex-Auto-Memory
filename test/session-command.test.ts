@@ -7,7 +7,7 @@ import { runWrappedCodex } from "../src/lib/commands/wrapper.js";
 import { MemoryStore } from "../src/lib/domain/memory-store.js";
 import { detectProjectContext } from "../src/lib/domain/project-context.js";
 import { SessionContinuityStore } from "../src/lib/domain/session-continuity-store.js";
-import type { SessionContinuityAuditEntry } from "../src/lib/types.js";
+import type { AppConfig, SessionContinuityAuditEntry } from "../src/lib/types.js";
 import {
   initGitRepo,
   makeAppConfig,
@@ -37,11 +37,13 @@ const rolloutFixture = makeRolloutFixture;
 
 async function writeProjectConfig(
   repoDir: string,
-  projectConfig: Record<string, unknown>,
+  projectConfig: AppConfig | Record<string, unknown>,
   localConfig: Record<string, unknown>
 ): Promise<void> {
   const projectCodexBinary =
-    typeof projectConfig.codexBinary === "string" ? projectConfig.codexBinary : undefined;
+    typeof (projectConfig as { codexBinary?: unknown }).codexBinary === "string"
+      ? ((projectConfig as { codexBinary?: string }).codexBinary ?? undefined)
+      : undefined;
   const nextLocalConfig =
     projectCodexBinary && typeof localConfig.codexBinary !== "string"
       ? {
