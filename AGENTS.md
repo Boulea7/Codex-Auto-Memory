@@ -126,6 +126,7 @@ cam session status
 
 ## 变更记录
 
+- 2026-04-16: 收口 Windows tarball install smoke 回归。`runCommand` / `runCommandCapture` 现在在 Windows 下对 `.cmd` / `.bat` 显式走 `cmd.exe /d /s /c` 并自行拼接带引号的命令串，不再依赖 `shell: true` 的隐式参数拼接；对应补上 `test/process-util.test.ts` 对带空格参数的命令行构造断言，用来覆盖安装后 `cam.cmd ... --cwd "<path with spaces>"` 的 release-facing 场景。
 - 2026-04-15: 已确认 `v0.1.0` 的 GitHub Release 产出 `codex-auto-memory-0.1.0.tgz` 附件；后续收口把 CI / release workflow 统一升到 `actions/checkout@v6`、`actions/setup-node@v6`，保留 `pnpm/action-setup@v4`，并把 release 附件发布改成可重跑的“已存在则 upload --clobber，否则 create”路径。`pnpm/action-setup@v6` 在当前仓库远端 CI 上会触发 `ERR_PNPM_BROKEN_LOCKFILE`，暂不吸收，对应 dependabot 分支继续保留待后续单独处理。
 - 2026-04-15: Windows smoke 回归继续收口：`writeTextFileAtomic` 现在对目录 `fsync` 的 `EPERM` / `EINVAL` / `ENOTSUP` / `ENOSYS` / `EISDIR` / `EBADF` 做安全降级，保留临时文件同步与非可忽略错误的 fail-closed 行为；`test/util-fs.test.ts` 新增对应回归用例，`test/dist-cli-smoke.test.ts` 收紧为接受 idempotent skill surface 安装动作（`created` 或 `unchanged`）并补上预装 surface 的回归覆盖。
 - 2026-04-16: release 准备过程中把 `session-command` 与 `wrapper-session-continuity` 的测试辅助函数类型收紧为显式接受 `AppConfig | Record<string, unknown>`，保留测试里“显式把 mock `codexBinary` 镜像到 local config”的意图，同时让 `pnpm lint` / `pnpm verify:release` 再次通过。
