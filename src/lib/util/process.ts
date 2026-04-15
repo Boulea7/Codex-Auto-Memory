@@ -27,20 +27,27 @@ function resolveWindowsProcessInvocation(
   command: string,
   args: string[],
   env: NodeJS.ProcessEnv
-): { command: string; args: string[]; shell: boolean } {
+): {
+  command: string;
+  args: string[];
+  shell: boolean;
+  windowsVerbatimArguments?: boolean;
+} {
   if (!shouldUseWindowsShell(command)) {
     return {
       command,
       args,
-      shell: false
+      shell: false,
+      windowsVerbatimArguments: false
     };
   }
 
   const shellCommand = env.ComSpec ?? process.env.ComSpec ?? "cmd.exe";
   return {
     command: shellCommand,
-    args: ["/d", "/s", "/c", buildWindowsCmdCommandLine(command, args)],
-    shell: false
+    args: ["/d", "/s", "/c", `"${buildWindowsCmdCommandLine(command, args)}"`],
+    shell: false,
+    windowsVerbatimArguments: true
   };
 }
 
@@ -56,7 +63,8 @@ export function runCommand(
       cwd,
       env,
       stdio: "inherit",
-      shell: invocation.shell
+      shell: invocation.shell,
+      windowsVerbatimArguments: invocation.windowsVerbatimArguments
     });
 
     child.on("error", reject);
@@ -77,7 +85,8 @@ export function runCommandCapture(
     env,
     encoding: "utf8",
     input,
-    shell: invocation.shell
+    shell: invocation.shell,
+    windowsVerbatimArguments: invocation.windowsVerbatimArguments
   });
 
   return {
