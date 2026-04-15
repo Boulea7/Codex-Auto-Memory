@@ -39,7 +39,12 @@ function normalizeCliEnv(env: NodeJS.ProcessEnv = {}): NodeJS.ProcessEnv {
   };
 
   for (const key of Object.keys(nextEnv)) {
-    if (key.startsWith("npm_config_") || key.startsWith("NPM_CONFIG_")) {
+    if (
+      key.startsWith("npm_") ||
+      key.startsWith("NPM_") ||
+      key.startsWith("pnpm_") ||
+      key.startsWith("PNPM_")
+    ) {
       delete nextEnv[key];
     }
   }
