@@ -88,6 +88,10 @@ function resolvePublicPathForTest(
   return publicPath;
 }
 
+function expectProvisionedSkillAction(action: unknown): void {
+  expect(["created", "unchanged"]).toContain(action);
+}
+
 function subagentRolloutFixture(
   projectDir: string,
   message: string,
@@ -2187,7 +2191,35 @@ describe("dist cli smoke", () => {
     );
 
     expect(result.exitCode, result.stderr).toBe(0);
-    expect(JSON.parse(result.stdout)).toMatchObject({
+    const payload = JSON.parse(result.stdout) as {
+      host: string;
+      projectRoot: string;
+      stackAction: string;
+      skillsSurface: string;
+      readOnlyRetrieval: boolean;
+      workflowContract: {
+        recommendedPreset: string;
+        cliFallback: {
+          searchCommand: string;
+        };
+      };
+      subactions: {
+        mcp: {
+          action: string;
+          targetPath: string;
+        };
+        hooks: {
+          action: string;
+          targetDir: string;
+        };
+        skills: {
+          action: string;
+          surface: string;
+          targetDir: string;
+        };
+      };
+    };
+    expect(payload).toMatchObject({
       host: "codex",
       projectRoot: realProjectDir,
       stackAction: "created",
@@ -2215,6 +2247,7 @@ describe("dist cli smoke", () => {
         }
       }
     });
+    expectProvisionedSkillAction(payload.subactions.skills.action);
   });
 
   it("applies the full Codex integration stack from the compiled cli entrypoint", async () => {
@@ -2232,7 +2265,25 @@ describe("dist cli smoke", () => {
     );
 
     expect(result.exitCode, result.stderr).toBe(0);
-    expect(JSON.parse(result.stdout)).toMatchObject({
+    const payload = JSON.parse(result.stdout) as {
+      host: string;
+      projectRoot: string;
+      stackAction: string;
+      readOnlyRetrieval: boolean;
+      workflowContract: {
+        recommendedPreset: string;
+        cliFallback: {
+          searchCommand: string;
+        };
+      };
+      subactions: {
+        mcp: { action: string };
+        agents: { action: string };
+        hooks: { action: string };
+        skills: { action: string };
+      };
+    };
+    expect(payload).toMatchObject({
       host: "codex",
       projectRoot: realProjectDir,
       stackAction: "created",
@@ -2247,9 +2298,10 @@ describe("dist cli smoke", () => {
         mcp: { action: "created" },
         agents: { action: "created" },
         hooks: { action: "created" },
-        skills: { action: "created" }
+        skills: {}
       }
     });
+    expectProvisionedSkillAction(payload.subactions.skills.action);
   });
 
   it("surfaces staged-write failure payloads from the compiled integrations apply entrypoint", async () => {
@@ -2396,18 +2448,30 @@ describe("dist cli smoke", () => {
     );
 
     expect(installResult.exitCode, installResult.stderr).toBe(0);
-    expect(JSON.parse(installResult.stdout)).toMatchObject({
+    const installPayload = JSON.parse(installResult.stdout) as {
+      host: string;
+      projectRoot: string;
+      skillsSurface: string;
+      subactions: {
+        skills: {
+          action: string;
+          surface: string;
+          targetDir: string;
+        };
+      };
+    };
+    expect(installPayload).toMatchObject({
       host: "codex",
       projectRoot: realProjectDir,
       skillsSurface: "official-project",
       subactions: {
         skills: {
-          action: "created",
           surface: "official-project",
           targetDir: path.join(realProjectDir, ".agents", "skills", "codex-auto-memory-recall")
         }
       }
     });
+    expectProvisionedSkillAction(installPayload.subactions.skills.action);
 
     const applyResult = runCli(
       projectDir,
@@ -2447,18 +2511,30 @@ describe("dist cli smoke", () => {
     );
 
     expect(installResult.exitCode, installResult.stderr).toBe(0);
-    expect(JSON.parse(installResult.stdout)).toMatchObject({
+    const installPayload = JSON.parse(installResult.stdout) as {
+      host: string;
+      projectRoot: string;
+      skillsSurface: string;
+      subactions: {
+        skills: {
+          action: string;
+          surface: string;
+          targetDir: string;
+        };
+      };
+    };
+    expect(installPayload).toMatchObject({
       host: "codex",
       projectRoot: realProjectDir,
       skillsSurface: "official-user",
       subactions: {
         skills: {
-          action: "created",
           surface: "official-user",
           targetDir: path.join(homeDir, ".agents", "skills", "codex-auto-memory-recall")
         }
       }
     });
+    expectProvisionedSkillAction(installPayload.subactions.skills.action);
 
     const applyResult = runCli(
       projectDir,
@@ -2478,6 +2554,40 @@ describe("dist cli smoke", () => {
         skills: {
           surface: "official-user",
           targetDir: path.join(homeDir, ".agents", "skills", "codex-auto-memory-recall")
+        }
+      }
+    });
+  });
+
+  it("reports preinstalled official-user skill surfaces as unchanged from the compiled integrations entrypoint", async () => {
+    const homeDir = await tempDir("cam-dist-integrations-official-user-repro-home-");
+    const projectDir = await tempDir("cam-dist-integrations-official-user-repro-project-");
+
+    const env = { HOME: homeDir };
+    const seedResult = runCli(
+      projectDir,
+      ["skills", "install", "--surface", "official-user"],
+      {
+        entrypoint: "dist",
+        env
+      }
+    );
+    expect(seedResult.exitCode, seedResult.stderr).toBe(0);
+
+    const installResult = runCli(
+      projectDir,
+      ["integrations", "install", "--host", "codex", "--skill-surface", "official-user", "--json"],
+      {
+        entrypoint: "dist",
+        env
+      }
+    );
+
+    expect(installResult.exitCode, installResult.stderr).toBe(0);
+    expect(JSON.parse(installResult.stdout)).toMatchObject({
+      subactions: {
+        skills: {
+          action: "unchanged"
         }
       }
     });
@@ -2532,7 +2642,44 @@ describe("dist cli smoke", () => {
       }
     );
     expect(doctorResult.exitCode, doctorResult.stderr).toBe(0);
-    expect(JSON.parse(doctorResult.stdout)).toMatchObject({
+    const payload = JSON.parse(doctorResult.stdout) as {
+      host: string;
+      projectRoot: string;
+      readOnlyRetrieval: boolean;
+      status: string;
+      recommendedRoute: string;
+      recommendedPreset: string;
+      applyReadiness: {
+        status: string;
+      };
+      retrievalSidecar: {
+        status: string;
+        repairCommand: string;
+        checks: Array<{
+          scope: string;
+          state: string;
+          status: string;
+          fallbackReason?: string;
+        }>;
+      };
+      workflowContract: {
+        version: string;
+        cliFallback: {
+          searchCommand: string;
+          timelineCommand: string;
+          detailsCommand: string;
+        };
+        postWorkSyncReview: {
+          helperScript: string;
+          syncCommand: string;
+          reviewCommand: string;
+        };
+      };
+      preferredSkillSurface: string;
+      recommendedSkillInstallCommand: string;
+      subchecks: Record<string, { status: string }>;
+    };
+    expect(payload).toMatchObject({
       host: "codex",
       projectRoot: sanitizePublicPath(realProjectDir, {
         projectRoot: realProjectDir
