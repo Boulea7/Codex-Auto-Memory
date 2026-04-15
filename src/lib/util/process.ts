@@ -6,6 +6,10 @@ export interface ProcessOutput {
   exitCode: number;
 }
 
+export function shouldUseWindowsShell(command: string, platform = process.platform): boolean {
+  return platform === "win32" && /\.(cmd|bat)$/i.test(command);
+}
+
 export function runCommand(
   command: string,
   args: string[],
@@ -16,7 +20,8 @@ export function runCommand(
     const child = spawn(command, args, {
       cwd,
       env,
-      stdio: "inherit"
+      stdio: "inherit",
+      shell: shouldUseWindowsShell(command)
     });
 
     child.on("error", reject);
@@ -35,12 +40,15 @@ export function runCommandCapture(
     cwd,
     env,
     encoding: "utf8",
-    input
+    input,
+    shell: shouldUseWindowsShell(command)
   });
 
   return {
     stdout: result.stdout ?? "",
-    stderr: result.stderr ?? "",
+    stderr:
+      result.stderr ??
+      (result.error ? `${result.error.name}: ${result.error.message}` : ""),
     exitCode: result.status ?? 1
   };
 }
