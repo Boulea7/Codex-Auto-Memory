@@ -25,4 +25,8 @@ describe("process util helpers", () => {
       '"C:\\Program Files\\nodejs\\npm.cmd" install --cwd "C:\\tmp\\project with spaces"'
     );
   });
+
+  it("keeps simple Windows cmd wrapper invocations executable", () => {
+    expect(buildWindowsCmdCommandLine("pnpm.cmd", ["pack:release"])).toBe("pnpm.cmd pack:release");
+  });
 });

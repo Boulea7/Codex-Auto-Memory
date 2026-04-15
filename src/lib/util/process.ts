@@ -39,7 +39,7 @@ function resolveWindowsProcessInvocation(
   const shellCommand = env.ComSpec ?? process.env.ComSpec ?? "cmd.exe";
   return {
     command: shellCommand,
-    args: ["/d", "/s", "/c", `"${buildWindowsCmdCommandLine(command, args)}"`],
+    args: ["/d", "/s", "/c", buildWindowsCmdCommandLine(command, args)],
     shell: false
   };
 }
