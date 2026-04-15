@@ -26,6 +26,19 @@ function npmCommand(): string {
   return process.platform === "win32" ? "npm.cmd" : "npm";
 }
 
+function pnpmCommand(): string {
+  return process.platform === "win32" ? "pnpm.cmd" : "pnpm";
+}
+
+function resolvePackedTarballPath(packDir: string, packStdout: string): string {
+  const tarballRef = packStdout.trim().split(/\r?\n/).at(-1);
+  if (!tarballRef) {
+    throw new Error("Expected pack output to include a tarball path.");
+  }
+
+  return path.isAbsolute(tarballRef) ? tarballRef : path.join(packDir, tarballRef);
+}
+
 function camBinaryPath(installDir: string): string {
   return path.join(
     installDir,
@@ -115,16 +128,14 @@ describe("tarball install smoke", () => {
     };
 
     const packResult = runCommandCapture(
-      npmCommand(),
+      pnpmCommand(),
       ["pack", "--pack-destination", packDir],
       process.cwd(),
       env
     );
     expect(packResult.exitCode, packResult.stderr).toBe(0);
 
-    const tarballName = packResult.stdout.trim().split(/\r?\n/).at(-1);
-    expect(tarballName).toBeTruthy();
-    const tarballPath = path.join(packDir, tarballName!);
+    const tarballPath = resolvePackedTarballPath(packDir, packResult.stdout);
 
     const initResult = runCommandCapture(npmCommand(), ["init", "-y"], installDir, env);
     expect(initResult.exitCode).toBe(0);
@@ -1979,16 +1990,14 @@ describe("tarball install smoke", () => {
     const env = isolatedEnv(homeDir);
 
     const packResult = runCommandCapture(
-      npmCommand(),
+      pnpmCommand(),
       ["pack", "--pack-destination", packDir],
       process.cwd(),
       env
     );
     expect(packResult.exitCode, packResult.stderr).toBe(0);
 
-    const tarballName = packResult.stdout.trim().split(/\r?\n/).at(-1);
-    expect(tarballName).toBeTruthy();
-    const tarballPath = path.join(packDir, tarballName!);
+    const tarballPath = resolvePackedTarballPath(packDir, packResult.stdout);
 
     expect(runCommandCapture(npmCommand(), ["init", "-y"], installDir, env).exitCode).toBe(0);
     expect(

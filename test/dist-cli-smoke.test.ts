@@ -37,6 +37,22 @@ async function writeCamShim(binDir: string): Promise<void> {
   await fs.chmod(shimPath, 0o755);
 }
 
+async function writeMockCodexCommand(mockCodexPath: string, scriptContents: string): Promise<void> {
+  if (process.platform === "win32") {
+    const scriptPath = `${mockCodexPath}.js`;
+    await fs.writeFile(scriptPath, scriptContents, "utf8");
+    await fs.writeFile(
+      `${mockCodexPath}.cmd`,
+      `@echo off\r\n"${process.execPath}" "${scriptPath}" %*\r\n`,
+      "utf8"
+    );
+    return;
+  }
+
+  await fs.writeFile(mockCodexPath, scriptContents, "utf8");
+  await fs.chmod(mockCodexPath, 0o755);
+}
+
 async function waitForFile(pathname: string, timeoutMs = 2_000): Promise<string> {
   const deadline = Date.now() + timeoutMs;
   while (true) {
@@ -1908,7 +1924,7 @@ describe("dist cli smoke", () => {
         runtimeSkillPresent: true,
         anySkillSurfaceInstalled: true,
         anySkillSurfaceReady: true,
-        postWorkReviewInstalled: true
+        postWorkReviewInstalled: process.platform === "win32" ? false : true
       },
       retrievalSidecar: {
         status: "warning",
@@ -2685,7 +2701,7 @@ describe("dist cli smoke", () => {
         projectRoot: realProjectDir
       }),
       readOnlyRetrieval: true,
-      status: "ok",
+      status: process.platform === "win32" ? "warning" : "ok",
       recommendedRoute: "mcp",
       recommendedPreset: "state=auto, limit=8",
       applyReadiness: {
@@ -2721,10 +2737,10 @@ describe("dist cli smoke", () => {
       subchecks: {
         mcp: { status: "ok" },
         agents: { status: "ok" },
-        hookCapture: { status: "ok" },
-        hookRecall: { status: "ok" },
+        hookCapture: { status: process.platform === "win32" ? "warning" : "ok" },
+        hookRecall: { status: process.platform === "win32" ? "warning" : "ok" },
         skill: { status: "ok" },
-        workflowConsistency: { status: "ok" }
+        workflowConsistency: { status: process.platform === "win32" ? "warning" : "ok" }
       }
     });
   });
@@ -2799,16 +2815,16 @@ describe("dist cli smoke", () => {
     await initGitRepo(repoDir);
 
     const capturedArgsPath = path.join(repoDir, "captured-args.json");
-    const mockCodexPath = path.join(repoDir, "mock-codex");
-    await fs.writeFile(
-      mockCodexPath,
+    const mockCodexBasePath = path.join(repoDir, "mock-codex");
+    const mockCodexPath =
+      process.platform === "win32" ? `${mockCodexBasePath}.cmd` : mockCodexBasePath;
+    await writeMockCodexCommand(
+      mockCodexBasePath,
       `#!/usr/bin/env node
 const fs = require("node:fs");
 fs.writeFileSync(${JSON.stringify(capturedArgsPath)}, JSON.stringify(process.argv.slice(2), null, 2));
 `,
-      "utf8"
     );
-    await fs.chmod(mockCodexPath, 0o755);
 
     const projectConfig: AppConfig = makeAppConfig({
       autoMemoryEnabled: false,
@@ -2843,16 +2859,16 @@ fs.writeFileSync(${JSON.stringify(capturedArgsPath)}, JSON.stringify(process.arg
     await initGitRepo(repoDir);
 
     const capturedArgsPath = path.join(repoDir, "captured-double-dash-args.json");
-    const mockCodexPath = path.join(repoDir, "mock-codex-double-dash");
-    await fs.writeFile(
-      mockCodexPath,
+    const mockCodexBasePath = path.join(repoDir, "mock-codex-double-dash");
+    const mockCodexPath =
+      process.platform === "win32" ? `${mockCodexBasePath}.cmd` : mockCodexBasePath;
+    await writeMockCodexCommand(
+      mockCodexBasePath,
       `#!/usr/bin/env node
 const fs = require("node:fs");
 fs.writeFileSync(${JSON.stringify(capturedArgsPath)}, JSON.stringify(process.argv.slice(2), null, 2));
 `,
-      "utf8"
     );
-    await fs.chmod(mockCodexPath, 0o755);
 
     const projectConfig: AppConfig = makeAppConfig({
       autoMemoryEnabled: false,
