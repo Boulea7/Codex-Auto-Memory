@@ -57,7 +57,8 @@ function sanitizeProjectConfig(
   filePath: string,
   warnings: string[],
   allowDirectoryOverride: boolean,
-  allowSessionContinuityOverride: boolean
+  allowSessionContinuityOverride: boolean,
+  allowCodexBinaryOverride: boolean
 ): Partial<AppConfig> {
   const parsed = rawProjectConfigSchema.parse(source);
   if (!allowDirectoryOverride && parsed.autoMemoryDirectory) {
@@ -74,6 +75,11 @@ function sanitizeProjectConfig(
   ) {
     warnings.push(
       `Ignored session continuity local settings from ${filePath}. Shared project config cannot force local session continuity behavior.`
+    );
+  }
+  if (!allowCodexBinaryOverride && parsed.codexBinary) {
+    warnings.push(
+      `Ignored codexBinary from ${filePath}. Shared project config cannot override the executable used to launch Codex.`
     );
   }
 
@@ -97,7 +103,7 @@ function sanitizeProjectConfig(
         : undefined,
       dreamSidecarEnabled: parsed.dreamSidecarEnabled,
       dreamSidecarAutoBuild: parsed.dreamSidecarAutoBuild,
-      codexBinary: parsed.codexBinary,
+      codexBinary: allowCodexBinaryOverride ? parsed.codexBinary : undefined,
       autoMemoryDirectory: allowDirectoryOverride ? parsed.autoMemoryDirectory : undefined
     }).filter(([, value]) => value !== undefined)
   ) as Partial<AppConfig>;
@@ -118,9 +124,15 @@ async function readOptionalConfigFile(
   }
 }
 
+export interface LoadConfigOptions {
+  allowProjectCodexBinaryOverride?: boolean;
+  allowLocalCodexBinaryOverride?: boolean;
+}
+
 export async function loadConfig(
   project: ProjectContext,
-  overrides: Partial<AppConfig> = {}
+  overrides: Partial<AppConfig> = {},
+  options: LoadConfigOptions = {}
 ): Promise<LoadedConfig> {
   const warnings: string[] = [];
   const files: string[] = [];
@@ -137,7 +149,7 @@ export async function loadConfig(
     files.push(userFile);
     merged = {
       ...merged,
-      ...sanitizeProjectConfig(userConfig, userFile, warnings, true, true)
+      ...sanitizeProjectConfig(userConfig, userFile, warnings, true, true, true)
     };
   }
 
@@ -146,7 +158,14 @@ export async function loadConfig(
     files.push(projectFile);
     merged = {
       ...merged,
-      ...sanitizeProjectConfig(projectConfig, projectFile, warnings, false, false)
+      ...sanitizeProjectConfig(
+        projectConfig,
+        projectFile,
+        warnings,
+        false,
+        false,
+        options.allowProjectCodexBinaryOverride === true
+      )
     };
   }
 
@@ -155,7 +174,14 @@ export async function loadConfig(
     files.push(localFile);
     merged = {
       ...merged,
-      ...sanitizeProjectConfig(localConfig, localFile, warnings, true, true)
+      ...sanitizeProjectConfig(
+        localConfig,
+        localFile,
+        warnings,
+        true,
+        true,
+        options.allowLocalCodexBinaryOverride !== false
+      )
     };
   }
 
@@ -169,7 +195,7 @@ export async function loadConfig(
     files.push(managedFile);
     merged = {
       ...merged,
-      ...sanitizeProjectConfig(managedConfig, managedFile, warnings, true, true)
+      ...sanitizeProjectConfig(managedConfig, managedFile, warnings, true, true, true)
     };
   }
 

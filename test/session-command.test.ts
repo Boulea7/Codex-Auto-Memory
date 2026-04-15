@@ -1,6 +1,6 @@
 import fs from "node:fs/promises";
 import path from "node:path";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { runSession } from "../src/lib/commands/session.js";
 import { runDream } from "../src/lib/commands/dream.js";
 import { runWrappedCodex } from "../src/lib/commands/wrapper.js";
@@ -40,6 +40,10 @@ const rolloutFixture = makeRolloutFixture;
 afterEach(async () => {
   restoreOptionalEnv("CAM_CODEX_SESSIONS_DIR", originalSessionsDir);
   await cleanupTempDirs(tempDirs);
+});
+
+beforeEach(async () => {
+  process.env.CAM_CODEX_SESSIONS_DIR = await tempDir("cam-session-default-sessions-");
 });
 
 const rolloutFixturesDir = path.join(process.cwd(), "test/fixtures/rollouts");
@@ -579,6 +583,55 @@ describe("runSession", () => {
     expect(statusPayload.projectLocation.exists).toBe(true);
     expect(statusPayload.localLocation.exists).toBe(false);
   }, 30_000);
+
+  it("supports session save, status, and load --cwd from another working directory", async () => {
+    const repoDir = await tempDir("cam-session-cwd-repo-");
+    const shellDir = await tempDir("cam-session-cwd-shell-");
+    const memoryRoot = await tempDir("cam-session-cwd-memory-");
+    await initRepo(repoDir);
+
+    await writeProjectConfig(repoDir, configJson(), {
+      autoMemoryDirectory: memoryRoot
+    });
+
+    const rolloutPath = path.join(repoDir, "rollout.jsonl");
+    await fs.writeFile(
+      rolloutPath,
+      rolloutFixture(repoDir, "Save continuity through the CLI --cwd surface."),
+      "utf8"
+    );
+
+    const env = { CAM_CODEX_SESSIONS_DIR: process.env.CAM_CODEX_SESSIONS_DIR };
+
+    const saveResult = runCli(
+      shellDir,
+      ["session", "save", "--cwd", repoDir, "--rollout", rolloutPath, "--json"],
+      { env }
+    );
+    expect(saveResult.exitCode, saveResult.stderr).toBe(0);
+
+    const statusResult = runCli(shellDir, ["session", "status", "--cwd", repoDir, "--json"], {
+      env
+    });
+    expect(statusResult.exitCode, statusResult.stderr).toBe(0);
+    expect(JSON.parse(statusResult.stdout)).toMatchObject({
+      mergedState: {
+        goal: expect.stringContaining("Save continuity through the CLI")
+      }
+    });
+
+    const loadResult = runCli(
+      shellDir,
+      ["session", "load", "--cwd", repoDir, "--json", "--print-startup"],
+      { env }
+    );
+    expect(loadResult.exitCode, loadResult.stderr).toBe(0);
+    expect(JSON.parse(loadResult.stdout)).toMatchObject({
+      startup: {
+        continuityMode: "startup"
+      }
+    });
+  });
 
   it("keeps session load and status read-only on an uninitialized project", async () => {
     const homeDir = await tempDir("cam-session-readonly-home-");
@@ -2039,7 +2092,9 @@ describe("runSession", () => {
   it("rejects save when no relevant rollout exists for the project", async () => {
     const repoDir = await tempDir("cam-session-missing-rollout-repo-");
     const memoryRoot = await tempDir("cam-session-missing-rollout-memory-");
+    const sessionsDir = await tempDir("cam-session-missing-rollout-sessions-");
     await initRepo(repoDir);
+    process.env.CAM_CODEX_SESSIONS_DIR = sessionsDir;
 
     await writeProjectConfig(
       repoDir,

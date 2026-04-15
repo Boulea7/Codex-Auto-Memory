@@ -8,6 +8,7 @@ import { rebuildTeamMemoryIndex } from "../src/lib/domain/team-memory.js";
 import { SyncService } from "../src/lib/domain/sync-service.js";
 import { runDream } from "../src/lib/commands/dream.js";
 import type { MemorySearchResponse } from "../src/lib/types.js";
+import { sanitizePublicPath } from "../src/lib/util/public-paths.js";
 import {
   makeRolloutFixture,
   makeAppConfig,
@@ -180,7 +181,10 @@ describe("runRecall", () => {
           retrievalMode: "index",
           matchedCount: 9,
           returnedCount: 8,
-          indexPath: store.getRetrievalIndexFile("project", "archived"),
+          indexPath: sanitizePublicPath(store.getRetrievalIndexFile("project", "archived"), {
+            projectRoot: projectDir,
+            memoryRoot
+          }),
           generatedAt: expect.any(String)
         })
       ])
@@ -890,11 +894,17 @@ describe("runRecall", () => {
     };
     expect(detailsOutput).toMatchObject({
       ref,
-      path: store.getArchiveTopicFile("project", "workflow"),
+      path: sanitizePublicPath(store.getArchiveTopicFile("project", "workflow"), {
+        projectRoot: projectDir,
+        memoryRoot
+      }),
       latestLifecycleAction: "archive",
       latestSessionId: null,
       latestRolloutPath: null,
-      historyPath: store.getHistoryPath("project"),
+      historyPath: sanitizePublicPath(store.getHistoryPath("project"), {
+        projectRoot: projectDir,
+        memoryRoot
+      }),
       entry: {
         summary: "Prefer pnpm in this repository."
       }
@@ -1055,7 +1065,10 @@ describe("runRecall", () => {
     expect(detailsResult.exitCode).toBe(0);
     expect(JSON.parse(detailsResult.stdout)).toMatchObject({
       ref,
-      path: store.getArchiveTopicFile("project", "workflow")
+      path: sanitizePublicPath(store.getArchiveTopicFile("project", "workflow"), {
+        projectRoot: projectDir,
+        memoryRoot
+      })
     });
   });
 
@@ -1102,8 +1115,14 @@ describe("runRecall", () => {
       ref: searchOutput.results[0]!.ref,
       warnings: [],
       latestAudit: {
-        auditPath: store.getSyncAuditPath(),
-        rolloutPath,
+        auditPath: sanitizePublicPath(store.getSyncAuditPath(), {
+          projectRoot: projectDir,
+          memoryRoot
+        }),
+        rolloutPath: sanitizePublicPath(rolloutPath, {
+          projectRoot: projectDir,
+          memoryRoot
+        }),
         sessionId: "session-provenance",
         status: "applied",
         resultSummary: expect.stringContaining("operation(s) applied"),
@@ -1123,7 +1142,10 @@ describe("runRecall", () => {
       events: expect.arrayContaining([
         expect.objectContaining({
           sessionId: "session-provenance",
-          rolloutPath
+          rolloutPath: sanitizePublicPath(rolloutPath, {
+            projectRoot: projectDir,
+            memoryRoot
+          })
         })
       ])
     });
@@ -1131,8 +1153,18 @@ describe("runRecall", () => {
     const timelineTextResult = runCli(projectDir, ["recall", "timeline", searchOutput.results[0]!.ref]);
     expect(timelineTextResult.exitCode).toBe(0);
     expect(timelineTextResult.stdout).toContain("Session: session-provenance");
-    expect(timelineTextResult.stdout).toContain(`Rollout: ${rolloutPath}`);
-    expect(timelineTextResult.stdout).toContain(`Latest audit path: ${store.getSyncAuditPath()}`);
+    expect(timelineTextResult.stdout).toContain(
+      `Rollout: ${sanitizePublicPath(rolloutPath, {
+        projectRoot: projectDir,
+        memoryRoot
+      })}`
+    );
+    expect(timelineTextResult.stdout).toContain(
+      `Latest audit path: ${sanitizePublicPath(store.getSyncAuditPath(), {
+        projectRoot: projectDir,
+        memoryRoot
+      })}`
+    );
 
     const detailsResult = runCli(
       projectDir,
@@ -1143,8 +1175,14 @@ describe("runRecall", () => {
       latestLifecycleAction: "add",
       latestState: "active",
       latestSessionId: "session-provenance",
-      latestRolloutPath: rolloutPath,
-      historyPath: store.getHistoryPath("project"),
+      latestRolloutPath: sanitizePublicPath(rolloutPath, {
+        projectRoot: projectDir,
+        memoryRoot
+      }),
+      historyPath: sanitizePublicPath(store.getHistoryPath("project"), {
+        projectRoot: projectDir,
+        memoryRoot
+      }),
       timelineWarningCount: 0,
       lineageSummary: expect.objectContaining({
         eventCount: 1,
@@ -1157,8 +1195,14 @@ describe("runRecall", () => {
       }),
       warnings: [],
       latestAudit: {
-        auditPath: store.getSyncAuditPath(),
-        rolloutPath,
+        auditPath: sanitizePublicPath(store.getSyncAuditPath(), {
+          projectRoot: projectDir,
+          memoryRoot
+        }),
+        rolloutPath: sanitizePublicPath(rolloutPath, {
+          projectRoot: projectDir,
+          memoryRoot
+        }),
         sessionId: "session-provenance",
         status: "applied",
         resultSummary: expect.stringContaining("operation(s) applied"),
@@ -1467,13 +1511,22 @@ describe("runRecall", () => {
         action: "noop",
         outcome: "noop",
         sessionId: "session-noop-provenance",
-        rolloutPath
+        rolloutPath: sanitizePublicPath(rolloutPath, {
+          projectRoot: projectDir,
+          memoryRoot
+        })
       },
       latestSessionId: "session-noop-provenance",
-      latestRolloutPath: rolloutPath,
+      latestRolloutPath: sanitizePublicPath(rolloutPath, {
+        projectRoot: projectDir,
+        memoryRoot
+      }),
       latestAudit: {
         sessionId: "session-noop-provenance",
-        rolloutPath,
+        rolloutPath: sanitizePublicPath(rolloutPath, {
+          projectRoot: projectDir,
+          memoryRoot
+        }),
         status: "applied",
         matchedOperationCount: 1
       },
@@ -1572,7 +1625,10 @@ describe("runRecall", () => {
         action: "noop",
         outcome: "noop",
         sessionId: "session-secondary",
-        rolloutPath: secondRolloutPath
+        rolloutPath: sanitizePublicPath(secondRolloutPath, {
+          projectRoot: projectDir,
+          memoryRoot
+        })
       },
       latestAudit: null,
       warnings: expect.arrayContaining([
@@ -1727,7 +1783,10 @@ describe("runRecall", () => {
             retrievalMode: "markdown-fallback",
             retrievalFallbackReason: "invalid",
             matchedCount: 1,
-            indexPath: store.getRetrievalIndexFile("project", "active"),
+            indexPath: sanitizePublicPath(store.getRetrievalIndexFile("project", "active"), {
+              projectRoot: projectDir,
+              memoryRoot
+            }),
             generatedAt: null
           })
         ])
@@ -1786,7 +1845,10 @@ describe("runRecall", () => {
             retrievalFallbackReason: "stale",
             matchedCount: 1,
             returnedCount: 1,
-            indexPath: store.getRetrievalIndexFile("project", "active"),
+            indexPath: sanitizePublicPath(store.getRetrievalIndexFile("project", "active"), {
+              projectRoot: projectDir,
+              memoryRoot
+            }),
             generatedAt: expect.any(String)
           })
         ])

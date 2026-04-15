@@ -17,6 +17,11 @@ import {
   toMemoryDetailsResultShape
 } from "../domain/memory-retrieval-contract.js";
 import { assertValidMemoryRef } from "../domain/memory-lifecycle.js";
+import {
+  sanitizePublicPath,
+  sanitizePublicPathList,
+  type PublicPathContext
+} from "../util/public-paths.js";
 
 type RecallAction = "search" | "timeline" | "details";
 
@@ -76,6 +81,150 @@ function formatSearchResults(response: MemorySearchResponse): string {
   }
 
   return lines.join("\n");
+}
+
+function sanitizeInstructionReviewLanePaths(
+  lane: NonNullable<NonNullable<MemorySearchResponse["querySurfacing"]>["instructionReviewLane"]>,
+  context: PublicPathContext
+): NonNullable<NonNullable<MemorySearchResponse["querySurfacing"]>["instructionReviewLane"]> {
+  return {
+    ...lane,
+    latestProposalArtifactPath: sanitizePublicPath(lane.latestProposalArtifactPath, context),
+    selectedTargetFile: sanitizePublicPath(lane.selectedTargetFile, context),
+    candidateRecoveryPath:
+      sanitizePublicPath(lane.candidateRecoveryPath, context) ?? lane.candidateRecoveryPath,
+    detectedInstructionTargets: sanitizePublicPathList(lane.detectedInstructionTargets, context)
+  };
+}
+
+function sanitizeSearchResponse(
+  response: MemorySearchResponse,
+  context: PublicPathContext
+): MemorySearchResponse {
+  return {
+    ...response,
+    diagnostics: {
+      ...response.diagnostics,
+      checkedPaths: response.diagnostics.checkedPaths.map((check) => ({
+        ...check,
+        indexPath: sanitizePublicPath(check.indexPath, context) ?? check.indexPath
+      })),
+      ...(response.diagnostics.topicDiagnostics
+        ? {
+            topicDiagnostics: response.diagnostics.topicDiagnostics.map((diagnostic) => ({
+              ...diagnostic,
+              path: sanitizePublicPath(diagnostic.path, context) ?? diagnostic.path
+            }))
+          }
+        : {})
+    },
+    querySurfacing: response.querySurfacing
+      ? {
+          ...response.querySurfacing,
+          suggestedInstructionFiles: sanitizePublicPathList(
+            response.querySurfacing.suggestedInstructionFiles,
+            context
+          ),
+          ...(response.querySurfacing.suggestedTeamEntries
+            ? {
+                suggestedTeamEntries: response.querySurfacing.suggestedTeamEntries.map((entry) => ({
+                  ...entry,
+                  path: sanitizePublicPath(entry.path, context) ?? entry.path
+                }))
+              }
+            : {}),
+          ...(response.querySurfacing.instructionReviewLane
+            ? {
+                instructionReviewLane: sanitizeInstructionReviewLanePaths(
+                  response.querySurfacing.instructionReviewLane,
+                  context
+                )
+              }
+            : {})
+        }
+      : undefined
+  };
+}
+
+function sanitizeTimelineResponse(
+  timeline: MemoryTimelineResponse,
+  context: PublicPathContext
+): MemoryTimelineResponse {
+  return {
+    ...timeline,
+    events: timeline.events.map((event) => ({
+      ...event,
+      source: sanitizePublicPath(event.source, context) ?? event.source,
+      rolloutPath: sanitizePublicPath(event.rolloutPath, context) ?? event.rolloutPath
+    })),
+    latestAudit: timeline.latestAudit
+      ? {
+          ...timeline.latestAudit,
+          auditPath:
+            sanitizePublicPath(timeline.latestAudit.auditPath, context) ??
+            timeline.latestAudit.auditPath,
+          rolloutPath:
+            sanitizePublicPath(timeline.latestAudit.rolloutPath, context) ??
+            timeline.latestAudit.rolloutPath
+        }
+      : null,
+    latestAppliedLifecycle: timeline.latestAppliedLifecycle
+      ? {
+          ...timeline.latestAppliedLifecycle,
+          rolloutPath:
+            sanitizePublicPath(timeline.latestAppliedLifecycle.rolloutPath, context) ??
+            timeline.latestAppliedLifecycle.rolloutPath
+        }
+      : null,
+    latestLifecycleAttempt: timeline.latestLifecycleAttempt
+      ? {
+          ...timeline.latestLifecycleAttempt,
+          rolloutPath:
+            sanitizePublicPath(timeline.latestLifecycleAttempt.rolloutPath, context) ??
+            timeline.latestLifecycleAttempt.rolloutPath
+        }
+      : null
+  };
+}
+
+function sanitizeDetailsResponse(
+  details: MemoryDetailsResult,
+  context: PublicPathContext
+): MemoryDetailsResult {
+  return {
+    ...details,
+    path: sanitizePublicPath(details.path, context) ?? details.path,
+    historyPath: sanitizePublicPath(details.historyPath, context) ?? details.historyPath,
+    latestRolloutPath:
+      sanitizePublicPath(details.latestRolloutPath, context) ?? details.latestRolloutPath,
+    latestAudit: details.latestAudit
+      ? {
+          ...details.latestAudit,
+          auditPath:
+            sanitizePublicPath(details.latestAudit.auditPath, context) ??
+            details.latestAudit.auditPath,
+          rolloutPath:
+            sanitizePublicPath(details.latestAudit.rolloutPath, context) ??
+            details.latestAudit.rolloutPath
+        }
+      : null,
+    latestAppliedLifecycle: details.latestAppliedLifecycle
+      ? {
+          ...details.latestAppliedLifecycle,
+          rolloutPath:
+            sanitizePublicPath(details.latestAppliedLifecycle.rolloutPath, context) ??
+            details.latestAppliedLifecycle.rolloutPath
+        }
+      : null,
+    latestLifecycleAttempt: details.latestLifecycleAttempt
+      ? {
+          ...details.latestLifecycleAttempt,
+          rolloutPath:
+            sanitizePublicPath(details.latestLifecycleAttempt.rolloutPath, context) ??
+            details.latestLifecycleAttempt.rolloutPath
+        }
+      : null
+  };
 }
 
 function formatTimeline(timeline: MemoryTimelineResponse): string {
@@ -280,6 +429,10 @@ export async function runRecall(
     ensureMemoryLayout: false
   });
   const retrieval = new MemoryRetrievalService(runtime.syncService.memoryStore);
+  const publicPathContext: PublicPathContext = {
+    projectRoot: runtime.project.projectRoot,
+    memoryRoot: runtime.syncService.memoryStore.paths.baseDir
+  };
   const scope = normalizeMemoryRetrievalScope(options.scope);
   const state = normalizeMemoryRetrievalState(options.state);
 
@@ -290,28 +443,32 @@ export async function runRecall(
         state,
         limit: parseMemoryRetrievalLimit(options.limit)
       });
+      const publicResponse = sanitizeSearchResponse(
+        {
+          ...response,
+          querySurfacing: {
+            ...(await buildMemoryQuerySurfacing(runtime, target)),
+            instructionReviewLane: await buildInstructionReviewLane(runtime)
+          }
+        },
+        publicPathContext
+      );
       if (options.json) {
-        return JSON.stringify(
-          {
-            ...response,
-            querySurfacing: {
-              ...(await buildMemoryQuerySurfacing(runtime, target)),
-              instructionReviewLane: await buildInstructionReviewLane(runtime)
-            }
-          },
-          null,
-          2
-        );
+        return JSON.stringify(publicResponse, null, 2);
       }
-      return formatSearchResults(response);
+      return formatSearchResults(publicResponse);
     }
     case "timeline": {
       assertValidMemoryRef(target);
       const timeline = await retrieval.timelineMemories(target);
+      const publicTimeline = sanitizeTimelineResponse(
+        buildMemoryTimelineResponse(target, timeline),
+        publicPathContext
+      );
       if (options.json) {
-        return JSON.stringify(buildMemoryTimelineResponse(target, timeline), null, 2);
+        return JSON.stringify(publicTimeline, null, 2);
       }
-      return formatTimeline(timeline);
+      return formatTimeline(publicTimeline);
     }
     case "details": {
       assertValidMemoryRef(target);
@@ -319,10 +476,14 @@ export async function runRecall(
       if (!details) {
         throw new Error(`No memory details were found for ref "${target}".`);
       }
+      const publicDetails = sanitizeDetailsResponse(
+        toMemoryDetailsResultShape(details),
+        publicPathContext
+      );
       if (options.json) {
-        return JSON.stringify(toMemoryDetailsResultShape(details), null, 2);
+        return JSON.stringify(publicDetails, null, 2);
       }
-      return formatDetails(details);
+      return formatDetails(publicDetails);
     }
   }
 }

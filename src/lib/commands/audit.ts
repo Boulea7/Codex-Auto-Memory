@@ -1,11 +1,13 @@
 import type { AuditFinding, AuditReport } from "../types.js";
 import { runAuditScan } from "../security/audit.js";
+import { sanitizePublicPath } from "../util/public-paths.js";
 
 interface AuditCommandOptions {
   cwd?: string;
   json?: boolean;
   history?: boolean;
   noHistory?: boolean;
+  showSensitiveSnippets?: boolean;
 }
 
 function resolveIncludeHistory(options: AuditCommandOptions): boolean {
@@ -40,32 +42,42 @@ function formatSummary(report: AuditReport): string[] {
 }
 
 export async function runAudit(options: AuditCommandOptions = {}): Promise<string> {
+  const targetCwd = options.cwd ?? process.cwd();
   const includeHistory = resolveIncludeHistory(options);
   const report = await runAuditScan({
-    cwd: options.cwd ?? process.cwd(),
-    includeHistory
+    cwd: targetCwd,
+    includeHistory,
+    showSensitiveSnippets: options.showSensitiveSnippets
   });
+  const publicCwd = sanitizePublicPath(report.cwd, {
+    extraRoots: [{ label: "<cwd>", path: targetCwd }]
+  }) ?? report.cwd;
+  const publicReport: AuditReport = {
+    ...report,
+    cwd: publicCwd
+  };
 
   if (options.json) {
-    return JSON.stringify(report, null, 2);
+    return JSON.stringify(publicReport, null, 2);
   }
 
   const lines = [
     "Codex Auto Memory Audit",
-    `Generated at: ${report.generatedAt}`,
-    `Repository: ${report.cwd}`,
+    `Generated at: ${publicReport.generatedAt}`,
+    `Repository: ${publicReport.cwd}`,
     `History scan: ${includeHistory ? "enabled" : "disabled"}`,
+    `Snippet policy: ${publicReport.snippetPolicy ?? "redacted"}`,
     "",
-    ...formatSummary(report)
+    ...formatSummary(publicReport)
   ];
 
-  if (report.findings.length === 0) {
+  if (publicReport.findings.length === 0) {
     lines.push("", "No findings detected.");
     return lines.join("\n");
   }
 
   lines.push("", "Findings:");
-  for (const finding of report.findings) {
+  for (const finding of publicReport.findings) {
     lines.push(...formatFinding(finding));
   }
 

@@ -1,5 +1,11 @@
 import { runCommandCapture } from "../util/process.js";
 import {
+  sanitizeKnownPathsInText,
+  sanitizePublicPath,
+  sanitizePublicPathList,
+  type PublicPathContext
+} from "../util/public-paths.js";
+import {
   filterUnsafeTopicDiagnostics,
   type RetrievalSidecarCheck,
   type TopicFileDiagnostic
@@ -38,6 +44,7 @@ interface DoctorInstructionProposalLane {
   status: "ok" | "warning";
   summary: string;
   detectedTargets: string[];
+  candidateRecoveryPath: string;
   latestProposalArtifactPath: string | null;
   latestCandidateId: string | null;
   selectedTargetFile: string | null;
@@ -94,7 +101,11 @@ function buildDoctorRetrievalSidecar(
 
 export async function runDoctor(options: DoctorOptions = {}): Promise<string> {
   const runtime = await buildRuntimeContext(options.cwd, {}, {
-    ensureMemoryLayout: false
+    ensureMemoryLayout: false,
+    loadConfig: {
+      allowProjectCodexBinaryOverride: false,
+      allowLocalCodexBinaryOverride: false
+    }
   });
   const featureResult = runCommandCapture(
     runtime.loadedConfig.config.codexBinary,
@@ -135,6 +146,7 @@ export async function runDoctor(options: DoctorOptions = {}): Promise<string> {
     selectedTargetKind: instructionReviewLane.selectedTargetKind,
     targetHost: instructionReviewLane.targetHost,
     applyReadinessStatus: instructionReviewLane.applyReadinessStatus ?? null,
+    candidateRecoveryPath: instructionReviewLane.candidateRecoveryPath,
     recommendedInspectCommand: instructionReviewLane.recommendedInspectCommand,
     recommendedApplyPrepCommand: instructionReviewLane.recommendedApplyPrepCommand,
     recommendedVerifyApplyCommand: instructionReviewLane.recommendedVerifyApplyCommand
@@ -154,26 +166,84 @@ export async function runDoctor(options: DoctorOptions = {}): Promise<string> {
   ]
     .filter((line): line is string => line !== null)
     .join(" ");
+  const publicPathContext: PublicPathContext = {
+    projectRoot: runtime.project.projectRoot,
+    memoryRoot: runtime.syncService.memoryStore.paths.baseDir
+  };
+  const knownPaths = [
+    runtime.project.projectRoot,
+    runtime.syncService.memoryStore.paths.baseDir,
+    ...runtime.loadedConfig.files,
+    ...(instructionProposalLane.latestProposalArtifactPath
+      ? [instructionProposalLane.latestProposalArtifactPath]
+      : []),
+    ...(instructionProposalLane.selectedTargetFile ? [instructionProposalLane.selectedTargetFile] : []),
+    instructionProposalLane.candidateRecoveryPath,
+    ...instructionProposalLane.detectedTargets
+  ];
+  const publicWarnings = runtime.loadedConfig.warnings.map((warning) =>
+    sanitizeKnownPathsInText(warning, knownPaths, publicPathContext)
+  );
+  const publicRetrievalSidecar = {
+    ...retrievalSidecar,
+    checks: retrievalSidecar.checks.map((check) => ({
+      ...check,
+      indexPath: sanitizePublicPath(check.indexPath, publicPathContext) ?? check.indexPath
+    }))
+  };
+  const publicTopicDiagnostics = {
+    ...topicDiagnostics,
+    diagnostics: topicDiagnostics.diagnostics.map((diagnostic) => ({
+      ...diagnostic,
+      path: sanitizePublicPath(diagnostic.path, publicPathContext) ?? diagnostic.path
+    }))
+  };
+  const publicLayoutDiagnostics = layoutDiagnostics.map((diagnostic) => ({
+    ...diagnostic,
+    path: sanitizePublicPath(diagnostic.path, publicPathContext) ?? diagnostic.path
+  }));
+  const publicInstructionProposalLane: DoctorInstructionProposalLane = {
+    ...instructionProposalLane,
+    latestProposalArtifactPath: sanitizePublicPath(
+      instructionProposalLane.latestProposalArtifactPath,
+      publicPathContext
+    ),
+    selectedTargetFile: sanitizePublicPath(
+      instructionProposalLane.selectedTargetFile,
+      publicPathContext
+    ),
+    candidateRecoveryPath:
+      sanitizePublicPath(instructionProposalLane.candidateRecoveryPath, publicPathContext) ??
+      instructionProposalLane.candidateRecoveryPath,
+    detectedTargets: sanitizePublicPathList(
+      instructionProposalLane.detectedTargets,
+      publicPathContext
+    )
+  };
 
   if (options.json) {
     return JSON.stringify(
       {
-        projectRoot: runtime.project.projectRoot,
+        projectRoot:
+          sanitizePublicPath(runtime.project.projectRoot, publicPathContext) ??
+          runtime.project.projectRoot,
         projectId: runtime.project.projectId,
         worktreeId: runtime.project.worktreeId,
-        memoryRoot: runtime.syncService.memoryStore.paths.baseDir,
+        memoryRoot:
+          sanitizePublicPath(runtime.syncService.memoryStore.paths.baseDir, publicPathContext) ??
+          runtime.syncService.memoryStore.paths.baseDir,
         autoMemoryEnabled: runtime.loadedConfig.config.autoMemoryEnabled,
         extractorMode: runtime.loadedConfig.config.extractorMode,
-        configFiles: runtime.loadedConfig.files,
-        warnings: runtime.loadedConfig.warnings,
+        configFiles: sanitizePublicPathList(runtime.loadedConfig.files, publicPathContext),
+        warnings: publicWarnings,
         recommendedRoute,
         recommendedAction,
         recommendedActionCommand,
         recommendedDoctorCommand,
-        retrievalSidecar,
-        topicDiagnostics,
-        layoutDiagnostics,
-        instructionProposalLane,
+        retrievalSidecar: publicRetrievalSidecar,
+        topicDiagnostics: publicTopicDiagnostics,
+        layoutDiagnostics: publicLayoutDiagnostics,
+        instructionProposalLane: publicInstructionProposalLane,
         features: parsedFeatures,
         readiness
       },
@@ -184,24 +254,24 @@ export async function runDoctor(options: DoctorOptions = {}): Promise<string> {
 
   const lines = [
     "Codex Auto Memory Doctor",
-    `Project root: ${runtime.project.projectRoot}`,
+    `Project root: ${sanitizePublicPath(runtime.project.projectRoot, publicPathContext) ?? runtime.project.projectRoot}`,
     `Project id: ${runtime.project.projectId}`,
     `Worktree id: ${runtime.project.worktreeId}`,
-    `Memory root: ${runtime.syncService.memoryStore.paths.baseDir}`,
+    `Memory root: ${sanitizePublicPath(runtime.syncService.memoryStore.paths.baseDir, publicPathContext) ?? runtime.syncService.memoryStore.paths.baseDir}`,
     `Auto memory enabled: ${runtime.loadedConfig.config.autoMemoryEnabled}`,
     `Extractor mode: ${runtime.loadedConfig.config.extractorMode}`,
     `Recommended route: ${recommendedRoute}`,
     `Recommended next step: ${recommendedAction}`,
     `Recommended next-step command: ${recommendedActionCommand}`,
     `Recommended doctor command: ${recommendedDoctorCommand}`,
-    `Retrieval sidecar: ${retrievalSidecar.status} (${retrievalSidecar.summary})`,
-    `Topic diagnostics: ${topicDiagnostics.status} (${topicDiagnostics.summary})`,
-    `Layout diagnostics: ${layoutDiagnostics.length === 0 ? "none" : layoutDiagnostics.length}`,
-    `Instruction proposal lane: ${instructionProposalLane.status} (${instructionProposalLane.summary})`,
+    `Retrieval sidecar: ${publicRetrievalSidecar.status} (${publicRetrievalSidecar.summary})`,
+    `Topic diagnostics: ${publicTopicDiagnostics.status} (${publicTopicDiagnostics.summary})`,
+    `Layout diagnostics: ${publicLayoutDiagnostics.length === 0 ? "none" : publicLayoutDiagnostics.length}`,
+    `Instruction proposal lane: ${publicInstructionProposalLane.status} (${publicInstructionProposalLane.summary})`,
     `Companion session source: rollout-jsonl`,
     `Companion runtime injector: wrapper-base-instructions`,
-    `Config files: ${runtime.loadedConfig.files.length ? runtime.loadedConfig.files.join(", ") : "none"}`,
-    ...runtime.loadedConfig.warnings.map((warning) => `Warning: ${warning}`),
+    `Config files: ${runtime.loadedConfig.files.length ? sanitizePublicPathList(runtime.loadedConfig.files, publicPathContext).join(", ") : "none"}`,
+    ...publicWarnings.map((warning) => `Warning: ${warning}`),
     "",
     "Native memory/hooks readiness:",
     `- memories: ${readiness.memories ? `${readiness.memories.stage}/${readiness.memories.enabled}` : "missing"}`,
@@ -210,32 +280,32 @@ export async function runDoctor(options: DoctorOptions = {}): Promise<string> {
     "",
     "Host/UI signals:",
     `- Codex App Server: ${readiness.appServer ? `${readiness.appServer.stage}/${readiness.appServer.enabled}` : "missing"}`,
-    ...(retrievalSidecar.status === "warning"
+    ...(publicRetrievalSidecar.status === "warning"
       ? [
           "",
           "Retrieval sidecar diagnostics:",
-          `- Repair command: ${retrievalSidecar.repairCommand}`,
-          ...retrievalSidecar.checks.map(
+          `- Repair command: ${publicRetrievalSidecar.repairCommand}`,
+          ...publicRetrievalSidecar.checks.map(
             (check) =>
               `- ${check.scope}/${check.state}: ${check.status}${check.fallbackReason ? ` (${check.fallbackReason})` : ""} | index: ${check.indexPath} | generatedAt: ${check.generatedAt ?? "none"}`
           )
         ]
       : []),
-    ...(topicDiagnostics.status === "warning"
+    ...(publicTopicDiagnostics.status === "warning"
       ? [
           "",
           "Topic diagnostics:",
-          ...topicDiagnostics.diagnostics.map(
+          ...publicTopicDiagnostics.diagnostics.map(
             (diagnostic) =>
               `- ${diagnostic.scope}/${diagnostic.state}/${diagnostic.topic}: unsafe (${diagnostic.unsafeReason ?? "unknown reason"}) | entries=${diagnostic.entryCount} | malformed=${diagnostic.invalidEntryBlockCount} | manualContent=${diagnostic.manualContentDetected ? "yes" : "no"}`
           )
         ]
       : []),
-    ...(layoutDiagnostics.length > 0
+    ...(publicLayoutDiagnostics.length > 0
       ? [
           "",
           "Layout diagnostics:",
-          ...layoutDiagnostics.map(
+          ...publicLayoutDiagnostics.map(
             (diagnostic) =>
               `- ${diagnostic.scope}/${diagnostic.state}/${diagnostic.fileName}: ${diagnostic.kind}`
           )

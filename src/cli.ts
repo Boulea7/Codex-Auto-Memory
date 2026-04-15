@@ -22,6 +22,11 @@ function createProgram(): Command {
 async function main(): Promise<void> {
   const rawArgs = process.argv.slice(2);
   if (isWrapperCommand(rawArgs[0])) {
+    if (rawArgs.includes("--help") || rawArgs.includes("-h")) {
+      await createProgram().parseAsync([process.argv[0] ?? "node", process.argv[1] ?? "cam", "help", rawArgs[0]]);
+      return;
+    }
+
     const exitCode = await runWrappedCodex(process.cwd(), rawArgs[0], rawArgs.slice(1));
     process.exitCode = exitCode;
     return;

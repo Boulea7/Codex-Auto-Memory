@@ -43,6 +43,7 @@ describe("loadConfig", () => {
       JSON.stringify({
         extractorMode: "codex",
         autoMemoryDirectory: "~/should-be-ignored",
+        codexBinary: "./repo-owned-binary",
         maxStartupLines: 180,
         sessionContinuityAutoLoad: true,
         sessionContinuityLocalPathStyle: "claude",
@@ -54,6 +55,7 @@ describe("loadConfig", () => {
       JSON.stringify({
         autoMemoryEnabled: false,
         autoMemoryDirectory: "~/cam-local-memory",
+        codexBinary: "./local-codex",
         sessionContinuityAutoLoad: false,
         sessionContinuityLocalPathStyle: "claude"
       })
@@ -76,10 +78,12 @@ describe("loadConfig", () => {
     expect(loaded.config.defaultScope).toBe("project-local");
     expect(loaded.config.maxStartupLines).toBe(180);
     expect(loaded.config.autoMemoryDirectory).toBe(path.join(homeDir, "cam-local-memory"));
+    expect(loaded.config.codexBinary).toBe("./local-codex");
     expect(loaded.config.sessionContinuityAutoLoad).toBe(false);
     expect(loaded.config.sessionContinuityAutoSave).toBe(true);
     expect(loaded.config.sessionContinuityLocalPathStyle).toBe("claude");
     expect(loaded.warnings.join("\n")).toContain("Ignored autoMemoryDirectory");
+    expect(loaded.warnings.join("\n")).toContain("Ignored codexBinary");
     expect(loaded.warnings.join("\n")).toContain("Ignored session continuity local settings");
   });
 

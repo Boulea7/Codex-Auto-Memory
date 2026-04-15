@@ -61,6 +61,10 @@ function addSessionRolloutOption(command: Command): Command {
   return command.option("--rollout <path>", "Specific rollout JSONL file to summarize");
 }
 
+function addCwdOption(command: Command, description: string): Command {
+  return command.option("--cwd <path>", description);
+}
+
 function addDreamCandidateIdOption(command: Command): Command {
   return command.option("--candidate-id <id>", "Dream candidate id");
 }
@@ -79,24 +83,39 @@ const dreamTargetSurfaceChoices = ["durable-memory", "instruction-memory"];
 const dreamOriginKindChoices = ["primary", "subagent"];
 const instructionTargetHostChoices = ["codex", "claude", "gemini", "shared"];
 
+function registerWrapperCommands(program: Command): void {
+  for (const commandName of ["run", "exec", "resume"] as const) {
+    program
+      .command(`${commandName} [codex-args...]`)
+      .description("Start Codex through the wrapper with compiled startup memory and post-run persistence")
+      .allowUnknownOption(true);
+  }
+}
+
 function registerSessionCommands(program: Command): void {
   const sessionCommand = program
     .command("session")
     .description("Manage temporary cross-session continuity state");
 
   addJsonOption(
-    sessionCommand
-      .command("status")
-      .description("Inspect current session continuity state")
+    addCwdOption(
+      sessionCommand
+        .command("status")
+        .description("Inspect current session continuity state"),
+      "Project directory to inspect session continuity for"
+    )
   )
     .action(withStdout(async (options) => runSession("status", options)));
 
   addSessionScopeOption(
     addSessionRolloutOption(
       addJsonOption(
-        sessionCommand
-          .command("save")
-          .description("Save temporary session continuity from a rollout")
+        addCwdOption(
+          sessionCommand
+            .command("save")
+            .description("Save temporary session continuity from a rollout using merge semantics; without --rollout, prefer recovery marker, then latest primary rollout, then matching audit provenance"),
+          "Project directory to save session continuity for"
+        )
       )
     )
   )
@@ -105,32 +124,44 @@ function registerSessionCommands(program: Command): void {
   addSessionScopeOption(
     addSessionRolloutOption(
       addJsonOption(
-        sessionCommand
-          .command("refresh")
-          .description("Regenerate session continuity from provenance and replace the selected scope")
+        addCwdOption(
+          sessionCommand
+            .command("refresh")
+            .description("Regenerate session continuity from provenance and replace the selected scope; without --rollout, prefer recovery marker, then matching audit provenance, then latest primary rollout"),
+          "Project directory to refresh session continuity for"
+        )
       )
     )
   )
     .action(withStdout(async (options) => runSession("refresh", options)));
 
   addJsonOption(
-    sessionCommand
-      .command("load")
-      .description("Load current session continuity summary and, with --print-startup, inspect the structured continuity startup contract")
+    addCwdOption(
+      sessionCommand
+        .command("load")
+        .description("Load current session continuity summary and, with --print-startup, inspect the structured continuity startup contract"),
+      "Project directory to inspect session continuity for"
+    )
   )
     .option("--print-startup", "Print the compiled startup continuity block")
     .action(withStdout(async (options) => runSession("load", options)));
 
   addSessionScopeOption(
-    sessionCommand
-      .command("clear")
-      .description("Clear active session continuity state")
+    addCwdOption(
+      sessionCommand
+        .command("clear")
+        .description("Clear active session continuity state"),
+      "Project directory to clear session continuity for"
+    )
   )
     .action(withStdout(async (options) => runSession("clear", options)));
 
-  sessionCommand
-    .command("open")
-    .description("Open the local session continuity directory")
+  addCwdOption(
+    sessionCommand
+      .command("open")
+      .description("Open the local session continuity directory"),
+    "Project directory whose session continuity directory should be opened"
+  )
     .action(withStdout(async (options) => runSession("open", options)));
 }
 
@@ -159,6 +190,7 @@ function registerDreamCommands(program: Command): void {
     dreamCommand
       .command("candidates")
       .description("List explicit dream promotion candidates from the reviewer queue")
+      .option("--cwd <path>", "Project directory to inspect the reviewer queue for")
       .addOption(
         new Option("--status <status>", "Filter by candidate status").choices(dreamStatusChoices)
       )
@@ -375,7 +407,7 @@ function registerMcpCommands(program: Command): void {
     mcpCommand
       .command("install")
       .description("Install the recommended project-scoped MCP wiring for a supported host")
-      .requiredOption("--host <host>", `Target host: ${supportedInstallHosts}`)
+      .option("--host <host>", `Target host: ${supportedInstallHosts}`, "codex")
       .option("--cwd <path>", "Project directory to write host wiring for")
   ).action(withStdout(async (options) => runMcpInstall(options)));
 
@@ -391,7 +423,7 @@ function registerMcpCommands(program: Command): void {
     mcpCommand
       .command("apply-guidance")
       .description("Safely create or update the managed Codex Auto Memory block inside AGENTS.md")
-      .requiredOption("--host <host>", `Target host: ${formatMcpHostChoices(["codex"])}`)
+      .option("--host <host>", `Target host: ${formatMcpHostChoices(["codex"])}`, "codex")
       .option("--cwd <path>", "Project directory whose AGENTS.md should be updated")
   ).action(withStdout(async (options) => runMcpApplyGuidance(options)));
 
@@ -416,7 +448,7 @@ function registerIntegrationCommands(program: Command): void {
       .description(
         "Install the recommended Codex integration stack and safely apply the managed AGENTS guidance block. The runtime default stays in place unless you opt into an official copy."
       )
-      .requiredOption("--host <host>", `Target host: ${formatMcpHostChoices(["codex"])}`)
+      .option("--host <host>", `Target host: ${formatMcpHostChoices(["codex"])}`, "codex")
       .option(
         "--skill-surface <surface>",
         `Skill install surface: ${skillSurfaceChoices}`,
@@ -431,7 +463,7 @@ function registerIntegrationCommands(program: Command): void {
       .description(
         "Install the recommended project-scoped Codex integration stack without updating AGENTS.md. The runtime default stays in place unless you opt into an official copy."
       )
-      .requiredOption("--host <host>", `Target host: ${formatMcpHostChoices(["codex"])}`)
+      .option("--host <host>", `Target host: ${formatMcpHostChoices(["codex"])}`, "codex")
       .option(
         "--skill-surface <surface>",
         `Skill install surface: ${skillSurfaceChoices}`,
@@ -444,15 +476,18 @@ function registerIntegrationCommands(program: Command): void {
     integrationsCommand
       .command("doctor")
       .description("Inspect the current Codex integration stack without mutating memory or host config")
-      .requiredOption("--host <host>", `Target host: ${formatMcpHostChoices(["codex"])}`)
+      .option("--host <host>", `Target host: ${formatMcpHostChoices(["codex"])}`, "codex")
       .option("--cwd <path>", "Project directory to inspect")
   ).action(withStdout(async (options) => runIntegrationsDoctor(options)));
 }
 
 export function registerCommands(program: Command): void {
+  registerWrapperCommands(program);
+
   program
     .command("init")
     .description("Initialize Codex Auto Memory in the current project")
+    .option("--cwd <path>", "Project directory to initialize")
     .option("--force", "Overwrite existing init config files with canonical defaults")
     .action(withStdout(async (options) => runInit(options)));
 
@@ -569,6 +604,7 @@ export function registerCommands(program: Command): void {
   program
     .command("sync")
     .description("Sync the latest rollout into markdown memory")
+    .option("--cwd <path>", "Project directory to anchor sync to")
     .option("--rollout <path>", "Specific rollout JSONL file to process")
     .option("--force", "Re-process a rollout even if it was already synced")
     .action(withStdout(async (options) => runSync(options)));
@@ -577,14 +613,17 @@ export function registerCommands(program: Command): void {
     .command("doctor")
     .description("Inspect local Codex Auto Memory wiring and environment")
     .option("--json", "Print JSON output")
+    .option("--cwd <path>", "Project directory to inspect")
     .action(withStdout(async (options) => runDoctor(options)));
 
   program
     .command("audit")
     .description("Scan tracked files and git history for privacy and secret-hygiene risks")
     .option("--json", "Print JSON output")
+    .option("--cwd <path>", "Project directory to inspect")
     .option("--history", "Force-enable git history scanning")
     .option("--no-history", "Disable git history scanning")
+    .option("--show-sensitive-snippets", "Print raw matched lines instead of the default redacted snippets")
     .action(withStdout(async (options) => runAudit(options)));
 
   registerSessionCommands(program);

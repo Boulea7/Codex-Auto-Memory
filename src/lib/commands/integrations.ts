@@ -34,6 +34,7 @@ import {
   buildWorkflowContract
 } from "../integration/retrieval-contract.js";
 import { ensureDir, writeTextFileAtomic } from "../util/fs.js";
+import { sanitizePathFieldsDeep } from "../util/public-paths.js";
 
 type IntegrationStackAction = "created" | "updated" | "unchanged" | "blocked";
 type InstallStackAction = Exclude<IntegrationStackAction, "blocked">;
@@ -1458,10 +1459,13 @@ export async function runIntegrationsDoctor(
   const result = buildIntegrationsDoctorResult(report, {
     explicitCwd: Boolean(options.cwd)
   });
+  const publicResult = sanitizePathFieldsDeep(result, {
+    projectRoot: result.projectRoot
+  });
 
   if (options.json) {
-    return JSON.stringify(result, null, 2);
+    return JSON.stringify(publicResult, null, 2);
   }
 
-  return formatIntegrationsDoctorResult(result);
+  return formatIntegrationsDoctorResult(publicResult);
 }

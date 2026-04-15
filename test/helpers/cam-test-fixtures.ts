@@ -39,6 +39,19 @@ export async function writeCamConfig(
   projectConfig: AppConfig | Record<string, unknown>,
   localConfig: Record<string, unknown>
 ): Promise<void> {
+  const projectCodexBinary =
+    typeof (projectConfig as { codexBinary?: unknown }).codexBinary === "string"
+      ? ((projectConfig as { codexBinary?: string }).codexBinary ?? undefined)
+      : undefined;
+  const nextLocalConfig =
+    projectCodexBinary &&
+    projectCodexBinary !== "codex" &&
+    typeof (localConfig as { codexBinary?: unknown }).codexBinary !== "string"
+      ? {
+          ...localConfig,
+          codexBinary: projectCodexBinary
+        }
+      : localConfig;
   await fs.writeFile(
     path.join(repoDir, "codex-auto-memory.json"),
     JSON.stringify(projectConfig, null, 2),
@@ -46,7 +59,7 @@ export async function writeCamConfig(
   );
   await fs.writeFile(
     path.join(repoDir, ".codex-auto-memory.local.json"),
-    JSON.stringify(localConfig, null, 2),
+    JSON.stringify(nextLocalConfig, null, 2),
     "utf8"
   );
 }

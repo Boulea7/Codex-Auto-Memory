@@ -7,6 +7,7 @@ import {
   buildResolvedCliSearchCommand,
   buildWorkflowContract
 } from "../src/lib/integration/retrieval-contract.js";
+import { sanitizePublicPath } from "../src/lib/util/public-paths.js";
 import { makeAppConfig, writeCamConfig } from "./helpers/cam-test-fixtures.js";
 import { runCli } from "./helpers/cli-runner.js";
 
@@ -230,6 +231,33 @@ describe("integrations command", () => {
     });
   });
 
+  it("defaults Codex-only integration commands to host=codex", async () => {
+    const homeDir = await tempDir("cam-integrations-default-host-home-");
+    const projectDir = await tempDir("cam-integrations-default-host-project-");
+    const memoryRoot = await tempDir("cam-integrations-default-host-memory-");
+    process.env.HOME = homeDir;
+
+    await writeCamConfig(projectDir, makeAppConfig(), {
+      autoMemoryDirectory: memoryRoot
+    });
+
+    const installResult = runCli(projectDir, ["integrations", "install", "--json"], {
+      env: buildStableCliEnv(homeDir)
+    });
+    expect(installResult.exitCode, installResult.stderr).toBe(0);
+    expect(JSON.parse(installResult.stdout)).toMatchObject({
+      host: "codex"
+    });
+
+    const doctorResult = runCli(projectDir, ["integrations", "doctor", "--json"], {
+      env: buildStableCliEnv(homeDir)
+    });
+    expect(doctorResult.exitCode, doctorResult.stderr).toBe(0);
+    expect(JSON.parse(doctorResult.stdout)).toMatchObject({
+      host: "codex"
+    });
+  });
+
   it("rejects non-codex hosts for the integration stack orchestration surface", async () => {
     const homeDir = await tempDir("cam-integrations-invalid-home-");
     const projectDir = await tempDir("cam-integrations-invalid-project-");
@@ -269,7 +297,9 @@ describe("integrations command", () => {
     expect(result.exitCode, result.stderr).toBe(0);
     expect(JSON.parse(result.stdout)).toMatchObject({
       host: "codex",
-      projectRoot: realProjectDir,
+      projectRoot: sanitizePublicPath(realProjectDir, {
+        projectRoot: realProjectDir
+      }),
       readOnlyRetrieval: true,
       status: "missing",
       recommendedRoute: "mcp",
@@ -357,35 +387,39 @@ describe("integrations command", () => {
       };
       nextSteps: string[];
     };
-    expect(payload.projectRoot).toBe(await fs.realpath(projectDir));
+    expect(payload.projectRoot).toBe(
+      sanitizePublicPath(await fs.realpath(projectDir), {
+        projectRoot: await fs.realpath(projectDir)
+      })
+    );
     expect(payload.recommendedSkillInstallCommand).toBe(
       buildResolvedCliCommand("skills install --surface runtime", {
-        cwd: payload.projectRoot
+        cwd: await fs.realpath(projectDir)
       })
     );
     expect(payload.workflowContract.cliFallback.searchCommand).toBe(
-      `cam recall search "<query>" --state auto --limit 8 --cwd '${payload.projectRoot}'`
+      `cam recall search "<query>" --state auto --limit 8 --cwd '${await fs.realpath(projectDir)}'`
     );
     expect(payload.nextSteps).toEqual(
       expect.arrayContaining([
         expect.stringContaining(
           `${buildResolvedCliCommand("integrations apply --host codex --skill-surface runtime", {
-            cwd: payload.projectRoot
+            cwd: await fs.realpath(projectDir)
           })}`
         ),
         expect.stringContaining(
           buildResolvedCliCommand("integrations install --host codex", {
-            cwd: payload.projectRoot
+            cwd: await fs.realpath(projectDir)
           })
         ),
         expect.stringContaining(
           buildResolvedCliCommand("mcp print-config --host codex", {
-            cwd: payload.projectRoot
+            cwd: await fs.realpath(projectDir)
           })
         ),
         expect.stringContaining(
           buildResolvedCliSearchCommand("\"<query>\"", {
-            cwd: payload.projectRoot
+            cwd: await fs.realpath(projectDir)
           })
         )
       ])
@@ -489,15 +523,15 @@ describe("integrations command", () => {
     expect(payload.nextSteps).toEqual(
       expect.arrayContaining([
         expect.stringContaining(
-          `cam mcp apply-guidance --host codex --cwd ${shellQuoteArg(payload.projectRoot)}`
+          `cam mcp apply-guidance --host codex --cwd ${shellQuoteArg(await fs.realpath(projectDir))}`
         ),
         expect.stringContaining(
-          `cam mcp print-config --host codex --cwd ${shellQuoteArg(payload.projectRoot)}`
+          `cam mcp print-config --host codex --cwd ${shellQuoteArg(await fs.realpath(projectDir))}`
         )
       ])
     );
     expect(payload.nextSteps[0]).toContain(
-      `cam mcp apply-guidance --host codex --cwd ${shellQuoteArg(payload.projectRoot)}`
+      `cam mcp apply-guidance --host codex --cwd ${shellQuoteArg(await fs.realpath(projectDir))}`
     );
     expect(payload.nextSteps).not.toEqual(
       expect.arrayContaining([expect.stringContaining("cam hooks install")])
@@ -545,7 +579,7 @@ describe("integrations command", () => {
     expect(payload.nextSteps).toEqual(
       expect.arrayContaining([
         expect.stringContaining(
-          `cam hooks install --cwd ${shellQuoteArg(payload.projectRoot)}`
+          `cam hooks install --cwd ${shellQuoteArg(await fs.realpath(projectDir))}`
         )
       ])
     );
@@ -583,7 +617,7 @@ describe("integrations command", () => {
       expect(payload.nextSteps).toEqual(
         expect.arrayContaining([
           expect.stringContaining(
-            `CAM_PROJECT_ROOT=${shellQuoteArg(payload.projectRoot)}`
+            `CAM_PROJECT_ROOT=${shellQuoteArg(await fs.realpath(projectDir))}`
           ),
           expect.stringContaining("memory-recall.sh")
         ])
@@ -640,7 +674,9 @@ describe("integrations command", () => {
     expect(doctorResult.exitCode, doctorResult.stderr).toBe(0);
     expect(JSON.parse(doctorResult.stdout)).toMatchObject({
       host: "codex",
-      projectRoot: realProjectDir,
+      projectRoot: sanitizePublicPath(realProjectDir, {
+        projectRoot: realProjectDir
+      }),
       readOnlyRetrieval: true,
       status: "ok",
       recommendedRoute: "mcp",

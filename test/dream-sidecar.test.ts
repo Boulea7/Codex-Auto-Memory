@@ -5,6 +5,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import { runDream } from "../src/lib/commands/dream.js";
 import { detectProjectContext } from "../src/lib/domain/project-context.js";
 import { MemoryStore } from "../src/lib/domain/memory-store.js";
+import { sanitizePublicPath } from "../src/lib/util/public-paths.js";
 import {
   initGitRepo,
   makeAppConfig,
@@ -167,7 +168,7 @@ describe("dream sidecar", () => {
       entryCount: 0,
       topicCount: 0
     });
-    await Promise.all(buildPayload.snapshotPaths.map((filePath) => expect(fs.stat(filePath)).resolves.toBeDefined()));
+    expect(buildPayload.snapshotPaths[0]).toContain("latest.json");
     expect(await fs.readFile(store.getMemoryFile("project"), "utf8")).toBe(memoryBefore);
 
     const inspectPayload = JSON.parse(
@@ -187,10 +188,25 @@ describe("dream sidecar", () => {
 
     expect(inspectPayload.enabled).toBe(true);
     expect(inspectPayload.snapshots.project.status).toBe("available");
-    expect(inspectPayload.snapshots.project.latestPath).toBe(buildPayload.snapshotPaths[0]);
+    expect(inspectPayload.snapshots.project.latestPath).toBe(
+      sanitizePublicPath(buildPayload.snapshotPaths[0] ?? null, {
+        projectRoot: repoDir,
+        memoryRoot
+      })
+    );
     expect(inspectPayload.snapshots.project.relevantMemoryRefCount).toBeGreaterThan(0);
-    expect(inspectPayload.auditPath).toBe(buildPayload.auditPath);
-    expect(inspectPayload.recoveryPath).toBe(buildPayload.recoveryPath);
+    expect(inspectPayload.auditPath).toBe(
+      sanitizePublicPath(buildPayload.auditPath, {
+        projectRoot: repoDir,
+        memoryRoot
+      })
+    );
+    expect(inspectPayload.recoveryPath).toBe(
+      sanitizePublicPath(buildPayload.recoveryPath, {
+        projectRoot: repoDir,
+        memoryRoot
+      })
+    );
   });
 
   it("surfaces shared team memory availability in dream snapshots", async () => {
@@ -453,7 +469,7 @@ describe("dream sidecar", () => {
 
     expect(candidatesPayload.summary.totalCount).toBeGreaterThanOrEqual(2);
     expect(candidatesPayload.summary.statusCounts.pending).toBeGreaterThanOrEqual(1);
-    await expect(fs.stat(candidatesPayload.registryPath)).resolves.toBeDefined();
+    expect(candidatesPayload.registryPath).toContain("registry.json");
 
     const promotedEntries = await store.listEntries("project");
     expect(

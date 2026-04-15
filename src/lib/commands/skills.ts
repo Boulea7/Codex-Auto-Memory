@@ -10,6 +10,8 @@ import {
   normalizeCodexSkillInstallSurface
 } from "../integration/skills-paths.js";
 import { resolveMcpProjectRoot } from "../integration/mcp-config.js";
+import { fileExists } from "../util/fs.js";
+import fs from "node:fs/promises";
 
 interface SkillsCommandOptions {
   cwd?: string;
@@ -69,5 +71,10 @@ export async function removeSkills(options: SkillsCommandOptions = {}): Promise<
   const projectRoot = resolveMcpProjectRoot(options.cwd);
   const skillSurface = normalizeCodexSkillInstallSurface(options.surface);
   const dir = codexSkillAssetDirForSurface(skillSurface, projectRoot);
-  return `Codex skill assets live under ${dir}. Remove the directory manually if you no longer need them.`;
+  if (!(await fileExists(dir))) {
+    return `No Codex skill assets were installed under ${dir}.`;
+  }
+
+  await fs.rm(dir, { recursive: true, force: true });
+  return `Removed Codex skill assets from ${dir}.`;
 }

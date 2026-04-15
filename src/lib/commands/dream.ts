@@ -27,6 +27,11 @@ import { findLatestProjectRollout } from "../domain/rollout.js";
 import { buildManualMutationReviewEntry } from "./manual-mutation-review.js";
 import { fileExists, readTextFile, writeJsonFileAtomic } from "../util/fs.js";
 import { buildResolvedCliCommand } from "../integration/retrieval-contract.js";
+import {
+  sanitizePublicPath,
+  sanitizePublicPathList,
+  type PublicPathContext
+} from "../util/public-paths.js";
 import type {
   DreamCandidateOriginKind,
   DreamCandidateStatus,
@@ -81,6 +86,15 @@ const dreamCandidateTargetSurfaces = ["durable-memory", "instruction-memory"] as
 
 const dreamCandidateOriginKinds = ["primary", "subagent"] as const;
 const instructionTargetHosts = ["codex", "claude", "gemini", "shared"] as const;
+
+function buildDreamPublicPathContext(
+  runtime: Awaited<ReturnType<typeof buildRuntimeContext>>
+): PublicPathContext {
+  return {
+    projectRoot: runtime.project.projectRoot,
+    memoryRoot: runtime.syncService.memoryStore.paths.baseDir
+  };
+}
 
 function selectedScope(scope?: SessionContinuityScope | "both"): SessionContinuityScope | "both" {
   if (!scope) {
@@ -300,6 +314,45 @@ async function buildDreamReviewerPayload(
   };
 }
 
+function sanitizeDreamInspectionOutput(
+  inspection: Awaited<ReturnType<typeof inspectDreamSidecar>>,
+  context: PublicPathContext
+): Awaited<ReturnType<typeof inspectDreamSidecar>> {
+  return {
+    ...inspection,
+    snapshots: {
+      project: {
+        ...inspection.snapshots.project,
+        latestPath: sanitizePublicPath(inspection.snapshots.project.latestPath, context)
+      },
+      projectLocal: {
+        ...inspection.snapshots.projectLocal,
+        latestPath: sanitizePublicPath(inspection.snapshots.projectLocal.latestPath, context)
+      }
+    },
+    auditPath: sanitizePublicPath(inspection.auditPath, context) ?? inspection.auditPath,
+    recoveryPath: sanitizePublicPath(inspection.recoveryPath, context) ?? inspection.recoveryPath,
+    candidateRegistryPath:
+      sanitizePublicPath(inspection.candidateRegistryPath, context) ?? inspection.candidateRegistryPath,
+    candidateAuditPath:
+      sanitizePublicPath(inspection.candidateAuditPath, context) ?? inspection.candidateAuditPath,
+    candidateRecoveryPath:
+      sanitizePublicPath(inspection.candidateRecoveryPath, context) ?? inspection.candidateRecoveryPath
+  };
+}
+
+function sanitizeDreamCandidatePaths<T extends { registryPath: string; auditPath: string; recoveryPath: string }>(
+  payload: T,
+  context: PublicPathContext
+): T {
+  return {
+    ...payload,
+    registryPath: sanitizePublicPath(payload.registryPath, context) ?? payload.registryPath,
+    auditPath: sanitizePublicPath(payload.auditPath, context) ?? payload.auditPath,
+    recoveryPath: sanitizePublicPath(payload.recoveryPath, context) ?? payload.recoveryPath
+  };
+}
+
 export async function runDream(
   action: DreamAction,
   options: DreamOptions = {}
@@ -307,22 +360,24 @@ export async function runDream(
   const runtime = await buildRuntimeContext(options.cwd ?? process.cwd(), {}, {
     ensureMemoryLayout: false
   });
+  const publicPathContext = buildDreamPublicPathContext(runtime);
 
   if (action === "inspect") {
     const inspection = await inspectDreamSidecar(runtime);
+    const publicInspection = sanitizeDreamInspectionOutput(inspection, publicPathContext);
     const reviewerPayload = await buildDreamReviewerPayload(runtime);
     if (options.json) {
       return JSON.stringify(
         {
-          enabled: inspection.enabled,
-          autoBuild: inspection.autoBuild,
-          snapshots: inspection.snapshots,
-          auditPath: inspection.auditPath,
-          recoveryPath: inspection.recoveryPath,
-          queueSummary: inspection.queueSummary,
-          candidateRegistryPath: inspection.candidateRegistryPath,
-          candidateAuditPath: inspection.candidateAuditPath,
-          candidateRecoveryPath: inspection.candidateRecoveryPath,
+          enabled: publicInspection.enabled,
+          autoBuild: publicInspection.autoBuild,
+          snapshots: publicInspection.snapshots,
+          auditPath: publicInspection.auditPath,
+          recoveryPath: publicInspection.recoveryPath,
+          queueSummary: publicInspection.queueSummary,
+          candidateRegistryPath: publicInspection.candidateRegistryPath,
+          candidateAuditPath: publicInspection.candidateAuditPath,
+          candidateRecoveryPath: publicInspection.candidateRecoveryPath,
           reviewerSummary: reviewerPayload.reviewerSummary,
           nextRecommendedActions: reviewerPayload.nextRecommendedActions,
           helperCommands: reviewerPayload.helperCommands
@@ -334,15 +389,15 @@ export async function runDream(
 
     return [
       "Codex Auto Memory Dream Sidecar",
-      `Enabled: ${inspection.enabled}`,
-      `Auto-build: ${inspection.autoBuild}`,
-      `Project snapshot: ${inspection.snapshots.project.status} (${inspection.snapshots.project.latestPath ?? "none"})`,
-      `Project-local snapshot: ${inspection.snapshots.projectLocal.status} (${inspection.snapshots.projectLocal.latestPath ?? "none"})`,
-      `Candidate queue: ${inspection.queueSummary.totalCount} total`,
-      `Audit: ${inspection.auditPath}`,
-      `Recovery: ${inspection.recoveryPath}`,
-      `Candidate registry: ${inspection.candidateRegistryPath}`,
-      `Candidate audit: ${inspection.candidateAuditPath}`
+      `Enabled: ${publicInspection.enabled}`,
+      `Auto-build: ${publicInspection.autoBuild}`,
+      `Project snapshot: ${publicInspection.snapshots.project.status} (${publicInspection.snapshots.project.latestPath ?? "none"})`,
+      `Project-local snapshot: ${publicInspection.snapshots.projectLocal.status} (${publicInspection.snapshots.projectLocal.latestPath ?? "none"})`,
+      `Candidate queue: ${publicInspection.queueSummary.totalCount} total`,
+      `Audit: ${publicInspection.auditPath}`,
+      `Recovery: ${publicInspection.recoveryPath}`,
+      `Candidate registry: ${publicInspection.candidateRegistryPath}`,
+      `Candidate audit: ${publicInspection.candidateAuditPath}`
     ].join("\n");
   }
 
@@ -356,16 +411,17 @@ export async function runDream(
         ? { originKind: normalizeDreamOriginKind(options.originKind) }
         : {})
     });
+    const publicCandidates = sanitizeDreamCandidatePaths(candidates, publicPathContext);
     const reviewerPayload = await buildDreamReviewerPayload(runtime);
     if (options.json) {
       return JSON.stringify(
         {
           action: "candidates",
-          entries: candidates.entries,
-          summary: candidates.summary,
-          registryPath: candidates.registryPath,
-          auditPath: candidates.auditPath,
-          recoveryPath: candidates.recoveryPath,
+          entries: publicCandidates.entries,
+          summary: publicCandidates.summary,
+          registryPath: publicCandidates.registryPath,
+          auditPath: publicCandidates.auditPath,
+          recoveryPath: publicCandidates.recoveryPath,
           reviewerSummary: reviewerPayload.reviewerSummary,
           nextRecommendedActions: reviewerPayload.nextRecommendedActions,
           helperCommands: reviewerPayload.helperCommands
@@ -375,18 +431,18 @@ export async function runDream(
       );
     }
 
-    if (candidates.entries.length === 0) {
+    if (publicCandidates.entries.length === 0) {
       return [
         "Dream candidate queue",
         "No dream candidates matched the current filters.",
-        `Registry: ${candidates.registryPath}`
+        `Registry: ${publicCandidates.registryPath}`
       ].join("\n");
     }
 
     return [
       "Dream candidate queue",
-      `Entries: ${candidates.entries.length}`,
-      ...candidates.entries.map(
+      `Entries: ${publicCandidates.entries.length}`,
+      ...publicCandidates.entries.map(
         (entry) =>
           `- ${entry.candidateId} [${entry.status}${entry.promotion.promotionOutcome ? ` | ${entry.promotion.promotionOutcome}` : ""}] ${entry.targetSurface}/${entry.originKind}: ${entry.summary}`
       )
@@ -408,15 +464,16 @@ export async function runDream(
       decision: options.approve ? "approved" : options.reject ? "rejected" : "pending",
       note: options.note
     });
+    const publicResult = sanitizeDreamCandidatePaths(result, publicPathContext);
     const reviewerPayload = await buildDreamReviewerPayload(runtime, result.entry);
     if (options.json) {
       return JSON.stringify(
         {
           action: "review",
           entry: result.entry,
-          registryPath: result.registryPath,
-          auditPath: result.auditPath,
-          recoveryPath: result.recoveryPath,
+          registryPath: publicResult.registryPath,
+          auditPath: publicResult.auditPath,
+          recoveryPath: publicResult.recoveryPath,
           reviewerSummary: reviewerPayload.reviewerSummary,
           nextRecommendedActions: reviewerPayload.nextRecommendedActions,
           helperCommands: reviewerPayload.helperCommands
@@ -430,7 +487,7 @@ export async function runDream(
       `Reviewed dream candidate ${result.entry.candidateId}`,
       `Status: ${result.entry.status}`,
       ...(result.entry.review?.note ? [`Note: ${result.entry.review.note}`] : []),
-      `Registry: ${result.registryPath}`
+      `Registry: ${publicResult.registryPath}`
     ].join("\n");
   }
 
@@ -440,15 +497,16 @@ export async function runDream(
     }
 
     const result = await adoptDreamCandidate(runtime, options.candidateId, options.note);
+    const publicResult = sanitizeDreamCandidatePaths(result, publicPathContext);
     const reviewerPayload = await buildDreamReviewerPayload(runtime, result.entry);
     if (options.json) {
       return JSON.stringify(
         {
           action: "adopt",
           entry: result.entry,
-          registryPath: result.registryPath,
-          auditPath: result.auditPath,
-          recoveryPath: result.recoveryPath,
+          registryPath: publicResult.registryPath,
+          auditPath: publicResult.auditPath,
+          recoveryPath: publicResult.recoveryPath,
           reviewerSummary: reviewerPayload.reviewerSummary,
           nextRecommendedActions: reviewerPayload.nextRecommendedActions,
           helperCommands: reviewerPayload.helperCommands
@@ -461,7 +519,7 @@ export async function runDream(
     return [
       `Adopted dream candidate ${result.entry.candidateId}`,
       `Status: ${result.entry.status}`,
-      `Registry: ${result.registryPath}`
+      `Registry: ${publicResult.registryPath}`
     ].join("\n");
   }
 

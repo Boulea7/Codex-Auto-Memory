@@ -16,6 +16,7 @@ const auditRules = buildAuditRules();
 interface AuditOptions {
   cwd: string;
   includeHistory: boolean;
+  showSensitiveSnippets?: boolean;
 }
 
 const severityOrder: AuditSeverity[] = ["high", "medium", "low", "info"];
@@ -49,8 +50,39 @@ function isProbablyText(contents: string): boolean {
   return !contents.includes("\u0000");
 }
 
-function normalizeSnippet(line: string): string {
-  return trimText(line.trim(), 180);
+function redactSensitiveSnippet(line: string, ruleId: string): string {
+  if (ruleId === "private-key-marker") {
+    return "[redacted private key marker]";
+  }
+
+  if (ruleId !== "secret-like-token") {
+    return line;
+  }
+
+  return line.replace(
+    /\b(?:Bearer\s+[A-Za-z0-9._-]{12,}|sk-[A-Za-z0-9-]{12,}|ghp_[A-Za-z0-9]{20,}|AIza[0-9A-Za-z_-]{20,}|AKIA[0-9A-Z]{16}|xox[bpras]-[0-9a-zA-Z-]{10,}|npm_[A-Za-z0-9]{20,})\b/gi,
+    (match) => {
+      if (match.startsWith("Bearer ")) {
+        const token = match.slice("Bearer ".length);
+        return `Bearer ${token.slice(0, 4)}...[redacted]...${token.slice(-4)}`;
+      }
+
+      return `${match.slice(0, 4)}...[redacted]...${match.slice(-4)}`;
+    }
+  );
+}
+
+function normalizeSnippet(
+  line: string,
+  ruleId: string,
+  classification: AuditClassification,
+  showSensitiveSnippets: boolean
+): string {
+  const nextLine =
+    !showSensitiveSnippets && classification === "confirmed-risk"
+      ? redactSensitiveSnippet(line, ruleId)
+      : line;
+  return trimText(nextLine.trim(), 180);
 }
 
 function makeFinding(
@@ -62,7 +94,8 @@ function makeFinding(
   sourceType: AuditSourceType,
   classification: AuditClassification,
   severity: AuditSeverity,
-  recommendation: string
+  recommendation: string,
+  showSensitiveSnippets: boolean
 ): AuditFinding {
   return {
     ruleId,
@@ -71,7 +104,7 @@ function makeFinding(
     sourceType,
     location: `${filePath}:${lineNumber}`,
     summary,
-    snippet: normalizeSnippet(line),
+    snippet: normalizeSnippet(line, ruleId, classification, showSensitiveSnippets),
     recommendation
   };
 }
@@ -79,7 +112,8 @@ function makeFinding(
 function scanText(
   filePath: string,
   contents: string,
-  sourceType: AuditSourceType
+  sourceType: AuditSourceType,
+  showSensitiveSnippets: boolean
 ): AuditFinding[] {
   const findings: AuditFinding[] = [];
   const lines = contents.split("\n");
@@ -99,7 +133,8 @@ function scanText(
           sourceType,
           classified.classification,
           classified.severity,
-          classified.recommendation
+          classified.recommendation,
+          showSensitiveSnippets
         )
       );
     }
@@ -107,12 +142,24 @@ function scanText(
   return findings;
 }
 
-async function listTrackedFiles(cwd: string): Promise<string[]> {
-  const result = runCommandCapture("git", ["ls-files"], cwd);
+async function listWorkingTreeFiles(cwd: string): Promise<string[]> {
+  const result = runCommandCapture(
+    "git",
+    ["ls-files", "-z", "--cached", "--others", "--exclude-standard"],
+    cwd
+  );
   if (result.exitCode !== 0) {
     return [];
   }
-  return result.stdout.split("\n").map((line) => line.trim()).filter(Boolean);
+
+  return Array.from(
+    new Set(
+      result.stdout
+        .split("\u0000")
+        .map((line) => line.trim())
+        .filter(Boolean)
+    )
+  );
 }
 
 async function listCommits(cwd: string): Promise<string[]> {
@@ -131,8 +178,11 @@ async function listFilesAtRevision(cwd: string, revision: string): Promise<strin
   return result.stdout.split("\n").map((line) => line.trim()).filter(Boolean);
 }
 
-async function scanWorkingTree(cwd: string): Promise<AuditFinding[]> {
-  const trackedFiles = await listTrackedFiles(cwd);
+async function scanWorkingTree(
+  cwd: string,
+  showSensitiveSnippets: boolean
+): Promise<AuditFinding[]> {
+  const trackedFiles = await listWorkingTreeFiles(cwd);
   const findings: AuditFinding[] = [];
   for (const relativePath of trackedFiles) {
     try {
@@ -140,7 +190,7 @@ async function scanWorkingTree(cwd: string): Promise<AuditFinding[]> {
       if (!isProbablyText(contents)) {
         continue;
       }
-      findings.push(...scanText(relativePath, contents, "working-tree"));
+      findings.push(...scanText(relativePath, contents, "working-tree", showSensitiveSnippets));
     } catch {
       continue;
     }
@@ -148,21 +198,28 @@ async function scanWorkingTree(cwd: string): Promise<AuditFinding[]> {
   return findings;
 }
 
-async function scanHistory(cwd: string): Promise<AuditFinding[]> {
+async function scanHistory(
+  cwd: string,
+  showSensitiveSnippets: boolean
+): Promise<AuditFinding[]> {
   const commits = await listCommits(cwd);
   if (commits.length === 0) {
     return [];
   }
 
-  const grepFindings = scanHistoryWithGitGrep(cwd, commits);
+  const grepFindings = scanHistoryWithGitGrep(cwd, commits, showSensitiveSnippets);
   if (grepFindings) {
     return grepFindings;
   }
 
-  return scanHistoryLegacy(cwd);
+  return scanHistoryLegacy(cwd, showSensitiveSnippets);
 }
 
-function scanHistoryWithGitGrep(cwd: string, commits: string[]): AuditFinding[] | null {
+function scanHistoryWithGitGrep(
+  cwd: string,
+  commits: string[],
+  showSensitiveSnippets: boolean
+): AuditFinding[] | null {
   const findings: AuditFinding[] = [];
 
   for (const revisions of chunkArray(commits, historyRevisionBatchSize)) {
@@ -181,7 +238,7 @@ function scanHistoryWithGitGrep(cwd: string, commits: string[]): AuditFinding[] 
           continue;
         }
 
-        const parsed = parseHistoryGrepLine(line, rule);
+        const parsed = parseHistoryGrepLine(line, rule, showSensitiveSnippets);
         if (parsed) {
           findings.push(parsed);
         }
@@ -192,7 +249,10 @@ function scanHistoryWithGitGrep(cwd: string, commits: string[]): AuditFinding[] 
   return findings;
 }
 
-async function scanHistoryLegacy(cwd: string): Promise<AuditFinding[]> {
+async function scanHistoryLegacy(
+  cwd: string,
+  showSensitiveSnippets: boolean
+): Promise<AuditFinding[]> {
   const commits = await listCommits(cwd);
   const findings: AuditFinding[] = [];
   for (const revision of commits) {
@@ -205,7 +265,8 @@ async function scanHistoryLegacy(cwd: string): Promise<AuditFinding[]> {
       const revisionFindings = scanText(
         `${revision}:${relativePath}`,
         result.stdout,
-        "git-history"
+        "git-history",
+        showSensitiveSnippets
       );
       findings.push(...revisionFindings);
     }
@@ -226,7 +287,11 @@ function buildHistoryGrepArgs(rule: AuditRule, revisions: string[]): string[] {
   ];
 }
 
-function parseHistoryGrepLine(line: string, rule: AuditRule): AuditFinding | null {
+function parseHistoryGrepLine(
+  line: string,
+  rule: AuditRule,
+  showSensitiveSnippets: boolean
+): AuditFinding | null {
   const [filePath, lineNumberRaw, ...textParts] = line.split("\u0000");
   if (!filePath || !lineNumberRaw || textParts.length === 0) {
     return null;
@@ -252,7 +317,8 @@ function parseHistoryGrepLine(line: string, rule: AuditRule): AuditFinding | nul
     "git-history",
     classified.classification,
     classified.severity,
-    classified.recommendation
+    classified.recommendation,
+    showSensitiveSnippets
   );
 }
 
@@ -308,8 +374,10 @@ function dedupeFindings(findings: AuditFinding[]): AuditFinding[] {
 
 export async function runAuditScan(options: AuditOptions): Promise<AuditReport> {
   const findings = [
-    ...(await scanWorkingTree(options.cwd)),
-    ...(options.includeHistory ? await scanHistory(options.cwd) : [])
+    ...(await scanWorkingTree(options.cwd, options.showSensitiveSnippets === true)),
+    ...(options.includeHistory
+      ? await scanHistory(options.cwd, options.showSensitiveSnippets === true)
+      : [])
   ];
   const deduped = dedupeFindings(findings);
 
@@ -323,6 +391,7 @@ export async function runAuditScan(options: AuditOptions): Promise<AuditReport> 
   return {
     generatedAt: new Date().toISOString(),
     cwd: options.cwd,
+    snippetPolicy: options.showSensitiveSnippets === true ? "raw" : "redacted",
     findings: deduped,
     summary: {
       total: deduped.length,

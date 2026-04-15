@@ -1420,6 +1420,7 @@ export interface AuditFinding {
 export interface AuditReport {
   generatedAt: string;
   cwd: string;
+  snippetPolicy?: "redacted" | "raw";
   findings: AuditFinding[];
   summary: {
     total: number;

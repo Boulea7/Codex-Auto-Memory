@@ -42,7 +42,7 @@ export async function runInit(options: InitOptions = {}): Promise<string> {
   const project = detectProjectContext(options.cwd);
   const projectConfigPath = configPaths.getProjectConfigPath(project.projectRoot);
   const localConfigPath = configPaths.getLocalConfigPath(project.projectRoot);
-  const projectConfig: Omit<AppConfig, "autoMemoryDirectory"> = {
+  const projectConfig: Omit<AppConfig, "autoMemoryDirectory" | "codexBinary"> = {
     autoMemoryEnabled: true,
     extractorMode: "codex",
     defaultScope: "project",
@@ -52,8 +52,7 @@ export async function runInit(options: InitOptions = {}): Promise<string> {
     sessionContinuityLocalPathStyle: "codex",
     maxSessionContinuityLines: 60,
     dreamSidecarEnabled: false,
-    dreamSidecarAutoBuild: false,
-    codexBinary: "codex"
+    dreamSidecarAutoBuild: false
   };
 
   if (!options.force) {
@@ -79,6 +78,7 @@ export async function runInit(options: InitOptions = {}): Promise<string> {
   );
   const config: AppConfig = {
     ...projectConfig,
+    codexBinary: "codex",
     ...persistedProjectConfig,
     ...persistedLocalConfig,
     autoMemoryDirectory: persistedLocalConfig.autoMemoryDirectory

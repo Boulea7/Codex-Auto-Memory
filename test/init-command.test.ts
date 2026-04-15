@@ -41,8 +41,7 @@ const expectedProjectInitConfig = {
   sessionContinuityLocalPathStyle: "codex",
   maxSessionContinuityLines: 60,
   dreamSidecarEnabled: false,
-  dreamSidecarAutoBuild: false,
-  codexBinary: "codex"
+  dreamSidecarAutoBuild: false
 };
 
 const expectedLocalInitConfig = {
@@ -75,7 +74,8 @@ describe("cam init", () => {
     const existingLocalConfig = {
       autoMemoryEnabled: false,
       autoMemoryDirectory: customMemoryRoot,
-      sessionContinuityAutoSave: true
+      sessionContinuityAutoSave: true,
+      codexBinary: "codex-dev"
     };
     await writeCamConfig(repoDir, existingProjectConfig, existingLocalConfig);
 
@@ -189,6 +189,25 @@ describe("cam init", () => {
     expect(result.exitCode, result.stderr).toBe(0);
     expect(await readJson(path.join(repoDir, "codex-auto-memory.json"))).toEqual(
       expectedProjectInitConfig
+    );
+  });
+
+  it("supports --cwd from another working directory", async () => {
+    const homeDir = await tempDir("cam-init-cwd-home-");
+    const callerDir = await tempDir("cam-init-cwd-caller-");
+    const repoDir = await tempDir("cam-init-cwd-target-");
+    await initGitRepo(repoDir);
+
+    const result = runCli(callerDir, ["init", "--cwd", repoDir], {
+      env: { HOME: homeDir }
+    });
+
+    expect(result.exitCode, result.stderr).toBe(0);
+    expect(await readJson(path.join(repoDir, "codex-auto-memory.json"))).toEqual(
+      expectedProjectInitConfig
+    );
+    expect(await readJson(path.join(repoDir, ".codex-auto-memory.local.json"))).toEqual(
+      expectedLocalInitConfig
     );
   });
 
