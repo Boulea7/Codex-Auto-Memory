@@ -2038,7 +2038,7 @@ describe("dist cli smoke", () => {
     const homeDir = await tempDir("cam-dist-hook-skill-home-");
     const projectDir = await tempDir("cam-dist-hook-skill-project-");
     const realProjectDir = await fs.realpath(projectDir);
-    const env = { HOME: homeDir };
+    const env = createIsolatedCliEnv(homeDir);
 
     const hooksResult = runCli(projectDir, ["hooks", "install"], {
       entrypoint: "dist",
