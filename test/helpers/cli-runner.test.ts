@@ -24,6 +24,16 @@ describe("cli runner helpers", () => {
     }
   });
 
+  it("strips inherited npm config noise from isolated CLI environments", () => {
+    const env = createIsolatedCliEnv("/tmp/cam-home", {
+      npm_config_verify_deps_before_run: "true",
+      NPM_CONFIG__JSR_REGISTRY: "https://example.invalid"
+    });
+
+    expect(env.npm_config_verify_deps_before_run).toBeUndefined();
+    expect(env.NPM_CONFIG__JSR_REGISTRY).toBeUndefined();
+  });
+
   it("builds a minimal command PATH that keeps the current platform delimiter contract", () => {
     const entries = minimalCommandPath().split(path.delimiter).filter(Boolean);
 
