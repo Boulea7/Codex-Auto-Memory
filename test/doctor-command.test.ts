@@ -5,8 +5,9 @@ import { afterEach, describe, expect, it } from "vitest";
 import { runDream } from "../src/lib/commands/dream.js";
 import { MemoryStore } from "../src/lib/domain/memory-store.js";
 import { detectProjectContext } from "../src/lib/domain/project-context.js";
+import { sanitizePublicPath } from "../src/lib/util/public-paths.js";
 import { makeAppConfig, writeCamConfig } from "./helpers/cam-test-fixtures.js";
-import { runCli } from "./helpers/cli-runner.js";
+import { minimalCommandPath, runCli } from "./helpers/cli-runner.js";
 
 const tempDirs: string[] = [];
 const originalHome = process.env.HOME;
@@ -26,12 +27,89 @@ async function pathExists(targetPath: string): Promise<boolean> {
   }
 }
 
+function resolvePublicPathForTest(
+  publicPath: string,
+  context: {
+    projectRoot?: string;
+    memoryRoot?: string;
+    cwd?: string;
+    homeDir?: string;
+  }
+): string {
+  const roots = [
+    ["<project-root>", context.projectRoot],
+    ["<memory-root>", context.memoryRoot],
+    ["<cwd>", context.cwd],
+    ["<home>", context.homeDir]
+  ] as const;
+
+  for (const [label, root] of roots) {
+    if (!root) {
+      continue;
+    }
+    if (publicPath === label) {
+      return root;
+    }
+    if (publicPath.startsWith(`${label}${path.sep}`)) {
+      return path.join(root, publicPath.slice(label.length + 1));
+    }
+  }
+
+  return publicPath;
+}
+
 afterEach(async () => {
   process.env.HOME = originalHome;
   await Promise.all(tempDirs.splice(0).map((dir) => fs.rm(dir, { recursive: true, force: true })));
 });
 
 describe("doctor command", () => {
+  it("ignores codexBinary from shared project config and does not execute a repo-owned binary", async () => {
+    const homeDir = await tempDir("cam-doctor-ignored-project-codex-home-");
+    const projectDir = await tempDir("cam-doctor-ignored-project-codex-project-");
+    const memoryRoot = await tempDir("cam-doctor-ignored-project-codex-memory-");
+    process.env.HOME = homeDir;
+
+    const fakeCodexPath = path.join(projectDir, "fake-codex");
+    const proofPath = path.join(projectDir, "fake-codex-proof.txt");
+    await fs.writeFile(
+      fakeCodexPath,
+      `#!/bin/sh
+printf 'repo-owned binary ran\\n' > ${JSON.stringify(proofPath)}
+exit 0
+`,
+      "utf8"
+    );
+    await fs.chmod(fakeCodexPath, 0o755);
+
+    await writeCamConfig(
+      projectDir,
+      {
+        ...makeAppConfig(),
+        codexBinary: fakeCodexPath
+      },
+      {
+        autoMemoryDirectory: memoryRoot,
+        codexBinary: "codex"
+      }
+    );
+
+    const result = runCli(projectDir, ["doctor", "--json"], {
+      env: {
+        HOME: homeDir,
+        PATH: minimalCommandPath()
+      }
+    });
+    expect(result.exitCode, result.stderr).toBe(0);
+
+    const payload = JSON.parse(result.stdout) as {
+      warnings: string[];
+    };
+
+    expect(payload.warnings.join("\n")).toContain("Ignored codexBinary");
+    expect(await pathExists(proofPath)).toBe(false);
+  });
+
   it("surfaces retrieval sidecar and topic diagnostics without creating an uninitialized memory layout", async () => {
     const homeDir = await tempDir("cam-doctor-readonly-home-");
     const projectDir = await tempDir("cam-doctor-readonly-project-");
@@ -72,7 +150,12 @@ describe("doctor command", () => {
       layoutDiagnostics: unknown[];
     };
 
-    expect(payload.memoryRoot).toBe(memoryRoot);
+    expect(payload.memoryRoot).toBe(
+      sanitizePublicPath(memoryRoot, {
+        projectRoot: projectDir,
+        memoryRoot
+      })
+    );
     expect(payload.recommendedRoute).toBe("companion");
     expect(payload.recommendedAction).toContain("mcp doctor --host codex");
     expect(payload.recommendedActionCommand).toContain("mcp doctor --host codex");
@@ -118,7 +201,7 @@ describe("doctor command", () => {
     const result = runCli(projectDir, ["doctor", "--json"], {
       env: {
         HOME: homeDir,
-        PATH: `${path.dirname(process.execPath)}:/usr/bin:/bin`
+        PATH: minimalCommandPath()
       }
     });
     expect(result.exitCode, result.stderr).toBe(0);
@@ -566,7 +649,15 @@ describe("doctor command", () => {
         artifactPath: string;
       };
     };
-    await fs.writeFile(promotePayload.instructionProposal.artifactPath, "{broken", "utf8");
+    await fs.writeFile(
+      resolvePublicPathForTest(promotePayload.instructionProposal.artifactPath, {
+        projectRoot: projectDir,
+        memoryRoot,
+        homeDir
+      }),
+      "{broken",
+      "utf8"
+    );
 
     const result = runCli(projectDir, ["doctor", "--json"], {
       env: { HOME: homeDir }

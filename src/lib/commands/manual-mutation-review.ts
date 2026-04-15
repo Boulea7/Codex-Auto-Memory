@@ -6,6 +6,10 @@ import {
   buildResolvedCliTimelineCommand,
   buildResolvedPostWorkRecentReviewCommand
 } from "../integration/retrieval-contract.js";
+import {
+  sanitizePublicPath,
+  type PublicPathContext
+} from "../util/public-paths.js";
 import type {
   MemoryApplyRecord,
   MemoryOperationRejectionReason,
@@ -258,13 +262,16 @@ export function toManualMutationRememberPayload(
   entry: ManualMutationReviewEntry,
   options: {
     cwd?: string;
+    publicPathContext?: PublicPathContext;
   } = {}
 ): ManualMutationRememberPayload {
+  const publicEntry =
+    options.publicPathContext ? sanitizeManualMutationReviewEntry(entry, options.publicPathContext) : entry;
   const reviewerSummary = buildReviewerSummary([entry]);
   const summary: ManualMutationSummary = {
     matchedCount: 1,
-    appliedCount: entry.lifecycleAction === "noop" ? 0 : 1,
-    noopCount: entry.lifecycleAction === "noop" ? 1 : 0,
+    appliedCount: publicEntry.lifecycleAction === "noop" ? 0 : 1,
+    noopCount: publicEntry.lifecycleAction === "noop" ? 1 : 0,
     affectedCount: 1
   };
 
@@ -276,45 +283,50 @@ export function toManualMutationRememberPayload(
     uniqueAuditCount: reviewerSummary.uniqueAuditCount,
     auditCountsDeduplicated: reviewerSummary.auditCountsDeduplicated,
     warningsByEntryRef: reviewerSummary.warningsByEntryRef ?? {},
-    leadEntryRef: entry.ref,
+    leadEntryRef: publicEntry.ref,
     leadEntryIndex: 0,
-    detailsAvailable: entry.detailsRef !== null,
-    reviewRefState: entry.detailsRef === null ? "active" : entry.latestState === "archived" ? "archived" : "active",
+    detailsAvailable: publicEntry.detailsRef !== null,
+    reviewRefState:
+      publicEntry.detailsRef === null
+        ? "active"
+        : publicEntry.latestState === "archived"
+          ? "archived"
+          : "active",
     matchedCount: summary.matchedCount,
     appliedCount: summary.appliedCount,
     noopCount: summary.noopCount,
     affectedCount: summary.affectedCount,
-    affectedRefs: [entry.ref],
+    affectedRefs: [publicEntry.ref],
     summary,
     reviewerSummary,
-    primaryEntry: toPrimaryEntry(entry),
+    primaryEntry: toPrimaryEntry(publicEntry),
     followUp: {
-      timelineRefs: [entry.timelineRef],
-      detailsRefs: entry.detailsRef ? [entry.detailsRef] : []
+      timelineRefs: [publicEntry.timelineRef],
+      detailsRefs: publicEntry.detailsRef ? [publicEntry.detailsRef] : []
     },
     nextRecommendedActions: buildNextRecommendedActions([entry], options),
-    entries: [entry],
+    entries: [publicEntry],
     text,
-    scope: entry.scope,
-    topic: entry.topic,
-    id: entry.id,
-    ref: entry.ref,
-    timelineRef: entry.timelineRef,
-    detailsRef: entry.detailsRef,
-    path: entry.path,
-    historyPath: entry.historyPath,
-    lifecycleAction: entry.lifecycleAction,
-    latestLifecycleAction: entry.latestLifecycleAction,
-    latestAppliedLifecycle: entry.latestAppliedLifecycle,
-    latestLifecycleAttempt: entry.latestLifecycleAttempt,
-    latestState: entry.latestState,
-    latestSessionId: entry.latestSessionId,
-    latestRolloutPath: entry.latestRolloutPath,
-    latestAudit: entry.latestAudit,
-    timelineWarningCount: entry.timelineWarningCount,
-    lineageSummary: entry.lineageSummary,
-    warnings: entry.warnings,
-    entry: entry.entry
+    scope: publicEntry.scope,
+    topic: publicEntry.topic,
+    id: publicEntry.id,
+    ref: publicEntry.ref,
+    timelineRef: publicEntry.timelineRef,
+    detailsRef: publicEntry.detailsRef,
+    path: publicEntry.path,
+    historyPath: publicEntry.historyPath,
+    lifecycleAction: publicEntry.lifecycleAction,
+    latestLifecycleAction: publicEntry.latestLifecycleAction,
+    latestAppliedLifecycle: publicEntry.latestAppliedLifecycle,
+    latestLifecycleAttempt: publicEntry.latestLifecycleAttempt,
+    latestState: publicEntry.latestState,
+    latestSessionId: publicEntry.latestSessionId,
+    latestRolloutPath: publicEntry.latestRolloutPath,
+    latestAudit: publicEntry.latestAudit,
+    timelineWarningCount: publicEntry.timelineWarningCount,
+    lineageSummary: publicEntry.lineageSummary,
+    warnings: publicEntry.warnings,
+    entry: publicEntry.entry
   };
 }
 
@@ -339,23 +351,27 @@ export function toManualMutationForgetPayload(
   entries: ManualMutationReviewEntry[],
   options: {
     cwd?: string;
+    publicPathContext?: PublicPathContext;
   } = {}
 ): ManualMutationForgetPayload {
+  const publicEntries = options.publicPathContext
+    ? entries.map((entry) => sanitizeManualMutationReviewEntry(entry, options.publicPathContext!))
+    : entries;
   const reviewerSummary = buildReviewerSummary(entries);
-  const leadEntry = entries[0]?.detailsRef === null ? null : (entries[0] ?? null);
+  const leadEntry = publicEntries[0]?.detailsRef === null ? null : (publicEntries[0] ?? null);
   const primaryEntry = leadEntry ? toPrimaryEntry(leadEntry) : null;
   const summary: ManualMutationSummary = {
-    matchedCount: entries.length,
-    appliedCount: entries.filter((entry) => entry.lifecycleAction !== "noop").length,
-    noopCount: entries.filter((entry) => entry.lifecycleAction === "noop").length,
-    affectedCount: entries.length
+    matchedCount: publicEntries.length,
+    appliedCount: publicEntries.filter((entry) => entry.lifecycleAction !== "noop").length,
+    noopCount: publicEntries.filter((entry) => entry.lifecycleAction === "noop").length,
+    affectedCount: publicEntries.length
   };
 
   return {
     action: "forget",
     mutationKind: "forget",
-    entryCount: entries.length,
-    warningCount: entries.reduce((total, entry) => total + entry.warnings.length, 0),
+    entryCount: publicEntries.length,
+    warningCount: publicEntries.reduce((total, entry) => total + entry.warnings.length, 0),
     uniqueAuditCount: reviewerSummary.uniqueAuditCount,
     auditCountsDeduplicated: reviewerSummary.auditCountsDeduplicated,
     warningsByEntryRef: reviewerSummary.warningsByEntryRef ?? {},
@@ -372,8 +388,8 @@ export function toManualMutationForgetPayload(
           : leadEntry
             ? "active"
             : null,
-    detailsUsableEntryCount: entries.filter((entry) => entry.detailsRef !== null).length,
-    timelineOnlyEntryCount: entries.filter((entry) => entry.detailsRef === null).length,
+    detailsUsableEntryCount: publicEntries.filter((entry) => entry.detailsRef !== null).length,
+    timelineOnlyEntryCount: publicEntries.filter((entry) => entry.detailsRef === null).length,
     query,
     scope,
     archive,
@@ -390,7 +406,7 @@ export function toManualMutationForgetPayload(
       detailsRefs: entries.flatMap((entry) => (entry.detailsRef ? [entry.detailsRef] : []))
     },
     nextRecommendedActions: buildNextRecommendedActions(entries, options),
-    entries,
+    entries: publicEntries,
     ref: leadEntry?.ref ?? null,
     timelineRef: leadEntry?.timelineRef ?? null,
     detailsRef: leadEntry?.detailsRef ?? null,
@@ -408,5 +424,41 @@ export function toManualMutationForgetPayload(
     lineageSummary: leadEntry?.lineageSummary ?? null,
     warnings: leadEntry?.warnings ?? [],
     entry: leadEntry?.entry ?? null
+  };
+}
+
+function sanitizeManualMutationReviewEntry(
+  entry: ManualMutationReviewEntry,
+  context: PublicPathContext
+): ManualMutationReviewEntry {
+  return {
+    ...entry,
+    path: sanitizePublicPath(entry.path, context),
+    historyPath: sanitizePublicPath(entry.historyPath, context) ?? entry.historyPath,
+    latestRolloutPath: sanitizePublicPath(entry.latestRolloutPath, context),
+    latestAudit: entry.latestAudit
+      ? {
+          ...entry.latestAudit,
+          auditPath: sanitizePublicPath(entry.latestAudit.auditPath, context) ?? entry.latestAudit.auditPath,
+          rolloutPath:
+            sanitizePublicPath(entry.latestAudit.rolloutPath, context) ?? entry.latestAudit.rolloutPath
+        }
+      : null,
+    latestAppliedLifecycle: entry.latestAppliedLifecycle
+      ? {
+          ...entry.latestAppliedLifecycle,
+          rolloutPath:
+            sanitizePublicPath(entry.latestAppliedLifecycle.rolloutPath, context) ??
+            entry.latestAppliedLifecycle.rolloutPath
+        }
+      : null,
+    latestLifecycleAttempt: entry.latestLifecycleAttempt
+      ? {
+          ...entry.latestLifecycleAttempt,
+          rolloutPath:
+            sanitizePublicPath(entry.latestLifecycleAttempt.rolloutPath, context) ??
+            entry.latestLifecycleAttempt.rolloutPath
+        }
+      : null
   };
 }

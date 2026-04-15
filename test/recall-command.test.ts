@@ -1,13 +1,14 @@
 import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { detectProjectContext } from "../src/lib/domain/project-context.js";
 import { MemoryStore } from "../src/lib/domain/memory-store.js";
 import { rebuildTeamMemoryIndex } from "../src/lib/domain/team-memory.js";
 import { SyncService } from "../src/lib/domain/sync-service.js";
 import { runDream } from "../src/lib/commands/dream.js";
 import type { MemorySearchResponse } from "../src/lib/types.js";
+import { sanitizePublicPath } from "../src/lib/util/public-paths.js";
 import {
   makeRolloutFixture,
   makeAppConfig,
@@ -180,7 +181,10 @@ describe("runRecall", () => {
           retrievalMode: "index",
           matchedCount: 9,
           returnedCount: 8,
-          indexPath: store.getRetrievalIndexFile("project", "archived"),
+          indexPath: sanitizePublicPath(store.getRetrievalIndexFile("project", "archived"), {
+            projectRoot: projectDir,
+            memoryRoot
+          }),
           generatedAt: expect.any(String)
         })
       ])
@@ -606,6 +610,73 @@ describe("runRecall", () => {
     expect(textResult.stdout).not.toContain("Unsafe topic diagnostics:");
   });
 
+  it("skips query surfacing work for text-mode recall search output", async () => {
+    const homeDir = await tempDir("cam-recall-text-mode-home-");
+    const projectDir = await tempDir("cam-recall-text-mode-project-");
+    const memoryRoot = await tempDir("cam-recall-text-mode-memory-");
+    process.env.HOME = homeDir;
+
+    const projectConfig = makeAppConfig();
+    await writeCamConfig(projectDir, projectConfig, {
+      autoMemoryDirectory: memoryRoot
+    });
+
+    const store = new MemoryStore(detectProjectContext(projectDir), {
+      ...projectConfig,
+      autoMemoryDirectory: memoryRoot
+    });
+    await store.ensureLayout();
+    await store.remember(
+      "project",
+      "workflow",
+      "prefer-pnpm",
+      "Prefer pnpm in this repository.",
+      ["Use pnpm instead of npm in this repository."],
+      "Manual note."
+    );
+
+    const querySurfacingSpy = vi.fn(async () => {
+      throw new Error("query surfacing should not run for text-mode recall search");
+    });
+    const instructionLaneSpy = vi.fn(async () => {
+      throw new Error("instruction review lane should not run for text-mode recall search");
+    });
+
+    vi.resetModules();
+    vi.doMock("../src/lib/domain/resume-context.js", async () => {
+      const actual = await vi.importActual<typeof import("../src/lib/domain/resume-context.js")>(
+        "../src/lib/domain/resume-context.js"
+      );
+      return {
+        ...actual,
+        buildMemoryQuerySurfacing: querySurfacingSpy
+      };
+    });
+    vi.doMock("../src/lib/domain/dream-candidates.js", async () => {
+      const actual = await vi.importActual<typeof import("../src/lib/domain/dream-candidates.js")>(
+        "../src/lib/domain/dream-candidates.js"
+      );
+      return {
+        ...actual,
+        buildInstructionReviewLane: instructionLaneSpy
+      };
+    });
+
+    try {
+      const { runRecall } = await import("../src/lib/commands/recall.js");
+      const output = await runRecall("search", "pnpm", { cwd: projectDir });
+
+      expect(output).toContain("Codex Auto Memory Recall Search");
+      expect(output).toContain("project/active/workflow");
+      expect(querySurfacingSpy).not.toHaveBeenCalled();
+      expect(instructionLaneSpy).not.toHaveBeenCalled();
+    } finally {
+      vi.doUnmock("../src/lib/domain/resume-context.js");
+      vi.doUnmock("../src/lib/domain/dream-candidates.js");
+      vi.resetModules();
+    }
+  });
+
   it("surfaces explicit-state contract for state=all searches and keeps checkedPaths ordered", async () => {
     const homeDir = await tempDir("cam-recall-state-all-home-");
     const projectDir = await tempDir("cam-recall-state-all-project-");
@@ -890,11 +961,17 @@ describe("runRecall", () => {
     };
     expect(detailsOutput).toMatchObject({
       ref,
-      path: store.getArchiveTopicFile("project", "workflow"),
+      path: sanitizePublicPath(store.getArchiveTopicFile("project", "workflow"), {
+        projectRoot: projectDir,
+        memoryRoot
+      }),
       latestLifecycleAction: "archive",
       latestSessionId: null,
       latestRolloutPath: null,
-      historyPath: store.getHistoryPath("project"),
+      historyPath: sanitizePublicPath(store.getHistoryPath("project"), {
+        projectRoot: projectDir,
+        memoryRoot
+      }),
       entry: {
         summary: "Prefer pnpm in this repository."
       }
@@ -1055,7 +1132,10 @@ describe("runRecall", () => {
     expect(detailsResult.exitCode).toBe(0);
     expect(JSON.parse(detailsResult.stdout)).toMatchObject({
       ref,
-      path: store.getArchiveTopicFile("project", "workflow")
+      path: sanitizePublicPath(store.getArchiveTopicFile("project", "workflow"), {
+        projectRoot: projectDir,
+        memoryRoot
+      })
     });
   });
 
@@ -1102,8 +1182,14 @@ describe("runRecall", () => {
       ref: searchOutput.results[0]!.ref,
       warnings: [],
       latestAudit: {
-        auditPath: store.getSyncAuditPath(),
-        rolloutPath,
+        auditPath: sanitizePublicPath(store.getSyncAuditPath(), {
+          projectRoot: projectDir,
+          memoryRoot
+        }),
+        rolloutPath: sanitizePublicPath(rolloutPath, {
+          projectRoot: projectDir,
+          memoryRoot
+        }),
         sessionId: "session-provenance",
         status: "applied",
         resultSummary: expect.stringContaining("operation(s) applied"),
@@ -1123,7 +1209,10 @@ describe("runRecall", () => {
       events: expect.arrayContaining([
         expect.objectContaining({
           sessionId: "session-provenance",
-          rolloutPath
+          rolloutPath: sanitizePublicPath(rolloutPath, {
+            projectRoot: projectDir,
+            memoryRoot
+          })
         })
       ])
     });
@@ -1131,8 +1220,18 @@ describe("runRecall", () => {
     const timelineTextResult = runCli(projectDir, ["recall", "timeline", searchOutput.results[0]!.ref]);
     expect(timelineTextResult.exitCode).toBe(0);
     expect(timelineTextResult.stdout).toContain("Session: session-provenance");
-    expect(timelineTextResult.stdout).toContain(`Rollout: ${rolloutPath}`);
-    expect(timelineTextResult.stdout).toContain(`Latest audit path: ${store.getSyncAuditPath()}`);
+    expect(timelineTextResult.stdout).toContain(
+      `Rollout: ${sanitizePublicPath(rolloutPath, {
+        projectRoot: projectDir,
+        memoryRoot
+      })}`
+    );
+    expect(timelineTextResult.stdout).toContain(
+      `Latest audit path: ${sanitizePublicPath(store.getSyncAuditPath(), {
+        projectRoot: projectDir,
+        memoryRoot
+      })}`
+    );
 
     const detailsResult = runCli(
       projectDir,
@@ -1143,8 +1242,14 @@ describe("runRecall", () => {
       latestLifecycleAction: "add",
       latestState: "active",
       latestSessionId: "session-provenance",
-      latestRolloutPath: rolloutPath,
-      historyPath: store.getHistoryPath("project"),
+      latestRolloutPath: sanitizePublicPath(rolloutPath, {
+        projectRoot: projectDir,
+        memoryRoot
+      }),
+      historyPath: sanitizePublicPath(store.getHistoryPath("project"), {
+        projectRoot: projectDir,
+        memoryRoot
+      }),
       timelineWarningCount: 0,
       lineageSummary: expect.objectContaining({
         eventCount: 1,
@@ -1157,8 +1262,14 @@ describe("runRecall", () => {
       }),
       warnings: [],
       latestAudit: {
-        auditPath: store.getSyncAuditPath(),
-        rolloutPath,
+        auditPath: sanitizePublicPath(store.getSyncAuditPath(), {
+          projectRoot: projectDir,
+          memoryRoot
+        }),
+        rolloutPath: sanitizePublicPath(rolloutPath, {
+          projectRoot: projectDir,
+          memoryRoot
+        }),
         sessionId: "session-provenance",
         status: "applied",
         resultSummary: expect.stringContaining("operation(s) applied"),
@@ -1467,13 +1578,22 @@ describe("runRecall", () => {
         action: "noop",
         outcome: "noop",
         sessionId: "session-noop-provenance",
-        rolloutPath
+        rolloutPath: sanitizePublicPath(rolloutPath, {
+          projectRoot: projectDir,
+          memoryRoot
+        })
       },
       latestSessionId: "session-noop-provenance",
-      latestRolloutPath: rolloutPath,
+      latestRolloutPath: sanitizePublicPath(rolloutPath, {
+        projectRoot: projectDir,
+        memoryRoot
+      }),
       latestAudit: {
         sessionId: "session-noop-provenance",
-        rolloutPath,
+        rolloutPath: sanitizePublicPath(rolloutPath, {
+          projectRoot: projectDir,
+          memoryRoot
+        }),
         status: "applied",
         matchedOperationCount: 1
       },
@@ -1572,7 +1692,10 @@ describe("runRecall", () => {
         action: "noop",
         outcome: "noop",
         sessionId: "session-secondary",
-        rolloutPath: secondRolloutPath
+        rolloutPath: sanitizePublicPath(secondRolloutPath, {
+          projectRoot: projectDir,
+          memoryRoot
+        })
       },
       latestAudit: null,
       warnings: expect.arrayContaining([
@@ -1727,7 +1850,10 @@ describe("runRecall", () => {
             retrievalMode: "markdown-fallback",
             retrievalFallbackReason: "invalid",
             matchedCount: 1,
-            indexPath: store.getRetrievalIndexFile("project", "active"),
+            indexPath: sanitizePublicPath(store.getRetrievalIndexFile("project", "active"), {
+              projectRoot: projectDir,
+              memoryRoot
+            }),
             generatedAt: null
           })
         ])
@@ -1786,7 +1912,10 @@ describe("runRecall", () => {
             retrievalFallbackReason: "stale",
             matchedCount: 1,
             returnedCount: 1,
-            indexPath: store.getRetrievalIndexFile("project", "active"),
+            indexPath: sanitizePublicPath(store.getRetrievalIndexFile("project", "active"), {
+              projectRoot: projectDir,
+              memoryRoot
+            }),
             generatedAt: expect.any(String)
           })
         ])

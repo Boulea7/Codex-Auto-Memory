@@ -5,6 +5,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import { runDream } from "../src/lib/commands/dream.js";
 import { detectProjectContext } from "../src/lib/domain/project-context.js";
 import { MemoryStore } from "../src/lib/domain/memory-store.js";
+import { sanitizePublicPath } from "../src/lib/util/public-paths.js";
 import {
   initGitRepo,
   makeAppConfig,
@@ -19,6 +20,49 @@ async function tempDir(prefix: string): Promise<string> {
   const dir = await fs.mkdtemp(path.join(os.tmpdir(), prefix));
   tempDirs.push(dir);
   return dir;
+}
+
+function resolvePublicPathForTest(
+  publicPath: string,
+  context: {
+    projectRoot?: string;
+    memoryRoot?: string;
+    cwd?: string;
+    homeDir?: string;
+  }
+): string {
+  const roots = [
+    ["<project-root>", context.projectRoot],
+    ["<memory-root>", context.memoryRoot],
+    ["<cwd>", context.cwd],
+    ["<home>", context.homeDir]
+  ] as const;
+
+  for (const [label, root] of roots) {
+    if (!root) {
+      continue;
+    }
+    if (publicPath === label) {
+      return root;
+    }
+    if (publicPath.startsWith(`${label}${path.sep}`)) {
+      return path.join(root, publicPath.slice(label.length + 1));
+    }
+  }
+
+  return publicPath;
+}
+
+async function expectPublicPathToExist(
+  publicPath: string,
+  context: {
+    projectRoot?: string;
+    memoryRoot?: string;
+    cwd?: string;
+    homeDir?: string;
+  }
+): Promise<void> {
+  await expect(fs.stat(resolvePublicPathForTest(publicPath, context))).resolves.toBeDefined();
 }
 
 function subagentRolloutFixture(
@@ -167,7 +211,11 @@ describe("dream sidecar", () => {
       entryCount: 0,
       topicCount: 0
     });
-    await Promise.all(buildPayload.snapshotPaths.map((filePath) => expect(fs.stat(filePath)).resolves.toBeDefined()));
+    expect(buildPayload.snapshotPaths[0]).toContain("latest.json");
+    await expect(fs.stat(buildPayload.snapshotPaths[0]!)).resolves.toBeDefined();
+    await expect(fs.stat(buildPayload.auditPath)).resolves.toBeDefined();
+    expect(buildPayload.recoveryPath).toContain("dream-sidecar-recovery.json");
+    await expect(fs.stat(path.dirname(buildPayload.recoveryPath))).resolves.toBeDefined();
     expect(await fs.readFile(store.getMemoryFile("project"), "utf8")).toBe(memoryBefore);
 
     const inspectPayload = JSON.parse(
@@ -187,10 +235,25 @@ describe("dream sidecar", () => {
 
     expect(inspectPayload.enabled).toBe(true);
     expect(inspectPayload.snapshots.project.status).toBe("available");
-    expect(inspectPayload.snapshots.project.latestPath).toBe(buildPayload.snapshotPaths[0]);
+    expect(inspectPayload.snapshots.project.latestPath).toBe(
+      sanitizePublicPath(buildPayload.snapshotPaths[0] ?? null, {
+        projectRoot: repoDir,
+        memoryRoot
+      })
+    );
     expect(inspectPayload.snapshots.project.relevantMemoryRefCount).toBeGreaterThan(0);
-    expect(inspectPayload.auditPath).toBe(buildPayload.auditPath);
-    expect(inspectPayload.recoveryPath).toBe(buildPayload.recoveryPath);
+    expect(inspectPayload.auditPath).toBe(
+      sanitizePublicPath(buildPayload.auditPath, {
+        projectRoot: repoDir,
+        memoryRoot
+      })
+    );
+    expect(inspectPayload.recoveryPath).toBe(
+      sanitizePublicPath(buildPayload.recoveryPath, {
+        projectRoot: repoDir,
+        memoryRoot
+      })
+    );
   });
 
   it("surfaces shared team memory availability in dream snapshots", async () => {
@@ -365,6 +428,8 @@ describe("dream sidecar", () => {
         targetSurface: "durable-memory" | "instruction-memory";
         status: string;
         summary: string;
+        lastSeenRolloutPath: string;
+        lastSeenSnapshotPath: string | null;
       }>;
     };
     const durableCandidate = durableCandidatesPayload.entries.find(
@@ -386,12 +451,19 @@ describe("dream sidecar", () => {
       entry: {
         candidateId: string;
         status: string;
+        lastSeenRolloutPath: string;
       };
     };
     expect(approvedDurable.entry).toMatchObject({
       candidateId: durableCandidate!.candidateId,
       status: "approved"
     });
+    expect(approvedDurable.entry.lastSeenRolloutPath).toBe(
+      sanitizePublicPath(durableRolloutPath, {
+        projectRoot: repoDir,
+        memoryRoot
+      })
+    );
 
     const promoteDurable = JSON.parse(
       await runDream("promote", {
@@ -408,6 +480,7 @@ describe("dream sidecar", () => {
       durableMemory?: {
         ref: string;
         reviewRefState: string;
+        latestAuditPath: string | null;
       };
     };
     expect(["applied", "noop"]).toContain(promoteDurable.promotionOutcome);
@@ -416,6 +489,13 @@ describe("dream sidecar", () => {
       targetSurface: "durable-memory"
     });
     expect(promoteDurable.durableMemory?.ref).toContain("project:active:");
+    if (promoteDurable.durableMemory?.latestAuditPath) {
+      expect(promoteDurable.durableMemory.latestAuditPath.startsWith(memoryRoot)).toBe(false);
+      await expectPublicPathToExist(promoteDurable.durableMemory.latestAuditPath, {
+        projectRoot: repoDir,
+        memoryRoot
+      });
+    }
 
     const instructionRolloutPath = path.join(repoDir, "instruction-rollout.jsonl");
     await fs.writeFile(
@@ -443,6 +523,8 @@ describe("dream sidecar", () => {
         targetSurface: "durable-memory" | "instruction-memory";
         status: string;
         summary: string;
+        lastSeenRolloutPath: string;
+        lastSeenSnapshotPath: string | null;
       }>;
       summary: {
         totalCount: number;
@@ -453,7 +535,12 @@ describe("dream sidecar", () => {
 
     expect(candidatesPayload.summary.totalCount).toBeGreaterThanOrEqual(2);
     expect(candidatesPayload.summary.statusCounts.pending).toBeGreaterThanOrEqual(1);
-    await expect(fs.stat(candidatesPayload.registryPath)).resolves.toBeDefined();
+    expect(candidatesPayload.registryPath).toContain("registry.json");
+    expect(candidatesPayload.registryPath.startsWith(memoryRoot)).toBe(false);
+    await expectPublicPathToExist(candidatesPayload.registryPath, {
+      projectRoot: repoDir,
+      memoryRoot
+    });
 
     const promotedEntries = await store.listEntries("project");
     expect(
@@ -468,6 +555,17 @@ describe("dream sidecar", () => {
         entry.summary.includes("Always run pnpm test before build")
     );
     expect(instructionCandidate).toBeDefined();
+    expect(instructionCandidate!.lastSeenRolloutPath).toBe(
+      sanitizePublicPath(instructionRolloutPath, {
+        projectRoot: repoDir,
+        memoryRoot
+      })
+    );
+    expect(instructionCandidate!.lastSeenSnapshotPath?.startsWith(memoryRoot)).toBe(false);
+    await expectPublicPathToExist(instructionCandidate!.lastSeenSnapshotPath!, {
+      projectRoot: repoDir,
+      memoryRoot
+    });
 
     await runDream("review", {
       cwd: repoDir,
@@ -491,6 +589,10 @@ describe("dream sidecar", () => {
       entry: {
         status: string;
         targetSurface: string;
+        promotion: {
+          proposalArtifactPath: string;
+          selectedTargetFile: string;
+        };
       };
       instructionProposal?: {
         schemaVersion: number;
@@ -547,7 +649,11 @@ describe("dream sidecar", () => {
       promotionOutcome: "proposal-only",
       entry: {
         status: "manual-apply-pending",
-        targetSurface: "instruction-memory"
+        targetSurface: "instruction-memory",
+        promotion: {
+          proposalArtifactPath: expect.any(String),
+          selectedTargetFile: expect.any(String)
+        }
       },
       instructionProposal: {
         schemaVersion: 2,
@@ -555,25 +661,34 @@ describe("dream sidecar", () => {
         neverAutoEditsInstructionFiles: true
       }
     });
+    const publicPathContext = {
+      projectRoot: repoDir,
+      memoryRoot,
+      homeDir
+    };
     expect(promoteInstruction.instructionProposal?.selectedTargetByPolicy).toMatchObject({
-      path: expect.stringContaining(`${path.sep}AGENTS.md`),
+      path: sanitizePublicPath(agentsPath, publicPathContext),
       kind: "agents-root",
       exists: true
     });
     expect(promoteInstruction.instructionProposal?.resolvedApplyTarget).toMatchObject({
-      path: expect.stringContaining(`${path.sep}AGENTS.md`),
+      path: sanitizePublicPath(agentsPath, publicPathContext),
       kind: "agents-root",
       exists: true
     });
     expect(promoteInstruction.instructionProposal?.selectedTarget).toMatchObject({
-      path: expect.stringContaining(`${path.sep}AGENTS.md`),
+      path: sanitizePublicPath(agentsPath, publicPathContext),
       kind: "agents-root",
       exists: true
     });
     expect(promoteInstruction.instructionProposal?.rankedTargets[0]).toMatchObject({
-      path: expect.stringContaining(`${path.sep}AGENTS.md`),
+      path: sanitizePublicPath(agentsPath, publicPathContext),
       kind: "agents-root"
     });
+    expect(promoteInstruction.entry.promotion.proposalArtifactPath.startsWith(memoryRoot)).toBe(false);
+    expect(promoteInstruction.entry.promotion.selectedTargetFile).toBe(
+      sanitizePublicPath(agentsPath, publicPathContext)
+    );
     expect(promoteInstruction.instructionProposal?.guidanceBlock).toContain(
       "Always run pnpm test before build"
     );
@@ -595,18 +710,20 @@ describe("dream sidecar", () => {
     expect(promoteInstruction.instructionProposal?.artifactPath).toContain(
       `${path.sep}dream${path.sep}review${path.sep}proposals${path.sep}`
     );
-    await expect(
-      fs.stat(promoteInstruction.instructionProposal!.artifactDir)
-    ).resolves.toBeDefined();
-    await expect(
-      fs.stat(promoteInstruction.instructionProposal!.artifactPath)
-    ).resolves.toBeDefined();
-    await expect(
-      fs.stat(promoteInstruction.instructionProposal!.manualWorkflow!.summaryPath)
-    ).resolves.toBeDefined();
-    await expect(
-      fs.stat(promoteInstruction.instructionProposal!.manualWorkflow!.diffPath)
-    ).resolves.toBeDefined();
+    expect(promoteInstruction.instructionProposal!.artifactDir.startsWith(memoryRoot)).toBe(false);
+    expect(promoteInstruction.instructionProposal!.artifactPath.startsWith(memoryRoot)).toBe(false);
+    expect(promoteInstruction.instructionProposal!.manualWorkflow!.summaryPath.startsWith(memoryRoot)).toBe(false);
+    expect(promoteInstruction.instructionProposal!.manualWorkflow!.diffPath.startsWith(memoryRoot)).toBe(false);
+    await expectPublicPathToExist(promoteInstruction.instructionProposal!.artifactDir, publicPathContext);
+    await expectPublicPathToExist(promoteInstruction.instructionProposal!.artifactPath, publicPathContext);
+    await expectPublicPathToExist(
+      promoteInstruction.instructionProposal!.manualWorkflow!.summaryPath,
+      publicPathContext
+    );
+    await expectPublicPathToExist(
+      promoteInstruction.instructionProposal!.manualWorkflow!.diffPath,
+      publicPathContext
+    );
     expect(await fs.readFile(agentsPath, "utf8")).toBe(beforeInstructionFile);
     expect(await store.listEntries("project")).toEqual(beforeInstructionPromote);
   });
@@ -684,6 +801,10 @@ describe("dream sidecar", () => {
       };
       instructionProposal: {
         neverAutoEditsInstructionFiles: boolean;
+        artifactPath: string;
+        manualWorkflow: {
+          applyPrepPath: string;
+        };
       };
     };
     expect(applyPrepPayload).toMatchObject({
@@ -694,6 +815,18 @@ describe("dream sidecar", () => {
       instructionProposal: {
         neverAutoEditsInstructionFiles: true
       }
+    });
+    expect(applyPrepPayload.instructionProposal.artifactPath.startsWith(memoryRoot)).toBe(false);
+    expect(applyPrepPayload.instructionProposal.manualWorkflow.applyPrepPath.startsWith(memoryRoot)).toBe(false);
+    await expectPublicPathToExist(applyPrepPayload.instructionProposal.artifactPath, {
+      projectRoot: repoDir,
+      memoryRoot,
+      homeDir
+    });
+    await expectPublicPathToExist(applyPrepPayload.instructionProposal.manualWorkflow.applyPrepPath, {
+      projectRoot: repoDir,
+      memoryRoot,
+      homeDir
     });
     expect(await fs.readFile(path.join(repoDir, "AGENTS.md"), "utf8")).toBe(beforeApplyPrepContents);
 
@@ -1227,6 +1360,9 @@ describe("dream sidecar", () => {
       action: string;
       entry: {
         status: string;
+        promotion: {
+          proposalArtifactPath: string;
+        };
       };
       instructionProposal: {
         artifactPath: string;
@@ -1242,8 +1378,15 @@ describe("dream sidecar", () => {
         artifactPath: promotePayload.instructionProposal.artifactPath
       }
     });
-
-    const proposalContents = await fs.readFile(promotePayload.instructionProposal.artifactPath, "utf8");
+    expect(proposalPayload.entry.promotion.proposalArtifactPath).toBe(
+      promotePayload.instructionProposal.artifactPath
+    );
+    const proposalArtifactPath = resolvePublicPathForTest(promotePayload.instructionProposal.artifactPath, {
+      projectRoot: repoDir,
+      memoryRoot,
+      homeDir
+    });
+    const proposalContents = await fs.readFile(proposalArtifactPath, "utf8");
     expect(proposalPayload.instructionProposal.artifactPath).toContain(
       `${path.sep}dream${path.sep}review${path.sep}proposals${path.sep}`
     );
@@ -1281,7 +1424,7 @@ describe("dream sidecar", () => {
         artifactPath: promotePayload.instructionProposal.artifactPath
       }
     });
-    expect(await fs.readFile(promotePayload.instructionProposal.artifactPath, "utf8")).toBe(proposalContents);
+    expect(await fs.readFile(proposalArtifactPath, "utf8")).toBe(proposalContents);
 
     await expect(
       runDream("apply-prep" as never, {
@@ -1563,9 +1706,17 @@ describe("dream sidecar", () => {
     };
 
     expect(previewPayload.entry.status).toBe("approved");
-    expect(previewPayload.preview.selectedTargetByPolicy.path).toContain(`${path.sep}AGENTS.md`);
+    expect(previewPayload.preview.selectedTargetByPolicy.path).toBe(
+      sanitizePublicPath(path.join(repoDir, "AGENTS.md"), {
+        projectRoot: repoDir,
+        memoryRoot
+      })
+    );
     expect(previewPayload.preview.selectedTarget).toMatchObject({
-      path: expect.stringContaining(`${path.sep}CLAUDE.md`),
+      path: sanitizePublicPath(path.join(repoDir, "CLAUDE.md"), {
+        projectRoot: repoDir,
+        memoryRoot
+      }),
       kind: "claude-project"
     });
   });
@@ -1786,9 +1937,11 @@ describe("dream sidecar", () => {
         lifecycleAction: "add",
         wouldWrite: true,
         ref: expect.stringContaining("project:active:"),
-        targetPath: expect.stringContaining(`${path.sep}reference.md`)
+        targetPath: expect.stringContaining("reference.md")
       }
     });
+    expect(previewPayload.preview.targetPath.startsWith(memoryRoot)).toBe(false);
+    expect(previewPayload.preview.targetPath.startsWith(path.sep)).toBe(false);
     expect(await store.listEntries("project")).toEqual(beforePromotePrep);
   });
 

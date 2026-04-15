@@ -49,7 +49,11 @@ export async function runForget(
     );
     return JSON.stringify(
       toManualMutationForgetPayload(query, targetScope, Boolean(options.archive), reviewEntries, {
-        cwd: runtime.project.projectRoot
+        cwd: runtime.project.projectRoot,
+        publicPathContext: {
+          projectRoot: runtime.project.projectRoot,
+          memoryRoot: runtime.syncService.memoryStore.paths.baseDir
+        }
       }),
       null,
       2

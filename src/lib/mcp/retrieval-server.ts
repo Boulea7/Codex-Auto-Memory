@@ -10,6 +10,7 @@ import {
 import { buildMemoryQuerySurfacing } from "../domain/resume-context.js";
 import { buildInstructionReviewLane } from "../domain/dream-candidates.js";
 import { assertValidMemoryRef } from "../domain/memory-lifecycle.js";
+import type { InstructionReviewLane } from "../types.js";
 import {
   buildRecommendedMcpSearchInstruction,
   RETRIEVAL_MCP_DETAILS_TOOL,
@@ -18,6 +19,11 @@ import {
 } from "../integration/retrieval-contract.js";
 import { MemoryRetrievalService } from "../domain/memory-retrieval.js";
 import { buildRuntimeContext } from "../runtime/runtime-context.js";
+import {
+  sanitizePublicPath,
+  sanitizePublicPathList,
+  type PublicPathContext
+} from "../util/public-paths.js";
 
 const require = createRequire(import.meta.url);
 const { version } = require("../../../package.json") as { version: string };
@@ -386,6 +392,20 @@ function createJsonResult<T extends Record<string, unknown>>(payload: T): {
   };
 }
 
+function sanitizeInstructionReviewLane(
+  lane: InstructionReviewLane,
+  context: PublicPathContext
+): InstructionReviewLane {
+  return {
+    ...lane,
+    latestProposalArtifactPath: sanitizePublicPath(lane.latestProposalArtifactPath, context),
+    selectedTargetFile: sanitizePublicPath(lane.selectedTargetFile, context),
+    candidateRecoveryPath:
+      sanitizePublicPath(lane.candidateRecoveryPath, context) ?? lane.candidateRecoveryPath,
+    detectedInstructionTargets: sanitizePublicPathList(lane.detectedInstructionTargets, context)
+  };
+}
+
 export function createRetrievalMcpServer(cwd = process.cwd()): McpServer {
   const server = new McpServer({
     name: "codex-auto-memory-retrieval",
@@ -415,17 +435,48 @@ export function createRetrievalMcpServer(cwd = process.cwd()): McpServer {
       });
 
       const payload = await withRetrievalService(cwd, async (retrieval, runtime) => {
+        const publicPathContext: PublicPathContext = {
+          projectRoot: runtime.project.projectRoot,
+          memoryRoot: runtime.syncService.memoryStore.paths.baseDir
+        };
         const response = await retrieval.searchMemories(request.query, {
           scope: request.scope,
           state: request.state,
           limit: request.limit
         });
+        const querySurfacing = await buildMemoryQuerySurfacing(runtime, request.query);
 
         return memorySearchResponseSchema.parse({
           ...response,
+          diagnostics: {
+            ...response.diagnostics,
+            checkedPaths: response.diagnostics.checkedPaths.map((check) => ({
+              ...check,
+              indexPath: sanitizePublicPath(check.indexPath, publicPathContext) ?? check.indexPath
+            })),
+            ...(response.diagnostics.topicDiagnostics
+              ? {
+                  topicDiagnostics: response.diagnostics.topicDiagnostics.map((diagnostic) => ({
+                    ...diagnostic,
+                    path: sanitizePublicPath(diagnostic.path, publicPathContext) ?? diagnostic.path
+                  }))
+                }
+              : {})
+          },
           querySurfacing: {
-            ...(await buildMemoryQuerySurfacing(runtime, request.query)),
-            instructionReviewLane: await buildInstructionReviewLane(runtime)
+            ...querySurfacing,
+            suggestedInstructionFiles: sanitizePublicPathList(
+              querySurfacing.suggestedInstructionFiles,
+              publicPathContext
+            ),
+            suggestedTeamEntries: querySurfacing.suggestedTeamEntries?.map((entry) => ({
+              ...entry,
+              path: sanitizePublicPath(entry.path, publicPathContext) ?? entry.path
+            })),
+            instructionReviewLane: sanitizeInstructionReviewLane(
+              await buildInstructionReviewLane(runtime),
+              publicPathContext
+            )
           }
         });
       });
@@ -447,9 +498,49 @@ export function createRetrievalMcpServer(cwd = process.cwd()): McpServer {
     },
     async ({ ref }) => {
       assertValidMemoryRef(ref);
-      const payload = await withRetrievalService(cwd, async (retrieval) => {
+      const payload = await withRetrievalService(cwd, async (retrieval, runtime) => {
+        const publicPathContext: PublicPathContext = {
+          projectRoot: runtime.project.projectRoot,
+          memoryRoot: runtime.syncService.memoryStore.paths.baseDir
+        };
         const events = await retrieval.timelineMemories(ref);
-        return memoryTimelineResponseSchema.parse(buildMemoryTimelineResponse(ref, events));
+        const timeline = buildMemoryTimelineResponse(ref, events);
+        return memoryTimelineResponseSchema.parse({
+          ...timeline,
+          events: timeline.events.map((event) => ({
+            ...event,
+            source: sanitizePublicPath(event.source, publicPathContext) ?? event.source,
+            rolloutPath:
+              sanitizePublicPath(event.rolloutPath, publicPathContext) ?? event.rolloutPath
+          })),
+          latestAudit: timeline.latestAudit
+            ? {
+                ...timeline.latestAudit,
+                auditPath:
+                  sanitizePublicPath(timeline.latestAudit.auditPath, publicPathContext) ??
+                  timeline.latestAudit.auditPath,
+                rolloutPath:
+                  sanitizePublicPath(timeline.latestAudit.rolloutPath, publicPathContext) ??
+                  timeline.latestAudit.rolloutPath
+              }
+            : null,
+          latestAppliedLifecycle: timeline.latestAppliedLifecycle
+            ? {
+                ...timeline.latestAppliedLifecycle,
+                rolloutPath:
+                  sanitizePublicPath(timeline.latestAppliedLifecycle.rolloutPath, publicPathContext) ??
+                  timeline.latestAppliedLifecycle.rolloutPath
+              }
+            : null,
+          latestLifecycleAttempt: timeline.latestLifecycleAttempt
+            ? {
+                ...timeline.latestLifecycleAttempt,
+                rolloutPath:
+                  sanitizePublicPath(timeline.latestLifecycleAttempt.rolloutPath, publicPathContext) ??
+                  timeline.latestLifecycleAttempt.rolloutPath
+              }
+            : null
+        });
       });
 
       return createJsonResult(payload);
@@ -469,13 +560,58 @@ export function createRetrievalMcpServer(cwd = process.cwd()): McpServer {
     },
     async ({ ref }) => {
       assertValidMemoryRef(ref);
-      const payload = await withRetrievalService(cwd, async (retrieval) => {
+      const payload = await withRetrievalService(cwd, async (retrieval, runtime) => {
+        const publicPathContext: PublicPathContext = {
+          projectRoot: runtime.project.projectRoot,
+          memoryRoot: runtime.syncService.memoryStore.paths.baseDir
+        };
         const details = await retrieval.getMemoryDetails(ref);
         if (!details) {
           throw new Error(`No memory details were found for ref "${ref}".`);
         }
 
-        return memoryDetailsResponseSchema.parse(toMemoryDetailsResultShape(details));
+        const publicDetails = toMemoryDetailsResultShape(details);
+        return memoryDetailsResponseSchema.parse({
+          ...publicDetails,
+          path: sanitizePublicPath(publicDetails.path, publicPathContext) ?? publicDetails.path,
+          historyPath:
+            sanitizePublicPath(publicDetails.historyPath, publicPathContext) ??
+            publicDetails.historyPath,
+          latestRolloutPath:
+            sanitizePublicPath(publicDetails.latestRolloutPath, publicPathContext) ??
+            publicDetails.latestRolloutPath,
+          latestAudit: publicDetails.latestAudit
+            ? {
+                ...publicDetails.latestAudit,
+                auditPath:
+                  sanitizePublicPath(publicDetails.latestAudit.auditPath, publicPathContext) ??
+                  publicDetails.latestAudit.auditPath,
+                rolloutPath:
+                  sanitizePublicPath(publicDetails.latestAudit.rolloutPath, publicPathContext) ??
+                  publicDetails.latestAudit.rolloutPath
+              }
+            : null,
+          latestAppliedLifecycle: publicDetails.latestAppliedLifecycle
+            ? {
+                ...publicDetails.latestAppliedLifecycle,
+                rolloutPath:
+                  sanitizePublicPath(
+                    publicDetails.latestAppliedLifecycle.rolloutPath,
+                    publicPathContext
+                  ) ?? publicDetails.latestAppliedLifecycle.rolloutPath
+              }
+            : null,
+          latestLifecycleAttempt: publicDetails.latestLifecycleAttempt
+            ? {
+                ...publicDetails.latestLifecycleAttempt,
+                rolloutPath:
+                  sanitizePublicPath(
+                    publicDetails.latestLifecycleAttempt.rolloutPath,
+                    publicPathContext
+                  ) ?? publicDetails.latestLifecycleAttempt.rolloutPath
+              }
+            : null
+        });
       });
 
       return createJsonResult(payload);

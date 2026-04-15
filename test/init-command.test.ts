@@ -7,6 +7,7 @@ import {
   writeCamConfig
 } from "./helpers/cam-test-fixtures.js";
 import { runCli } from "./helpers/cli-runner.js";
+import { restoreOptionalEnv } from "./helpers/env.js";
 
 const tempDirs: string[] = [];
 const originalHome = process.env.HOME;
@@ -41,8 +42,7 @@ const expectedProjectInitConfig = {
   sessionContinuityLocalPathStyle: "codex",
   maxSessionContinuityLines: 60,
   dreamSidecarEnabled: false,
-  dreamSidecarAutoBuild: false,
-  codexBinary: "codex"
+  dreamSidecarAutoBuild: false
 };
 
 const expectedLocalInitConfig = {
@@ -50,12 +50,8 @@ const expectedLocalInitConfig = {
 };
 
 afterEach(async () => {
-  process.env.HOME = originalHome;
-  if (originalManagedConfig === undefined) {
-    delete process.env.CAM_MANAGED_CONFIG;
-  } else {
-    process.env.CAM_MANAGED_CONFIG = originalManagedConfig;
-  }
+  restoreOptionalEnv("HOME", originalHome);
+  restoreOptionalEnv("CAM_MANAGED_CONFIG", originalManagedConfig);
   await Promise.all(tempDirs.splice(0).map((dir) => fs.rm(dir, { recursive: true, force: true })));
 });
 
@@ -75,7 +71,8 @@ describe("cam init", () => {
     const existingLocalConfig = {
       autoMemoryEnabled: false,
       autoMemoryDirectory: customMemoryRoot,
-      sessionContinuityAutoSave: true
+      sessionContinuityAutoSave: true,
+      codexBinary: "codex-dev"
     };
     await writeCamConfig(repoDir, existingProjectConfig, existingLocalConfig);
 
@@ -189,6 +186,25 @@ describe("cam init", () => {
     expect(result.exitCode, result.stderr).toBe(0);
     expect(await readJson(path.join(repoDir, "codex-auto-memory.json"))).toEqual(
       expectedProjectInitConfig
+    );
+  });
+
+  it("supports --cwd from another working directory", async () => {
+    const homeDir = await tempDir("cam-init-cwd-home-");
+    const callerDir = await tempDir("cam-init-cwd-caller-");
+    const repoDir = await tempDir("cam-init-cwd-target-");
+    await initGitRepo(repoDir);
+
+    const result = runCli(callerDir, ["init", "--cwd", repoDir], {
+      env: { HOME: homeDir }
+    });
+
+    expect(result.exitCode, result.stderr).toBe(0);
+    expect(await readJson(path.join(repoDir, "codex-auto-memory.json"))).toEqual(
+      expectedProjectInitConfig
+    );
+    expect(await readJson(path.join(repoDir, ".codex-auto-memory.local.json"))).toEqual(
+      expectedLocalInitConfig
     );
   });
 
