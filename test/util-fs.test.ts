@@ -51,4 +51,53 @@ describe("fs util helpers", () => {
       )
     ).toBe(true);
   });
+
+  it("succeeds when syncing the parent directory is not permitted", async () => {
+    const dir = await tempDir("cam-fs-atomic-");
+    const filePath = path.join(dir, "entry.txt");
+    const originalOpen = fs.open.bind(fs);
+
+    vi.spyOn(fs, "open").mockImplementation(async (targetPath, flags) => {
+      if (String(targetPath) === dir) {
+        const error = new Error("operation not permitted") as NodeJS.ErrnoException;
+        error.code = "EPERM";
+        throw error;
+      }
+
+      return originalOpen(targetPath, flags);
+    });
+
+    await expect(writeTextFileAtomic(filePath, "atomic contents")).resolves.toBeUndefined();
+    expect(await fs.readFile(filePath, "utf8")).toBe("atomic contents");
+  });
+
+  it("succeeds when parent directory handles do not support fsync", async () => {
+    const dir = await tempDir("cam-fs-atomic-");
+    const filePath = path.join(dir, "entry.txt");
+    const originalOpen = fs.open.bind(fs);
+
+    vi.spyOn(fs, "open").mockImplementation(async (targetPath, flags) => {
+      const handle = await originalOpen(targetPath, flags);
+      if (String(targetPath) !== dir) {
+        return handle;
+      }
+
+      return new Proxy(handle, {
+        get(target, prop, receiver) {
+          if (prop === "sync") {
+            return async () => {
+              const error = new Error("operation not supported") as NodeJS.ErrnoException;
+              error.code = "EINVAL";
+              throw error;
+            };
+          }
+
+          return Reflect.get(target, prop, receiver);
+        }
+      });
+    });
+
+    await expect(writeTextFileAtomic(filePath, "atomic contents")).resolves.toBeUndefined();
+    expect(await fs.readFile(filePath, "utf8")).toBe("atomic contents");
+  });
 });

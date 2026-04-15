@@ -47,12 +47,36 @@ function atomicTempPath(filePath: string): string {
   return path.join(path.dirname(filePath), `.${path.basename(filePath)}.${suffix}.tmp`);
 }
 
+function isIgnorableDirectorySyncError(error: unknown): boolean {
+  const code = (error as NodeJS.ErrnoException | undefined)?.code;
+  return (
+    code === "EBADF" ||
+    code === "EINVAL" ||
+    code === "EISDIR" ||
+    code === "ENOSYS" ||
+    code === "ENOTSUP" ||
+    code === "EPERM"
+  );
+}
+
 async function syncPath(targetPath: string): Promise<void> {
   const handle = await fs.open(targetPath, "r");
   try {
     await handle.sync();
   } finally {
     await handle.close();
+  }
+}
+
+async function syncDirectoryIfSupported(dirPath: string): Promise<void> {
+  try {
+    await syncPath(dirPath);
+  } catch (error) {
+    if (isIgnorableDirectorySyncError(error)) {
+      return;
+    }
+
+    throw error;
   }
 }
 
@@ -69,7 +93,7 @@ export async function writeTextFileAtomic(filePath: string, contents: string): P
       await tempHandle.close();
     }
     await fs.rename(tempPath, filePath);
-    await syncPath(path.dirname(filePath));
+    await syncDirectoryIfSupported(path.dirname(filePath));
   } catch (error) {
     await fs.rm(tempPath, { force: true }).catch(() => undefined);
     throw error;
