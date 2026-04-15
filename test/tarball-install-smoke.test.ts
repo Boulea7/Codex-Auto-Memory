@@ -119,7 +119,6 @@ function subagentRolloutFixture(
 describe("tarball install smoke", () => {
   it("installs and runs the packaged cam bin shim from a local tarball", async () => {
     const homeDir = await tempDir("cam-tarball-home-");
-    const packDir = await tempDir("cam-tarball-pack-");
     const installDir = await tempDir("cam-tarball-install-");
     const realInstallDir = await fs.realpath(installDir);
     const env = isolatedEnv(homeDir);
@@ -129,13 +128,13 @@ describe("tarball install smoke", () => {
 
     const packResult = runCommandCapture(
       pnpmCommand(),
-      ["pack", "--pack-destination", packDir],
+      ["pack:release"],
       process.cwd(),
       env
     );
     expect(packResult.exitCode, packResult.stderr).toBe(0);
 
-    const tarballPath = resolvePackedTarballPath(packDir, packResult.stdout);
+    const tarballPath = resolvePackedTarballPath(path.resolve(".release-artifacts"), packResult.stdout);
 
     const initResult = runCommandCapture(npmCommand(), ["init", "-y"], installDir, env);
     expect(initResult.exitCode).toBe(0);
@@ -1984,20 +1983,19 @@ describe("tarball install smoke", () => {
 
   it("preserves custom fields on the codex_auto_memory install entry from the packed tarball", async () => {
     const homeDir = await tempDir("cam-tarball-preserve-home-");
-    const packDir = await tempDir("cam-tarball-preserve-pack-");
     const installDir = await tempDir("cam-tarball-preserve-install-");
     const realInstallDir = await fs.realpath(installDir);
     const env = isolatedEnv(homeDir);
 
     const packResult = runCommandCapture(
       pnpmCommand(),
-      ["pack", "--pack-destination", packDir],
+      ["pack:release"],
       process.cwd(),
       env
     );
     expect(packResult.exitCode, packResult.stderr).toBe(0);
 
-    const tarballPath = resolvePackedTarballPath(packDir, packResult.stdout);
+    const tarballPath = resolvePackedTarballPath(path.resolve(".release-artifacts"), packResult.stdout);
 
     expect(runCommandCapture(npmCommand(), ["init", "-y"], installDir, env).exitCode).toBe(0);
     expect(
