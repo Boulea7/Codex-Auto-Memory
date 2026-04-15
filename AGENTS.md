@@ -126,6 +126,7 @@ cam session status
 
 ## 变更记录
 
+- 2026-04-16: release 准备过程中把 `session-command` 与 `wrapper-session-continuity` 的测试辅助函数类型收紧为显式接受 `AppConfig | Record<string, unknown>`，保留测试里“显式把 mock `codexBinary` 镜像到 local config”的意图，同时让 `pnpm lint` / `pnpm verify:release` 再次通过。
 - 2026-04-15: 已把公开联系邮箱补进仓库健康文档：`SUPPORT.md` 与 `SECURITY.md` 现在统一使用 `opensource@lnzai.com` 作为私有支持 / 安全联系地址，不再继续提示“仓库内没有公开邮箱”。
 - 2026-04-15: 评论消化继续收口。`doctor` / `integrations doctor` 进一步补齐公开路径改写，避免 `repairCommand`、`notes`、`nextSteps` 等文本字段继续暴露绝对路径；release workflow 的 npm publish 条件检测改成显式前置步骤，不再在 step-level `if` 里直接引用 secret；多语 README 继续把 npm 安装说明明确限制在首次公开 npm 发布之后再使用。
 - 2026-04-15: docs / release / repo-health 收口已补齐公开入口与打包边界：四语 landing README 与 docs hub 现在都明确标出文档语言，README 显式写出 source install、GitHub Release tarball install 与“首次公开 npm 发布后再使用”的 `npm install --global codex-auto-memory` 路径；`docs/release-checklist.md` 已对齐 tag 触发的自动 release + 条件式 npm publish 流程；`package.json.files` 现在把 `SUPPORT.md`、`SECURITY.md`、`CODE_OF_CONDUCT.md` 一并纳入 tarball，相关 docs/tarball contract 测试也已补上。
