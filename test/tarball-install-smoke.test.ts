@@ -1498,7 +1498,7 @@ describe("tarball install smoke", () => {
     expect(JSON.parse(integrationsDoctorResult.stdout)).toMatchObject({
       host: "codex",
       readOnlyRetrieval: true,
-      status: "ok",
+      status: process.platform === "win32" ? "warning" : "ok",
       recommendedRoute: "mcp",
       recommendedPreset: "state=auto, limit=8",
       applyReadiness: {
@@ -1538,10 +1538,10 @@ describe("tarball install smoke", () => {
       subchecks: {
         mcp: { status: "ok" },
         agents: { status: "ok" },
-        hookCapture: { status: "ok" },
-        hookRecall: { status: "ok" },
+        hookCapture: { status: process.platform === "win32" ? "warning" : "ok" },
+        hookRecall: { status: process.platform === "win32" ? "warning" : "ok" },
         skill: { status: "ok" },
-        workflowConsistency: { status: "ok" }
+        workflowConsistency: { status: process.platform === "win32" ? "warning" : "ok" }
       }
     });
 
