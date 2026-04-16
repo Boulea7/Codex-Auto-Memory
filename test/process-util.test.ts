@@ -29,4 +29,10 @@ describe("process util helpers", () => {
   it("keeps simple Windows cmd wrapper invocations executable", () => {
     expect(buildWindowsCmdCommandLine("pnpm.cmd", ["pack:release"])).toBe("pnpm.cmd pack:release");
   });
+
+  it("quotes Windows cmd arguments containing percent signs", () => {
+    expect(buildWindowsCmdCommandLine("cam.cmd", ["--note", "100% done"])).toBe(
+      'cam.cmd --note "100% done"'
+    );
+  });
 });
