@@ -45,6 +45,26 @@ function isExecutableMode(mode: number): boolean {
   return (mode & 0o111) !== 0;
 }
 
+export function shouldCheckExecutableBit(platform = process.platform): boolean {
+  return platform !== "win32";
+}
+
+export function hasExpectedExecutableState(
+  executableExpected: boolean,
+  mode: number,
+  platform = process.platform
+): boolean {
+  if (!executableExpected) {
+    return true;
+  }
+
+  if (!shouldCheckExecutableBit(platform)) {
+    return true;
+  }
+
+  return isExecutableMode(mode);
+}
+
 function summarizeInstallAction(
   actions: IntegrationAssetInstallAction[]
 ): IntegrationAssetInstallAction {
@@ -91,9 +111,11 @@ export async function installIntegrationAssets(
   for (const asset of assets) {
     const exists = await fileExists(asset.path);
     const currentContents = exists ? await readTextFile(asset.path) : null;
+    const currentMode =
+      exists && asset.executableExpected ? (await fs.stat(asset.path)).mode : null;
     const executableOk =
       exists && asset.executableExpected
-        ? isExecutableMode((await fs.stat(asset.path)).mode)
+        ? hasExpectedExecutableState(asset.executableExpected, currentMode ?? 0)
         : !asset.executableExpected;
     const action: IntegrationAssetInstallAction = !exists
       ? "created"
