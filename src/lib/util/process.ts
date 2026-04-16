@@ -16,7 +16,7 @@ function quoteWindowsCmdArg(value: string): string {
   }
 
   const escaped = value.replace(/"/g, '""');
-  return /[\s&()<>^|]/.test(value) ? `"${escaped}"` : escaped;
+  return /[\s&()<>^|%]/.test(value) ? `"${escaped}"` : escaped;
 }
 
 export function buildWindowsCmdCommandLine(command: string, args: string[]): string {

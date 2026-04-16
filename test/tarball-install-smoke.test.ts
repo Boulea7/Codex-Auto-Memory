@@ -1556,7 +1556,7 @@ describe("tarball install smoke", () => {
       readOnlyRetrieval: true,
       fallbackAssets: {
         runtimeSkillPresent: true,
-        postWorkReviewInstalled: true,
+        postWorkReviewInstalled: process.platform === "win32" ? false : true,
         anySkillSurfaceInstalled: true,
         anySkillSurfaceReady: true,
         officialUserSkillMatchesCanonical: true,
