@@ -126,6 +126,7 @@ cam session status
 
 ## 变更记录
 
+- 2026-04-18: 开始拆分吸收 dependabot `#34` 的低风险部分。当前分支先把 `@modelcontextprotocol/sdk` 升到 `1.29.0`、`smol-toml` 升到 `1.6.1`，保留 `zod v4` 迁移单独处理；本地已验证 `pnpm lint`、`pnpm test:dist-cli-smoke:only`、`pnpm test:tarball-install-smoke` 通过。
 - 2026-04-18: `PR #36` 已合并进 `main`，主线 Windows smoke 恢复为绿色；同时把 `.release-artifacts/` 加入 `.gitignore`，避免本地 `pack:release` / smoke 验证持续把工作树弄脏。`release.yml` 现在新增“同一 `GITHUB_SHA` 必须先有成功的 `CI` push run 才允许继续发版”的前置检查，并补上 `actions: read` 权限，避免再出现主线 `CI` 仍红但 tag release 已经发出的情况。
 - 2026-04-16: Windows integration asset 幂等判定继续收口。`installIntegrationAssets` 现在在 Windows 上跳过 executable bit 的重复检查，避免 `integrations install/apply` 因 hooks 的 `chmod` 语义差异持续返回 `updated`；同时补上 `test/integration-install-assets.test.ts`，锁住 Windows 与 POSIX 的 executable 判定差异。
 - 2026-04-16: 收口 Windows tarball install smoke 回归。`runCommand` / `runCommandCapture` 现在在 Windows 下对 `.cmd` / `.bat` 显式走 `cmd.exe /d /s /c` 并自行拼接带引号的命令串，不再依赖 `shell: true` 的隐式参数拼接；对应补上 `test/process-util.test.ts` 对带空格参数的命令行构造断言，用来覆盖安装后 `cam.cmd ... --cwd "<path with spaces>"` 的 release-facing 场景。
