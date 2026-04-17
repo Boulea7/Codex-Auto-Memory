@@ -3,6 +3,7 @@ dist/
 coverage/
 .tmp/
 .worktrees/
+.release-artifacts/
 
 # Sensitive files
 .env
