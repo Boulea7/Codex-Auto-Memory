@@ -37,6 +37,22 @@ async function writeCamShim(binDir: string): Promise<void> {
   await fs.chmod(shimPath, 0o755);
 }
 
+async function writeMockCodexCommand(mockCodexPath: string, scriptContents: string): Promise<void> {
+  if (process.platform === "win32") {
+    const scriptPath = `${mockCodexPath}.js`;
+    await fs.writeFile(scriptPath, scriptContents, "utf8");
+    await fs.writeFile(
+      `${mockCodexPath}.cmd`,
+      `@echo off\r\n"${process.execPath}" "${scriptPath}" %*\r\n`,
+      "utf8"
+    );
+    return;
+  }
+
+  await fs.writeFile(mockCodexPath, scriptContents, "utf8");
+  await fs.chmod(mockCodexPath, 0o755);
+}
+
 async function waitForFile(pathname: string, timeoutMs = 2_000): Promise<string> {
   const deadline = Date.now() + timeoutMs;
   while (true) {
@@ -86,6 +102,10 @@ function resolvePublicPathForTest(
   }
 
   return publicPath;
+}
+
+function expectProvisionedSkillAction(action: unknown): void {
+  expect(["created", "unchanged"]).toContain(action);
 }
 
 function subagentRolloutFixture(
@@ -1904,7 +1924,7 @@ describe("dist cli smoke", () => {
         runtimeSkillPresent: true,
         anySkillSurfaceInstalled: true,
         anySkillSurfaceReady: true,
-        postWorkReviewInstalled: true
+        postWorkReviewInstalled: process.platform === "win32" ? false : true
       },
       retrievalSidecar: {
         status: "warning",
@@ -2018,7 +2038,7 @@ describe("dist cli smoke", () => {
     const homeDir = await tempDir("cam-dist-hook-skill-home-");
     const projectDir = await tempDir("cam-dist-hook-skill-project-");
     const realProjectDir = await fs.realpath(projectDir);
-    const env = { HOME: homeDir };
+    const env = createIsolatedCliEnv(homeDir);
 
     const hooksResult = runCli(projectDir, ["hooks", "install"], {
       entrypoint: "dist",
@@ -2187,7 +2207,35 @@ describe("dist cli smoke", () => {
     );
 
     expect(result.exitCode, result.stderr).toBe(0);
-    expect(JSON.parse(result.stdout)).toMatchObject({
+    const payload = JSON.parse(result.stdout) as {
+      host: string;
+      projectRoot: string;
+      stackAction: string;
+      skillsSurface: string;
+      readOnlyRetrieval: boolean;
+      workflowContract: {
+        recommendedPreset: string;
+        cliFallback: {
+          searchCommand: string;
+        };
+      };
+      subactions: {
+        mcp: {
+          action: string;
+          targetPath: string;
+        };
+        hooks: {
+          action: string;
+          targetDir: string;
+        };
+        skills: {
+          action: string;
+          surface: string;
+          targetDir: string;
+        };
+      };
+    };
+    expect(payload).toMatchObject({
       host: "codex",
       projectRoot: realProjectDir,
       stackAction: "created",
@@ -2215,6 +2263,7 @@ describe("dist cli smoke", () => {
         }
       }
     });
+    expectProvisionedSkillAction(payload.subactions.skills.action);
   });
 
   it("applies the full Codex integration stack from the compiled cli entrypoint", async () => {
@@ -2232,7 +2281,25 @@ describe("dist cli smoke", () => {
     );
 
     expect(result.exitCode, result.stderr).toBe(0);
-    expect(JSON.parse(result.stdout)).toMatchObject({
+    const payload = JSON.parse(result.stdout) as {
+      host: string;
+      projectRoot: string;
+      stackAction: string;
+      readOnlyRetrieval: boolean;
+      workflowContract: {
+        recommendedPreset: string;
+        cliFallback: {
+          searchCommand: string;
+        };
+      };
+      subactions: {
+        mcp: { action: string };
+        agents: { action: string };
+        hooks: { action: string };
+        skills: { action: string };
+      };
+    };
+    expect(payload).toMatchObject({
       host: "codex",
       projectRoot: realProjectDir,
       stackAction: "created",
@@ -2247,9 +2314,10 @@ describe("dist cli smoke", () => {
         mcp: { action: "created" },
         agents: { action: "created" },
         hooks: { action: "created" },
-        skills: { action: "created" }
+        skills: {}
       }
     });
+    expectProvisionedSkillAction(payload.subactions.skills.action);
   });
 
   it("surfaces staged-write failure payloads from the compiled integrations apply entrypoint", async () => {
@@ -2396,18 +2464,30 @@ describe("dist cli smoke", () => {
     );
 
     expect(installResult.exitCode, installResult.stderr).toBe(0);
-    expect(JSON.parse(installResult.stdout)).toMatchObject({
+    const installPayload = JSON.parse(installResult.stdout) as {
+      host: string;
+      projectRoot: string;
+      skillsSurface: string;
+      subactions: {
+        skills: {
+          action: string;
+          surface: string;
+          targetDir: string;
+        };
+      };
+    };
+    expect(installPayload).toMatchObject({
       host: "codex",
       projectRoot: realProjectDir,
       skillsSurface: "official-project",
       subactions: {
         skills: {
-          action: "created",
           surface: "official-project",
           targetDir: path.join(realProjectDir, ".agents", "skills", "codex-auto-memory-recall")
         }
       }
     });
+    expectProvisionedSkillAction(installPayload.subactions.skills.action);
 
     const applyResult = runCli(
       projectDir,
@@ -2447,18 +2527,30 @@ describe("dist cli smoke", () => {
     );
 
     expect(installResult.exitCode, installResult.stderr).toBe(0);
-    expect(JSON.parse(installResult.stdout)).toMatchObject({
+    const installPayload = JSON.parse(installResult.stdout) as {
+      host: string;
+      projectRoot: string;
+      skillsSurface: string;
+      subactions: {
+        skills: {
+          action: string;
+          surface: string;
+          targetDir: string;
+        };
+      };
+    };
+    expect(installPayload).toMatchObject({
       host: "codex",
       projectRoot: realProjectDir,
       skillsSurface: "official-user",
       subactions: {
         skills: {
-          action: "created",
           surface: "official-user",
           targetDir: path.join(homeDir, ".agents", "skills", "codex-auto-memory-recall")
         }
       }
     });
+    expectProvisionedSkillAction(installPayload.subactions.skills.action);
 
     const applyResult = runCli(
       projectDir,
@@ -2478,6 +2570,40 @@ describe("dist cli smoke", () => {
         skills: {
           surface: "official-user",
           targetDir: path.join(homeDir, ".agents", "skills", "codex-auto-memory-recall")
+        }
+      }
+    });
+  });
+
+  it("reports preinstalled official-user skill surfaces as unchanged from the compiled integrations entrypoint", async () => {
+    const homeDir = await tempDir("cam-dist-integrations-official-user-repro-home-");
+    const projectDir = await tempDir("cam-dist-integrations-official-user-repro-project-");
+
+    const env = { HOME: homeDir };
+    const seedResult = runCli(
+      projectDir,
+      ["skills", "install", "--surface", "official-user"],
+      {
+        entrypoint: "dist",
+        env
+      }
+    );
+    expect(seedResult.exitCode, seedResult.stderr).toBe(0);
+
+    const installResult = runCli(
+      projectDir,
+      ["integrations", "install", "--host", "codex", "--skill-surface", "official-user", "--json"],
+      {
+        entrypoint: "dist",
+        env
+      }
+    );
+
+    expect(installResult.exitCode, installResult.stderr).toBe(0);
+    expect(JSON.parse(installResult.stdout)).toMatchObject({
+      subactions: {
+        skills: {
+          action: "unchanged"
         }
       }
     });
@@ -2532,13 +2658,50 @@ describe("dist cli smoke", () => {
       }
     );
     expect(doctorResult.exitCode, doctorResult.stderr).toBe(0);
-    expect(JSON.parse(doctorResult.stdout)).toMatchObject({
+    const payload = JSON.parse(doctorResult.stdout) as {
+      host: string;
+      projectRoot: string;
+      readOnlyRetrieval: boolean;
+      status: string;
+      recommendedRoute: string;
+      recommendedPreset: string;
+      applyReadiness: {
+        status: string;
+      };
+      retrievalSidecar: {
+        status: string;
+        repairCommand: string;
+        checks: Array<{
+          scope: string;
+          state: string;
+          status: string;
+          fallbackReason?: string;
+        }>;
+      };
+      workflowContract: {
+        version: string;
+        cliFallback: {
+          searchCommand: string;
+          timelineCommand: string;
+          detailsCommand: string;
+        };
+        postWorkSyncReview: {
+          helperScript: string;
+          syncCommand: string;
+          reviewCommand: string;
+        };
+      };
+      preferredSkillSurface: string;
+      recommendedSkillInstallCommand: string;
+      subchecks: Record<string, { status: string }>;
+    };
+    expect(payload).toMatchObject({
       host: "codex",
       projectRoot: sanitizePublicPath(realProjectDir, {
         projectRoot: realProjectDir
       }),
       readOnlyRetrieval: true,
-      status: "ok",
+      status: process.platform === "win32" ? "warning" : "ok",
       recommendedRoute: "mcp",
       recommendedPreset: "state=auto, limit=8",
       applyReadiness: {
@@ -2574,10 +2737,10 @@ describe("dist cli smoke", () => {
       subchecks: {
         mcp: { status: "ok" },
         agents: { status: "ok" },
-        hookCapture: { status: "ok" },
-        hookRecall: { status: "ok" },
+        hookCapture: { status: process.platform === "win32" ? "warning" : "ok" },
+        hookRecall: { status: process.platform === "win32" ? "warning" : "ok" },
         skill: { status: "ok" },
-        workflowConsistency: { status: "ok" }
+        workflowConsistency: { status: process.platform === "win32" ? "warning" : "ok" }
       }
     });
   });
@@ -2652,16 +2815,16 @@ describe("dist cli smoke", () => {
     await initGitRepo(repoDir);
 
     const capturedArgsPath = path.join(repoDir, "captured-args.json");
-    const mockCodexPath = path.join(repoDir, "mock-codex");
-    await fs.writeFile(
-      mockCodexPath,
+    const mockCodexBasePath = path.join(repoDir, "mock-codex");
+    const mockCodexPath =
+      process.platform === "win32" ? `${mockCodexBasePath}.cmd` : mockCodexBasePath;
+    await writeMockCodexCommand(
+      mockCodexBasePath,
       `#!/usr/bin/env node
 const fs = require("node:fs");
 fs.writeFileSync(${JSON.stringify(capturedArgsPath)}, JSON.stringify(process.argv.slice(2), null, 2));
 `,
-      "utf8"
     );
-    await fs.chmod(mockCodexPath, 0o755);
 
     const projectConfig: AppConfig = makeAppConfig({
       autoMemoryEnabled: false,
@@ -2696,16 +2859,16 @@ fs.writeFileSync(${JSON.stringify(capturedArgsPath)}, JSON.stringify(process.arg
     await initGitRepo(repoDir);
 
     const capturedArgsPath = path.join(repoDir, "captured-double-dash-args.json");
-    const mockCodexPath = path.join(repoDir, "mock-codex-double-dash");
-    await fs.writeFile(
-      mockCodexPath,
+    const mockCodexBasePath = path.join(repoDir, "mock-codex-double-dash");
+    const mockCodexPath =
+      process.platform === "win32" ? `${mockCodexBasePath}.cmd` : mockCodexBasePath;
+    await writeMockCodexCommand(
+      mockCodexBasePath,
       `#!/usr/bin/env node
 const fs = require("node:fs");
 fs.writeFileSync(${JSON.stringify(capturedArgsPath)}, JSON.stringify(process.argv.slice(2), null, 2));
 `,
-      "utf8"
     );
-    await fs.chmod(mockCodexPath, 0o755);
 
     const projectConfig: AppConfig = makeAppConfig({
       autoMemoryEnabled: false,

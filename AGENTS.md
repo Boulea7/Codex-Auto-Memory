@@ -126,6 +126,10 @@ cam session status
 
 ## 变更记录
 
+- 2026-04-16: Windows integration asset 幂等判定继续收口。`installIntegrationAssets` 现在在 Windows 上跳过 executable bit 的重复检查，避免 `integrations install/apply` 因 hooks 的 `chmod` 语义差异持续返回 `updated`；同时补上 `test/integration-install-assets.test.ts`，锁住 Windows 与 POSIX 的 executable 判定差异。
+- 2026-04-16: 收口 Windows tarball install smoke 回归。`runCommand` / `runCommandCapture` 现在在 Windows 下对 `.cmd` / `.bat` 显式走 `cmd.exe /d /s /c` 并自行拼接带引号的命令串，不再依赖 `shell: true` 的隐式参数拼接；对应补上 `test/process-util.test.ts` 对带空格参数的命令行构造断言，用来覆盖安装后 `cam.cmd ... --cwd "<path with spaces>"` 的 release-facing 场景。
+- 2026-04-15: 已确认 `v0.1.0` 的 GitHub Release 产出 `codex-auto-memory-0.1.0.tgz` 附件；后续收口把 CI / release workflow 统一升到 `actions/checkout@v6`、`actions/setup-node@v6`，保留 `pnpm/action-setup@v4`，并把 release 附件发布改成可重跑的“已存在则 upload --clobber，否则 create”路径。`pnpm/action-setup@v6` 在当前仓库远端 CI 上会触发 `ERR_PNPM_BROKEN_LOCKFILE`，暂不吸收，对应 dependabot 分支继续保留待后续单独处理。
+- 2026-04-15: Windows smoke 回归继续收口：`writeTextFileAtomic` 现在对目录 `fsync` 的 `EPERM` / `EINVAL` / `ENOTSUP` / `ENOSYS` / `EISDIR` / `EBADF` 做安全降级，保留临时文件同步与非可忽略错误的 fail-closed 行为；`test/util-fs.test.ts` 新增对应回归用例，`test/dist-cli-smoke.test.ts` 收紧为接受 idempotent skill surface 安装动作（`created` 或 `unchanged`）并补上预装 surface 的回归覆盖。
 - 2026-04-16: release 准备过程中把 `session-command` 与 `wrapper-session-continuity` 的测试辅助函数类型收紧为显式接受 `AppConfig | Record<string, unknown>`，保留测试里“显式把 mock `codexBinary` 镜像到 local config”的意图，同时让 `pnpm lint` / `pnpm verify:release` 再次通过。
 - 2026-04-15: 已把公开联系邮箱补进仓库健康文档：`SUPPORT.md` 与 `SECURITY.md` 现在统一使用 `opensource@lnzai.com` 作为私有支持 / 安全联系地址，不再继续提示“仓库内没有公开邮箱”。
 - 2026-04-15: 评论消化继续收口。`doctor` / `integrations doctor` 进一步补齐公开路径改写，避免 `repairCommand`、`notes`、`nextSteps` 等文本字段继续暴露绝对路径；release workflow 的 npm publish 条件检测改成显式前置步骤，不再在 step-level `if` 里直接引用 secret；多语 README 继续把 npm 安装说明明确限制在首次公开 npm 发布之后再使用。
