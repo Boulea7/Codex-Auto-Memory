@@ -14,6 +14,7 @@ jobs:
     name: Release (Ubuntu, Node 20)
     runs-on: ubuntu-latest
     permissions:
+      actions: read
       contents: write
       id-token: write
     timeout-minutes: 60
@@ -43,6 +44,35 @@ jobs:
             echo "Tag ${GITHUB_REF_NAME} does not match package version v${PACKAGE_VERSION}" >&2
             exit 1
           fi
+
+      - name: Verify upstream CI succeeded for this release commit
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RUNS_JSON_PATH: /tmp/release-ci-runs.json
+        run: |
+          gh run list \
+            --repo "${GITHUB_REPOSITORY}" \
+            --workflow CI \
+            --commit "${GITHUB_SHA}" \
+            --json databaseId,event,headSha,status,conclusion,url \
+            --limit 10 > "${RUNS_JSON_PATH}"
+          node -e '
+            const fs = require("node:fs");
+            const runs = JSON.parse(fs.readFileSync(process.env.RUNS_JSON_PATH, "utf8"));
+            const successfulRun = runs.find(
+              (run) =>
+                run.event === "push" &&
+                run.headSha === process.env.GITHUB_SHA &&
+                run.status === "completed" &&
+                run.conclusion === "success"
+            );
+            if (!successfulRun) {
+              console.error(`No successful push CI run found for ${process.env.GITHUB_SHA}.`);
+              console.error(JSON.stringify(runs, null, 2));
+              process.exit(1);
+            }
+            console.log(`Using CI run ${successfulRun.databaseId}: ${successfulRun.url}`);
+          '
 
       - name: Verify release candidate
         run: pnpm verify:release
