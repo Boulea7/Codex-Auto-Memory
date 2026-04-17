@@ -38,6 +38,17 @@ function normalizeCliEnv(env: NodeJS.ProcessEnv = {}): NodeJS.ProcessEnv {
     ...env
   };
 
+  for (const key of Object.keys(nextEnv)) {
+    if (
+      key.startsWith("npm_") ||
+      key.startsWith("NPM_") ||
+      key.startsWith("pnpm_") ||
+      key.startsWith("PNPM_")
+    ) {
+      delete nextEnv[key];
+    }
+  }
+
   const resolvedHome = nextEnv.HOME ?? nextEnv.USERPROFILE;
   if (resolvedHome) {
     nextEnv.HOME = resolvedHome;

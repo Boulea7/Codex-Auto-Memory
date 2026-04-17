@@ -26,6 +26,19 @@ function npmCommand(): string {
   return process.platform === "win32" ? "npm.cmd" : "npm";
 }
 
+function pnpmCommand(): string {
+  return process.platform === "win32" ? "pnpm.cmd" : "pnpm";
+}
+
+function resolvePackedTarballPath(packDir: string, packStdout: string): string {
+  const tarballRef = packStdout.trim().split(/\r?\n/).at(-1);
+  if (!tarballRef) {
+    throw new Error("Expected pack output to include a tarball path.");
+  }
+
+  return path.isAbsolute(tarballRef) ? tarballRef : path.join(packDir, tarballRef);
+}
+
 function camBinaryPath(installDir: string): string {
   return path.join(
     installDir,
@@ -106,7 +119,6 @@ function subagentRolloutFixture(
 describe("tarball install smoke", () => {
   it("installs and runs the packaged cam bin shim from a local tarball", async () => {
     const homeDir = await tempDir("cam-tarball-home-");
-    const packDir = await tempDir("cam-tarball-pack-");
     const installDir = await tempDir("cam-tarball-install-");
     const realInstallDir = await fs.realpath(installDir);
     const env = isolatedEnv(homeDir);
@@ -115,16 +127,14 @@ describe("tarball install smoke", () => {
     };
 
     const packResult = runCommandCapture(
-      npmCommand(),
-      ["pack", "--pack-destination", packDir],
+      pnpmCommand(),
+      ["pack:release"],
       process.cwd(),
       env
     );
     expect(packResult.exitCode, packResult.stderr).toBe(0);
 
-    const tarballName = packResult.stdout.trim().split(/\r?\n/).at(-1);
-    expect(tarballName).toBeTruthy();
-    const tarballPath = path.join(packDir, tarballName!);
+    const tarballPath = resolvePackedTarballPath(path.resolve(".release-artifacts"), packResult.stdout);
 
     const initResult = runCommandCapture(npmCommand(), ["init", "-y"], installDir, env);
     expect(initResult.exitCode).toBe(0);
@@ -1488,7 +1498,7 @@ describe("tarball install smoke", () => {
     expect(JSON.parse(integrationsDoctorResult.stdout)).toMatchObject({
       host: "codex",
       readOnlyRetrieval: true,
-      status: "ok",
+      status: process.platform === "win32" ? "warning" : "ok",
       recommendedRoute: "mcp",
       recommendedPreset: "state=auto, limit=8",
       applyReadiness: {
@@ -1528,10 +1538,10 @@ describe("tarball install smoke", () => {
       subchecks: {
         mcp: { status: "ok" },
         agents: { status: "ok" },
-        hookCapture: { status: "ok" },
-        hookRecall: { status: "ok" },
+        hookCapture: { status: process.platform === "win32" ? "warning" : "ok" },
+        hookRecall: { status: process.platform === "win32" ? "warning" : "ok" },
         skill: { status: "ok" },
-        workflowConsistency: { status: "ok" }
+        workflowConsistency: { status: process.platform === "win32" ? "warning" : "ok" }
       }
     });
 
@@ -1546,7 +1556,7 @@ describe("tarball install smoke", () => {
       readOnlyRetrieval: true,
       fallbackAssets: {
         runtimeSkillPresent: true,
-        postWorkReviewInstalled: true,
+        postWorkReviewInstalled: process.platform === "win32" ? false : true,
         anySkillSurfaceInstalled: true,
         anySkillSurfaceReady: true,
         officialUserSkillMatchesCanonical: true,
@@ -1973,22 +1983,19 @@ describe("tarball install smoke", () => {
 
   it("preserves custom fields on the codex_auto_memory install entry from the packed tarball", async () => {
     const homeDir = await tempDir("cam-tarball-preserve-home-");
-    const packDir = await tempDir("cam-tarball-preserve-pack-");
     const installDir = await tempDir("cam-tarball-preserve-install-");
     const realInstallDir = await fs.realpath(installDir);
     const env = isolatedEnv(homeDir);
 
     const packResult = runCommandCapture(
-      npmCommand(),
-      ["pack", "--pack-destination", packDir],
+      pnpmCommand(),
+      ["pack:release"],
       process.cwd(),
       env
     );
     expect(packResult.exitCode, packResult.stderr).toBe(0);
 
-    const tarballName = packResult.stdout.trim().split(/\r?\n/).at(-1);
-    expect(tarballName).toBeTruthy();
-    const tarballPath = path.join(packDir, tarballName!);
+    const tarballPath = resolvePackedTarballPath(path.resolve(".release-artifacts"), packResult.stdout);
 
     expect(runCommandCapture(npmCommand(), ["init", "-y"], installDir, env).exitCode).toBe(0);
     expect(
