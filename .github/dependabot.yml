@@ -6,7 +6,7 @@ updates:
       interval: "weekly"
     open-pull-requests-limit: 10
     labels:
-      - "dependencies"
+      - "enhancement"
     groups:
       production-dependencies:
         dependency-type: "production"
@@ -19,5 +19,5 @@ updates:
       interval: "weekly"
     open-pull-requests-limit: 5
     labels:
-      - "dependencies"
+      - "enhancement"
       - "github-actions"

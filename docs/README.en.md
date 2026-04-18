@@ -2,7 +2,7 @@
 
 [简体中文](./README.md) | [繁體中文](./README.zh-TW.md) | [English](./README.en.md) | [日本語](./README.ja.md)
 
-This page is for navigation, not repetition. The landing README explains what the project is; this hub points you to the right level of detail.
+Use this hub to jump to the shortest useful document for your task.
 
 ## Start here
 
@@ -52,4 +52,4 @@ This page is for navigation, not repetition. The landing README explains what th
 - The repository now has four localized landing pages.
 - The docs hub also has four entry pages.
 - Detailed design docs are not yet fully translated, so each row in the index shows the current language availability.
-- If you only need a reading order, use the "Start here" section above.
+- If you only need a reading order, start with the section above.

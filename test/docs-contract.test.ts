@@ -35,10 +35,12 @@ describe("docs contract", () => {
     const support = await readDoc("SUPPORT.md");
     const security = await readDoc("SECURITY.md");
     const codeOfConduct = await readDoc("CODE_OF_CONDUCT.md");
+    const changelog = await readDoc("CHANGELOG.md");
     const license = await readDoc("LICENSE");
     const issueConfig = await readDoc(".github/ISSUE_TEMPLATE/config.yml");
     const ciWorkflow = await readDoc(".github/workflows/ci.yml");
     const releaseWorkflow = await readDoc(".github/workflows/release.yml");
+    const releaseChecklist = await readDoc("docs/release-checklist.md");
     const packageJson = JSON.parse(await readDoc("package.json")) as PackageJsonContract;
     const issueChooserUrl = "https://github.com/Boulea7/Codex-Auto-Memory/issues/new/choose";
 
@@ -58,16 +60,17 @@ describe("docs contract", () => {
 
     expect(readme).toContain("源码安装");
     expect(readme).toContain("GitHub Release tarball");
-    expect(readme).toContain("包名当前还没有公开出现在 npm registry");
+    expect(readme).not.toContain("这轮 `0.1.1`");
     expect(readme.indexOf("npm install --global ./codex-auto-memory-<version>.tgz")).toBeLessThan(
       readme.indexOf("pnpm install")
     );
-    expect(readmeEn).toContain("The package name is not publicly available on npm yet");
+    expect(readmeEn).not.toContain("0.1.1 release readiness");
+    expect(readmeEn).not.toContain("not publicly available on npm yet");
     expect(readmeEn).toContain("GitHub Release tarball");
     expect(readmeEn).toContain("[Documentation hub (English)](./docs/README.en.md)");
-    expect(readmeJa).toContain("まだ npm registry で公開されていない");
+    expect(readmeJa).not.toContain("今回の `0.1.1`");
     expect(readmeJa).toContain("[ドキュメントハブ（日本語）](./docs/README.ja.md)");
-    expect(readmeTw).toContain("目前還沒有公開出現在 npm registry");
+    expect(readmeTw).not.toContain("這輪 `0.1.1`");
     expect(readmeTw).toContain("[文件中心（繁體中文）](./docs/README.zh-TW.md)");
 
     for (const docsHub of [docsReadme, docsReadmeEn, docsReadmeJa, docsReadmeTw]) {
@@ -93,6 +96,8 @@ describe("docs contract", () => {
     expect(security).toContain("opensource@lnzai.com");
     expect(codeOfConduct).toContain("Expected behavior");
     expect(codeOfConduct).toContain("SUPPORT.md");
+    expect(changelog).toContain("# Changelog");
+    expect(changelog).toContain("## 0.1.1");
     expect(license).toContain("APPENDIX: How to apply the Apache License to your work.");
     expect(issueConfig).toContain("blank_issues_enabled: false");
     expect(issueConfig).toContain("Security Policy");
@@ -109,6 +114,7 @@ describe("docs contract", () => {
         "README.zh-TW.md",
         "README.en.md",
         "README.ja.md",
+        "CHANGELOG.md",
         "SUPPORT.md",
         "SECURITY.md",
         "CODE_OF_CONDUCT.md",
@@ -130,12 +136,21 @@ describe("docs contract", () => {
     expect(ciWorkflow).toContain("Install Smoke");
     expect(ciWorkflow).toContain("pnpm test:tarball-install-smoke");
     expect(ciWorkflow).toContain("pnpm verify:ci");
+    expect(releaseWorkflow).toContain("Preflight npm release");
+    expect(releaseWorkflow).toContain("npm whoami");
+    expect(releaseWorkflow).not.toContain("Detect npm publish availability");
     expect(releaseWorkflow).toContain("tarball_path=");
     expect(releaseWorkflow).toContain(
       'npm publish --provenance --access public "${{ steps.pack.outputs.tarball_path }}"'
     );
     expect(releaseWorkflow).toContain(
       'gh release create "${GITHUB_REF_NAME}" "${{ steps.pack.outputs.tarball_path }}"'
+    );
+    expect(releaseChecklist).toContain("GitHub Actions `NPM_TOKEN` secret");
+    expect(releaseChecklist).toContain("manual fallback");
+    expect(releaseChecklist).not.toContain("Until `codex-auto-memory` is publicly available on npm");
+    expect(releaseChecklist).not.toContain(
+      "If `NPM_TOKEN` is absent, the workflow should still complete the GitHub Release path"
     );
   });
 
@@ -171,6 +186,7 @@ describe("docs contract", () => {
 
     expect(contributing).toContain("pnpm test:docs-contract");
     expect(contributing).toContain("pnpm test:dist-cli-smoke");
+    expect(contributing).not.toContain("bilingual public-doc setup");
     expect(registerCommands).toContain("Manage the local bridge / fallback helper bundle");
     expect(registerCommands).toContain("Start Codex through the wrapper");
   });
