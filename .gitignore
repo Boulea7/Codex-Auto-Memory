@@ -4,6 +4,7 @@ coverage/
 .tmp/
 .worktrees/
 .release-artifacts/
+.pnpm-store/
 
 # Sensitive files
 .env
