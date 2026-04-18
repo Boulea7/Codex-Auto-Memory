@@ -98,7 +98,9 @@ describe("docs contract", () => {
       ])
     );
     expect(packageJson.publishConfig?.access).toBe("public");
+    expect(packageJson.scripts["pack:check"]).toContain(".tmp/npm-cache");
     expect(packageJson.scripts["pack:release"]).toContain(".release-artifacts");
+    expect(packageJson.scripts["pack:release"]).toContain(".tmp/npm-cache");
     expect(packageJson.scripts["test:coverage"]).toContain("--coverage");
     expect(packageJson.scripts["test:dist-cli-smoke:only"]).toContain("test/dist-cli-smoke.test.ts");
     expect(packageJson.scripts["verify:smoke-release"]).toContain("pnpm test:tarball-install-smoke");

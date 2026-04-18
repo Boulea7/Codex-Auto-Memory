@@ -1157,6 +1157,7 @@ describe("integrations command", () => {
   });
 
   it("returns blocked without touching MCP, hooks, or skills when AGENTS apply blocks after a safe preflight", async () => {
+    const homeDir = await tempDir("cam-integrations-apply-late-block-home-");
     const projectDir = await tempDir("cam-integrations-apply-late-block-project-");
     const realProjectDir = await fs.realpath(projectDir);
 
@@ -1232,7 +1233,8 @@ describe("integrations command", () => {
       await runIntegrationsApply({
         cwd: realProjectDir,
         host: "codex",
-        json: true
+        json: true,
+        homeDir
       })
     ) as {
       stackAction: string;

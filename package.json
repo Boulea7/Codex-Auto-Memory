@@ -28,8 +28,8 @@
     "clean": "rimraf dist coverage .tmp",
     "dev": "tsx src/cli.ts",
     "lint": "tsc --noEmit -p tsconfig.json",
-    "pack:check": "npm pack --dry-run",
-    "pack:release": "rimraf .release-artifacts && node -e \"require('node:fs').mkdirSync('.release-artifacts', { recursive: true })\" && npm pack --pack-destination .release-artifacts",
+    "pack:check": "npm pack --dry-run --cache .tmp/npm-cache",
+    "pack:release": "rimraf .release-artifacts && node -e \"require('node:fs').mkdirSync('.release-artifacts', { recursive: true })\" && npm pack --pack-destination .release-artifacts --cache .tmp/npm-cache",
     "prepack": "pnpm build",
     "test": "node --max-old-space-size=6144 ./node_modules/vitest/vitest.mjs run --exclude test/dist-cli-smoke.test.ts --exclude test/tarball-install-smoke.test.ts",
     "test:coverage": "node --max-old-space-size=6144 ./node_modules/vitest/vitest.mjs run --coverage --exclude test/dist-cli-smoke.test.ts --exclude test/tarball-install-smoke.test.ts",
@@ -75,7 +75,7 @@
     "@vitest/coverage-v8": "^3.2.4",
     "rimraf": "^6.0.1",
     "tsx": "^4.20.3",
-    "typescript": "^5.8.3",
+    "typescript": "^6.0.2",
     "vitest": "^3.2.4"
   }
 }
