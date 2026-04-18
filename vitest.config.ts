@@ -3,14 +3,10 @@ import { configDefaults, defineConfig } from "vitest/config";
 export default defineConfig({
   test: {
     exclude: [...configDefaults.exclude, "**/.worktrees/**", "**/worktrees/**"],
+    execArgv: ["--max-old-space-size=6144"],
     fileParallelism: false,
     hookTimeout: 60_000,
-    testTimeout: 60_000,
-    poolOptions: {
-      forks: {
-        execArgv: ["--max-old-space-size=6144"]
-      }
-    }
+    testTimeout: 60_000
   },
   coverage: {
     provider: "v8",
