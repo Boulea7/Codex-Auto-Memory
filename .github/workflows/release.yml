@@ -102,18 +102,6 @@ jobs:
           echo "package_name=${PACKAGE_NAME}" >> "$GITHUB_OUTPUT"
           echo "package_version=${PACKAGE_VERSION}" >> "$GITHUB_OUTPUT"
 
-          if [ -z "$NODE_AUTH_TOKEN" ]; then
-            {
-              echo "## npm publish is not configured"
-              echo
-              echo "Set the repository \`NPM_TOKEN\` secret before tagging when you want the automated release path."
-              echo "If you need to proceed manually, publish \`${{ steps.pack.outputs.tarball_path }}\` from an authenticated maintainer machine first, then rerun the release workflow."
-            } >> "$GITHUB_STEP_SUMMARY"
-            exit 1
-          fi
-
-          npm whoami
-
           if npm view "${PACKAGE_NAME}@${PACKAGE_VERSION}" version --registry https://registry.npmjs.org >/tmp/npm-version.txt 2>/tmp/npm-version.err; then
             echo "publish_mode=already-published" >> "$GITHUB_OUTPUT"
             {
@@ -129,6 +117,18 @@ jobs:
             cat /tmp/npm-version.err >&2
             exit 1
           fi
+
+          if [ -z "$NODE_AUTH_TOKEN" ]; then
+            {
+              echo "## npm publish is not configured"
+              echo
+              echo "Set the repository \`NPM_TOKEN\` secret before tagging when you want the automated release path."
+              echo "If you need to proceed manually, publish \`${{ steps.pack.outputs.tarball_path }}\` from an authenticated maintainer machine first, then rerun the release workflow."
+            } >> "$GITHUB_STEP_SUMMARY"
+            exit 1
+          fi
+
+          npm whoami
 
           if npm view "${PACKAGE_NAME}" name --registry https://registry.npmjs.org >/tmp/npm-package.txt 2>/tmp/npm-package.err; then
             npm access list packages --json >/tmp/npm-access.json
@@ -165,6 +165,12 @@ jobs:
           cat /tmp/npm-package.err >&2
           exit 1
 
+      - name: Publish to npm
+        if: ${{ steps.npm_preflight.outputs.publish_mode == 'publish' }}
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: npm publish --provenance --access public "${{ steps.pack.outputs.tarball_path }}"
+
       - name: Publish GitHub Release asset
         env:
           GH_TOKEN: ${{ github.token }}
@@ -174,9 +180,3 @@ jobs:
           else
             gh release create "${GITHUB_REF_NAME}" "${{ steps.pack.outputs.tarball_path }}" --generate-notes --verify-tag
           fi
-
-      - name: Publish to npm
-        if: ${{ steps.npm_preflight.outputs.publish_mode == 'publish' }}
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
-        run: npm publish --provenance --access public "${{ steps.pack.outputs.tarball_path }}"
