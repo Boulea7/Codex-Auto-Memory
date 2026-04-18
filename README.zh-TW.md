@@ -1,16 +1,16 @@
 # Codex Auto Memory
 
-> 面向 Codex 的 Markdown-first 本地記憶運行層。
+> 讓 Codex 在後續會話裡延續專案上下文，同時把記憶保留在你能直接查看與編輯的 Markdown 中。
 
 [简体中文](./README.md) | [繁體中文](./README.zh-TW.md) | [English](./README.en.md) | [日本語](./README.ja.md)
 
-`codex-auto-memory` 以本地 Markdown 保存 durable memory，並把 session continuity、reviewer surface、MCP / hooks / skills 整合到同一條可審計工作流中。它適合希望讓 Codex 在跨會話協作裡保留專案上下文、偏好與決策線索，但又不想把 canonical truth 搬進資料庫的團隊。
+`codex-auto-memory` 讓 Codex 在跨會話協作裡繼續帶著專案上下文、偏好與關鍵決策工作，同時把 `MEMORY.md`、topic files 與相關檢查入口保留在本地。你不需要額外資料庫，也不必把「記憶」交給看不見的黑盒。
 
 ## 為什麼用它
 
 - 從 Codex 會話中提取未來仍然有用的知識，並在後續會話中帶回來。
-- 讓 `MEMORY.md` 與 topic files 保持可讀、可改、可審計，而不是把真相藏進資料庫。
-- 在 wrapper、CLI、MCP、skills、hooks 之間維持同一套 reviewer-friendly memory contract。
+- 讓 `MEMORY.md` 與 topic files 保持可讀、可改、可審計。
+- 透過 `cam memory`、`cam recall`、`cam session` 先檢查要帶回工作流的內容。
 
 ## 安裝前提
 
@@ -19,9 +19,17 @@
 
 ## 安裝
 
+### npm
+
+這是最省事的安裝方式：
+
+```bash
+npm install --global codex-auto-memory
+```
+
 ### GitHub Release tarball
 
-這是目前預設的打包安裝路徑。
+如果你想安裝指定版本的打包產物，使用 GitHub Release tarball：
 
 ```bash
 curl -LO https://github.com/Boulea7/Codex-Auto-Memory/releases/download/v<version>/codex-auto-memory-<version>.tgz
@@ -30,21 +38,13 @@ npm install --global ./codex-auto-memory-<version>.tgz
 
 ### 原始碼安裝並建構
 
+如果你要修改原始碼，或想直接從倉庫本地執行：
+
 ```bash
 pnpm install
 pnpm build
 pnpm link --global
 ```
-
-### npm
-
-首次公開 npm 發佈之後才能使用：
-
-```bash
-npm install --global codex-auto-memory
-```
-
-`codex-auto-memory` 這個套件名稱目前還沒有公開出現在 npm registry，所以現在正確可用的安裝路徑仍是 GitHub Release tarball 或原始碼安裝。release workflow 會保留未來的 npm publish 路線，但這輪 `0.1.1` 的公開安裝標準仍以 GitHub Release tarball 為準。
 
 ## 第一個命令
 
@@ -66,7 +66,7 @@ cam forget "<memory>" --archive
 ## 文件導航
 
 - [文件中心（繁體中文）](./docs/README.zh-TW.md)
-- [架構設計（简体中文）](./docs/architecture.md)
+- [架構概覽（English / 简体中文）](./docs/architecture.en.md)
 - [Session continuity（English）](./docs/session-continuity.md)
 - [Release checklist（English）](./docs/release-checklist.md)
 
@@ -79,7 +79,7 @@ cam forget "<memory>" --archive
 
 ## 當前狀態
 
-這個倉庫目前仍以 Codex-first、Markdown-first、wrapper-first 為主。更細的能力邊界、宿主差異與遷移說明，現在都收斂到文件中心，而不是堆在首頁。
+這個倉庫目前仍以 Codex-first、Markdown-first 的本地記憶工具為主。更細的整合邊界、宿主差異與遷移說明，現在都收在文件中心。
 
 ## 授權
 

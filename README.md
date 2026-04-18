@@ -1,16 +1,16 @@
 # Codex Auto Memory
 
-> 面向 Codex 的 Markdown-first 本地记忆运行层。
+> 让 Codex 在后续会话里延续项目上下文，同时把记忆保留在你能直接查看和编辑的 Markdown 里。
 
 [简体中文](./README.md) | [繁體中文](./README.zh-TW.md) | [English](./README.en.md) | [日本語](./README.ja.md)
 
-`codex-auto-memory` 用本地 Markdown 保存 durable memory，把 session continuity、reviewer surface、MCP / hooks / skills 接到同一条可审计工作流里。它适合想让 Codex 在跨会话协作里保留项目上下文、偏好和决策线索，但又不想把真相藏进数据库的团队。
+`codex-auto-memory` 让 Codex 在跨会话协作里继续带着项目上下文、偏好和关键决策工作，同时保持 `MEMORY.md`、topic files 和相关检查入口都在本地。你不需要额外的数据库，也不用把“记忆”交给一个看不见的黑盒。
 
 ## 为什么用它
 
 - 把未来仍然有用的信息从 Codex 会话里提取出来，并在后续会话里带回来。
-- 保持 `MEMORY.md` 与 topic files 作为可读、可改、可审计的主表面，而不是把真相藏进数据库。
-- 在 wrapper、CLI、MCP、skills、hooks 之间维持同一套 reviewer-friendly memory contract。
+- 保持 `MEMORY.md` 与 topic files 作为可读、可改、可审计的主表面。
+- 通过 `cam memory`、`cam recall`、`cam session` 这组命令，在把记忆带回工作流之前先检查它。
 
 ## 安装前提
 
@@ -19,9 +19,17 @@
 
 ## 安装
 
+### npm
+
+这是最省事的安装路径：
+
+```bash
+npm install --global codex-auto-memory
+```
+
 ### GitHub Release tarball
 
-这是当前默认的打包安装路径。
+如果你想安装指定版本的打包产物，使用 GitHub Release tarball：
 
 ```bash
 curl -LO https://github.com/Boulea7/Codex-Auto-Memory/releases/download/v<version>/codex-auto-memory-<version>.tgz
@@ -30,21 +38,13 @@ npm install --global ./codex-auto-memory-<version>.tgz
 
 ### 源码安装并构建
 
+如果你要改源码，或者想直接从仓库本地运行：
+
 ```bash
 pnpm install
 pnpm build
 pnpm link --global
 ```
-
-### npm
-
-首次公开 npm 发布之后再使用：
-
-```bash
-npm install --global codex-auto-memory
-```
-
-当前 `codex-auto-memory` 这个包名当前还没有公开出现在 npm registry，所以现在真实可用的安装路径仍然是 GitHub Release tarball 或源码安装。release workflow 会继续保留 npm publish 路径，但这轮 `0.1.1` 的公开安装标准仍以 GitHub Release tarball 为准。
 
 ## 第一个命令
 
@@ -63,7 +63,7 @@ cam remember "<memory>"
 cam forget "<memory>" --archive
 ```
 
-## 文档导航
+## 文档
 
 - [文档中心（简体中文）](./docs/README.md)
 - [架构设计（简体中文）](./docs/architecture.md)
@@ -79,7 +79,7 @@ cam forget "<memory>" --archive
 
 ## 当前状态
 
-仓库目前仍以 Codex-first、Markdown-first、wrapper-first 为主。更细的能力边界、宿主差异、集成策略和迁移说明已经收敛到文档中心，不再堆在首页。
+项目目前仍然是 Codex-first、Markdown-first 的本地记忆工具。更细的集成边界、宿主差异和迁移说明都放在文档中心。
 
 ## 许可
 

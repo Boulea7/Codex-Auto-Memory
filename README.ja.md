@@ -1,16 +1,16 @@
 # Codex Auto Memory
 
-> Codex 向けの Markdown-first ローカル memory runtime。
+> Codex が次の会話でもプロジェクト文脈を持ち続けられるようにしつつ、記憶は手元の Markdown に残します。
 
 [简体中文](./README.md) | [繁體中文](./README.zh-TW.md) | [English](./README.en.md) | [日本語](./README.ja.md)
 
-`codex-auto-memory` は、durable memory をローカル Markdown に保存し、session continuity、reviewer surface、MCP / hooks / skills の統合を 1 つの監査可能な workflow にまとめます。Codex にプロジェクト文脈を跨会話で持たせたいが、canonical source of truth を database に移したくない場面向けです。
+`codex-auto-memory` は、Codex がプロジェクト文脈、好み、重要な判断を会話をまたいで引き継げるようにしつつ、`MEMORY.md` や topic files をローカルに残します。追加サービスや database に頼らず、チーム自身で読んで直せる形を保ちたいときのためのツールです。
 
 ## 使う理由
 
 - Codex セッションから将来も使える知識を抽出し、次の会話へ戻せます。
-- `MEMORY.md` と topic files を、読めて編集できる source of truth として維持します。
-- wrapper、CLI、MCP、skills、hooks のあいだで同じ reviewer-friendly な memory contract を保ちます。
+- `MEMORY.md` と topic files を、読めて編集できる source file として維持します。
+- `cam memory`、`cam recall`、`cam session` で、日々の作業に戻す前に内容を確認できます。
 
 ## 前提
 
@@ -19,9 +19,17 @@
 
 ## Install
 
+### npm
+
+これが最短の install path です。
+
+```bash
+npm install --global codex-auto-memory
+```
+
 ### GitHub Release tarball
 
-今の標準 install path です。
+バージョンを固定した release artifact を入れたい場合はこちらです。
 
 ```bash
 curl -LO https://github.com/Boulea7/Codex-Auto-Memory/releases/download/v<version>/codex-auto-memory-<version>.tgz
@@ -30,21 +38,13 @@ npm install --global ./codex-auto-memory-<version>.tgz
 
 ### Build from source
 
+リポジトリ自体を触る場合やローカル実行をしたい場合はこちらです。
+
 ```bash
 pnpm install
 pnpm build
 pnpm link --global
 ```
-
-### npm
-
-最初の公開 npm release 後に使用します。
-
-```bash
-npm install --global codex-auto-memory
-```
-
-`codex-auto-memory` はまだ npm registry で公開されていないため、今の install path は GitHub Release tarball か source install が正しい案内です。release workflow には将来の npm publish も残していますが、今回の `0.1.1` は GitHub Release tarball を公開 install の基準にします。
 
 ## 最初のコマンド
 
@@ -66,7 +66,7 @@ cam forget "<memory>" --archive
 ## ドキュメント
 
 - [ドキュメントハブ（日本語）](./docs/README.ja.md)
-- [Architecture (English)](./docs/architecture.en.md)
+- [Architecture overview (English)](./docs/architecture.en.md)
 - [Session continuity (English)](./docs/session-continuity.md)
 - [Release checklist (English)](./docs/release-checklist.md)
 
@@ -79,7 +79,7 @@ cam forget "<memory>" --archive
 
 ## 現在の位置づけ
 
-このリポジトリは引き続き Codex-first、Markdown-first、wrapper-first です。詳細な能力境界、宿主差分、移行メモは landing page ではなく documentation hub にまとめています。
+このリポジトリは引き続き Codex-first、Markdown-first のローカル memory tool です。詳細な統合境界、ホスト差分、移行メモは documentation hub にまとめています。
 
 ## ライセンス
 

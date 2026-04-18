@@ -2,21 +2,6 @@
 
 Thanks for helping build `codex-auto-memory`.
 
-## What we are building
-
-This project is not a generic note-taking tool. It is a Codex-first Hybrid memory runtime that currently delivers its strongest experience through the companion CLI and wrapper path while preserving a Markdown-first memory contract:
-
-- automatic memory capture after work
-- local Markdown storage
-- compact startup injection through `MEMORY.md`
-- topic files for detailed notes
-- worktree-aware repository memory sharing
-- temporary cross-session continuity through `cam session`
-- repository privacy auditing through `cam audit`
-- future hook / skill / MCP-aware integration surfaces that must preserve the same auditable memory semantics
-
-When proposing changes, evaluate them against that product contract first.
-
 ## Development Setup
 
 ```bash
@@ -35,6 +20,14 @@ Use Node 20+ and `pnpm`.
 
 `pnpm test` is the default source-level suite. Build-dependent release checks stay explicit in
 `pnpm test:dist-cli-smoke` and `pnpm test:tarball-install-smoke`.
+
+## What to optimize for
+
+`codex-auto-memory` is a Codex-first, Markdown-first local memory tool. Good changes usually make one of these things better without hiding behavior behind extra complexity:
+
+- carrying useful context across sessions
+- keeping memory files readable and editable
+- making review, recall, and release surfaces easier to trust
 
 ## Branch and PR expectations
 
@@ -86,11 +79,14 @@ If your change affects one of these areas, update the matching file:
 - integration direction and host boundaries: `docs/integration-strategy.md`, `docs/host-surfaces.md`
 - onboarding and positioning: `README.md` and `README.en.md`
 
-The repository now uses a bilingual public-doc setup:
+The repository now uses four public landing pages and four docs hubs:
 
 - `README.md` is the default Chinese landing page
+- `README.zh-TW.md` is the Traditional Chinese landing page
 - `README.en.md` is the English landing page
-- `docs/claude-reference.*`, `docs/architecture.*`, and `docs/native-migration.*` are maintained in both Chinese and English
+- `README.ja.md` is the Japanese landing page
+- `docs/README.md`, `docs/README.zh-TW.md`, `docs/README.en.md`, and `docs/README.ja.md` are the matching docs hubs
+- `docs/architecture.*` and `docs/native-migration.*` currently provide the deepest technical overview in Chinese and English
 - `docs/session-continuity.md` and `docs/release-checklist.md` are English-first maintainer/reviewer docs and should still be updated when reviewer surfaces or command contracts change
 - `docs/integration-strategy.md` and `docs/host-surfaces.md` are currently Chinese-first strategy docs and should be kept aligned with the public README posture
 

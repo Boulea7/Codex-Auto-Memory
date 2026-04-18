@@ -2,7 +2,7 @@
 
 [简体中文](./README.md) | [繁體中文](./README.zh-TW.md) | [English](./README.en.md) | [日本語](./README.ja.md)
 
-這一頁只做導航，不重複首頁內容。README 負責讓新讀者快速理解專案，這裡負責把你送到對應深度的文件。
+依照你現在要做的事選入口即可。
 
 ## 從這裡開始
 
@@ -10,7 +10,7 @@
 
 - [繁體中文 landing page](../README.zh-TW.md)
 - [繁體中文 docs hub](./README.zh-TW.md)
-- [架構設計（简体中文）](./architecture.md)
+- [技術概覽（English / 简体中文）](./architecture.en.md)
 
 ### 需要落地或維護
 
@@ -49,3 +49,4 @@
 - landing README 現在提供四種語言。
 - docs hub 也提供四種語言入口。
 - 詳細設計文件尚未做到四語全覆蓋，所以索引表會直接標出每篇文件目前可用的語言。
+- 如果你只想先抓閱讀順序，先看上面的「從這裡開始」。

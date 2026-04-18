@@ -11,9 +11,9 @@ Use this checklist before cutting any alpha or beta release of `codex-auto-memor
   - `docs/architecture.md` and `docs/architecture.en.md`
   - `docs/native-migration.md` and `docs/native-migration.en.md`
 - Confirm the landing pages still present install routes truthfully:
-  - GitHub Release tarball remains the default packaged install path
+  - GitHub Release tarball remains available as the versioned artifact install path
   - source install remains available as the heavier setup path
-  - `npm install --global codex-auto-memory` is labeled as the post-publish route, not as a currently guaranteed path while the package is absent from npm
+  - `npm install --global codex-auto-memory` is described without time-limited release commentary that would go stale after publication
 - Confirm non-Chinese entry pages do not send first-time readers into Chinese-only documents without labeling those links as Chinese.
 - Confirm every landing page states `Node 20+`, and that source-install guidance also names `pnpm` explicitly.
 - Confirm `docs/native-migration.md` still matches the current compatibility seams in code.
@@ -260,5 +260,7 @@ Do not tag a release unless:
 - A pushed `v*` tag is intended to run the GitHub Release workflow.
 - The workflow verifies `GITHUB_REF_NAME === v${package.json.version}`, runs `pnpm verify:release`, calls `pnpm pack:release`, and uses that same tarball for both the GitHub Release attachment and `npm publish`.
 - Before the first real tag validation, confirm that the remote default branch exposes `release.yml` in Actions and that the workflow is active.
-- If `NPM_TOKEN` is absent, the workflow should still complete the GitHub Release path and skip npm publish cleanly.
-- Until `codex-auto-memory` is publicly available on npm, keep README install guidance centered on source install and the GitHub Release tarball.
+- For the GitHub Actions path, confirm the repository GitHub Actions `NPM_TOKEN` secret exists before you create the release tag. A missing secret should be treated as a stop signal, not as permission to ship only the GitHub Release artifact.
+- Run a registry preflight before any public release action: confirm `npm whoami` succeeds with the release token, confirm the target version is not already published, and confirm the package name does not resolve to an unexpected existing package owner.
+- Keep a manual fallback ready for the same release commit: if Actions cannot publish to npm, publish the exact `pnpm pack:release` tarball from a locally authenticated maintainer machine before creating or re-running the public GitHub Release step.
+- If you use the manual fallback, record that route in the release notes or handoff so the publication path remains auditable.

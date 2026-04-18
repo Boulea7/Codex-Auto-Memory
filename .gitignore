@@ -30,7 +30,6 @@ AI_REVIEW.local.md
 
 # Internal AI / review artifacts should stay local-only
 AGENTS.md
-CHANGELOG.md
 docs/progress-log.md
 docs/review-guide.md
 docs/reviewer-handoff.md

@@ -92,16 +92,84 @@ jobs:
           echo "tarball=${TARBALL}" >> "$GITHUB_OUTPUT"
           echo "tarball_path=.release-artifacts/${TARBALL}" >> "$GITHUB_OUTPUT"
 
-      - name: Detect npm publish availability
-        id: npm_publish
+      - name: Preflight npm release
+        id: npm_preflight
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
         run: |
-          if [ -n "$NODE_AUTH_TOKEN" ]; then
-            echo "has_token=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "has_token=false" >> "$GITHUB_OUTPUT"
+          PACKAGE_NAME=$(node -p "require('./package.json').name")
+          PACKAGE_VERSION=$(node -p "require('./package.json').version")
+          echo "package_name=${PACKAGE_NAME}" >> "$GITHUB_OUTPUT"
+          echo "package_version=${PACKAGE_VERSION}" >> "$GITHUB_OUTPUT"
+
+          if npm view "${PACKAGE_NAME}@${PACKAGE_VERSION}" version --registry https://registry.npmjs.org >/tmp/npm-version.txt 2>/tmp/npm-version.err; then
+            echo "publish_mode=already-published" >> "$GITHUB_OUTPUT"
+            {
+              echo "## npm release status"
+              echo
+              echo "- \`${PACKAGE_NAME}@${PACKAGE_VERSION}\` is already published on npm."
+              echo "- The workflow will skip \`npm publish\` and continue with the GitHub Release artifact."
+            } >> "$GITHUB_STEP_SUMMARY"
+            exit 0
           fi
+
+          if ! grep -qi "E404" /tmp/npm-version.err; then
+            cat /tmp/npm-version.err >&2
+            exit 1
+          fi
+
+          if [ -z "$NODE_AUTH_TOKEN" ]; then
+            {
+              echo "## npm publish is not configured"
+              echo
+              echo "Set the repository \`NPM_TOKEN\` secret before tagging when you want the automated release path."
+              echo "If you need to proceed manually, publish \`${{ steps.pack.outputs.tarball_path }}\` from an authenticated maintainer machine first, then rerun the release workflow."
+            } >> "$GITHUB_STEP_SUMMARY"
+            exit 1
+          fi
+
+          npm whoami
+
+          if npm view "${PACKAGE_NAME}" name --registry https://registry.npmjs.org >/tmp/npm-package.txt 2>/tmp/npm-package.err; then
+            npm access list packages --json >/tmp/npm-access.json
+            PACKAGE_NAME="${PACKAGE_NAME}" node -e '
+              const fs = require("node:fs");
+              const packageName = process.env.PACKAGE_NAME;
+              const access = JSON.parse(fs.readFileSync("/tmp/npm-access.json", "utf8"));
+              if (!(packageName in access)) {
+                console.error(`Package ${packageName} already exists on npm and is not publishable with the current token.`);
+                process.exit(1);
+              }
+            '
+            echo "publish_mode=publish" >> "$GITHUB_OUTPUT"
+            {
+              echo "## npm release status"
+              echo
+              echo "- \`${PACKAGE_NAME}\` already exists on npm."
+              echo "- The current token can publish the new version \`${PACKAGE_VERSION}\`."
+            } >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+
+          if grep -qi "E404" /tmp/npm-package.err; then
+            echo "publish_mode=publish" >> "$GITHUB_OUTPUT"
+            {
+              echo "## npm release status"
+              echo
+              echo "- \`${PACKAGE_NAME}\` is not present on npm yet."
+              echo "- The workflow will treat this as a first publish for version \`${PACKAGE_VERSION}\`."
+            } >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+
+          cat /tmp/npm-package.err >&2
+          exit 1
+
+      - name: Publish to npm
+        if: ${{ steps.npm_preflight.outputs.publish_mode == 'publish' }}
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: npm publish --provenance --access public "${{ steps.pack.outputs.tarball_path }}"
 
       - name: Publish GitHub Release asset
         env:
@@ -112,9 +180,3 @@ jobs:
           else
             gh release create "${GITHUB_REF_NAME}" "${{ steps.pack.outputs.tarball_path }}" --generate-notes --verify-tag
           fi
-
-      - name: Publish to npm
-        if: ${{ steps.npm_publish.outputs.has_token == 'true' }}
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
-        run: npm publish --provenance --access public "${{ steps.pack.outputs.tarball_path }}"

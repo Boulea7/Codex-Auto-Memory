@@ -2,7 +2,7 @@
 
 [简体中文](./README.md) | [繁體中文](./README.zh-TW.md) | [English](./README.en.md) | [日本語](./README.ja.md)
 
-このページは案内用です。README は最初の理解用、ここは必要な詳細へ進むための入口です。
+今の作業に合う入口をここから選べます。
 
 ## 先に読むもの
 
@@ -10,7 +10,7 @@
 
 - [日本語 landing page](../README.ja.md)
 - [日本語 docs hub](./README.ja.md)
-- [Architecture (English)](./architecture.en.md)
+- [Architecture overview (English)](./architecture.en.md)
 
 ### 実装や保守をする場合
 
@@ -49,3 +49,4 @@
 - landing README は 4 言語あります。
 - docs hub も 4 言語の入口を用意しました。
 - 詳細ドキュメントはまだ完全翻訳ではないため、この一覧で利用可能な言語を明示しています。
+- 読み順だけ決めたい場合は、まず上の「先に読むもの」を見てください。
