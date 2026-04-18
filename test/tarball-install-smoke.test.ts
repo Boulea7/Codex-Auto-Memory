@@ -83,6 +83,60 @@ function isolatedEnv(homeDir: string): NodeJS.ProcessEnv {
   return createIsolatedCliEnv(homeDir);
 }
 
+function expectWorkflowContractCore(
+  workflowContract: unknown,
+  projectRoot: string
+): void {
+  expect(workflowContract).toMatchObject({
+    recommendedPreset: "state=auto, limit=8",
+    preferredRoute: "mcp-first",
+    fallbackOrder: ["mcp", "local-bridge", "resolved-cli"],
+    launcher: {
+      commandName: "cam",
+      requiresPathResolution: true,
+      hookHelpersShellOnly: true
+    },
+    routePreference: {
+      preferredRoute: "mcp-first",
+      localBridge:
+        "If the retrieval MCP server is unavailable, fall back to the local recall bridge bundle through memory-recall.sh search|timeline|details.",
+      resolvedCli:
+        "If the local bridge bundle is unavailable, fall back to the resolved CLI recall commands."
+    },
+    recallWorkflow: {
+      progressiveDisclosure: "Use progressive disclosure: search -> timeline -> details."
+    },
+    executionContract: {
+      preferredRoute: "mcp-first",
+      recommendedPreset: "state=auto, limit=8",
+      fallbackOrder: ["mcp", "local-bridge", "resolved-cli"]
+    },
+    modelGuidanceContract: {
+      progressiveDisclosure: "Use progressive disclosure: search -> timeline -> details."
+    },
+    hostWiringContract: {
+      launcher: {
+        commandName: "cam",
+        requiresPathResolution: true,
+        hookHelpersShellOnly: true
+      }
+    },
+    cliFallback: {
+      searchCommand: `cam recall search "<query>" --state auto --limit 8 --cwd '${projectRoot}'`,
+      timelineCommand: `cam recall timeline "<ref>" --cwd '${projectRoot}'`,
+      detailsCommand: `cam recall details "<ref>" --cwd '${projectRoot}'`,
+      requiresCamOnPath: true
+    },
+    postWorkSyncReview: {
+      helperScript: "post-work-memory-review.sh",
+      syncCommand: `cam sync --cwd '${projectRoot}'`,
+      reviewCommand: `cam memory --recent --cwd '${projectRoot}'`,
+      shellOnly: true,
+      requiresCamOnPath: true
+    }
+  });
+}
+
 function subagentRolloutFixture(
   projectDir: string,
   message: string,
@@ -174,6 +228,36 @@ describe("tarball install smoke", () => {
       ...env,
       PATH: `${path.join(installDir, "node_modules", ".bin")}${path.delimiter}${env.PATH ?? ""}`
     };
+
+    const initProjectDir = await tempDir("cam-tarball-init-project-");
+    const initCallerDir = await tempDir("cam-tarball-init-caller-");
+    const realInitProjectDir = await fs.realpath(initProjectDir);
+
+    const initCamResult = runCommandCapture(camBinaryPath(installDir), ["init"], initProjectDir, envWithBin);
+    expect(initCamResult.exitCode, initCamResult.stderr).toBe(0);
+    expect(initCamResult.stdout).toContain(`Initialized Codex Auto Memory in ${realInitProjectDir}`);
+    expect(await fs.readFile(path.join(realInitProjectDir, "codex-auto-memory.json"), "utf8")).toContain(
+      '"defaultScope": "project"'
+    );
+    expect(
+      await fs.readFile(path.join(realInitProjectDir, ".codex-auto-memory.local.json"), "utf8")
+    ).toContain('"autoMemoryEnabled": true');
+
+    await fs.writeFile(path.join(realInitProjectDir, "codex-auto-memory.json"), "{ invalid", "utf8");
+
+    const forceInitCamResult = runCommandCapture(
+      camBinaryPath(installDir),
+      ["init", "--cwd", initProjectDir, "--force"],
+      initCallerDir,
+      envWithBin
+    );
+    expect(forceInitCamResult.exitCode, forceInitCamResult.stderr).toBe(0);
+    expect(forceInitCamResult.stdout).toContain(
+      `Project config: ${path.join(realInitProjectDir, "codex-auto-memory.json")}`
+    );
+    expect(await fs.readFile(path.join(realInitProjectDir, "codex-auto-memory.json"), "utf8")).toContain(
+      '"defaultScope": "project"'
+    );
 
     const sessionStatusResult = runCommandCapture(
       camBinaryPath(installDir),
@@ -1158,6 +1242,23 @@ describe("tarball install smoke", () => {
       targetFileHint: "Your MCP client's stdio server config"
     });
     expect(JSON.parse(genericPrintConfigResult.stdout).workflowContract).toBeUndefined();
+
+    const hooksJsonResult = runCommandCapture(
+      camBinaryPath(installDir),
+      ["hooks", "install", "--cwd", installDir, "--json"],
+      installDir,
+      envWithBin
+    );
+    expect(hooksJsonResult.exitCode, hooksJsonResult.stderr).toBe(0);
+
+    const skillsJsonResult = runCommandCapture(
+      camBinaryPath(installDir),
+      ["skills", "install", "--cwd", installDir, "--json"],
+      installDir,
+      envWithBin
+    );
+    expect(skillsJsonResult.exitCode, skillsJsonResult.stderr).toBe(0);
+
     const applyGuidanceResult = runCommandCapture(
       camBinaryPath(installDir),
       ["mcp", "apply-guidance", "--host", "codex", "--json"],
@@ -1591,6 +1692,40 @@ describe("tarball install smoke", () => {
       }
     });
 
+    const codexPrintConfigPinnedResult = runCommandCapture(
+      camBinaryPath(installDir),
+      ["mcp", "print-config", "--host", "codex", "--cwd", installDir, "--json"],
+      installDir,
+      envWithBin
+    );
+    expect(codexPrintConfigPinnedResult.exitCode, codexPrintConfigPinnedResult.stderr).toBe(0);
+
+    const mcpDoctorPinnedResult = runCommandCapture(
+      camBinaryPath(installDir),
+      ["mcp", "doctor", "--host", "codex", "--cwd", installDir, "--json"],
+      installDir,
+      envWithBin
+    );
+    expect(mcpDoctorPinnedResult.exitCode, mcpDoctorPinnedResult.stderr).toBe(0);
+
+    const integrationsDoctorPinnedResult = runCommandCapture(
+      camBinaryPath(installDir),
+      ["integrations", "doctor", "--host", "codex", "--cwd", installDir, "--json"],
+      installDir,
+      envWithBin
+    );
+    expect(integrationsDoctorPinnedResult.exitCode, integrationsDoctorPinnedResult.stderr).toBe(0);
+
+    for (const workflowContract of [
+      JSON.parse(codexPrintConfigPinnedResult.stdout).workflowContract,
+      JSON.parse(integrationsDoctorPinnedResult.stdout).workflowContract,
+      JSON.parse(mcpDoctorPinnedResult.stdout).workflowContract,
+      JSON.parse(hooksJsonResult.stdout).workflowContract,
+      JSON.parse(skillsJsonResult.stdout).workflowContract
+    ]) {
+      expectWorkflowContractCore(workflowContract, realInstallDir);
+    }
+
     const blockedProjectDir = await tempDir("cam-tarball-blocked-project-");
     const realBlockedProjectDir = await fs.realpath(blockedProjectDir);
     await fs.writeFile(
@@ -1735,6 +1870,38 @@ describe("tarball install smoke", () => {
     expect(recallHelpResult.exitCode).toBe(0);
     expect(recallHelpResult.stdout).toContain("Search compact memory candidates without loading full details");
     expect(recallHelpResult.stdout).toContain("Limit memory state: active, archived, all, or auto");
+
+    const initHelpResult = runCommandCapture(
+      camBinaryPath(installDir),
+      ["init", "--help"],
+      installDir,
+      envWithBin
+    );
+    expect(initHelpResult.exitCode).toBe(0);
+    expect(initHelpResult.stdout).toContain("Initialize Codex Auto Memory in the current project");
+
+    const sessionStatusHelpResult = runCommandCapture(
+      camBinaryPath(installDir),
+      ["session", "status", "--help"],
+      installDir,
+      envWithBin
+    );
+    expect(sessionStatusHelpResult.exitCode).toBe(0);
+    expect(sessionStatusHelpResult.stdout).toContain(
+      "Inspect the current session continuity state without mutating memory layout"
+    );
+
+    const sessionLoadHelpResult = runCommandCapture(
+      camBinaryPath(installDir),
+      ["session", "load", "--help"],
+      installDir,
+      envWithBin
+    );
+    expect(sessionLoadHelpResult.exitCode).toBe(0);
+    expect(sessionLoadHelpResult.stdout).toContain(
+      "Load the current session continuity summary as a read-only inspection surface"
+    );
+    expect(sessionLoadHelpResult.stdout).toContain("Print the compiled startup continuity block");
 
     const dreamHelpResult = runCommandCapture(
       camBinaryPath(installDir),

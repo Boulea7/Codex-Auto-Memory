@@ -190,6 +190,7 @@ Use this checklist before cutting any alpha or beta release of `codex-auto-memor
 - Confirm `node dist/cli.js integrations doctor --host codex --json` also exposes additive skill-surface steering fields: `preferredSkillSurface`, `recommendedSkillInstallCommand`, `installedSkillSurfaces`, and `readySkillSurfaces`.
 - Confirm `workflowConsistency` wording in doctor surfaces now explicitly treats repo-level `AGENTS.md` guidance as part of the shared retrieval workflow contract, not just hooks/skills text.
 - Treat key `--help` output as release-facing contract, not incidental CLI text:
+  - `node dist/cli.js init --help` should keep the public init entrypoint discoverable for project bootstrap.
   - `node dist/cli.js dream --help` should keep the public dream reviewer lane discoverable, including `candidates`, `review`, `adopt`, `proposal`, `promote-prep`, `promote`, `apply-prep`, and `verify-apply`.
   - `node dist/cli.js dream candidates --help` should describe candidate listing rather than canonical memory mutation.
   - `node dist/cli.js dream review --help` should stay reviewer-oriented and sidecar-only.
@@ -203,6 +204,8 @@ Use this checklist before cutting any alpha or beta release of `codex-auto-memor
   - `node dist/cli.js mcp print-config --help` should keep the supported snippet-host list at `codex, claude, gemini, or generic`.
   - `node dist/cli.js mcp apply-guidance --help` should stay Codex-only and describe managed `AGENTS.md` updates.
   - `node dist/cli.js mcp doctor --help` should stay inspect-only and keep the host selection list at `codex, claude, gemini, generic, or all`.
+  - `node dist/cli.js session status --help` should explicitly describe a read-only inspection surface that does not mutate memory layout.
+  - `node dist/cli.js session load --help` should explicitly describe a read-only inspection surface and keep `--print-startup` discoverable.
   - `node dist/cli.js skills install --help` should keep the public skill surfaces aligned at `runtime, official-user, or official-project`.
   - `node dist/cli.js integrations install --help` should describe stack install without managed `AGENTS.md` mutation.
   - `node dist/cli.js integrations apply --help` should explicitly add the managed `AGENTS.md` guidance flow on top of install.
@@ -214,6 +217,7 @@ Use this checklist before cutting any alpha or beta release of `codex-auto-memor
 - Confirm continuity reviewer warnings stay in diagnostics / audit surfaces and are not written into continuity Markdown body text.
 - Run a local smoke flow:
   - `node dist/cli.js init`
+  - `node dist/cli.js init --cwd <path> --force`
   - `node dist/cli.js remember "..."`
   - `node dist/cli.js memory --cwd <path> --recent --print-startup`
   - `node dist/cli.js session status`

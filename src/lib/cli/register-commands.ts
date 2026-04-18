@@ -101,7 +101,7 @@ function registerSessionCommands(program: Command): void {
     addCwdOption(
       sessionCommand
         .command("status")
-        .description("Inspect current session continuity state"),
+        .description("Inspect the current session continuity state without mutating memory layout"),
       "Project directory to inspect session continuity for"
     )
   )
@@ -139,7 +139,7 @@ function registerSessionCommands(program: Command): void {
     addCwdOption(
       sessionCommand
         .command("load")
-        .description("Load current session continuity summary and, with --print-startup, inspect the structured continuity startup contract"),
+        .description("Load the current session continuity summary as a read-only inspection surface and, with --print-startup, inspect the structured continuity startup contract"),
       "Project directory to inspect session continuity for"
     )
   )

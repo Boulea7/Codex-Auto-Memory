@@ -108,6 +108,60 @@ function expectProvisionedSkillAction(action: unknown): void {
   expect(["created", "unchanged"]).toContain(action);
 }
 
+function expectWorkflowContractCore(
+  workflowContract: unknown,
+  projectRoot: string
+): void {
+  expect(workflowContract).toMatchObject({
+    recommendedPreset: "state=auto, limit=8",
+    preferredRoute: "mcp-first",
+    fallbackOrder: ["mcp", "local-bridge", "resolved-cli"],
+    launcher: {
+      commandName: "cam",
+      requiresPathResolution: true,
+      hookHelpersShellOnly: true
+    },
+    routePreference: {
+      preferredRoute: "mcp-first",
+      localBridge:
+        "If the retrieval MCP server is unavailable, fall back to the local recall bridge bundle through memory-recall.sh search|timeline|details.",
+      resolvedCli:
+        "If the local bridge bundle is unavailable, fall back to the resolved CLI recall commands."
+    },
+    recallWorkflow: {
+      progressiveDisclosure: "Use progressive disclosure: search -> timeline -> details."
+    },
+    executionContract: {
+      preferredRoute: "mcp-first",
+      recommendedPreset: "state=auto, limit=8",
+      fallbackOrder: ["mcp", "local-bridge", "resolved-cli"]
+    },
+    modelGuidanceContract: {
+      progressiveDisclosure: "Use progressive disclosure: search -> timeline -> details."
+    },
+    hostWiringContract: {
+      launcher: {
+        commandName: "cam",
+        requiresPathResolution: true,
+        hookHelpersShellOnly: true
+      }
+    },
+    cliFallback: {
+      searchCommand: `cam recall search "<query>" --state auto --limit 8 --cwd '${projectRoot}'`,
+      timelineCommand: `cam recall timeline "<ref>" --cwd '${projectRoot}'`,
+      detailsCommand: `cam recall details "<ref>" --cwd '${projectRoot}'`,
+      requiresCamOnPath: true
+    },
+    postWorkSyncReview: {
+      helperScript: "post-work-memory-review.sh",
+      syncCommand: `cam sync --cwd '${projectRoot}'`,
+      reviewCommand: `cam memory --recent --cwd '${projectRoot}'`,
+      shellOnly: true,
+      requiresCamOnPath: true
+    }
+  });
+}
+
 function subagentRolloutFixture(
   projectDir: string,
   message: string,
@@ -223,6 +277,38 @@ describe("dist cli smoke", () => {
         appServer: null
       }
     });
+  });
+
+  it("initializes projects from the compiled cli entrypoint and supports --cwd plus --force", async () => {
+    const homeDir = await tempDir("cam-dist-init-home-");
+    const initProjectDir = await tempDir("cam-dist-init-project-");
+    const callerDir = await tempDir("cam-dist-init-caller-");
+    const realInitProjectDir = await fs.realpath(initProjectDir);
+
+    const initResult = runCli(initProjectDir, ["init"], {
+      entrypoint: "dist",
+      env: { HOME: homeDir }
+    });
+    expect(initResult.exitCode, initResult.stderr).toBe(0);
+    expect(initResult.stdout).toContain(`Initialized Codex Auto Memory in ${realInitProjectDir}`);
+    expect(await fs.readFile(path.join(realInitProjectDir, "codex-auto-memory.json"), "utf8")).toContain(
+      '"defaultScope": "project"'
+    );
+    expect(
+      await fs.readFile(path.join(realInitProjectDir, ".codex-auto-memory.local.json"), "utf8")
+    ).toContain('"autoMemoryEnabled": true');
+
+    await fs.writeFile(path.join(realInitProjectDir, "codex-auto-memory.json"), "{ invalid", "utf8");
+
+    const forceResult = runCli(callerDir, ["init", "--cwd", initProjectDir, "--force"], {
+      entrypoint: "dist",
+      env: { HOME: homeDir }
+    });
+    expect(forceResult.exitCode, forceResult.stderr).toBe(0);
+    expect(forceResult.stdout).toContain(`Project config: ${path.join(realInitProjectDir, "codex-auto-memory.json")}`);
+    expect(await fs.readFile(path.join(realInitProjectDir, "codex-auto-memory.json"), "utf8")).toContain(
+      '"defaultScope": "project"'
+    );
   });
 
   it("serves reviewer json surfaces from the compiled cli entrypoint", async () => {
@@ -2784,6 +2870,63 @@ describe("dist cli smoke", () => {
     });
   });
 
+  it("keeps workflowContract parity across compiled release-facing json surfaces", async () => {
+    const homeDir = await tempDir("cam-dist-workflow-parity-home-");
+    const projectDir = await tempDir("cam-dist-workflow-parity-project-");
+    const callerDir = await tempDir("cam-dist-workflow-parity-caller-");
+    const realProjectDir = await fs.realpath(projectDir);
+    const env = { HOME: homeDir };
+
+    const printConfig = runCli(
+      callerDir,
+      ["mcp", "print-config", "--host", "codex", "--cwd", projectDir, "--json"],
+      {
+        entrypoint: "dist",
+        env
+      }
+    );
+    const mcpDoctor = runCli(
+      callerDir,
+      ["mcp", "doctor", "--host", "codex", "--cwd", projectDir, "--json"],
+      {
+        entrypoint: "dist",
+        env
+      }
+    );
+    const integrationsDoctor = runCli(
+      callerDir,
+      ["integrations", "doctor", "--host", "codex", "--cwd", projectDir, "--json"],
+      {
+        entrypoint: "dist",
+        env
+      }
+    );
+    const hooksInstall = runCli(callerDir, ["hooks", "install", "--cwd", projectDir, "--json"], {
+      entrypoint: "dist",
+      env
+    });
+    const skillsInstall = runCli(callerDir, ["skills", "install", "--cwd", projectDir, "--json"], {
+      entrypoint: "dist",
+      env
+    });
+
+    expect(printConfig.exitCode, printConfig.stderr).toBe(0);
+    expect(mcpDoctor.exitCode, mcpDoctor.stderr).toBe(0);
+    expect(integrationsDoctor.exitCode, integrationsDoctor.stderr).toBe(0);
+    expect(hooksInstall.exitCode, hooksInstall.stderr).toBe(0);
+    expect(skillsInstall.exitCode, skillsInstall.stderr).toBe(0);
+
+    for (const workflowContract of [
+      JSON.parse(printConfig.stdout).workflowContract,
+      JSON.parse(mcpDoctor.stdout).workflowContract,
+      JSON.parse(integrationsDoctor.stdout).workflowContract,
+      JSON.parse(hooksInstall.stdout).workflowContract,
+      JSON.parse(skillsInstall.stdout).workflowContract
+    ]) {
+      expectWorkflowContractCore(workflowContract, realProjectDir);
+    }
+  });
+
   it("fails closed for invalid --cwd on compiled integrations entrypoints", async () => {
     const homeDir = await tempDir("cam-dist-integrations-doctor-invalid-cwd-home-");
     const projectDir = await tempDir("cam-dist-integrations-doctor-invalid-cwd-project-");
@@ -3014,6 +3157,32 @@ fs.writeFileSync(${JSON.stringify(capturedArgsPath)}, JSON.stringify(process.arg
     expect(recallHelp.exitCode, recallHelp.stderr).toBe(0);
     expect(recallHelp.stdout).toContain("Search compact memory candidates without loading full details");
     expect(recallHelp.stdout).toContain("Limit memory state: active, archived, all, or auto");
+
+    const initHelp = runCli(projectDir, ["init", "--help"], {
+      entrypoint: "dist",
+      env
+    });
+    expect(initHelp.exitCode, initHelp.stderr).toBe(0);
+    expect(initHelp.stdout).toContain("Initialize Codex Auto Memory in the current project");
+
+    const sessionStatusHelp = runCli(projectDir, ["session", "status", "--help"], {
+      entrypoint: "dist",
+      env
+    });
+    expect(sessionStatusHelp.exitCode, sessionStatusHelp.stderr).toBe(0);
+    expect(sessionStatusHelp.stdout).toContain(
+      "Inspect the current session continuity state without mutating memory layout"
+    );
+
+    const sessionLoadHelp = runCli(projectDir, ["session", "load", "--help"], {
+      entrypoint: "dist",
+      env
+    });
+    expect(sessionLoadHelp.exitCode, sessionLoadHelp.stderr).toBe(0);
+    expect(sessionLoadHelp.stdout).toContain(
+      "Load the current session continuity summary as a read-only inspection surface"
+    );
+    expect(sessionLoadHelp.stdout).toContain("Print the compiled startup continuity block");
 
     const topLevelHelp = runCli(projectDir, ["--help"], {
       entrypoint: "dist",
