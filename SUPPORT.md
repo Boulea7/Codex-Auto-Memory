@@ -11,8 +11,8 @@
 | Need | Best route |
 | :-- | :-- |
 | product overview or setup guidance | one of the localized README entry pages plus the corresponding docs hub |
-| reproducible defect | use the bug report issue template |
-| feature or workflow request | use the feature request issue template |
+| reproducible defect | use the issue chooser at `https://github.com/Boulea7/Codex-Auto-Memory/issues/new/choose` |
+| feature or workflow request | use the issue chooser at `https://github.com/Boulea7/Codex-Auto-Memory/issues/new/choose` |
 | vulnerability or security-sensitive concern | follow [SECURITY.md](./SECURITY.md) |
 | expected community behavior | read [CODE_OF_CONDUCT.md](./CODE_OF_CONDUCT.md) |
 

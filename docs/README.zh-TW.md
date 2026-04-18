@@ -9,9 +9,8 @@
 ### 第一次了解專案
 
 - [繁體中文 landing page](../README.zh-TW.md)
+- [繁體中文 docs hub](./README.zh-TW.md)
 - [架構設計（简体中文）](./architecture.md)
-- [整合演進策略（简体中文）](./integration-strategy.md)
-- [宿主能力面（简体中文）](./host-surfaces.md)
 
 ### 需要落地或維護
 
@@ -43,7 +42,7 @@
 - [SUPPORT.md](../SUPPORT.md)
 - [SECURITY.md](../SECURITY.md)
 - [CODE_OF_CONDUCT.md](../CODE_OF_CONDUCT.md)
-- [Issue template config](../.github/ISSUE_TEMPLATE/config.yml)
+- [Issue Chooser](https://github.com/Boulea7/Codex-Auto-Memory/issues/new/choose)
 
 ## 語言說明
 

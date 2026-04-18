@@ -25,6 +25,8 @@ jobs:
         uses: actions/checkout@v6
 
       - name: Setup pnpm
+        # Keep v4 until pnpm/action-setup v6 stops breaking packageManager-pinned pnpm 10 lockfiles.
+        # Evidence: Boulea7/Codex-Auto-Memory run 24561707575, pnpm/action-setup#225/#226/#227/#228, pnpm/pnpm#11264.
         uses: pnpm/action-setup@v4
 
       - name: Setup Node

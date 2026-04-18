@@ -11,10 +11,11 @@ Use this checklist before cutting any alpha or beta release of `codex-auto-memor
   - `docs/architecture.md` and `docs/architecture.en.md`
   - `docs/native-migration.md` and `docs/native-migration.en.md`
 - Confirm the landing pages still present install routes truthfully:
-  - source install remains the default path
-  - GitHub Release tarball install is shown explicitly
+  - GitHub Release tarball remains the default packaged install path
+  - source install remains available as the heavier setup path
   - `npm install --global codex-auto-memory` is labeled as the post-publish route, not as a currently guaranteed path while the package is absent from npm
 - Confirm non-Chinese entry pages do not send first-time readers into Chinese-only documents without labeling those links as Chinese.
+- Confirm every landing page states `Node 20+`, and that source-install guidance also names `pnpm` explicitly.
 - Confirm `docs/native-migration.md` still matches the current compatibility seams in code.
 - Confirm public wording still keeps `cam memory` as an inspect/audit surface, `cam recall` as the progressive-disclosure retrieval surface, `cam session` as a compact continuity surface, and the repository as a `Codex-first Hybrid` system rather than a native-ready replacement.
 - Confirm the newer direction docs still match the README and architecture posture:
@@ -22,10 +23,12 @@ Use this checklist before cutting any alpha or beta release of `codex-auto-memor
   - `docs/host-surfaces.md`
 - Confirm `docs/session-continuity.md` matches the current `cam session` command surface and reviewer semantics, especially the wording split between `save`, `refresh`, and recovery markers.
 - Confirm `SUPPORT.md`, `SECURITY.md`, and `CODE_OF_CONDUCT.md` still point to real repository routes and do not imply a private email or security alias that the repository does not actually publish.
+- Confirm public issue links use the real issue chooser route instead of linking readers to `.github/ISSUE_TEMPLATE/config.yml`.
 
 ## Code and runtime checks
 
 - Prefer `pnpm verify:release` as the canonical full milestone check; run the individual commands below when you need to isolate a failure.
+- Keep `pnpm/action-setup@v4` in CI and release workflows until the upstream `v6` regression is resolved. Evidence to preserve in docs/comments: repository failure run `24561707575`, upstream `pnpm/action-setup` issues `#225`, `#226`, `#227`, `#228`, and `pnpm/pnpm#11264`.
 - Run `pnpm lint`
 - Run `pnpm test:docs-contract`
 - Run `pnpm test:reviewer-smoke`

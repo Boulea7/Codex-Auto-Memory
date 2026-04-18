@@ -9,9 +9,8 @@
 ### 初次了解项目
 
 - [项目首页（简体中文）](../README.md)
+- [简体中文 docs hub](./README.md)
 - [架构设计（简体中文）](./architecture.md)
-- [集成演进策略（简体中文）](./integration-strategy.md)
-- [宿主能力面（简体中文）](./host-surfaces.md)
 
 ### 需要落地或维护
 
@@ -44,7 +43,7 @@
 - [SUPPORT.md](../SUPPORT.md)
 - [SECURITY.md](../SECURITY.md)
 - [CODE_OF_CONDUCT.md](../CODE_OF_CONDUCT.md)
-- [Issue template config](../.github/ISSUE_TEMPLATE/config.yml)
+- [Issue Chooser](https://github.com/Boulea7/Codex-Auto-Memory/issues/new/choose)
 
 ## 语言说明
 

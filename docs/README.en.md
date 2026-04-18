@@ -9,9 +9,8 @@ This page is for navigation, not repetition. The landing README explains what th
 ### First-time readers
 
 - [Project landing page (English)](../README.en.md)
+- [English docs hub](./README.en.md)
 - [Architecture (English)](./architecture.en.md)
-- [Integration strategy (Chinese)](./integration-strategy.md)
-- [Host surfaces (Chinese)](./host-surfaces.md)
 
 ### Maintainers and implementers
 
@@ -46,7 +45,7 @@ This page is for navigation, not repetition. The landing README explains what th
 - [SUPPORT.md](../SUPPORT.md)
 - [SECURITY.md](../SECURITY.md)
 - [CODE_OF_CONDUCT.md](../CODE_OF_CONDUCT.md)
-- [Issue template config](../.github/ISSUE_TEMPLATE/config.yml)
+- [Issue Chooser](https://github.com/Boulea7/Codex-Auto-Memory/issues/new/choose)
 
 ## Language notes
 

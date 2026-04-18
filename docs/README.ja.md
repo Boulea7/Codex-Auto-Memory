@@ -9,9 +9,8 @@
 ### はじめて触る場合
 
 - [日本語 landing page](../README.ja.md)
+- [日本語 docs hub](./README.ja.md)
 - [Architecture (English)](./architecture.en.md)
-- [Integration strategy (中文)](./integration-strategy.md)
-- [Host surfaces (中文)](./host-surfaces.md)
 
 ### 実装や保守をする場合
 
@@ -43,7 +42,7 @@
 - [SUPPORT.md](../SUPPORT.md)
 - [SECURITY.md](../SECURITY.md)
 - [CODE_OF_CONDUCT.md](../CODE_OF_CONDUCT.md)
-- [Issue template config](../.github/ISSUE_TEMPLATE/config.yml)
+- [Issue Chooser](https://github.com/Boulea7/Codex-Auto-Memory/issues/new/choose)
 
 ## 言語メモ
 
