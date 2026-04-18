@@ -19,6 +19,7 @@ jobs:
       id-token: write
     timeout-minutes: 60
     env:
+      FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
       NODE_OPTIONS: --max-old-space-size=6144
     steps:
       - name: Checkout
