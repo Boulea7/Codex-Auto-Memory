@@ -5,6 +5,11 @@ on:
     tags:
       - "v*"
 
+env:
+  # Keep v4 pinned for lockfile compatibility, but force JavaScript actions onto
+  # the Node 24 runtime so GitHub's Node 20 action deprecation does not block releases.
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
+
 concurrency:
   group: release-${{ github.ref }}
   cancel-in-progress: false
@@ -19,7 +24,6 @@ jobs:
       id-token: write
     timeout-minutes: 60
     env:
-      FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
       NODE_OPTIONS: --max-old-space-size=6144
     steps:
       - name: Checkout
