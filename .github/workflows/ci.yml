@@ -6,6 +6,11 @@ on:
       - main
   pull_request:
 
+env:
+  # Keep v4 pinned for lockfile compatibility, but force JavaScript actions onto
+  # the Node 24 runtime so GitHub's Node 20 action deprecation does not block CI.
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
+
 concurrency:
   group: ci-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
