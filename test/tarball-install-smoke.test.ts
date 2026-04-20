@@ -11,6 +11,7 @@ import { makeAppConfig, writeCamConfig } from "./helpers/cam-test-fixtures.js";
 import { createIsolatedCliEnv, minimalCommandPath } from "./helpers/cli-runner.js";
 
 const tempDirs: string[] = [];
+let packedTarballPathCache: string | null = null;
 
 async function tempDir(prefix: string): Promise<string> {
   const dir = await fs.mkdtemp(path.join(os.tmpdir(), prefix));
@@ -37,6 +38,23 @@ function resolvePackedTarballPath(packDir: string, packStdout: string): string {
   }
 
   return path.isAbsolute(tarballRef) ? tarballRef : path.join(packDir, tarballRef);
+}
+
+function packedTarballPath(env: NodeJS.ProcessEnv): string {
+  if (packedTarballPathCache) {
+    return packedTarballPathCache;
+  }
+
+  const packResult = runCommandCapture(
+    pnpmCommand(),
+    ["pack:release"],
+    process.cwd(),
+    env
+  );
+  expect(packResult.exitCode, packResult.stderr).toBe(0);
+
+  packedTarballPathCache = resolvePackedTarballPath(path.resolve(".release-artifacts"), packResult.stdout);
+  return packedTarballPathCache;
 }
 
 function camBinaryPath(installDir: string): string {
@@ -81,6 +99,13 @@ function resolvePublicPathForTest(
 
 function isolatedEnv(homeDir: string): NodeJS.ProcessEnv {
   return createIsolatedCliEnv(homeDir);
+}
+
+function isolatedTarballInstallEnv(homeDir: string): NodeJS.ProcessEnv {
+  return {
+    ...isolatedEnv(homeDir),
+    npm_config_cache: path.resolve(".tmp", "npm-cache")
+  };
 }
 
 function expectWorkflowContractCore(
@@ -175,20 +200,12 @@ describe("tarball install smoke", () => {
     const homeDir = await tempDir("cam-tarball-home-");
     const installDir = await tempDir("cam-tarball-install-");
     const realInstallDir = await fs.realpath(installDir);
-    const env = isolatedEnv(homeDir);
+    const env = isolatedTarballInstallEnv(homeDir);
     const packageJson = JSON.parse(await fs.readFile(path.resolve("package.json"), "utf8")) as {
       version: string;
     };
 
-    const packResult = runCommandCapture(
-      pnpmCommand(),
-      ["pack:release"],
-      process.cwd(),
-      env
-    );
-    expect(packResult.exitCode, packResult.stderr).toBe(0);
-
-    const tarballPath = resolvePackedTarballPath(path.resolve(".release-artifacts"), packResult.stdout);
+    const tarballPath = packedTarballPath(env);
 
     const initResult = runCommandCapture(npmCommand(), ["init", "-y"], installDir, env);
     expect(initResult.exitCode).toBe(0);
@@ -2152,17 +2169,9 @@ describe("tarball install smoke", () => {
     const homeDir = await tempDir("cam-tarball-preserve-home-");
     const installDir = await tempDir("cam-tarball-preserve-install-");
     const realInstallDir = await fs.realpath(installDir);
-    const env = isolatedEnv(homeDir);
+    const env = isolatedTarballInstallEnv(homeDir);
 
-    const packResult = runCommandCapture(
-      pnpmCommand(),
-      ["pack:release"],
-      process.cwd(),
-      env
-    );
-    expect(packResult.exitCode, packResult.stderr).toBe(0);
-
-    const tarballPath = resolvePackedTarballPath(path.resolve(".release-artifacts"), packResult.stdout);
+    const tarballPath = packedTarballPath(env);
 
     expect(runCommandCapture(npmCommand(), ["init", "-y"], installDir, env).exitCode).toBe(0);
     expect(
