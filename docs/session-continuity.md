@@ -4,7 +4,7 @@ This document defines the temporary cross-session continuity layer in `codex-aut
 
 ## Why this exists
 
-Claude-style auto memory is optimized for stable, future-useful knowledge.
+Durable auto memory is optimized for stable, future-useful knowledge.
 It is not a complete answer to the problem of resuming unfinished work after:
 
 - context compaction
@@ -82,7 +82,7 @@ Codex-first default:
 <project-root>/.codex-auto-memory/sessions/active.md
 ```
 
-Claude-compatible adapter mode:
+Legacy tmp-style adapter mode:
 
 ```text
 <project-root>/.claude/sessions/<date>-<short-id>-session.tmp
@@ -224,7 +224,7 @@ Command contract:
 
 Automatic injection and automatic saving are disabled by default.
 
-This keeps the main Claude-style auto memory contract stable and prevents temporary state from silently entering every session unless the user explicitly opts in.
+This keeps the main auto memory contract stable and prevents temporary state from silently entering every session unless the user explicitly opts in.
 
 When wrapper auto-load is enabled, the public startup-layering order is kept explicit and stable:
 
@@ -306,7 +306,7 @@ This keeps temporary continuity startup payloads reviewer-auditable in the same 
 Controls the local-path layout for project-local continuity files.
 
 - `"codex"` (default): stores state at `.codex-auto-memory/sessions/active.md` — a single fixed file inside the project root. Simple and deterministic.
-- `"claude"`: stores state at `.claude/sessions/<date>-<short-id>-session.tmp` — a daily rotating tmp-style layout. Reading picks the most recently modified file; writing creates a new file with today's date.
+- `"claude"`: stores state at `.claude/sessions/<date>-<short-id>-session.tmp` — a legacy tmp-style layout. Reading picks the most recently modified file; writing creates a new file with today's date.
 
 Switch to `"claude"` only if you need interoperability with another tmp-style session layout in the same project directory.
 
@@ -359,9 +359,9 @@ These sources justify the current implementation choice:
 - future integration surfaces should consume continuity as auditable working state, not collapse it into opaque host-native session state
 - the continuity startup contract should stay explicit about rendered provenance, section trimming, and rebuild boundaries instead of hiding them inside implementation details
 
-### Community reference: `affaan-m/everything-claude-code`
+### Community reference: local coding-agent session file patterns
 
-The most useful ideas borrowed from that repository are:
+The most useful ideas borrowed from community practice are:
 
 - separating temporary session files from long-lived learned knowledge
 - treating `PreCompact`, `SessionStart`, and end-of-session hooks as distinct lifecycle moments
@@ -371,5 +371,5 @@ Important differences from this project:
 
 - `codex-auto-memory` does **not** adopt `~/.claude/sessions/` as its primary canonical store
 - `codex-auto-memory` keeps shared project continuity in the companion root so worktrees can share it safely
-- Claude-style session file paths are supported only as an adapter path style, not as the main product model
+- legacy tmp-style session file paths are supported only as an adapter path style, not as the main product model
 - learned skills or hook-driven recall paths may eventually consume continuity outputs, but they are still downstream integration surfaces rather than part of the continuity body itself

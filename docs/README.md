@@ -16,7 +16,7 @@
 
 - [Session continuity（English）](./session-continuity.md)
 - [Release checklist（English）](./release-checklist.md)
-- [Claude memory / dream contract（简体中文）](./claude-memory-dream-r1.md)
+- [Dream reviewer contract（简体中文）](./dream-reviewer-contract.md)
 - [Native migration（简体中文）](./native-migration.md)
 
 ### 需要英文入口
@@ -34,7 +34,7 @@
 | [integration-strategy](./integration-strategy.md) | 为什么仓库从 wrapper 主路径扩展到 integration-aware 方向 | 中文 |
 | [host-surfaces](./host-surfaces.md) | Codex 与其他宿主的能力边界、默认路径与 manual-only 范围 | 中文 |
 | [session-continuity](./session-continuity.md) | continuity layer 的设计与 reviewer surface | English |
-| [claude-memory-dream-r1](./claude-memory-dream-r1.md) | dream reviewer lane 与相关 closeout contract | 中文 |
+| [dream-reviewer-contract](./dream-reviewer-contract.md) | dream reviewer lane 与相关 closeout contract | 中文 |
 | [release-checklist](./release-checklist.md) | 发布前的验证与文档同步检查 | English |
 | [native-migration](./native-migration.md) | 什么时候重评 native memory / hooks 主路径 | 中文 / [English](./native-migration.en.md) |
 

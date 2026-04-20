@@ -19,6 +19,26 @@
 
 ## Install
 
+### Use Claude Code / OpenCode / Codex As Your Installer
+
+If you prefer to let a coding agent do the setup, copy this prompt into Claude Code, OpenCode, or Codex:
+
+```text
+Install codex-auto-memory on this machine for me.
+
+Use the npm install path from this README first:
+npm install --global codex-auto-memory
+
+After that:
+1. Verify the install with `cam --version`
+2. In the current repository, check whether codex-auto-memory is already initialized
+3. If it is not initialized, run `cam init`
+4. Show me the exact commands you ran and the results
+
+If the npm package is unavailable, fall back to the GitHub Release tarball install path from this README instead of inventing another route.
+Do not modify unrelated files.
+```
+
 ### npm
 
 This is the quickest install path:

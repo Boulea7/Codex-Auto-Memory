@@ -1,6 +1,6 @@
-# Claude Memory / Dream Closeout Contract
+# Dream Reviewer Contract
 
-> 本文记录 `codex-auto-memory` 当前对外公开的 Claude memory / dream closeout 契约。
+> 本文记录 `codex-auto-memory` 当前对外公开的 dream reviewer contract。
 > 它描述的是已经收口的 reviewer / retrieval 边界，不再按轮次追踪临时迁移过程。
 
 ## 已落地的公开边界

@@ -129,7 +129,7 @@
 
 为了避免方向走歪，当前仓库明确不做以下事情：
 
-- 不为了贴近 `claude-mem` 而改成 DB-first
+- 不为了贴近外部 memory 产品而改成 DB-first
 - 不为了宿主兼容而把当前仓库直接升格成统一多宿主主仓
 - 不围绕 plugin format 做统一抽象
 - 不把 hooks / skills / MCP 的引入理解成“放弃 CLI 主线”
