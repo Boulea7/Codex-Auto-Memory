@@ -16,7 +16,7 @@
 
 - [Session continuity (English)](./session-continuity.md)
 - [Release checklist (English)](./release-checklist.md)
-- [Claude memory / dream contract (中文)](./claude-memory-dream-r1.md)
+- [Dream reviewer contract (中文)](./dream-reviewer-contract.md)
 - [Native migration (English)](./native-migration.en.md)
 
 ### 他言語の入口
@@ -33,7 +33,7 @@
 | [integration-strategy](./integration-strategy.md) | wrapper-first から integration-aware へ広げる理由 | 中文 |
 | [host-surfaces](./host-surfaces.md) | Codex と他ホストの境界、default path、manual-only 範囲 | 中文 |
 | [session-continuity](./session-continuity.md) | continuity layer と reviewer surface | English |
-| [claude-memory-dream-r1](./claude-memory-dream-r1.md) | dream reviewer lane と closeout contract | 中文 |
+| [dream-reviewer-contract](./dream-reviewer-contract.md) | dream reviewer lane と closeout contract | 中文 |
 | [release-checklist](./release-checklist.md) | release 前の verification と docs sync | English |
 | [native-migration](./native-migration.en.md) | native memory / hooks を主経路として再評価する条件 | English / [中文](./native-migration.md) |
 

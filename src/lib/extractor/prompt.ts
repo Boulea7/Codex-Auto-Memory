@@ -48,7 +48,7 @@ export function buildExtractorPrompt(
   return `
 You are extracting auto memory updates for Codex Auto Memory.
 
-Your job is to imitate Claude Code auto memory as closely as possible.
+Your job is to match host-side auto memory behavior as closely as possible.
 
 Product rules:
 - Auto memory is an AI-maintained local markdown note system.

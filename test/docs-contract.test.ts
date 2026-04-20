@@ -202,10 +202,10 @@ describe("docs contract", () => {
       "docs/review-guide.md",
       "docs/reviewer-handoff.md",
       "docs/next-phase-brief.md",
-      "docs/claude-reference.md",
-      "docs/claude-reference.en.md",
-      "docs/claudecode-memory-dream-migration.md",
-      "docs/claudecode-patch-audit.md",
+      "docs/host-reference.md",
+      "docs/host-reference.en.md",
+      "docs/agent-memory-dream-migration.md",
+      "docs/agent-patch-audit.md",
       "docs/host-integration-claude-gemini.md"
     ]);
 

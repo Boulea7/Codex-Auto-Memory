@@ -19,6 +19,26 @@
 
 ## 安装
 
+### 用 Claude Code / OpenCode / Codex 让 agent 帮你装
+
+如果你更习惯让 coding agent 直接完成安装，可以把下面这段提示词原样复制给 Claude Code、OpenCode 或 Codex：
+
+```text
+Install codex-auto-memory on this machine for me.
+
+Use the npm install path from this README first:
+npm install --global codex-auto-memory
+
+After that:
+1. Verify the install with `cam --version`
+2. In the current repository, check whether codex-auto-memory is already initialized
+3. If it is not initialized, run `cam init`
+4. Show me the exact commands you ran and the results
+
+If the npm package is unavailable, fall back to the GitHub Release tarball install path from this README instead of inventing another route.
+Do not modify unrelated files.
+```
+
 ### npm
 
 这是最省事的安装路径：

@@ -16,7 +16,7 @@ Use this hub to jump to the shortest useful document for your task.
 
 - [Session continuity (English)](./session-continuity.md)
 - [Release checklist (English)](./release-checklist.md)
-- [Claude memory / dream contract (Chinese)](./claude-memory-dream-r1.md)
+- [Dream reviewer contract (Chinese)](./dream-reviewer-contract.md)
 - [Native migration (English)](./native-migration.en.md)
 
 ### Other language entry points
@@ -36,7 +36,7 @@ Use this hub to jump to the shortest useful document for your task.
 | [integration-strategy](./integration-strategy.md) | why the repo expands from a wrapper-first path to an integration-aware direction | 中文 |
 | [host-surfaces](./host-surfaces.md) | Codex and non-Codex host boundaries, default routes, and manual-only scope | 中文 |
 | [session-continuity](./session-continuity.md) | continuity-layer design and reviewer surface | English |
-| [claude-memory-dream-r1](./claude-memory-dream-r1.md) | dream reviewer lane and closeout contract | 中文 |
+| [dream-reviewer-contract](./dream-reviewer-contract.md) | dream reviewer lane and closeout contract | 中文 |
 | [release-checklist](./release-checklist.md) | release-time verification and docs sync checks | English |
 | [native-migration](./native-migration.en.md) | when to re-evaluate native memory or hooks as the primary path | English / [中文](./native-migration.md) |
 

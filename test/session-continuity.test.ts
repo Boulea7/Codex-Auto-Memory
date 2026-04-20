@@ -1808,9 +1808,9 @@ describe("SessionContinuityStore", () => {
     expect((await store.readState("project-local"))?.filesDecisionsEnvironment).toEqual([]);
   });
 
-  it("supports claude-style local files, reads the newest mtime file, and clears all active session tmp files", async () => {
-    const repoDir = await tempDir("cam-continuity-claude-repo-");
-    const memoryRoot = await tempDir("cam-continuity-claude-memory-");
+  it("supports legacy tmp-style local files, reads the newest mtime file, and clears all active session tmp files", async () => {
+    const repoDir = await tempDir("cam-continuity-legacy-repo-");
+    const memoryRoot = await tempDir("cam-continuity-legacy-memory-");
     await initRepo(repoDir);
 
     const store = new SessionContinuityStore(
@@ -1828,7 +1828,7 @@ describe("SessionContinuityStore", () => {
           filesDecisionsEnvironment: []
         },
         projectLocal: {
-          goal: "Continue Claude-compatible session state.",
+          goal: "Continue legacy tmp-style session state.",
           confirmedWorking: [],
           triedAndFailed: [],
           notYetTried: [],
@@ -1858,7 +1858,7 @@ describe("SessionContinuityStore", () => {
     expect((await fs.readdir(store.paths.localDir)).filter((name) => name.endsWith("-session.tmp"))).toHaveLength(0);
   });
 
-  it("replaces the current active claude-style local file without deleting historical tmp files", async () => {
+  it("replaces the current active legacy tmp-style local file without deleting historical tmp files", async () => {
     const repoDir = await tempDir("cam-continuity-claude-replace-repo-");
     const memoryRoot = await tempDir("cam-continuity-claude-replace-memory-");
     await initRepo(repoDir);

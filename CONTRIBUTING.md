@@ -46,7 +46,7 @@ Use Node 20+ and `pnpm`.
 
 - Prefer structural simplification over unnecessary sprawl, but treat the issue-level memory goals and the new integration surfaces as intentional product expansion.
 - If you refactor repository structure, keep the command surface stable unless a behavior change is intentional and documented.
-- Before borrowing ideas from similar tools such as `mem0` or `claude-mem`, first inspect their current public docs or repository context and extract only patterns that fit this project's Markdown-first and Codex-first posture.
+- Before borrowing ideas from other memory tools, first inspect their current public docs or repository context and extract only patterns that fit this project's Markdown-first and Codex-first posture.
 - Use external research to improve module boundaries, reviewer surfaces, lifecycle semantics, and integration surfaces, while keeping the current repository out of multi-host platform sprawl.
 
 ## Coding Guidelines
@@ -71,7 +71,7 @@ Use Node 20+ and `pnpm`.
 
 If your change affects one of these areas, update the matching file:
 
-- Claude behavior parity: `docs/claude-reference.md`
+- host behavior parity: `docs/host-reference.md`
 - internals and storage model: `docs/architecture.md`
 - reviewer continuity contract: `docs/session-continuity.md`
 - release-time reviewer checks: `docs/release-checklist.md`
