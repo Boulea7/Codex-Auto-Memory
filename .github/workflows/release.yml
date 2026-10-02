@@ -27,7 +27,7 @@ jobs:
       NODE_OPTIONS: --max-old-space-size=6144
     steps:
       - name: Checkout
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
 
       - name: Setup pnpm
         # Keep v4 until pnpm/action-setup v6 stops breaking packageManager-pinned pnpm 10 lockfiles.
