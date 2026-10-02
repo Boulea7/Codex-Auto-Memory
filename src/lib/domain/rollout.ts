@@ -27,14 +27,17 @@ async function* readRolloutLines(filePath: string): AsyncGenerator<string> {
   let pending = "";
   try {
     for await (const chunk of input) {
-      const lines = (pending + chunk).split("\n");
-      pending = lines.pop() ?? "";
+      const lines = chunk.split("\n");
+      const tail = lines.pop() ?? "";
       for (const line of lines) {
-        const trimmed = line.trim();
+        const complete = pending + line;
+        pending = "";
+        const trimmed = complete.trim();
         if (trimmed) {
           yield trimmed;
         }
       }
+      pending += tail;
     }
     const trimmed = pending.trim();
     if (trimmed) {
