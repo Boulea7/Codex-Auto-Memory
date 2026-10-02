@@ -1,3 +1,4 @@
+import { createReadStream } from "node:fs";
 import fs from "node:fs/promises";
 import path from "node:path";
 import os from "node:os";
@@ -19,6 +20,32 @@ interface ParsedSessionMeta {
 interface RolloutMetaWithMtime {
   meta: RolloutMeta;
   mtimeMs: number;
+}
+
+async function* readRolloutLines(filePath: string): AsyncGenerator<string> {
+  const input = createReadStream(filePath, { encoding: "utf8" });
+  let pending = "";
+  try {
+    for await (const chunk of input) {
+      const lines = chunk.split("\n");
+      const tail = lines.pop() ?? "";
+      for (const line of lines) {
+        const complete = pending + line;
+        pending = "";
+        const trimmed = complete.trim();
+        if (trimmed) {
+          yield trimmed;
+        }
+      }
+      pending += tail;
+    }
+    const trimmed = pending.trim();
+    if (trimmed) {
+      yield trimmed;
+    }
+  } finally {
+    input.destroy();
+  }
 }
 
 async function normalizeFsPath(input: string): Promise<string> {
@@ -175,13 +202,7 @@ async function sortRolloutsByMtimeThenPath(metas: RolloutMeta[]): Promise<Rollou
 }
 
 export async function readRolloutMeta(filePath: string): Promise<RolloutMeta | null> {
-  const raw = await fs.readFile(filePath, "utf8");
-  const lines = raw
-    .split("\n")
-    .map((line) => line.trim())
-    .filter(Boolean);
-
-  for (const line of lines) {
+  for await (const line of readRolloutLines(filePath)) {
     let item: JsonLine;
     try {
       item = JSON.parse(line) as JsonLine;
@@ -309,12 +330,6 @@ export async function findLatestProjectRollout(
 }
 
 export async function parseRolloutEvidence(filePath: string): Promise<RolloutEvidence | null> {
-  const raw = await fs.readFile(filePath, "utf8");
-  const lines = raw
-    .split("\n")
-    .map((line) => line.trim())
-    .filter(Boolean);
-
   const callOutputs = new Map<string, string>();
   const toolCalls: RolloutToolCall[] = [];
   const userMessages: string[] = [];
@@ -326,7 +341,7 @@ export async function parseRolloutEvidence(filePath: string): Promise<RolloutEvi
   let forkedFromSessionId: string | undefined;
   let seenPrimaryMeta = false;
 
-  for (const line of lines) {
+  for await (const line of readRolloutLines(filePath)) {
     let item: JsonLine;
     try {
       item = JSON.parse(line) as JsonLine;

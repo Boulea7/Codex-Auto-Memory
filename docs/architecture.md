@@ -70,7 +70,7 @@ flowchart TD
 
 sync path 的职责是把“值得长期保存的信息”写回 durable memory：
 
-1. 读取相关 rollout JSONL
+1. 按行流式读取相关 rollout JSONL，避免将整个文件拼成单个字符串
 2. 解析 user messages、tool calls、tool outputs
 3. 由 extractor 生成 candidate memory operations
 4. 经过 contradiction review，对冲突 candidate 做保守 suppress
@@ -78,6 +78,9 @@ sync path 的职责是把“值得长期保存的信息”写回 durable memory�
 6. 重建对应 scope 的 `MEMORY.md`
 7. 追加 durable sync audit，显式暴露 reviewer 信息
 8. 记录 lifecycle history，为 `cam recall timeline` 与归档检索提供 sidecar 线索
+
+流式读取仍会保留解析出的 messages、tool calls 与 outputs；它不限制单行大小或 evidence 的总内存。
+损坏的 JSON 行继续跳过，文件读取错误会向上返回。
 
 当前 extractor 的目标：
 

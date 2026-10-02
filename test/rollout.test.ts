@@ -1,3 +1,4 @@
+import { constants as bufferConstants } from "node:buffer";
 import fs from "node:fs/promises";
 import realFs from "node:fs";
 import os from "node:os";
@@ -15,11 +16,30 @@ import {
 
 const tempDirs: string[] = [];
 const originalSessionsDir = process.env.CAM_CODEX_SESSIONS_DIR;
+const rolloutReaders = [
+  { name: "metadata reader", parse: readRolloutMeta },
+  { name: "evidence parser", parse: parseRolloutEvidence }
+];
 
 async function tempDir(prefix: string): Promise<string> {
   const dir = await fs.mkdtemp(path.join(os.tmpdir(), prefix));
   tempDirs.push(dir);
   return dir;
+}
+
+async function writeLargeSparseRollout(filePath: string, prefix: string): Promise<void> {
+  const fileSize = bufferConstants.MAX_STRING_LENGTH + 4096;
+  const handle = await fs.open(filePath, "w");
+  try {
+    await handle.truncate(fileSize);
+    await handle.write(prefix);
+    // Keep invalid JSONL lines small while the total file exceeds the string limit.
+    for (let offset = 1024 * 1024; offset < fileSize; offset += 1024 * 1024) {
+      await handle.write("\n", offset, "utf8");
+    }
+  } finally {
+    await handle.close();
+  }
 }
 
 afterEach(async () => {
@@ -28,6 +48,85 @@ afterEach(async () => {
 });
 
 describe("rollout helpers", () => {
+  it.skipIf(bufferConstants.MAX_STRING_LENGTH > 512 * 1024 * 1024)(
+    "reads session metadata from a rollout larger than the JavaScript string limit",
+    async () => {
+      const projectDir = await tempDir("cam-rollout-large-meta-");
+      const rolloutPath = path.join(projectDir, "rollout-large.jsonl");
+      await writeLargeSparseRollout(rolloutPath, JSON.stringify({
+        type: "session_meta",
+        payload: { id: "large-session", timestamp: "2026-03-14T00:00:00.000Z", cwd: projectDir }
+      }) + "\n");
+
+      const meta = await readRolloutMeta(rolloutPath);
+      expect(meta).toMatchObject({
+        sessionId: "large-session",
+        cwd: realFs.realpathSync.native(projectDir)
+      });
+    }
+  );
+
+  it("preserves UTF-8, CRLF, blank lines, tool outputs, and an unterminated final line across chunks", async () => {
+    const projectDir = await tempDir("cam-rollout-chunks-");
+    const rolloutPath = path.join(projectDir, "rollout-chunks.jsonl");
+    const metaLine = JSON.stringify({
+      type: "session_meta",
+      payload: { id: "chunked-session", timestamp: "2026-03-14T00:00:00.000Z", cwd: projectDir }
+    });
+    const messagePrefix = '{"type":"event_msg","payload":{"type":"user_message","message":"';
+    const message = "x".repeat(65535 - Buffer.byteLength(metaLine + "\r\n" + messagePrefix)) + "é🍵";
+    await fs.writeFile(rolloutPath, [
+      metaLine,
+      JSON.stringify({ type: "event_msg", payload: { type: "user_message", message } }),
+      "",
+      "not valid JSON",
+      JSON.stringify({ type: "response_item", payload: {
+        type: "function_call", name: "exec_command", call_id: "chunk-call", arguments: "{}"
+      } }),
+      JSON.stringify({ type: "response_item", payload: {
+        type: "function_call_output", call_id: "chunk-call", output: "complete 🍵"
+      } }),
+      JSON.stringify({ type: "event_msg", payload: { type: "agent_message", message: "last line" } })
+    ].join("\r\n"), "utf8");
+
+    const evidence = await parseRolloutEvidence(rolloutPath);
+    expect(evidence).toMatchObject({
+      sessionId: "chunked-session",
+      userMessages: [message],
+      agentMessages: ["last line"],
+      toolCalls: [{ callId: "chunk-call", name: "exec_command", arguments: "{}", output: "complete 🍵" }]
+    });
+  });
+
+  it.each(rolloutReaders)("propagates missing-file errors from $name", async ({ parse }) => {
+    const projectDir = await tempDir("cam-rollout-missing-");
+    await expect(parse(path.join(projectDir, "missing.jsonl"))).rejects.toMatchObject({ code: "ENOENT" });
+  });
+
+  it.each(rolloutReaders)("propagates read errors from $name", async ({ parse }) => {
+    const projectDir = await tempDir("cam-rollout-directory-");
+    await expect(parse(projectDir)).rejects.toMatchObject({ code: "EISDIR" });
+  });
+
+  it.skipIf(bufferConstants.MAX_STRING_LENGTH > 512 * 1024 * 1024)(
+    "parses evidence from a rollout larger than the JavaScript string limit",
+    async () => {
+      const projectDir = await tempDir("cam-rollout-large-evidence-");
+      const rolloutPath = path.join(projectDir, "rollout-large.jsonl");
+      await writeLargeSparseRollout(rolloutPath, [
+        JSON.stringify({
+          type: "session_meta",
+          payload: { id: "large-session", timestamp: "2026-03-14T00:00:00.000Z", cwd: projectDir }
+        }),
+        JSON.stringify({ type: "event_msg", payload: { type: "user_message", message: "remember pnpm" } }),
+        ""
+      ].join("\n"));
+
+      const evidence = await parseRolloutEvidence(rolloutPath);
+      expect(evidence).toMatchObject({ sessionId: "large-session", userMessages: ["remember pnpm"] });
+    }
+  );
+
   it("skips corrupted JSONL lines without crashing", async () => {
     const projectDir = await tempDir("cam-rollout-corrupt-");
     const rolloutPath = path.join(projectDir, "rollout-corrupt.jsonl");

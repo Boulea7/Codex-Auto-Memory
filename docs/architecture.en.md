@@ -72,7 +72,7 @@ Important traits:
 
 The sync path turns rollout evidence into durable Markdown memory:
 
-1. read the relevant rollout JSONL
+1. stream the relevant rollout JSONL line by line without assembling the entire file into one string
 2. parse user messages, tool calls, and tool outputs
 3. let the extractor produce candidate memory operations
 4. run contradiction review so conflicting candidates can be conservatively suppressed while explicit corrections still win
@@ -80,6 +80,9 @@ The sync path turns rollout evidence into durable Markdown memory:
 6. rebuild `MEMORY.md` for the affected scope
 7. append durable sync audit entries that keep suppressed conflict candidates reviewer-visible
 8. record lifecycle history sidecars that power `cam recall timeline` and archive-aware retrieval
+
+Streaming still retains parsed messages, tool calls, and outputs; it does not bound individual line size or total evidence memory.
+Malformed JSON lines remain skippable, while file read errors propagate to the caller.
 
 This is where the repository currently handles:
 
